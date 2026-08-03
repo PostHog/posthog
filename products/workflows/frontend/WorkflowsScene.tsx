@@ -2,13 +2,12 @@ import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors,
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -35,6 +34,7 @@ import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
+import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -121,13 +121,8 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
 
-                // The suppression tab is only rendered when its feature flag is on. Without this
-                // guard, a flag-off user deep-linking to /workflows/suppression would set currentTab
-                // to a tab that isn't in the tabs list — LemonTabs would show no active tab and no
-                // content. Fall back to 'workflows' so the scene stays usable.
-                if (possibleTab === 'suppression' && !values.featureFlags[FEATURE_FLAGS.WORKFLOWS_SUPPRESSION_LIST]) {
-                    possibleTab = 'workflows'
-                }
+                // The reputation tab is beta, feature-flagged: redirect direct navigation for
+                // everyone outside the flag.
                 if (possibleTab === 'reputation' && !values.featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_REPUTATION]) {
                     possibleTab = 'workflows'
                 }
@@ -149,11 +144,11 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
+    const { emailSendingSuspended, emailSendingSuspensionReason } = useValues(workflowsEmailSuspensionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
-    const emailReputationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_REPUTATION')
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -211,10 +206,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             : []),
     ]
 
-    // Suppression list is hidden until enforcement rolls out — until then the tab would show
-    // entries that don't yet block sends, which would be confusing.
-    const suppressionListEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_SUPPRESSION_LIST]
-
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
             label: 'Workflows',
@@ -244,25 +235,23 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             content: <OptOutScene />,
             link: urls.workflows('opt-outs'),
         },
-        ...(suppressionListEnabled
+        {
+            label: 'Suppression list',
+            key: 'suppression',
+            content: <SuppressionScene />,
+            link: urls.workflows('suppression'),
+        },
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_REPUTATION]
             ? [
                   {
                       label: (
-                          <span className="inline-flex items-center gap-1.5">
-                              Suppression list
-                              <LemonTag type="completion">Beta</LemonTag>
-                          </span>
+                          <>
+                              Reputation{' '}
+                              <LemonTag className="ml-1" type="completion">
+                                  Beta
+                              </LemonTag>
+                          </>
                       ),
-                      key: 'suppression' as const,
-                      content: <SuppressionScene />,
-                      link: urls.workflows('suppression'),
-                  },
-              ]
-            : []),
-        ...(emailReputationEnabled
-            ? [
-                  {
-                      label: 'Reputation',
                       key: 'reputation' as const,
                       content: <WorkflowsReputation />,
                       link: urls.workflows('reputation'),
@@ -344,6 +333,13 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
+            {emailSendingSuspended && (
+                <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
+                    Email sending is suspended for this project. Workflow emails are not being delivered.
+                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} Contact
+                    support to get sending re-enabled.
+                </LemonBanner>
+            )}
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

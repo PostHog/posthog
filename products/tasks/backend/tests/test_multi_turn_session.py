@@ -19,6 +19,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    TurnPollTimeout,
     _extract_agent_error,
     create_task_and_trigger,
     poll_for_turn,
@@ -231,6 +232,36 @@ class TestPollForTurnStaleSalvage:
 
         assert last_message == "close-out summary"
         assert total_lines == 2 + len(trailing)
+
+    @pytest.mark.asyncio
+    async def test_salvages_dropped_finalization_despite_side_channels_arriving_every_poll(self):
+        # The prod failure shape that the single-static-log test above can't reach: the agent finishes
+        # (close-out + null-cost usage_update) early, then the relay keeps trickling a NEW side-channel
+        # line on every poll right up to the wall. The silence marker must ignore that transient growth
+        # so STALE_TURN_SALVAGE_SECONDS clears and the finished turn is salvaged. If the marker counted
+        # any line (the old behavior), each poll would reset it and the run would time out despite being
+        # done — the systemic ~8-12% baseline / ~36% spike failure.
+        base = [_agent_message_line("close-out summary"), _usage_update_line(165000)]
+        logs = ["\n".join(base + [_console_line(f"agentsh network events {i}") for i in range(n)]) for n in range(6)]
+        poll_iter = iter(logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter, logs[-1])
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 60),
+            # Floor scaled to the tiny test budget: the agent falls silent (turn-relevant) after poll 1
+            # at elapsed 10, so 50s of real silence accrues by the 60s wall and clears this 15s floor.
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
 
     @pytest.mark.asyncio
     async def test_does_not_salvage_when_console_lines_follow_a_live_tail(self):
@@ -727,6 +758,71 @@ class TestPollForTurnStaleSalvage:
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
 
         assert last_message == "close-out summary"
+
+
+class TestPollForTurnTimeoutDiagnosis:
+    """A wall failure must say which failure it was.
+
+    Every exhausted poll budget raises the same string, so a fleet-wide timeout rate reads as
+    one cause when it is really three that need opposite fixes: an agent that never produced a
+    turn-relevant line (never got going), one that worked and then went quiet, and one still
+    streaming when the budget ran out (the budget is the constraint, not the agent).
+    """
+
+    @parameterized.expand(
+        [
+            ("empty_log", lambda: "", "no_turn_output"),
+            # A run whose only output is relay side-channel noise never started a turn either —
+            # counting those lines as output would misfile it as a mid-run stall.
+            ("side_channel_noise_only", lambda: _console_line("agentsh network events"), "no_turn_output"),
+            # The relay echoes the user's prompt into every turn log, so counting it as output
+            # would make no_turn_output unreachable — every never-started turn would misfile as a
+            # mid-run stall.
+            ("prompt_echo_only", lambda: _user_message_line("prompt"), "no_turn_output"),
+            ("worked_then_silent", lambda: _agent_message_line("still working"), "stalled_after_output"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_static_log_shape_is_classified(self, _name: str, build_log, expected_stage: str):
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=build_log()),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+
+        assert exc_info.value.stage == expected_stage
+        assert exc_info.value.diagnostics()["poll_timeout_stage"] == expected_stage
+        # The stage rides in the message too — TaskRun.error_message and Temporal only keep the string.
+        assert f"stage={expected_stage}" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_log_still_growing_at_the_wall_is_not_reported_as_a_stall(self):
+        # The population that would justify a bigger budget: turn-relevant output right up to the
+        # wall. Lumping it in with the dead turns is what makes "is 15 minutes too tight?"
+        # unanswerable from the failure data.
+        logs = ["\n".join(_agent_message_line(f"step {i}") for i in range(n + 1)) for n in range(4)]
+        poll_iter = iter(logs)
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda *a, **k: next(poll_iter, logs[-1])),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+
+        assert exc_info.value.stage == "active_at_budget"
+        assert exc_info.value.turn_relevant_lines == 3
 
 
 class TestPollForTurnTerminalDrain:

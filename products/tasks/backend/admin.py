@@ -178,7 +178,7 @@ class LoopAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    autocomplete_fields = ("team", "created_by")
+    autocomplete_fields = ("team", "created_by", "creator")
     raw_id_fields = ("sandbox_environment",)
 
     def get_queryset(self, request: HttpRequest):

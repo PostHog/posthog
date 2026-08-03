@@ -55,6 +55,10 @@ class SignupEnrichmentInputs:
     # The signup's own role answer, passed at dispatch rather than re-read org-side. Defaulted so
     # workflows already sleeping through the recheck delay at deploy still deserialize.
     role_at_organization: typing.Optional[str] = None
+    # The signup request's GeoIP country (ISO alpha-2), the score's country fallback when the
+    # provider has none — mirroring the incumbent icp_country merge order. Defaulted for the
+    # same deserialization reason as role_at_organization.
+    geoip_country_code: typing.Optional[str] = None
 
 
 def _deterministic_company_type(organization_id: str) -> typing.Optional[str]:
@@ -105,6 +109,7 @@ async def enrich_signup_organization_activity(
             pha_client=pha_client,
             is_recheck=is_recheck,
             role_at_organization=inputs.role_at_organization,
+            geoip_country_code=inputs.geoip_country_code,
             distinct_id=inputs.distinct_id,
         )
         filled = fields.to_dict() if fields else {}

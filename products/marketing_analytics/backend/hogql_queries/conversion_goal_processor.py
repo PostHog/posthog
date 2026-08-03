@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -40,6 +41,7 @@ from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
+from .utils import build_source_normalization_expr
 
 DAY_IN_SECONDS = 86400
 LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
@@ -295,16 +297,61 @@ class ConversionGoalProcessor:
 
         if self.goal.kind == "DataWarehouseNode":
             property_field = ast.Field(chain=[math_property])
+            timestamp_field = self.goal.schema_map.get("timestamp_field", "timestamp")
+            timestamp_expr: ast.Expr = ast.Field(chain=[timestamp_field])
         else:
             property_field = ast.Field(chain=["events", "properties", math_property])
+            timestamp_expr = ast.Field(chain=["events", "timestamp"])
+
+        value_per_row = self._to_base_currency(property_field, timestamp_expr)
 
         return ast.Call(
             name="round",
             args=[
-                ast.Call(name="sum", args=[ast.Call(name="toFloat", args=[property_field])]),
+                ast.Call(name="sum", args=[value_per_row]),
                 ast.Constant(value=self.config.decimal_precision),
             ],
         )
+
+    def _to_base_currency(self, property_field: ast.Expr, timestamp_expr: ast.Expr) -> ast.Expr:
+        """Turn a raw revenue property into a float in the team's base currency.
+
+        When the goal declares a math_property_revenue_currency, convert each value at the exchange
+        rate of its own event day. Without it, the value is assumed to already be in the base currency
+        and is only cast to float, which keeps goals that never set a currency behaving as before.
+        """
+        amount = ast.Call(name="toFloat", args=[property_field])
+        currency = self.goal.math_property_revenue_currency
+        if currency is None:
+            return amount
+
+        base_currency = ast.Constant(value=self.team.base_currency)
+        date = ast.Call(name="_toDate", args=[timestamp_expr])
+
+        if currency.property:
+            if self.goal.kind == "DataWarehouseNode":
+                currency_from: ast.Expr = ast.Field(chain=[currency.property])
+            else:
+                currency_from = ast.Field(chain=["events", "properties", currency.property])
+            currency_from = ast.Call(
+                name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
+            )
+            # A row can be missing the currency property or carry an empty string; treat those as already
+            # in the base currency rather than letting convertCurrency null the whole amount out.
+            return ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="isNull", args=[currency_from]),
+                    amount,
+                    ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)]),
+                ],
+            )
+
+        if currency.static:
+            currency_from = ast.Constant(value=currency.static.value)
+            return ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)])
+
+        return amount
 
     def get_base_where_conditions(self) -> list[ast.Expr]:
         """Build base WHERE conditions for conversion goal filtering"""
@@ -472,6 +519,11 @@ class ConversionGoalProcessor:
         math_property = getattr(self.goal, "math_property", None)
         if math_property:
             props.add(math_property)
+        # A property-sourced currency is folded into conversion_math_value by _to_base_currency, so the
+        # converted amount leaks it just as directly as math_property itself.
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None and currency.property:
+            props.add(currency.property)
         return props
 
     def _precompute_properties_restricted_for_user(self) -> bool:
@@ -1222,8 +1274,8 @@ class ConversionGoalProcessor:
             math_property = self.goal.math_property
             if math_property:
                 property_field = ast.Field(chain=["events", "properties", math_property])
-                to_float_expr = ast.Call(name="toFloat", args=[property_field])
-                return ast.Call(name="coalesce", args=[to_float_expr, ast.Constant(value=0.0)])
+                value = self._to_base_currency(property_field, ast.Field(chain=["events", "timestamp"]))
+                return ast.Call(name="coalesce", args=[value, ast.Constant(value=0.0)])
 
         return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
@@ -1997,38 +2049,10 @@ class ConversionGoalProcessor:
         Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
         Includes both adapter-defined sources and team-configured custom sources.
         """
-        # Convert source to lowercase for case-insensitive matching
-        lowercase_source = ast.Call(name="lower", args=[source_expr])
-
-        # Build nested if expressions for each mapping
-        normalized_expr = source_expr
-
-        # Get combined source mappings (adapter defaults + team custom sources)
         source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
             team_config=self.team.marketing_analytics_config
         )
-        for primary_source, alternative_sources in source_mappings.items():
-            # Skip the primary source itself in the alternatives list
-            alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
-
-            if alternatives_only:
-                # If lowercase source is in alternatives, return primary; otherwise continue
-                normalized_expr = ast.Call(
-                    name="if",
-                    args=[
-                        ast.Call(
-                            name="in",
-                            args=[
-                                lowercase_source,
-                                ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
-                            ],
-                        ),
-                        ast.Constant(value=primary_source),
-                        normalized_expr,
-                    ],
-                )
-
-        return normalized_expr
+        return build_source_normalization_expr(source_expr, source_mappings)
 
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
@@ -2064,6 +2088,19 @@ class ConversionGoalProcessor:
                 ),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(
+                    alias=self.config.get_conversion_goal_column_name(self.index),
+                    expr=self._get_aggregation_expr(),
+                ),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             # At source level, group by source_name only
             select_columns = [
@@ -2124,6 +2161,21 @@ class ConversionGoalProcessor:
             args=[
                 ast.Call(name="notEmpty", args=[ast.Field(chain=[field_name])]),
                 ast.Field(chain=[field_name]),
+                ast.Constant(value=default_value),
+            ],
+        )
+
+    def _apply_organic_default(self, expr: ast.Expr, default_value: str) -> ast.Call:
+        """Fall back to the organic default when the value is NULL or empty, matching the
+        events attribution path so all goal kinds classify unattributed conversions alike."""
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="notEmpty",
+                    args=[ast.Call(name="coalesce", args=[expr, ast.Constant(value="")])],
+                ),
+                expr,
                 ast.Constant(value=default_value),
             ],
         )
@@ -2214,11 +2266,9 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Campaign expression with organic default
-        campaign_expr = ast.Call(
-            name="coalesce", args=[utm_campaign_expr, ast.Constant(value=self.config.organic_campaign)]
-        )
+        campaign_expr = self._apply_organic_default(utm_campaign_expr, self.config.organic_campaign)
         source_expr = self._normalize_source_field(
-            ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
+            self._apply_organic_default(utm_source_expr, self.config.organic_source)
         )
 
         # Build field expressions for all tracked fields
@@ -2242,6 +2292,16 @@ class ConversionGoalProcessor:
                 ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),

@@ -2,7 +2,6 @@ import { z } from 'zod'
 
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
-import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
 import { normalizeParamAliases } from '../tools/cast-helpers'
 
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
@@ -23,14 +22,6 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         .default(false)
         .describe(
             "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction), not just when it matches a query."
-        ),
-})
-
-export const AgentResolveResourceSchema = z.object({
-    resource: z
-        .string()
-        .describe(
-            `Which builder playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.`
         ),
 })
 
@@ -366,7 +357,12 @@ export const InsightQueryInputSchema = z.preprocess(
 )
 
 export const AIObservabilityGetCostsSchema = z.object({
-    projectId: z.number().int().positive(),
+    projectId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Project ID. Defaults to the active project when omitted.'),
     days: z.number().optional(),
 })
 
@@ -436,6 +432,42 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const PropertyDefinitionUpdateInputSchema = z.object({
+    description: z.string().optional().describe('Description explaining what the property represents'),
+    tags: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'Tags to organize properties by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention"). Warning: this REPLACES the property\'s entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.'
+        ),
+    property_type: z
+        .enum(['DateTime', 'String', 'Numeric', 'Boolean', 'Duration'])
+        .optional()
+        .describe('The data type of the property. Controls how the property is parsed, displayed, and filtered.'),
+    verified: z
+        .boolean()
+        .optional()
+        .describe('Mark as verified to indicate the property is correctly instrumented and safe to use'),
+    hidden: z
+        .boolean()
+        .optional()
+        .describe('Mark property as no longer used. Hides it from the UI while preserving historical data'),
+})
+
+export const PropertyDefinitionUpdateSchema = z.object({
+    propertyName: z.string().describe('The exact name of the property to update (e.g. "$browser", "plan_type")'),
+    type: z
+        .enum(['event', 'person', 'group', 'session'])
+        .default('event')
+        .describe('Which property taxonomy the property belongs to. Defaults to "event" (event properties).'),
+    groupTypeIndex: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required when type is "group": the zero-based index of the group type the property belongs to.'),
+    data: PropertyDefinitionUpdateInputSchema.describe('The property definition data to update'),
 })
 
 const PathCleaningAliasField = z

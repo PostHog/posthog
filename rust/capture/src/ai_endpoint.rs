@@ -443,6 +443,7 @@ async fn ai_handler_inner(
     stamp_overflow_reason(
         std::slice::from_mut(&mut processed_event),
         state.overflow_limiter.as_ref(),
+        state.ai_events_overflow_limiter.as_ref(),
     );
 
     // Step 9: Send event to Kafka
@@ -636,6 +637,7 @@ fn build_kafka_event(
         redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
         skip_heatmap_processing: false,
         overflow_reason: None,
+        distinct_id_truncated_from: None,
     };
 
     // Create ProcessedEvent

@@ -410,6 +410,12 @@ fn start_coordinator_k8s(
         store,
         CoordinatorConfig {
             rebalance_debounce_interval: Duration::from_millis(100),
+            // These tests bring up a k3s container and deliberately park
+            // handoffs to assert what the rollout paths do with them, so
+            // they run far longer than the production deadline is sized
+            // for. Leaving it at the default would delete the state under
+            // test partway through.
+            handoff_deadline: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(StickyBalancedStrategy),
@@ -467,14 +473,27 @@ async fn deployment_rollout_reassigns_partitions() {
 
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    // Set up etcd store and coordination
+    // Set up etcd store and coordination. The coordinator gets its own
+    // fresh K8sAwareness — NOT the instance the test scaffolding already
+    // primed with discover_controller above — so this test exercises the
+    // production bootstrap path: the coordinator must start controller
+    // watches itself, lazily, from the refs pods carry in their
+    // registrations. Sharing the scaffolding instance would mask a
+    // coordinator that never starts watches (classify would keep
+    // answering from the scaffolding's watch, which is exactly how this
+    // gap previously escaped the suite).
     let store = test_store("deploy-rollout-k3s").await;
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
+    let coordinator_awareness = Arc::new(K8sAwareness::new(
+        k8s_client.clone(),
+        NAMESPACE.to_string(),
+        k8s_cancel.clone(),
+    ));
     let cancel = CancellationToken::new();
     let _coord = start_coordinator_k8s(
         Arc::clone(&store),
-        Some(Arc::clone(&awareness)),
+        Some(coordinator_awareness),
         cancel.clone(),
     );
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
@@ -673,6 +692,12 @@ async fn statefulset_rollout_pod_skips_drain() {
         lease_ttl: 10,
         heartbeat_interval: Duration::from_secs(3),
         drain_timeout: Duration::from_secs(30),
+        reconcile_interval: Duration::from_secs(86_400),
+        reconcile_failure_budget: 12,
+        run_retry_budget: 10,
+        run_retry_backoff: Duration::from_millis(500),
+        advertise_address: None,
+        warm_concurrency: 4,
     };
     let (_pod_events, pod_handle) = start_pod_k8s(
         Arc::clone(&store),

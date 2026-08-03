@@ -12,6 +12,7 @@ from products.data_modeling.backend.models.node import NodeType
 SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
+NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
 
 
 class TestScheduleMaterializationV2Guard(BaseTest):
@@ -32,10 +33,14 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             mock.patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
             mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
             mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths") as setup_paths,
+            mock.patch(f"{NODE_MAT}.sync_connect") as sync_connect,
+            self.captureOnCommitCallbacks(execute=True),
         ):
             self.sq.schedule_materialization()
         sync_wf.assert_not_called()
         setup_paths.assert_not_called()
+        # a frequency-only call carries no enable intent, so it must not start a one-off run
+        sync_connect.assert_not_called()
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval is None
 

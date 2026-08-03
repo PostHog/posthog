@@ -1,3 +1,4 @@
+from .ai_blob import AIBlobViewSet
 from .clustering import AIObservabilityClusteringRunViewSet
 from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
@@ -22,6 +23,7 @@ from .trace_reviews import TraceReviewViewSet
 from .translate import AIObservabilityTranslateViewSet
 
 __all__ = [
+    "AIBlobViewSet",
     "ClusteringConfigViewSet",
     "ClusteringJobViewSet",
     "AIObservabilityClusteringRunViewSet",

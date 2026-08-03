@@ -517,7 +517,7 @@ class TestPostSlackUpdate(TestCase):
         mock_post_progress,
         mock_post_completion,
     ):
-        # When the task creator is not a PostHog Code user, every handler call
+        # When the task creator is not a PostHog Desktop user, every handler call
         # (including the progress handler) receives ``task_url=None`` so the
         # web buttons are skipped.
         self._access_patcher.stop()

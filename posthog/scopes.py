@@ -19,8 +19,6 @@ APIScopeObject = Literal[
     "access_control",
     "account",
     "activity_log",
-    "agents",
-    "agent_approvals",
     "alert",
     "annotation",
     "approvals",
@@ -71,13 +69,16 @@ APIScopeObject = Literal[
     "link",
     "live_debugger",
     "llm_analytics",
+    "ai_observability_clusters",
     "llm_gateway",
+    "llm_playground",
     "llm_prompt",
     "llm_provider_key",
     "llm_skill",
     "logs",
     "loop",
     "marketing_analytics",
+    "mcp_builtin_agent",
     "mcp_analytics",
     "metrics",
     "notebook",
@@ -93,6 +94,7 @@ APIScopeObject = Literal[
     "query",  # Covers query and events endpoints
     "query_performance",
     "replay_scanner",
+    "review_hog",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -124,6 +126,11 @@ APIScopeObject = Literal[
     "wizard_session",
 ]
 
+
+# Server-only provenance marker for OAuth tokens minted for PostHog's built-in
+# agents. It is hidden from user-controlled scope selectors below.
+MCP_BUILT_IN_AGENT_SCOPE = "mcp_builtin_agent:read"
+
 APIScopeActions = Literal[
     "read",
     "write",
@@ -145,9 +152,13 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         "clickhouse_test_cluster_perf",
         # Provenance marker on tokens minted server-side for a sandbox/agent run
         # (never via the consent flow or a personal API key). The LLM gateway requires
-        # it on the internal products that share the PostHog Code OAuth app so a user's
+        # it on the internal products that share the PostHog Desktop OAuth app so a user's
         # own credential can't reach them — see services/llm-gateway products/config.py.
         "internal_run",
+        # Marks a sandbox OAuth token as belonging to a trusted built-in agent.
+        # MCP Store uses it to deny the human/member control plane and force the
+        # agent through its own explicit gateway grants.
+        "mcp_builtin_agent",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
@@ -367,7 +378,7 @@ def scopes_within_ceiling(
 
     `allow_wildcard_under_empty_ceiling` is the only resolution difference between
     the callers: `/authorize` passes `True` to grandfather legacy `*` clients (the
-    PostHog Code CLI) until wildcard retirement; provisioning leaves it `False`
+    PostHog Desktop CLI) until wildcard retirement; provisioning leaves it `False`
     (the default) since it never granted wildcard, so an unseeded ceiling must not
     silently become one.
     """

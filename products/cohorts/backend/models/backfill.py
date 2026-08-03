@@ -66,10 +66,22 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
     )
     timezone = models.CharField(max_length=240)
     boundary_at = models.DateTimeField(null=True, blank=True)
+    person_scan_since = models.DateTimeField(null=True, blank=True)
     boundary_established_at = models.DateTimeField(null=True, blank=True)
     pinned = models.JSONField(default=dict)
     preconditions = models.JSONField(default=dict)
     reconcile_hwms = models.JSONField(null=True, blank=True)
+    chunks_planned_at = models.DateTimeField(null=True, blank=True)
+    reconcile_dispatched_at = models.DateTimeField(null=True, blank=True)
+    reconcile_observed_at = models.DateTimeField(null=True, blank=True)
+    marker_watch = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Opaque watcher resume state written by the Rust seeder, shape "
+            '{"schema":1,"positions":{...},"ends":{...}|null}. Django never interprets it.'
+        ),
+    )
     blocked_reason = models.TextField(blank=True, default="")
     error = models.TextField(blank=True, default="")
     superseded_by = models.ForeignKey(
@@ -84,17 +96,25 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
         indexes = [
             models.Index(fields=["team", "status"], name="cohort_bfr_team_status_idx"),
             models.Index(fields=["team", "-created_at"], name="cohort_bfr_team_created_idx"),
+            # The finalizer discovers observed runs across all teams, so it can't use the
+            # team-prefixed indexes above. Partial on status keeps that scan proportional to the
+            # live run set instead of to the table's ever-growing terminal history.
+            models.Index(
+                fields=["backfill_kind", "reconcile_observed_at"],
+                condition=Q(status=CohortBackfillRunStatus.RECONCILING),
+                name="cohort_bfr_reconciling_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["cohort"],
+                fields=["cohort", "backfill_kind"],
                 condition=Q(cohort__isnull=False, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES),
-                name="cohort_bfr_active_cohort_uq",
+                name="cohort_bfr_active_cohort_kind_uq",
             ),
             models.UniqueConstraint(
-                fields=["team"],
+                fields=["team", "backfill_kind"],
                 condition=Q(scope=CohortBackfillScope.TEAM, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES),
-                name="cohort_bfr_active_team_uq",
+                name="cohort_bfr_active_team_kind_uq",
             ),
         ]
 
@@ -105,9 +125,20 @@ class CohortBackfillRunCohort(TeamScopedRootMixin, UUIDModel):
     cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.CASCADE, related_name="backfill_participations")
     filters_shape_hash = models.CharField(max_length=64)
     behavioral_filters_shape_hash = models.CharField(max_length=64, default="")
+    person_filters_shape_hash = models.CharField(max_length=64, default="")
     pinned_filters = models.JSONField()
     stamped_at = models.DateTimeField(null=True, blank=True)
     superseded_at = models.DateTimeField(null=True, blank=True)
+    reconcile_completed_at = models.DateTimeField(null=True, blank=True)
+    reconcile_marker_bits = models.BigIntegerField(
+        default=0,
+        db_default=0,
+        help_text=(
+            "Bitmap of seed partitions whose reconcile_complete marker was observed, maintained "
+            "as an i64 by the Rust seeder (bits |= 1 << partition; all 64 partitions full is -1). "
+            "Django never interprets the bits."
+        ),
+    )
     error = models.TextField(blank=True, default="")
 
     class Meta:
@@ -130,6 +161,8 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
     claimed_at = models.DateTimeField(null=True, blank=True)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     s_chunk_at = models.DateTimeField(null=True, blank=True)
+    person_range_lo = models.UUIDField(null=True, blank=True)
+    person_range_hi = models.UUIDField(null=True, blank=True)
     attempts = models.IntegerField(default=0)
     last_error = models.TextField(blank=True, default="")
     tiles_produced = models.BigIntegerField(default=0)

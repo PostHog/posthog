@@ -202,6 +202,8 @@ def ensure_web_overview_precomputed(
         insert_query = JOIN_INSERT_QUERY_TEMPLATE
 
     return web_ensure_precomputed(
+        runner=runner,
+        family=_FAMILY,
         team=runner.team,
         insert_query=insert_query,
         time_range_start=time_range_start,

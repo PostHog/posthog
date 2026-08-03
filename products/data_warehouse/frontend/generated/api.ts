@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CheckDatabaseNameResponseApi,
     CheckSchemaNameResponseApi,
+    CreateTableFromUploadApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
@@ -23,6 +24,7 @@ import type {
     DataWarehouseSavedQueryFolderApi,
     DeleteWarehouseOrgResponseApi,
     DeprovisionWarehouseResponseApi,
+    FileUploadResponseApi,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
@@ -56,9 +58,11 @@ import type {
     QueryTabStateListParams,
     ResetPasswordResponseApi,
     SavedQueryColumnAnnotationsListParams,
+    SavedQueryResumeApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
+    ViewLinkValidationResponseApi,
     WarehouseColumnAnnotationApi,
     WarehouseColumnAnnotationsListParams,
     WarehouseColumnStatisticsApi,
@@ -68,6 +72,7 @@ import type {
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
     WarehouseTablesListParams,
+    WarehouseTablesUploadFileCreateBody,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
 } from './api.schemas'
@@ -407,8 +412,8 @@ export const getDataWarehouseOnboardTeamCreateUrl = (projectId: string) => {
 /**
  * Onboard this project onto the organization's existing managed warehouse.
  *
- * Requires a schema name; records the project's membership both in duckgres and in the
- * Django backfill state. Restricted to organization admins.
+ * Requires a schema name and records the project's membership in the Duckgres control plane.
+ * Restricted to organization admins.
  */
 export const dataWarehouseOnboardTeamCreate = async (
     projectId: string,
@@ -1593,6 +1598,27 @@ export const warehouseSavedQueriesMaterializeCreate = async (
     })
 }
 
+export const getWarehouseSavedQueriesResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/resume/`
+}
+
+/**
+ * Resume materialization suspended after repeated failures.
+ *
+ * Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
+ * its way back on its own.
+ */
+export const warehouseSavedQueriesResumeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SavedQueryResumeApi> => {
+    return apiMutator<SavedQueryResumeApi>(getWarehouseSavedQueriesResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getWarehouseSavedQueriesRevertMaterializationCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_saved_queries/${id}/revert_materialization/`
 }
@@ -2039,6 +2065,33 @@ export const warehouseTablesUpdateSchemaCreate = async (
     })
 }
 
+export const getWarehouseTablesCreateFromUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/create_from_upload/`
+}
+
+/**
+ * Turn a previously uploaded file into a self-managed warehouse table.
+ *
+ * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
+ * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
+ * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
+ * fall back to the node role, never a user-supplied key).
+ * @summary Create a self-managed warehouse table from an uploaded file
+ */
+export const warehouseTablesCreateFromUploadCreate = async (
+    projectId: string,
+    createTableFromUploadApi: CreateTableFromUploadApi,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesCreateFromUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createTableFromUploadApi),
+    })
+}
+
 export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_tables/file/`
 }
@@ -2064,6 +2117,38 @@ export const warehouseTablesFileCreate = async (
     }
 
     return apiMutator<void>(getWarehouseTablesFileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getWarehouseTablesUploadFileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/upload_file/`
+}
+
+/**
+ * Store an uploaded file in object storage so a self-managed table can be created from it.
+ *
+ * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
+ * this returns an `upload_id` the caller passes back to build the table. The file is written under
+ * a team-scoped prefix, so a table can only ever read back its own team's uploads.
+ * @summary Upload a file for a new self-managed warehouse table
+ */
+export const warehouseTablesUploadFileCreate = async (
+    projectId: string,
+    warehouseTablesUploadFileCreateBody?: WarehouseTablesUploadFileCreateBody,
+    options?: RequestInit
+): Promise<FileUploadResponseApi> => {
+    const formData = new FormData()
+    if (warehouseTablesUploadFileCreateBody?.file !== undefined) {
+        formData.append(`file`, warehouseTablesUploadFileCreateBody.file)
+    }
+    if (warehouseTablesUploadFileCreateBody?.file_format !== undefined) {
+        formData.append(`file_format`, warehouseTablesUploadFileCreateBody.file_format)
+    }
+
+    return apiMutator<FileUploadResponseApi>(getWarehouseTablesUploadFileCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
@@ -2205,8 +2290,8 @@ export const warehouseViewLinkValidateCreate = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseViewLinkValidateCreateUrl(projectId), {
+): Promise<ViewLinkValidationResponseApi> => {
+    return apiMutator<ViewLinkValidationResponseApi>(getWarehouseViewLinkValidateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2353,8 +2438,8 @@ export const warehouseViewLinksValidateCreate = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseViewLinksValidateCreateUrl(projectId), {
+): Promise<ViewLinkValidationResponseApi> => {
+    return apiMutator<ViewLinkValidationResponseApi>(getWarehouseViewLinksValidateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

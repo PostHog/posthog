@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
     KustomerSourceConfig,
 )
@@ -45,10 +42,8 @@ class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]
     # for both — the "v2" docs toggle keeps these list endpoints at `/v1/`. So the
     # version is a pin recorded on the source, not a request-layer branch: every
     # version resolves to the same `/v1/<resource>` requests (see settings.py).
-    # v2 stays declared-but-dormant and the default remains v1 until a `/v2/<resource>`
-    # endpoint is confirmed to serve these resources, rather than 404.
     supported_versions = ("v1", "v2")
-    default_version = "v1"
+    default_version = "v2"
     api_docs_url = "https://developer.kustomer.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -118,13 +113,18 @@ Your organization name is the first part of your Kustomer URL — for `myorg.kus
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # GET list endpoints have no updated-since filter; full refresh only
         # (INCREMENTAL_FIELDS is empty, so every schema is non-incremental).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: KustomerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KustomerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_kustomer_credentials(config.org_name, config.api_key):
             return True, None

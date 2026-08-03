@@ -7,7 +7,7 @@ import { LemonColorButton, LemonTag } from '@posthog/lemon-ui'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumnGroup, Sorting } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -30,9 +30,8 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional, breakdownSorting } =
+        useValues(funnelDataLogic(insightProps))
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSorting } = useActions(
         funnelDataLogic(insightProps)
     )
@@ -59,6 +58,15 @@ export function FunnelStepsTable(): JSX.Element | null {
     Likely this can be done in a better way once experiments are re-written to use their own
     queries. */
     const showCustomizationIcon = !insightProps.cachedInsight?.disable_baseline
+
+    // Sorting is controlled by the query's `funnelsFilter.breakdownSorting`, so it survives
+    // saving/reloading and never touches the URL (a router push here would make the insight
+    // scene reload the saved insight, discarding unsaved changes like the compare filter).
+    const sorting: Sorting | null = breakdownSorting
+        ? breakdownSorting.startsWith('-')
+            ? { columnKey: breakdownSorting.slice(1), order: -1 }
+            : { columnKey: breakdownSorting, order: 1 }
+        : null
 
     const columnsGrouped = [
         {
@@ -403,7 +411,8 @@ export function FunnelStepsTable(): JSX.Element | null {
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
             rowRibbonColor={getFunnelsColor}
             firstColumnSticky
-            useURLForSorting
+            sorting={sorting}
+            useURLForSorting={false}
             onSort={(newSorting) => {
                 if (!newSorting) {
                     setBreakdownSorting(undefined)

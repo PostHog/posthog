@@ -168,25 +168,30 @@ export interface AlertConfigApi {
 
 /**
  * * `slack` - Slack
+ * * `webhook` - Webhook
  */
 export type DeliveryTargetTypeEnumApi = (typeof DeliveryTargetTypeEnumApi)[keyof typeof DeliveryTargetTypeEnumApi]
 
 export const DeliveryTargetTypeEnumApi = {
     Slack: 'slack',
+    Webhook: 'webhook',
 } as const
 
 /**
- * A single delivery destination. MVP supports Slack only.
+ * A single delivery destination: a Slack channel or an HTTP webhook URL.
  */
 export interface DeliveryTargetApi {
-    /** Destination channel type. MVP supports 'slack' only.
+    /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
      *
-     * * `slack` - Slack */
+     * * `slack` - Slack
+     * * `webhook` - Webhook */
     type: DeliveryTargetTypeEnumApi
-    /** ID of the Slack Integration on this team used to deliver the summary. */
-    integration_id: number
-    /** Slack channel ID or name the summary is posted to. */
-    channel: string
+    /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
+    integration_id?: number
+    /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
+    channel?: string
+    /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
+    url?: string
 }
 
 /**
@@ -244,6 +249,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface VisionActionApi {
     readonly id: string
     /**
@@ -308,6 +316,9 @@ export interface PaginatedVisionActionListApi {
     results: VisionActionApi[]
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface PatchedVisionActionApi {
     readonly id?: string
     /**
@@ -361,6 +372,24 @@ export interface PatchedVisionActionApi {
     /** User who created the action. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
+}
+
+/**
+ * Async-accepted response for POST /vision/actions/{id}/run/.
+ */
+export interface RunActionResponseApi {
+    /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+    workflow_id: string
+    /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+    already_running: boolean
+}
+
+/**
+ * The shape every Replay Vision error response uses, so generated clients read one key.
+ */
+export interface ReplayVisionErrorApi {
+    /** Human-readable explanation of why the request was refused. */
+    detail: string
 }
 
 /**
@@ -586,7 +615,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -594,7 +623,7 @@ export interface ReplayObservationApi {
     readonly scanner_snapshot: ScannerSnapshotApi | null
     /** Result data persisted on success; null until the observation succeeds. */
     readonly scanner_result: ScannerResultApi | null
-    /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
+    /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.
      *
      * * `schedule` - Schedule
      * * `on_demand` - On demand
@@ -703,12 +732,14 @@ export const ScannerProviderEnumApi = {
 
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
  * * `gemini-3.6-flash` - Gemini 3.6 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
     Gemini36Flash: 'gemini-3.6-flash',
 } as const
 
@@ -739,6 +770,9 @@ export interface FeedbackThemesApi {
     generated_at: string
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -781,6 +815,7 @@ export interface ReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -803,6 +838,8 @@ export interface ReplayScannerApi {
     readonly estimated_monthly_credits: number | null
     /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
     readonly credits_this_month: number
+    /** Succeeded observations this scanner produced in the current billing period. */
+    readonly observations_this_month: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -811,6 +848,11 @@ export interface ReplayScannerApi {
     readonly updated_at: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -822,6 +864,9 @@ export interface PaginatedReplayScannerListApi {
     results: ReplayScannerApi[]
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface PatchedReplayScannerApi {
     readonly id?: string
     /**
@@ -864,6 +909,7 @@ export interface PatchedReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -886,6 +932,8 @@ export interface PatchedReplayScannerApi {
     readonly estimated_monthly_credits?: number | null
     /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
     readonly credits_this_month?: number
+    /** Succeeded observations this scanner produced in the current billing period. */
+    readonly observations_this_month?: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -894,6 +942,11 @@ export interface PatchedReplayScannerApi {
     readonly updated_at?: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes?: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -1148,6 +1201,24 @@ export interface ScorerStatsApi {
     histogram: ScorerHistogramApi | null
 }
 
+export interface FacetCountApi {
+    /** The facet value as emitted by the summarizer (lowercased). */
+    term: string
+    /** Number of succeeded observations that emitted this value. */
+    count: number
+}
+
+export interface SummarizerStatsApi {
+    /** Top friction points by emission count. */
+    friction_ranked: FacetCountApi[]
+    /** Top keywords by emission count. */
+    keyword_ranked: FacetCountApi[]
+    /** Succeeded observations that emitted at least one friction point or keyword. */
+    total_with_facets: number
+    /** Succeeded observations that reported at least one friction point. */
+    total_with_friction: number
+}
+
 export interface ObservationStatsApi {
     /** Counts of observations by terminal status. */
     status_counts: ObservationStatusCountsApi
@@ -1163,6 +1234,8 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
+    /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+    summarizer: SummarizerStatsApi | null
 }
 
 /**
@@ -1351,6 +1424,7 @@ export interface EstimateRequestApi {
     /** Proposed model; determines `credits_per_observation` in the response.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
 }
@@ -1517,11 +1591,11 @@ export type VisionObservationsListParams = {
 
 export type VisionObservationsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**
@@ -1620,11 +1694,11 @@ export type VisionScannersImpactRetrieveParams = {
 
 export type VisionScannersObservationsListParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**
@@ -1671,11 +1745,11 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**
@@ -1714,11 +1788,11 @@ export type VisionScannersObservationsRetrieveParams = {
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**

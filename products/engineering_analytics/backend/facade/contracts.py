@@ -44,6 +44,23 @@ class GitHubSourceNotConnectedError(Exception):
         super().__init__(message)
 
 
+# The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
+ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
+
+
+class CISignalsSyncStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class CISignalsConfig:
+    configured: bool
+    enabled: bool
+    sync_status: CISignalsSyncStatus | None
+
+
 class QuarantineWriteError(Exception):
     """A quarantine write could not be completed — no GitHub App installed on the
     target repo, the App lives on a different org, a malformed quarantine file, or a
@@ -128,6 +145,17 @@ class QuarantineMode(StrEnum):
     # "run": the test still executes but cannot fail the suite. "skip": not run at all.
     RUN = "run"
     SKIP = "skip"
+
+
+class CITestRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+
+
+class QuarantineRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+    PLAYWRIGHT = "playwright"
 
 
 class QuarantineLifecycle(StrEnum):
@@ -226,6 +254,21 @@ class PullRequest:
 
 
 @dataclass(frozen=True)
+class MergedPullRequest:
+    """A merged pull request reduced to its branch-tip head SHA — the discovery seam for ReviewHog
+    telemetry ("which PRs merged recently, and the commit at each branch tip"). ``head_sha`` is the
+    run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge`` commit (SPEC §7).
+    ``merged_at`` and ``head_sha`` are non-null and non-empty by construction: the read keeps only
+    PRs that actually merged and whose snapshot carries a branch-tip SHA (a malformed row without
+    one is excluded, not surfaced as an empty SHA no consumer could use).
+    """
+
+    number: int
+    head_sha: str
+    merged_at: datetime
+
+
+@dataclass(frozen=True)
 class WorkflowRun:
     id: int
     workflow_name: str
@@ -267,6 +310,11 @@ class WorkflowRunDetail:
     run_attempt: int
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # The PR whose merge produced this run's head commit: the merged PR whose merge commit is this
+    # head SHA, falling back to the commit subject's `(#NNNN)` suffix. None when neither resolves.
+    # This is the only PR attribution a default-branch push has, since its `pull_requests`
+    # association is empty by then, so consumers read `pr_number` first and fall back to this (SPEC §6).
+    commit_pr_number: int | None
 
 
 @dataclass(frozen=True)
@@ -498,51 +546,70 @@ class CIFailureLogs:
     truncated: bool
 
 
-# The one caveat that governs every flaky figure — defined once here (the canonical-types home)
+# The one caveat that governs every flaky figure, defined once here (the canonical-types home)
 # so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
 FLAKY_TEST_SIGNAL_CAVEAT = (
-    "All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators "
-    "are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other "
-    "lanes a flake surfaces as a plain failure, which the distinct-PR count catches."
+    "Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, "
+    "so there is no execution denominator. "
+    "'suspected_regression' means no recovery was recorded in this data, not that the test never flakes."
 )
+
+
+class FlakyTestClassification(StrEnum):
+    # One commit both failed and passed the test: a re-run attempt going green, or an in-job retry.
+    CONFIRMED_FLAKE = "confirmed_flake"
+    # Only failures recorded, which is absence of proof, not proof of a regression.
+    SUSPECTED_REGRESSION = "suspected_regression"
+    # A tolerated failure recorded while the test is masked by quarantine.
+    QUARANTINED = "quarantined"
+
+    @classmethod
+    def from_run_evidence(
+        cls, *, quarantined_failed_run_count: int, same_commit_recovery_run_count: int
+    ) -> "FlakyTestClassification":
+        # Quarantine wins over a recovery proof: it is already masked, so surface that first.
+        if quarantined_failed_run_count > 0:
+            return cls.QUARANTINED
+        if same_commit_recovery_run_count > 0:
+            return cls.CONFIRMED_FLAKE
+        return cls.SUSPECTED_REGRESSION
 
 
 @dataclass(frozen=True)
 class FlakyTestItem:
-    """One flaky-test leaderboard row, aggregated from the per-test CI spans in the Traces store.
+    """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
 
-    See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why these are absolute counts and how the two signals
-    (pass-on-retry vs distinct-PR failures) divide the rerun-enabled and no-rerun lanes.
+    Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only
+    sees the main pytest and Jest CI suites. Evidence is counted per CI run, never per span or run
+    attempt: one run fans a test across matrix legs and re-run attempts re-test the same commit, so
+    only the run grain counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure
+    is an absolute count.
     """
 
-    # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
+    runner: CITestRunner
+    # Stable test identity (the span name), runner-specific and not necessarily runnable.
     nodeid: str
-    # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
-    # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
+    # Runnable selector. Exact when the CI reporter stamped it; best-effort for older pytest spans.
     selector: str
-    # Spans where the test failed first, then passed on an automatic retry.
-    rerun_passed_count: int
-    # Spans with outcome 'failed' or 'error' (the final outcome after any retries).
-    failed_count: int
-    # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
+    classification: FlakyTestClassification
+    # Runs where one commit both failed and passed the test: a later run attempt going green, or an
+    # in-job retry. A pass in a different run is a different commit and proves nothing, hence the name.
+    same_commit_recovery_run_count: int
+    failed_run_count: int
+    # Master/branch failures carry no PR number and don't count here.
     failed_pr_count: int
-    # Failed/error spans on the default branch (master/main approximation — the source doesn't record
-    # the default branch); the "matters right now" signal.
-    master_failed_count: int
-    # Distinct git branches across all of the test's signal spans in the window.
-    branch_count: int
-    # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
-    xfailed_count: int
-    # Most recent signal span for this test in the window.
-    last_seen_at: datetime
+    # master/main approximation: the source doesn't record the default branch.
+    master_failed_run_count: int
+    quarantined_failed_run_count: int
+    last_signal_at: datetime
 
 
 @dataclass(frozen=True)
 class FlakyTestList:
-    """The flaky-test leaderboard for a window: qualifying tests ranked by flakiness signal,
-    capped at ``limit`` with an explicit truncation flag (same shape as ``PullRequestList``).
-    A test qualifies when it passed on retry at least ``min_rerun_passes`` times OR failed on
-    at least ``min_failed_prs`` distinct PRs in the window.
+    """The active test-health queue for a window: tests with a live failure signal, ranked by blast
+    radius (trunk first, then PRs, then runs), capped at ``limit`` with an explicit truncation flag
+    (same shape as ``PullRequestList``). A test qualifies on any same-commit recovery, any
+    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or a quarantined failure.
     """
 
     items: list[FlakyTestItem]
@@ -563,19 +630,22 @@ class TeamCIHealthItem:
 
     # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
     owner_team: str
-    # Owned tests meeting the flaky-leaderboard bar in the window (rerun passes OR distinct failed PRs).
+    # Owned tests one commit was seen both failing and passing: the same proof, and the same word,
+    # the test-health queue's `confirmed_flake` uses.
     flaky_test_count: int
     flaky_test_count_prior: int
-    # Signal spans on owned tests with outcome 'failed' or 'error' in the window.
-    failed_count: int
-    failed_count_prior: int
-    # Spans on owned tests that failed first, then passed on an automatic retry.
-    rerun_passed_count: int
-    rerun_passed_count_prior: int
-    # Spans on owned tests that failed while quarantined (xfail): already masked, still flaky.
-    xfailed_count: int
-    xfailed_count_prior: int
-    # Most recent signal span across the team's owned tests, either window.
+    # Owned tests that failed with no such proof and still hit the blast-radius bar. Not flakes.
+    regression_test_count: int
+    regression_test_count_prior: int
+    # Runs (not spans) where an owned test's recorded outcome was failed or error.
+    failed_run_count: int
+    failed_run_count_prior: int
+    same_commit_recovery_run_count: int
+    same_commit_recovery_run_count_prior: int
+    # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
+    quarantined_failed_run_count: int
+    quarantined_failed_run_count_prior: int
+    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window.
     last_seen_at: datetime
 
 
@@ -595,9 +665,10 @@ class TeamCIHealthList:
 class TeamTestSignal:
     """One owned test's flaky signal across the current window and its equal-length prior
     window, the pair behind a before-vs-after slope reading. Signal = failed + error +
-    pass-on-retry spans (xfail excluded: already-quarantined noise).
+    pass-on-retry spans (quarantined failures excluded: already-masked noise).
     """
 
+    runner: CITestRunner
     nodeid: str
     selector: str
     signal_count: int
@@ -818,6 +889,7 @@ class QuarantineRequest:
     # serializers' 'action' enums in the OpenAPI spec and churns their generated types.
     operation: QuarantineRequestAction
     selector: str
+    runner: QuarantineRunner | None = None
     repo: str | None = None
     reason: str = ""
     owner: str = ""
@@ -848,6 +920,11 @@ class WorkflowHealthItem:
     repo: RepoRef
     workflow_name: str
     run_count: int
+    successful_run_count: int
+    # Completed runs that reached a verdict (success / failure / timed_out). Cancelled and skipped
+    # runs inflate `success_rate`'s denominator; pair this with `successful_run_count` for a rate
+    # meaning "of the runs that actually ran".
+    conclusive_run_count: int
     success_rate: float | None
     p50_seconds: float | None
     p95_seconds: float | None
@@ -861,6 +938,8 @@ class WorkflowHealthItem:
     # UI can tell a real pass from a cancelled/skipped run (both have latest_run_failed false). None when
     # nothing has completed. A str, not WorkflowConclusion, because the data carries values outside the enum.
     latest_run_conclusion: str | None
+    latest_run_id: int | None
+    latest_run_attempt: int | None
     # Bucket width of the history series, chosen to fit the window: 'hour', 'day', or 'week'.
     granularity: str
     # Run history across the whole window, oldest first, zero-filled, bucketed by `granularity`.
@@ -873,6 +952,10 @@ class WorkflowHealthItem:
     rerun_cycles: int = 0
     # Success rate over the equal-length window before date_from; None when it had no completed runs.
     success_rate_prev: float | None = None
+    # Successful runs that did real work; the exact population p50/p95 are computed over (no-op gate
+    # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
+    # a duration comparison should size its min-sample gate on this, not on `successful_run_count`.
+    percentile_run_count: int = 0
 
 
 @dataclass(frozen=True)

@@ -5,5 +5,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class SlackJoinPublicChannelsConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=True)
+
+
+@config.config
 class SlackSourceConfig(config.Config):
-    slack_integration_id: int = config.value(converter=config.str_to_int)
+    slack_access_token: str | None = None
+    # Back-compat: legacy sources created before bring-your-own point at PostHog's shared Slack app
+    # via this Integration id. New sources can't set it (the connect form only offers the token).
+    slack_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    join_public_channels: SlackJoinPublicChannelsConfig | None = None

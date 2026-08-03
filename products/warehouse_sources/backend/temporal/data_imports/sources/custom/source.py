@@ -1,6 +1,7 @@
 import copy
 import json
 import hashlib
+import inspect
 import graphlib
 from collections.abc import Callable
 from datetime import date
@@ -30,11 +31,6 @@ from products.warehouse_sources.backend.models.custom_oauth2_integration import 
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SortMode,
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_adapter,
@@ -57,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
     build_resource_dependency_graph,
     create_auth,
+    get_paginator_class,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     EndpointResource,
@@ -68,6 +65,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     resolve_request_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    SortMode,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
@@ -407,6 +409,52 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
             )
 
 
+def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
+    """Reject paginator config keys that would deterministically crash at sync time.
+
+    A dict paginator config reaches the REST engine as ``PaginatorClass(**config)`` (minus
+    ``type``), so an unsupported key — e.g. one copied from newer dlt docs — arrives as an
+    unexpected kwarg and crashes sync setup with a ``TypeError`` the pipeline doesn't convert
+    to non-retryable, so Temporal retries a deterministic failure. An unknown ``type`` is
+    caught here too, rather than surfacing as a bare engine ``ValueError`` mid-sync.
+    """
+    client = manifest.get("client")
+    if isinstance(client, dict):
+        _check_paginator_config(client.get("paginator"), "client.paginator")
+
+    for resource in manifest.get("resources") or []:
+        if not isinstance(resource, dict):
+            continue
+        endpoint = resource.get("endpoint")
+        paginator = endpoint.get("paginator") if isinstance(endpoint, dict) else None
+        _check_paginator_config(paginator, f"Resource {resource.get('name')!r}: endpoint.paginator")
+
+
+def _check_paginator_config(paginator: Any, location: str) -> None:
+    # Only a dict is spread into the paginator constructor as kwargs; a string names a built-in
+    # and an instance is used as-is, so neither reaches the unexpected-kwarg path.
+    if not isinstance(paginator, dict):
+        return
+    try:
+        paginator_class = get_paginator_class(cast(Any, paginator.get("type", "auto")))
+    except ValueError as exc:
+        raise ManifestValidationError(f"{location}: {exc}") from exc
+    # "auto" (and any type mapped to None) applies no paginator, so extra keys are ignored.
+    if paginator_class is None:
+        return
+    supported = {
+        name
+        for name, param in inspect.signature(paginator_class).parameters.items()
+        if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
+    }
+    unsupported = sorted(set(paginator) - {"type"} - supported)
+    if unsupported:
+        raise ManifestValidationError(
+            f"{location} has unsupported {'keys' if len(unsupported) > 1 else 'key'} "
+            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(supported))}"
+        )
+
+
 # Plain-English replacements for the pydantic constraint messages users hit most
 # when hand-authoring a manifest; an unmapped error keeps pydantic's own wording.
 _VALIDATION_MESSAGE_OVERRIDES = {
@@ -558,13 +606,18 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     the stored secret must not be able to redirect it to a server they control.
     Returns an empty set for anything unparseable — the caller treats "no hosts"
     as "nothing new", and a malformed manifest is rejected elsewhere.
+
+    Accepts both a JSON string and an already-parsed object — the same two shapes
+    `_assemble_manifest` takes — so a dict manifest can never slip past the gate as
+    "no hosts". Read-only: the object is inspected in place, never mutated.
     """
-    if not isinstance(manifest_json, str):
-        return frozenset()
-    try:
-        manifest = json.loads(manifest_json)
-    except json.JSONDecodeError:
-        return frozenset()
+    if isinstance(manifest_json, str):
+        try:
+            manifest = json.loads(manifest_json)
+        except json.JSONDecodeError:
+            return frozenset()
+    else:
+        manifest = manifest_json
     if not isinstance(manifest, dict):
         return frozenset()
 
@@ -847,6 +900,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # stop and point at the config the user can change. Matches the stable prefix
             # RESTClientNonRetryableError uses, not the variable URL that follows.
             "Non-JSON response from": "The upstream API returned a non-JSON response (for example an HTML or plain-text error page) instead of data. Check that the resource's URL and path in the manifest point at a JSON API endpoint and that any required authentication is configured, then try again.",
+            # `_is_host_safe` raises this when a manifest's base_url, token_url, or resource
+            # host doesn't resolve via DNS — a hostname the customer typed wrong or a host
+            # that's no longer publicly reachable. Deterministic and permanent until the
+            # manifest is edited, so stop retrying. Match the stable prefix, not the
+            # customer's hostname that follows it.
+            "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -857,10 +916,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         API layer can redact them. This rebuilds the full config the REST
         engine consumes.
         """
-        try:
-            manifest = json.loads(config.manifest_json)
-        except json.JSONDecodeError as exc:
-            raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")
+        raw: Any = config.manifest_json
+        # `manifest_json` is declared as a JSON string, but the create/validate API can hand us an
+        # already-parsed object when a client submits the manifest as JSON rather than a JSON-encoded
+        # string. Accept both — deep-copy the object so the in-place secret injection below never
+        # writes credentials back into the caller's (persisted) config.
+        if isinstance(raw, str):
+            try:
+                manifest = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ManifestValidationError(
+                    f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})"
+                )
+        else:
+            manifest = copy.deepcopy(raw)
         # Structural validation only — no resource-graph checks. This runs on
         # every sync and schema listing of already-stored manifests, so a
         # graph problem on one resource must not take down the source's other
@@ -875,6 +944,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         config: CustomSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
         *,
         source_id: Optional[str] = None,
         owner_user_id: Optional[int] = None,
@@ -890,6 +960,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # map feeds the probe's child filter below.
             resolved = _validate_resource_graph(manifest)
             _validate_incremental_configs(manifest)
+            _validate_paginator_configs(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
 
@@ -1089,6 +1160,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         manifest = self._assemble_manifest(config)
 
@@ -1140,6 +1212,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # endpoint.incremental block missing start_param crashes the engine with a bare,
             # retryable KeyError. Reject it as a ValueError so it fails fast and non-retryably.
             _validate_incremental_configs({"resources": engine_resources})
+            _validate_paginator_configs({"client": manifest.get("client"), "resources": engine_resources})
 
             # The engine serializes a datetime watermark via str() (space-separated),
             # which strict APIs reject — format it to the declared wire format first.

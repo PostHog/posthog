@@ -9,16 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.togetherai import (
     TogetherAISourceConfig,
 )
@@ -93,6 +90,7 @@ You can find or create an API key in your [Together AI settings](https://api.tog
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Together's list endpoints return the whole collection in one response with no pagination
         # and no server-side timestamp filters (see settings.py), so every table is full refresh only.
@@ -112,7 +110,11 @@ You can find or create an API key in your [Together AI settings](https://api.tog
         return schemas
 
     def validate_credentials(
-        self, config: TogetherAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TogetherAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             status = get_status_code(config.api_key, schema_name)

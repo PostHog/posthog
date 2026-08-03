@@ -343,11 +343,13 @@ export const getHogFunctionsRerunCreateUrl = (projectId: string, id: string) => 
  * run reuses the original `invocation_id` with `is_retry=1` set on the
  * new lifecycle row so the UI can surface that it was a rerun.
  *
- * For source-webhook functions the worker strips `request.headers` from
- * the rehydrated globals before re-enqueuing (see the rerun paginator):
- * those headers carry the inbound sender's credentials, and replaying
- * them through a reconfigured function would let a write-access user
- * exfiltrate stored secrets.
+ * Only types a cyclotron worker executes (`TYPES_THAT_CAN_RERUN`) can be
+ * rerun: rerun re-enqueues onto the cyclotron hog queue, and other types
+ * run elsewhere (source webhooks inline in the cdp-api HTTP handler,
+ * transformations during ingestion, `site_*` transpiled to client-side
+ * JS). A re-enqueued invocation of one of those would never drain and
+ * wedges the partition, so a rerun of a non-rerunnable type is rejected
+ * with a 400 here.
  *
  * Because rerun replays historical event/person/group data, it requires
  * `person:read` and `group:read` on top of `hog_function:write`.

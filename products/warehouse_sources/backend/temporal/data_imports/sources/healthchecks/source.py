@@ -11,10 +11,6 @@ from posthog.schema import (
 
 from posthog.cloud_utils import is_cloud
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.healthchecks import (
     HealthchecksSourceConfig,
 )
@@ -119,6 +116,7 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         descriptions = {
             "flips": "Up/down status-change history per check. Incrementally synced on the flip timestamp; retention is plan-limited to roughly the current month plus two prior.",
@@ -158,7 +156,11 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
         return True, None
 
     def validate_credentials(
-        self, config: HealthchecksSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HealthchecksSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         base_url_valid, base_url_error = self._validate_base_url(config.base_url, team_id)
         if not base_url_valid:

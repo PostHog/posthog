@@ -54,6 +54,7 @@ import {
 } from '../../shared/components/forms/schemaGroupingUtils'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
+import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
 
@@ -568,6 +569,7 @@ export interface sourceWizardLogicActions {
             | 'Ahrefs'
             | 'AikidoSecurity'
             | 'Airbrake'
+            | 'Airbridge'
             | 'Airbyte'
             | 'Aircall'
             | 'AirOps'
@@ -689,15 +691,18 @@ export interface sourceWizardLogicActions {
             | 'Basecamp'
             | 'Baserow'
             | 'Baseten'
+            | 'BCMS'
             | 'Beamer'
             | 'Beehiiv'
             | 'Bettermode'
             | 'BetterStack'
+            | 'Bexio'
             | 'BigCommerce'
             | 'Bigeye'
             | 'BigMailer'
             | 'BigQuery'
             | 'BillCom'
+            | 'Billit'
             | 'Billomat'
             | 'BingAds'
             | 'BingWebmasterTools'
@@ -783,6 +788,7 @@ export interface sourceWizardLogicActions {
             | 'Clari'
             | 'Clarifai'
             | 'Classy'
+            | 'Clay'
             | 'Clazar'
             | 'Cleartax'
             | 'Clerk'
@@ -829,6 +835,7 @@ export interface sourceWizardLogicActions {
             | 'Contentsquare'
             | 'ConvertKit'
             | 'Convex'
+            | 'Convonite'
             | 'Copper'
             | 'Coralogix'
             | 'Cortex'
@@ -875,6 +882,7 @@ export interface sourceWizardLogicActions {
             | 'Dialpad'
             | 'DigitalOcean'
             | 'DingConnect'
+            | 'Directus'
             | 'Discord'
             | 'Discourse'
             | 'DisplayVideo360'
@@ -897,12 +905,14 @@ export interface sourceWizardLogicActions {
             | 'DropboxSign'
             | 'Dub'
             | 'Dubsado'
+            | 'DuckLake'
             | 'Dwolla'
             | 'Dynamics365'
             | 'Dynamics365BusinessCentral'
             | 'DynamoDB'
             | 'Dynatrace'
             | 'E2B'
+            | 'Easybill'
             | 'Easypost'
             | 'Easypromos'
             | 'Ebay'
@@ -953,6 +963,7 @@ export interface sourceWizardLogicActions {
             | 'Firecrawl'
             | 'FireHydrant'
             | 'FireworksAI'
+            | 'FirstPromoter'
             | 'Five9'
             | 'Flagsmith'
             | 'Fleetio'
@@ -1091,6 +1102,7 @@ export interface sourceWizardLogicActions {
             | 'Holded'
             | 'Honeybadger'
             | 'Honeycomb'
+            | 'Hookdeck'
             | 'HoorayHR'
             | 'Hostaway'
             | 'HousecallPro'
@@ -1101,6 +1113,7 @@ export interface sourceWizardLogicActions {
             | 'Humanitix'
             | 'Huntr'
             | 'Hyperspell'
+            | 'Hyros'
             | 'Ikas'
             | 'IlluminaBasespace'
             | 'Imagga'
@@ -1121,6 +1134,7 @@ export interface sourceWizardLogicActions {
             | 'Instatus'
             | 'Intercom'
             | 'Interzoid'
+            | 'Inth'
             | 'Intruder'
             | 'Invoiced'
             | 'Invoiceninja'
@@ -1153,6 +1167,7 @@ export interface sourceWizardLogicActions {
             | 'Kestra'
             | 'Kick'
             | 'Kickscale'
+            | 'Kickstarter'
             | 'Kinde'
             | 'Kion'
             | 'Kisi'
@@ -1175,6 +1190,7 @@ export interface sourceWizardLogicActions {
             | 'LambdaLabs'
             | 'Langfuse'
             | 'LangSmith'
+            | 'Latitude'
             | 'Lattice'
             | 'LaunchDarkly'
             | 'Lawmatics'
@@ -1218,12 +1234,14 @@ export interface sourceWizardLogicActions {
             | 'Mailosaur'
             | 'Mailtrap'
             | 'Mantle'
+            | 'Manychat'
             | 'Marketo'
             | 'Marketstack'
             | 'Mastodon'
             | 'Matomo'
             | 'Maxio'
             | 'Meetup'
+            | 'Meltwater'
             | 'Mem0'
             | 'Memberful'
             | 'Mendeley'
@@ -1277,6 +1295,7 @@ export interface sourceWizardLogicActions {
             | 'MonteCarlo'
             | 'Moodle'
             | 'Motherduck'
+            | 'Moxie'
             | 'MSSQL'
             | 'Mux'
             | 'Mycase'
@@ -1314,6 +1333,7 @@ export interface sourceWizardLogicActions {
             | 'Nylas'
             | 'Octolens'
             | 'OctopusDeploy'
+            | 'Odoo'
             | 'Oecd'
             | 'Okendo'
             | 'Okta'
@@ -1429,6 +1449,7 @@ export interface sourceWizardLogicActions {
             | 'PrestaShop'
             | 'Pretix'
             | 'Primetric'
+            | 'Printavo'
             | 'Printify'
             | 'Procore'
             | 'Productboard'
@@ -1549,6 +1570,7 @@ export interface sourceWizardLogicActions {
             | 'Shortcut'
             | 'Shortio'
             | 'Shutterstock'
+            | 'SideShift'
             | 'SigmaComputing'
             | 'SignNow'
             | 'SigNoz'
@@ -1576,6 +1598,7 @@ export interface sourceWizardLogicActions {
             | 'Smartwaiver'
             | 'Smokeball'
             | 'SnapchatAds'
+            | 'Snovio'
             | 'Snowflake'
             | 'Snowplow'
             | 'Snyk'
@@ -1600,6 +1623,7 @@ export interface sourceWizardLogicActions {
             | 'Square'
             | 'Squarespace'
             | 'StackOverflowForTeams'
+            | 'Starburst'
             | 'Statsig'
             | 'Statuscake'
             | 'Statuspage'
@@ -1619,6 +1643,7 @@ export interface sourceWizardLogicActions {
             | 'SurveySparrow'
             | 'Survicate'
             | 'Svix'
+            | 'Swan'
             | 'Swarmia'
             | 'Swonkie'
             | 'Synthesia'
@@ -1670,11 +1695,13 @@ export interface sourceWizardLogicActions {
             | 'Toggl'
             | 'Torii'
             | 'TrackPMS'
+            | 'TradableBits'
             | 'Transistor'
             | 'TravisCI'
             | 'Trello'
             | 'Tremendous'
             | 'TriggerDev'
+            | 'TripleWhale'
             | 'TrunkIo'
             | 'TrustPilot'
             | 'Trustradius'
@@ -1690,9 +1717,11 @@ export interface sourceWizardLogicActions {
             | 'TwoC2p'
             | 'TyntecSMS'
             | 'Typeform'
+            | 'Typesense'
             | 'Ubidots'
             | 'UkCompaniesHouse'
             | 'UkOns'
+            | 'Umami'
             | 'UnComtrade'
             | 'Unleash'
             | 'Unstructured'
@@ -1704,6 +1733,7 @@ export interface sourceWizardLogicActions {
             | 'UsBls'
             | 'USCensus'
             | 'UsEia'
+            | 'UserCom'
             | 'Usersnap'
             | 'Uservoice'
             | 'UsTreasuryFiscalData'
@@ -1742,6 +1772,7 @@ export interface sourceWizardLogicActions {
             | 'WooCommerce'
             | 'Wordpress'
             | 'Workable'
+            | 'Workato'
             | 'Workday'
             | 'Workflowmax'
             | 'Workiz'
@@ -1775,6 +1806,7 @@ export interface sourceWizardLogicActions {
             | 'Zenefits'
             | 'Zenloop'
             | 'Zep'
+            | 'Zero'
             | 'Zluri'
             | 'ZohoAnalytics'
             | 'ZohoBigin'
@@ -3323,7 +3355,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: source,
                 })
             } else {
-                lemonToast.error(`Something went wrong.`)
+                lemonToast.error(
+                    `Couldn't finish connecting your source. Please try again, and if it keeps happening contact support.`
+                )
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
@@ -3528,6 +3562,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setReturnConfig(returnUrl, returnLabel)
             } else {
                 actions.clearReturnConfig()
+            }
+
+            // File upload has no backend connector (the uploaded file becomes a self-managed table),
+            // so resolve its client-only synthetic config directly rather than from `connectors`.
+            if (kind === FILE_UPLOAD_SOURCE_NAME.toLowerCase()) {
+                if (values.selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME && values.currentStep > 1) {
+                    return
+                }
+                actions.selectConnector(FILE_UPLOAD_SOURCE_CONFIG)
+                actions.setStep(2)
+                return
             }
 
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)

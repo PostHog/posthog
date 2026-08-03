@@ -2,6 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
+import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
@@ -22,12 +23,13 @@ export interface BuildToolResultOptions {
     /** Whether formatted-result text should win over structuredContent for this client profile. */
     suppressStructuredContentForFormattedResults?: boolean | undefined
     /**
-     * For inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork): always drop
-     * top-level `structuredContent` toward the model and re-home the app payload onto
-     * `_meta` instead — even when there's no formatted table (the model then reads the
-     * TOON text). These hosts surface `structuredContent` to the model, so it must
-     * never carry the raw results; the UI app hydrates from `_meta` (see APP_DATA_META_KEY).
-     * Overridden by an explicit `output_format=json` from the caller.
+     * For inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork): when a compact
+     * formatted table is available, drop top-level `structuredContent` toward the model so
+     * it reads the compact table instead of the verbose JSON, and re-home the app payload
+     * onto `_meta` for the UI app (see APP_DATA_META_KEY). When there is NO formatted table
+     * there is nothing to protect — the model would read the full data either way — so we
+     * keep the app payload in the standard `structuredContent` field rather than duplicating
+     * it under a non-standard `_meta` key. Overridden by an explicit `output_format=json`.
      */
     forceUiDataToMeta?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
@@ -154,12 +156,15 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
-    // Inline-exec UI-app hosts always drop top-level structuredContent (routed to
-    // `_meta` below); other coding-agent clients only drop it when a formatted table
-    // is available to take its place. An explicit `output_format=json` overrides both.
+    // Drop top-level structuredContent only when a compact formatted table exists to take
+    // its place — otherwise the model would just read the full data as TOON text anyway, and
+    // suppressing here only forces the app payload to be duplicated under a non-standard
+    // `_meta` key (see below). With no formatted table we keep the standard structuredContent
+    // field, which UI apps and MCP hosts already prefer. `output_format=json` overrides both.
     const suppressStructuredContent =
         !callerWantsJson &&
-        (!!forceUiDataToMeta || (formattedResults !== undefined && !!suppressStructuredContentForFormattedResults))
+        formattedResults !== undefined &&
+        (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults)
 
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
@@ -178,6 +183,14 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         // and let `useToolResult` hydrate from it. See APP_DATA_META_KEY.
         if (suppressStructuredContent && hasUiResource) {
             payload._meta[APP_DATA_META_KEY] = structuredContent as Record<string, unknown>
+        }
+    }
+    // `-prepare` tools have no UI resource, so UI apps driving a confirmed action
+    // read the hash from the app-only `_meta` channel instead of structuredContent.
+    if (isPrepareConfirmedActionResult(handlerResult)) {
+        payload._meta = {
+            ...payload._meta,
+            [APP_DATA_META_KEY]: rawResult as Record<string, unknown>,
         }
     }
     return payload

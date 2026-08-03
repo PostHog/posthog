@@ -20,7 +20,6 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 logger = structlog.get_logger(__name__)
@@ -64,8 +63,16 @@ def next_month_start(now: datetime) -> datetime:
     return start_of_month(now) + relativedelta(months=1)
 
 
-def _current_month_bounds(now: datetime) -> tuple[datetime, datetime]:
-    return start_of_month(now), next_month_start(now)
+@dataclass(frozen=True)
+class BillingPeriod:
+    """Half-open [start, end) window observations are counted against."""
+
+    start: datetime
+    end: datetime
+
+
+def _current_month_bounds(now: datetime) -> BillingPeriod:
+    return BillingPeriod(start=start_of_month(now), end=next_month_start(now))
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -73,24 +80,30 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
-def _current_period_bounds(organization: Organization | None, now: datetime) -> tuple[datetime, datetime]:
+def _current_period_bounds(organization: Organization | None, now: datetime) -> BillingPeriod:
     """The org's active billing period when synced and current, else the calendar month containing `now`."""
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
-        billing_period = (_as_utc(billing_period[0]), _as_utc(billing_period[1]))
-        if billing_period[0] <= now < billing_period[1]:
-            return billing_period
+        synced = BillingPeriod(start=_as_utc(billing_period[0]), end=_as_utc(billing_period[1]))
+        if synced.start <= now < synced.end:
+            return synced
     return _current_month_bounds(now)
 
 
-def current_period_bounds(organization_id: UUID) -> tuple[datetime, datetime]:
+def current_period_bounds(organization_id: UUID) -> BillingPeriod:
     """The org's active billing period when synced and current, else the current calendar month."""
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
     return _current_period_bounds(organization, datetime.now(UTC))
 
 
-def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, int]:
-    """Credits each scanner's succeeded observations consumed in the current billing period.
+@dataclass(frozen=True)
+class ScannerSpend:
+    credits: int
+    observations: int
+
+
+def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, ScannerSpend]:
+    """Credits and observation counts for each scanner's succeeded observations in the current billing period.
 
     Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
     at success time, so these totals can drift from the billed ledger after a mid-period price
@@ -98,7 +111,8 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
     """
     if not scanner_ids:
         return {}
-    period_start, period_end = current_period_bounds(organization_id)
+    period = current_period_bounds(organization_id)
+    period_start, period_end = period.start, period.end
     pairs = Counter(
         ReplayObservation.objects.filter(
             scanner_id__in=scanner_ids,
@@ -108,9 +122,13 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
             created_at__lt=period_end,
         ).values_list("scanner_id", "scanner_snapshot__model")
     )
-    totals: dict[UUID, int] = {}
+    totals: dict[UUID, ScannerSpend] = {}
     for (scanner_id, model), count in pairs.items():
-        totals[scanner_id] = totals.get(scanner_id, 0) + observation_credits_for_model(model or "") * count
+        prev = totals.get(scanner_id, ScannerSpend(0, 0))
+        totals[scanner_id] = ScannerSpend(
+            credits=prev.credits + observation_credits_for_model(model or "") * count,
+            observations=prev.observations + count,
+        )
     return totals
 
 
@@ -148,11 +166,12 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
     from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_credits  # noqa: PLC0415
 
-    # Single `now` so the usage window, bonus expiry, and any caller comparisons are computed from one instant.
+    # Single `now` so the usage window and any caller comparisons are computed from one instant.
     now = datetime.now(UTC)
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
     # Billing is the source of truth once synced, falling back to the env cap and calendar months otherwise.
-    period_start, period_end = _current_period_bounds(organization, now)
+    period = _current_period_bounds(organization, now)
+    period_start, period_end = period.start, period.end
     # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
     consumed = ReplayObservationUsage.objects.filter(
         organization_id=organization_id,
@@ -160,7 +179,8 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         observation_created_at__lt=period_end,
     ).aggregate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))["total"]
     # In-flight rows aren't in the ledger yet (receipt is written on success), so reserve their credits live,
-    # priced from the frozen snapshot model exactly as the eventual receipt will be.
+    # priced from the frozen snapshot model exactly as the eventual receipt will be. One created just before
+    # a period rollover settles into the next window, so it is briefly counted in neither; accepted.
     in_flight_models = Counter(
         ReplayObservation.objects.filter(
             team__organization_id=organization_id,
@@ -172,16 +192,10 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
     usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
-    bonus = ReplayQuotaGrant.objects.filter(
-        organization_id=organization_id,
-        expires_at__gt=now,
-    ).aggregate(total=Coalesce(Sum("amount"), Value(0)))["total"]
     projected = sum_enabled_scanner_estimated_credits(organization_id)
-    synced, base_limit = _billing_synced_limit(organization)
+    synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
-        base_limit = MONTHLY_CREDIT_QUOTA
-    # An uncapped synced org stays uncapped: bonuses only extend a real limit.
-    credit_limit = base_limit + bonus if base_limit is not None else None
+        credit_limit = MONTHLY_CREDIT_QUOTA
     return QuotaSnapshot(
         credit_limit=credit_limit,
         credits_used=usage,

@@ -5,6 +5,7 @@ from posthog.models import PropertyDefinition
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.test.persons import create_person
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 
@@ -251,3 +252,29 @@ class TestPropertyAccessControlHelpers(BaseTest):
         props = {"a": 1, "b": 2}
         result = strip_restricted_properties(props, set())
         assert result == {"a": 1, "b": 2}
+
+
+class TestTeamHasPropertyAccessRules(BaseTest):
+    def _prop(self) -> PropertyDefinition:
+        return PropertyDefinition.objects.create(
+            team=self.team, name="secret", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+
+    def test_false_when_feature_unavailable_even_with_rules(self):
+        # No feature entitlement short-circuits before any rule query, so a stray rule
+        # (e.g. left over after a downgrade) never re-enables the restriction path.
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=self._prop(), access_level=PropertyAccessLevel.NONE.value
+        )
+        assert team_has_property_access_rules(team_id=self.team.id) is False
+
+    def test_false_when_enabled_but_no_rules(self):
+        _enable_property_access_control(self.organization)
+        assert team_has_property_access_rules(team_id=self.team.id) is False
+
+    def test_true_when_enabled_and_a_rule_targets_a_property(self):
+        _enable_property_access_control(self.organization)
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=self._prop(), access_level=PropertyAccessLevel.NONE.value
+        )
+        assert team_has_property_access_rules(team_id=self.team.id) is True

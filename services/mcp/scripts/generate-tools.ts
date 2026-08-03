@@ -945,6 +945,11 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
             : notedExpression
     }
 
+    // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
+    // but not when the template continues with a query string (e.g. '?tab=alerts&alert_id={id}')
+    // or fragment (e.g. '#runs').
+    const joinerFor = (prefix: string): string => (/^[?#]/.test(prefix) ? '' : '/')
+
     if (config.list && config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         // For list endpoints, 'params.x' is not meaningful (items come from the response
@@ -954,10 +959,11 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
                 `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
             )
         }
+        const joiner = joinerFor(prefix)
         const enriched = [
             `await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}${joiner}${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
         ].join('\n')
         return `        return ${wrapped(enriched)}\n`
@@ -970,8 +976,9 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     if (config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
+        const joiner = joinerFor(prefix)
 
-        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}${joiner}${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
     }
 
     return `        return ${wrapped(resultVar)}\n`
@@ -1224,6 +1231,7 @@ function generateToolCode(
             resultType,
             needsProjectId,
             needsOrgId,
+            paramFallbacks: composition.paramFallbacks,
         })
         return {
             code: wrapped.code,
@@ -1296,9 +1304,19 @@ function buildConfirmedActionFactories(args: {
     resultType: string
     needsProjectId: boolean
     needsOrgId: boolean
+    paramFallbacks: Record<string, string>
 }): { code: string } {
-    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType, needsProjectId, needsOrgId } =
-        args
+    const {
+        toolName,
+        config,
+        schemaName,
+        schemaDecl,
+        originalHandlerBody,
+        resultType,
+        needsProjectId,
+        needsOrgId,
+        paramFallbacks,
+    } = args
     const baseFactory = toCamelCase(toolName)
     const prepareName = `${toolName}-prepare`
     const executeName = `${toolName}-execute`
@@ -1363,16 +1381,45 @@ function buildConfirmedActionFactories(args: {
         )
     }
 
+    // Optional params with a state fallback (e.g. an omitted org/project `id`
+    // that defaults to the active one) are resolved to a concrete value BEFORE
+    // signing, so the confirmation is bound to the exact target the user saw.
+    // Otherwise the fallback would be re-read at execute time and a
+    // `switch-organization` / `switch-project` between prepare and execute
+    // could retarget the confirmed action at a different entity.
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    let prepareFallbackBlock = ''
+    const resolvedFallbackNames: string[] = []
+    for (const [paramName, fallbackKey] of Object.entries(paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (!method) {
+            continue
+        }
+        const entity = fallbackKey === 'orgId' ? 'organization' : 'project'
+        prepareFallbackBlock += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+        prepareFallbackBlock += `        if (!${paramName}) {\n`
+        prepareFallbackBlock += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${entity} first.')\n`
+        prepareFallbackBlock += `        }\n`
+        resolvedFallbackNames.push(paramName)
+    }
+    const prepareArgsExpr =
+        resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
-    // verbatim — bound to user identity + purpose (+ active scope).
+    // (with any state fallbacks resolved) — bound to user identity + purpose
+    // (+ active scope).
     const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}        return await prepareConfirmedAction(context, {
-            args: params,
+${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
+            args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
+            stash: __runtime.stash,
 ${prepareScopeField}        })
 `
 
@@ -1385,6 +1432,7 @@ ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never
@@ -1750,6 +1798,12 @@ function generateCategoryFile(
                 const configParts = [`name: '${name}'`, `schema: ${schemaVarName}`, `kind: '${kind}'`]
                 if (wrapperConfig.ui_resource_uri) {
                     configParts.push(`uiResourceUri: '${wrapperConfig.ui_resource_uri}'`)
+                }
+                // Unlike the definitions-file branch, only an explicit `use_optimized_output` emits a
+                // format here — absent keeps the factory default, so pre-existing product wrappers
+                // don't silently change encoding.
+                if (wrapperConfig.use_optimized_output !== undefined) {
+                    configParts.push(`outputFormat: '${wrapperConfig.use_optimized_output ? 'optimized' : 'json'}'`)
                 }
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)

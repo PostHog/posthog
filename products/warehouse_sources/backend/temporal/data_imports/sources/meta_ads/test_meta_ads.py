@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_AUTH_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
+    SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
@@ -39,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _iter_time_range_pagination,
     _next_smaller_limit,
     _override_limit,
+    _raise_meta_api_error,
     _strip_access_token,
     get_integration,
     list_ad_accounts,
@@ -308,7 +310,8 @@ class TestSimplePaginationLimitFallback:
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            with pytest.raises(Exception, match="Meta API request failed: 500"):
+            # Terminal: the next attempt would re-issue the same request.
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         # One attempt per rung, then it gives up.
@@ -316,8 +319,9 @@ class TestSimplePaginationLimitFallback:
 
     def test_non_timeout_error_does_not_retry(self) -> None:
         manager = _build_manager()
-        # Transient service error (code 2) — not a too-much-data error, so no limit fallback.
-        responses = [_mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}})]
+        # A generic application error outside Meta's documented transient codes (1, 2) — not a
+        # too-much-data error either, so neither the limit fallback nor the transient retry apply.
+        responses = [_mock_response(500, {"error": {"message": "Something else went wrong", "code": 100}})]
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
@@ -396,11 +400,17 @@ class TestIsTransientError:
         "body,expected",
         [
             ({"error": {"is_transient": True, "code": 2}}, True),
+            # Meta doesn't always set `is_transient` for code 2 ("API Service") or code 1 ("API
+            # Unknown") — both are documented as momentary backend blips regardless of the flag,
+            # so the code alone must classify these as transient.
+            ({"error": {"code": 2}}, True),
+            ({"error": {"code": 1}}, True),
+            ({"error": {"is_transient": False, "code": 2}}, True),
             ({"error": {"code": 190}}, False),
             ({"data": []}, False),
         ],
     )
-    def test_reads_transient_flag(self, body: dict, expected: bool) -> None:
+    def test_reads_transient_flag_or_code(self, body: dict, expected: bool) -> None:
         assert _is_transient_error(_mock_response(500, body)) is expected
 
     def test_non_json_body_is_not_transient(self) -> None:
@@ -454,11 +464,32 @@ class TestTransientErrorRetry:
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            # Still surfaces the raw failure so it stays retryable at the Temporal layer.
-            with pytest.raises(Exception, match="Meta API request failed: 500"):
+            # Still surfaces the raw failure, tagged retryable, so it stays retryable at the
+            # Temporal layer without also re-tracking as a bug (see MetaAdsSource.get_retryable_errors).
+            with pytest.raises(Exception, match=r"Meta API request failed \(retryable\): 500"):
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         assert mock_get.return_value.get.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
+
+    def test_transient_error_without_is_transient_flag_still_retries(self, monkeypatch) -> None:
+        # Real-world Meta responses have been observed sending code 2 "Service temporarily
+        # unavailable" without `is_transient` set true — the documented code alone must still
+        # trigger the in-process retry, not just the flag.
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [
+            _mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}}),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_get.return_value.get.call_count == 2
 
 
 class TestNetworkTransientRetry:
@@ -754,6 +785,70 @@ class TestTimeRangePagination:
         tr = json.loads(mock_get.return_value.get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}
 
+    def test_heavy_query_subcode_retries_unchanged_then_shrinks_chunk(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        # Production shape: labeled code 2, so it retries unchanged before shrinking.
+        heavy_body = {
+            "error": {
+                "message": "Service temporarily unavailable",
+                "type": "OAuthException",
+                "is_transient": False,
+                "code": 2,
+                "error_subcode": 1504044,
+            }
+        }
+        responses = [_mock_response(400, heavy_body) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)] + [
+            _mock_response(200, {"data": [{"ad_id": str(i)}], "paging": {}}) for i in range(1, 6)
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL,
+                    self.PARAMS,
+                    {"since": "2026-03-01", "until": "2026-03-30"},
+                    None,
+                    manager,
+                )
+            )
+
+        assert [b[0]["ad_id"] for b in batches] == ["1", "2", "3", "4", "5"]
+        calls = mock_get.return_value.get.call_args_list
+        for call in calls[:META_TRANSIENT_ERROR_MAX_ATTEMPTS]:
+            assert json.loads(call.kwargs["params"]["time_range"]) == {"since": "2026-03-01", "until": "2026-03-30"}
+        assert json.loads(calls[META_TRANSIENT_ERROR_MAX_ATTEMPTS].kwargs["params"]["time_range"]) == {
+            "since": "2026-03-01",
+            "until": "2026-03-07",
+        }
+
+    def test_exhausting_both_ladders_on_initial_chunk_raises_non_retryable(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        # Three chunk rungs, then two page-limit rungs once the chunk hits one day.
+        responses = [_mock_response(500, timeout_body) for _ in range(5)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
+                list(
+                    _iter_time_range_pagination(
+                        self.URL,
+                        self.PARAMS,
+                        {"since": "2026-03-01", "until": "2026-03-30"},
+                        None,
+                        manager,
+                    )
+                )
+
+        limits = [call.kwargs["params"]["limit"] for call in mock_get.return_value.get.call_args_list]
+        assert limits == [500, 500, 500, 100, 50]
+
 
 class TestOverrideLimit:
     @pytest.mark.parametrize(
@@ -946,7 +1041,7 @@ class TestMidChunkLimitFallback:
             )
             # Drain the first batch (which succeeds), then expect the failure.
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Meta API request failed: 500"):
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(gen)
 
     def test_non_timeout_mid_chunk_error_does_not_retry(self) -> None:
@@ -959,9 +1054,10 @@ class TestMidChunkLimitFallback:
                     "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
                 },
             ),
-            # Transient service error (code 2) — not a timeout and not an auth error, so it
-            # neither retries-with-smaller-limit nor gets reclassified as permanent.
-            _mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}}),
+            # A generic application error outside Meta's documented transient codes (1, 2) — not a
+            # timeout and not an auth error, so it neither retries-with-smaller-limit, retries
+            # transiently, nor gets reclassified as permanent.
+            _mock_response(500, {"error": {"message": "Something else went wrong", "code": 100}}),
         ]
 
         with mock.patch(
@@ -1154,6 +1250,10 @@ class TestNonRetryableErrors:
             # 500 when Meta's backend refuses to service the query even after adaptive
             # chunking has shrunk the window to its smallest size.
             'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
+            # Both shrink ladders bottomed out, so the next attempt would re-issue
+            # the identical single-day, smallest-page request that just failed.
+            f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"Service temporarily unavailable","code":2,"error_subcode":1504044}})',
             # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
             f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
@@ -1181,6 +1281,23 @@ class TestNonRetryableErrors:
             ({"error": {"code": 10}}, True),
             ({"error": {"code": 200}}, True),
             ({"error": {"code": 299}}, True),
+            # Real-world "(#100) Unsupported get request" — the token's own account could no
+            # longer be resolved, surfaced under the generic "Invalid parameter" code instead
+            # of one of the dedicated auth codes above.
+            (
+                {
+                    "error": {
+                        "message": "(#100) Unsupported get request. Please read the Graph API documentation "
+                        "at https://developers.facebook.com/docs/graph-api",
+                        "type": "OAuthException",
+                        "code": 100,
+                    }
+                },
+                True,
+            ),
+            # A different code-100 message is a genuine malformed-request bug, not an auth
+            # failure — it must not be swept into the same reclassification.
+            ({"error": {"message": "Invalid parameter", "code": 100}}, False),
             # Transient / retryable errors — Meta still tags some of these OAuthException.
             ({"error": {"code": 2, "type": "OAuthException"}}, False),
             ({"error": {"code": 1, "error_subcode": 99}}, False),
@@ -1191,6 +1308,38 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+
+class TestRetryableErrors:
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # Real-world Meta responses: code 2 "Service temporarily unavailable" with an
+            # explicit is_transient: false, and a generic code 1 "unknown error" with no flag.
+            {"error": {"message": "Service temporarily unavailable", "code": 2, "is_transient": False}},
+            {"error": {"message": "An unknown error has occurred.", "code": 1}},
+        ],
+    )
+    def test_transient_error_message_matches_retryable_pattern(self, body: dict) -> None:
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(500, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
+        # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking
+        # already exhausted) — plain retries never resolve it, so it must not also be tagged
+        # retryable, which would contradict `get_non_retryable_errors`.
+        body = {
+            "error": {
+                "code": 1,
+                "message": "Please reduce the amount of data you're asking for, then retry your request",
+            }
+        }
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(500, body))
+        assert not any(pattern in str(exc_info.value) for pattern in patterns)
 
 
 @freeze_time("2026-06-16")

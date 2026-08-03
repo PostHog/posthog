@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack import (
     AppstackResumeConfig,
     appstack_source,
@@ -35,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstack import (
     AppstackSourceConfig,
 )
@@ -98,6 +95,7 @@ You can find the API key in your Appstack dashboard settings. API keys are scope
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = build_endpoint_schemas(
             ENDPOINTS,
@@ -118,7 +116,11 @@ You can find the API key in your Appstack dashboard settings. API keys are scope
         return schemas
 
     def validate_credentials(
-        self, config: AppstackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AppstackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             if validate_appstack_credentials(config.api_key):

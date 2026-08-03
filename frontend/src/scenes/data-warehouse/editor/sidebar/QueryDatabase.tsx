@@ -40,19 +40,19 @@ import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
@@ -139,10 +139,17 @@ export const QueryDatabase = ({
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { openMaterializationModal, openAccessControlModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
-        useActions(sqlEditorLogic)
+    const {
+        openMaterializationModal,
+        openAccessControlModal,
+        runQuery,
+        setActiveTab,
+        setQueryInput,
+        setSourceQuery,
+        insertTextAtCursor,
+    } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
-    const builtTabLogic = useMountedLogic(sqlEditorLogic)
+    useMountedLogic(sqlEditorLogic)
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
     // Edit view use the view's own user_access_level inline below.
@@ -392,14 +399,9 @@ export const QueryDatabase = ({
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
-                // Copy column name when clicking on a column
+                // Insert the column at the cursor, preserving the rest of the query the user has typed
                 if (item && item.record?.type === 'column') {
-                    const currentQueryInput = builtTabLogic.values.queryInput
-                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
-                        .then(setQueryInput)
-                        .catch(() => {
-                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
-                        })
+                    insertTextAtCursor(escapeDottedHogQLIdentifier(item.record.columnName))
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -413,6 +415,12 @@ export const QueryDatabase = ({
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const certification =
+                    item.record?.type === 'table'
+                        ? item.record?.table?.certification
+                        : item.record?.type === 'view'
+                          ? item.record?.certification
+                          : undefined
                 const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
@@ -459,6 +467,7 @@ export const QueryDatabase = ({
                                         {item.displayName ?? item.name}
                                     </span>
                                 )}
+                                <TableCertificationIcon certification={certification} />
                                 {isColumn && columnType ? (
                                     <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
                                         {columnType === 'field_traverser' && item?.record?.field.chain

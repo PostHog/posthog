@@ -30,6 +30,8 @@ class ProductConfig:
     # To permit OAuth access, explicitly list the allowed application IDs.
     allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
+    # True = exact allowlist match, not startswith
+    exact_model_match: bool = False
     allow_api_keys: bool = True
     # Which customer credit bucket this product bills into. None = not billed: emitted
     # $ai_generation events are tagged $ai_billable=false and the usage reporter
@@ -39,7 +41,7 @@ class ProductConfig:
     credit_bucket: CreditBucket | None = None
     # When True, OAuth callers must present a server-minted credential (a token carrying
     # the internal `internal_run:read` scope). Set on the internal products that share the
-    # PostHog Code OAuth app but are only ever driven by sandbox runs — a user's own Code
+    # PostHog Desktop OAuth app but are only ever driven by sandbox runs — a user's own Code
     # OAuth token can't carry an internal scope, so this stops it routing around the
     # posthog_code free-tier model gate through these products. Personal API keys are
     # unaffected (they reach the gateway only with an explicit, feature-gated
@@ -71,6 +73,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
+        "claude-opus-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
@@ -84,6 +87,19 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.2",
         "gpt-5-mini",
         "@cf/zai-org/glm-5.2",
+        "moonshotai/kimi-k3",
+    }
+)
+
+# Products whose requires_server_credential applies right away rather than waiting for
+# posthog_code_model_gate_enabled. The flag exists so products that already shipped accepting plain
+# Code OAuth tokens keep working until the Code billing cutover. A product that never had such a
+# permissive period has nothing to stay compatible with, and leaving it flag-gated would ship an
+# unbilled route open to any Code OAuth token for as long as the flag is off.
+UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
+    {
+        "custom_image_scans",
+        "onboarding",
     }
 )
 
@@ -123,6 +139,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
+                "claude-opus-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
@@ -133,6 +150,19 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
             }
             | BEDROCK_MODELS
         ),
+        allow_api_keys=False,
+        credit_bucket=None,
+        requires_server_credential=True,
+    ),
+    # The setup wizard's cloud run (Task.OriginProduct.ONBOARDING). Unbilled like
+    # background_agents, and this one runs before the user has decided to buy anything.
+    # Two gates keep the free route shut: Django refuses `onboarding` as a caller-supplied
+    # task origin, and the agent-server only routes here for a run carrying the protected
+    # `wizard_config` state key. Models stay narrow because a free bucket shouldn't reach
+    # the whole fleet; claude-opus-4-8 is only the SDK's fallback for the pinned sonnet.
+    "onboarding": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"claude-sonnet-5", "claude-opus-4-8"}) | BEDROCK_MODELS,
         allow_api_keys=False,
         credit_bucket=None,
         requires_server_credential=True,
@@ -220,6 +250,16 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
     ),
+    # Server-side security review before a custom sandbox image is built. The Django worker mints a
+    # short-lived OAuth token carrying the internal provenance marker; personal API keys and normal
+    # Code OAuth tokens cannot spend this unbilled product's budget.
+    "custom_image_scans": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"@cf/zai-org/glm-5.2"}),
+        allow_api_keys=False,
+        credit_bucket=None,
+        requires_server_credential=True,
+    ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-mini"}),
@@ -257,6 +297,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
+    # changelog-bot. Exact-pinned to these two ids (the agent sends "openai/"-prefixed).
+    "changelog_bot": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"openai/gpt-5.6-terra", "openai/gpt-5.6-sol"}),
+        exact_model_match=True,
+        allow_api_keys=True,
+        credit_bucket=None,
+    ),
     # Stamphog: the sandboxed PR reviewer (Sonnet, OAuth-only in practice) and the daily merged-PR
     # digest summarization (Haiku, server-side via the shared key). Low volume, internal infra.
     # The reviewer runs inside a sandbox over untrusted PR content, so it authenticates with a
@@ -269,7 +317,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     # The trade-off (any personal API key can reach an unbilled route) is shared by every
     # key-accessible unbilled product in this table and is bounded by the model pins.
     # requires_server_credential closes the OAuth side of that class: reviewer tokens are minted
-    # server-side with the internal marker, so a user's own Code OAuth token can't ride this route
+    # server-side with the internal marker, so a user's own Desktop OAuth token can't ride this route
     # around the posthog_code free-tier gate.
     "stamphog": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
@@ -314,6 +362,7 @@ def _model_matches_product_allowlist(
     allowed_models: frozenset[str],
     provider: str | None = None,
     settings: object | None = None,
+    exact: bool = False,
 ) -> bool:
     model_candidates = {model.lower()}
     if provider == "bedrock":
@@ -321,11 +370,16 @@ def _model_matches_product_allowlist(
             get_bedrock_model_access_candidates(model, region_name=get_bedrock_region_name(settings=settings))
         )
 
-    allowed_prefixes = tuple(allowed_model.lower() for allowed_model in allowed_models)
+    allowed_lower = tuple(allowed_model.lower() for allowed_model in allowed_models)
+    if exact:
+        # A variant like "<pinned>-pro" is a distinct, pricier model — reject it.
+        return any(candidate in allowed_lower for candidate in model_candidates)
+    # Default: prefix match, so Bedrock/agent ids with region+version suffixes
+    # (e.g. "claude-3-5-sonnet-20241022-v2:0") match a short pinned name.
     return any(
         model_candidate.startswith(allowed_prefix)
         for model_candidate in model_candidates
-        for allowed_prefix in allowed_prefixes
+        for allowed_prefix in allowed_lower
     )
 
 
@@ -401,23 +455,26 @@ def check_product_access(
         if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
 
-    # Internal products that share the PostHog Code OAuth app are only ever driven by
-    # server-minted sandbox tokens; a user's own Code OAuth token would otherwise reach them
+    # Internal products that share the PostHog Desktop OAuth app are only ever driven by
+    # server-minted sandbox tokens; a user's own Desktop OAuth token would otherwise reach them
     # and route around the posthog_code free-tier model gate. Require the internal marker that
     # only server-minted tokens carry. OAuth-only: personal API keys reach the gateway with an
     # explicit, feature-gated llm_gateway:read scope (a `*` PAK is rejected at auth), so the
-    # shared server-side gateway key still works here. Gated behind the same flag as the
-    # free-tier gate so it stays inert until the Code billing cutover.
+    # shared server-side gateway key still works here. Products that shipped before this check
+    # existed stay behind the free-tier flag so they keep working until the Code billing cutover;
+    # the rest enforce it now, per UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS.
     if (
-        settings.posthog_code_model_gate_enabled
-        and config.requires_server_credential
+        config.requires_server_credential
         and is_oauth
         and INTERNAL_RUN_SCOPE not in (scopes or [])
+        and (settings.posthog_code_model_gate_enabled or resolved_product in UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS)
     ):
         return False, f"Product '{product}' requires a server-minted credential"
 
     if model and config.allowed_models is not None:
-        if not _model_matches_product_allowlist(model, config.allowed_models, provider=provider, settings=settings):
+        if not _model_matches_product_allowlist(
+            model, config.allowed_models, provider=provider, settings=settings, exact=config.exact_model_match
+        ):
             return False, f"Model '{model}' not allowed for product '{product}'"
 
     return True, None

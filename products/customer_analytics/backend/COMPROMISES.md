@@ -32,6 +32,18 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 - **Initial sync is best-effort.** Saving an enabled source enqueues a sync on commit so values
   populate without waiting for the next materialization. If the broker is down the save still
   succeeds and the enqueue is dropped (logged to error tracking) — the next materialization recovers.
+- **Create-path sync is synchronous, best-effort, and workflow-only.** When the external create
+  endpoint is called by a workflow "Create account" step (the `X-PostHog-Hog-Flow-Id` header),
+  it syncs warehouse-backed custom properties for the new account inline — scoped to its external
+  id, materialized views only — so the next workflow step can read the values. Creates without the
+  header skip the sync, which keeps the per-request warehouse fan-out off the general create path;
+  the header is caller-supplied, so a token holder can opt in by faking it — same trust level as
+  the existing workflow attribution. Failures are captured and swallowed: creation never fails,
+  and no sync outcome is recorded (streaks and `last_synced_at` belong to the scheduled full
+  sync). Values are as fresh as the last materialization. All enabled sources sync, not just
+  properties the workflow references — read-side usage isn't indexed, and one filtered query per
+  view is cheap. If the added request latency bites, narrow to workflow-referenced properties or
+  make the step poll.
 - **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
   teams get it after migrating to v2.
 
@@ -77,6 +89,68 @@ Cutover checklist — when done, the sync and this section are deleted:
   definitions past the first page silently never appear as suggestions — the value still exists
   in the payload and can be mapped by hand. Follow `next` pages in
   `getOutputMappingSuggestions` (workflows frontend registry) if teams that large show up.
+
+## Event stream
+
+- **Cascade deletions don't archive the Slack destination.** The managed HogFunction is archived
+  in `delete_event_stream` (the facade, the only deliberate deletion path) and in
+  `delete_event_streams_for_user` (called from core's `OrganizationMembership` post_delete, so a
+  member leaving or being removed from the org stops their stream delivering) rather than a
+  `pre_delete` signal on the stream itself, so plain ORM cascades still bypass it. Team deletion
+  is harmless — the HogFunction is team-scoped and dies in the same cascade. Hard-deleting an
+  owner (`created_by` CASCADE) usually archives via the membership post_delete firing in the same
+  collector run, but the ordering isn't guaranteed. Accepted because user hard-deletion is rare
+  (members are deactivated or removed from the org, not deleted); if it bites, archive the
+  destinations explicitly in the user-deletion flow rather than reintroducing a signal.
+
+## Account custom property changed workflow trigger
+
+- **Volatile synced columns can flood workflows.** A view column that genuinely changes for many
+  accounts each sync emits one `$account_custom_property_changed` event — and starts one workflow
+  run — per account per sync run. No cap and no emission-volume observability. Acceptable while the
+  product is internal-only; before external exposure add emission counts to `SyncResult` and
+  guidance to trigger on stable columns.
+- **Multi-property triggers fan out.** One event per changed property, so one run per property,
+  never one per batch write. The trigger UI warns; routing logic is the workflow author's job.
+- **Cross-workflow loops are damped, not prevented.** Same-value writes never emit and frequency
+  masking caps rate, but value-flapping loops (workflow A sets X→1, triggering B which sets X→2, …)
+  depend on runtime values and cannot be detected statically. The save-time cycle advisory is
+  best-effort — static tag/property references only, never a save blocker.
+- **Frequency options are account-keyed because account events carry no person.** The generic event
+  trigger's frequency options hash on `{person.id}`, which resolves empty on person-less events and
+  would mask globally across accounts. CA triggers ship account-keyed options; the generic event
+  trigger keeps its person-keyed options and retains this gap for person-less events.
+- **current/previous are event properties, not workflow variables.** Same `{event.properties.*}`
+  templating access everywhere; auto-populated variables would need executor and trigger-schema
+  changes. Revisit only if variable semantics (mutation, Variables taxonomic category) are needed.
+  The values land as analytics events in the team's own project (the established pattern —
+  conversation events carry old/new status and truncated message content the same way), so they
+  are visible to anyone with project access, like the rest of the account's data.
+- **No unset/delete emission.** No value-delete path exists; if one is added, its author decides
+  whether removal counts as a change.
+
+## Account channel summaries
+
+- **The channel binding is trusted as written.** `slack_channel_id` is an account property any
+  account editor can set, and the summary pipeline reads whatever channel it names with the team's
+  own SupportHog bot token. An editor can therefore point an account at any channel that team's bot
+  is in — including a private channel the editor isn't a member of — and read its summary. Accepted
+  for now: editors are internal team members, the token is team-scoped (no cross-team reach), and
+  the announcements feature already posts through the same binding. The activity re-resolves the
+  binding, cadence, and org AI-processing approval from the DB just before fetching, so stale or
+  forged workflow inputs can't widen this. If summaries ever cover channels whose membership matters,
+  validate the binding at write time against a server-side channel policy instead.
+
+## Slack workspace URL is hardcoded
+
+- **`SLACK_ARCHIVES_ORIGIN` hardcodes PostHog's own workspace** — in `backend/constants.py` and
+  mirrored in `frontend/components/Accounts/accountLinksLogic.ts`. Every Slack link built from it
+  (Useful links sidebar, Slack summary message permalinks, channel summary citations) is wrong for
+  any team other than us.
+  Fine while the product is PostHog-internal; **must be fixed before GA**. The correct value is
+  per-team and owned by conversations: the bot's `auth.test` response carries the workspace `url`
+  (same call `get_bot_user_id_cached` already caches a field from), so the fix is a cached lookup
+  in conversations exposed through its facade, consumed here and by the frontend.
 
 ## Tech debt
 

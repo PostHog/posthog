@@ -100,19 +100,28 @@ def get_timing_reschedule_action_ids(
     - delay: trigger on a shortened effective duration; unparseable durations trigger
       conservatively (the worker throws on them at wake, and a spurious sweep is a cheap
       no-op re-park).
-    - wait_until_condition: trigger on a shortened max_wait_duration, same comparison as
-      delay. Condition edits never trigger - they don't move a parked run's wake time
-      (the matcher and the poll both evaluate live config at wake).
+    - wait_until_condition: trigger on a shortened max_wait_duration (same comparison as
+      delay) and on any condition edit - a swept run re-evaluates the live condition at
+      wake (advance if it now matches, re-park if not), which keeps fixes to broken
+      conditions taking effect promptly once the poll re-check is gone.
     - wait_until_time_window: trigger on any timing-config change - whether a window edit
       moves a given run's wake earlier depends on each person's timezone and position in
       the week, so it isn't statically decidable.
     - type changed across the timing boundary: parked runs' action_id still points at the
       step, and the new handler should run on the sweep's schedule, not the old wake time.
-    - added/deleted actions never trigger: nothing is parked on a new step, and deleted
-      steps are the graceful-exit path's concern.
+    - deleted timing actions: runs parked on the removed step should wake now and take the
+      skip-forward/graceful-exit path at the sweep's schedule, not at their old wake time
+      (which for a wait_until_condition can be the full max_wait deadline once the poll
+      backstop is gone).
+    - added actions never trigger: nothing is parked on a new step.
     """
     before_by_id = {a["id"]: a for a in (before_actions or []) if isinstance(a, dict) and a.get("id")}
-    action_ids: set[str] = set()
+    after_ids = {a["id"] for a in (after_actions or []) if isinstance(a, dict) and a.get("id")}
+    action_ids: set[str] = {
+        action_id
+        for action_id, before in before_by_id.items()
+        if action_id not in after_ids and before.get("type") in TIMING_ACTION_TYPES
+    }
 
     for action in after_actions or []:
         if not isinstance(action, dict) or not action.get("id"):
@@ -140,6 +149,8 @@ def get_timing_reschedule_action_ids(
                 if before_config.get(duration_key) != after_config.get(duration_key):
                     action_ids.add(action["id"])
             elif after_seconds < before_seconds:
+                action_ids.add(action["id"])
+            if after_type == "wait_until_condition" and before_config.get("condition") != after_config.get("condition"):
                 action_ids.add(action["id"])
         elif after_type == "wait_until_time_window":
             if any(before_config.get(key) != after_config.get(key) for key in _TIME_WINDOW_CONFIG_KEYS):

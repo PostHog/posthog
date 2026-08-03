@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+from croniter import CroniterError, croniter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -20,6 +21,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.limits import AUTO_PAUSE_PROBE_INTERVAL_S
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -180,6 +182,7 @@ def _collect_planned_runs(
     team_configs = _canonicalize_team_config_keys(team_configs or {})
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
+    paused_by_team = _breaker_paused_configs_by_team()
     for team, needs_seed in _participating_teams(enrollment):
         # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
@@ -224,10 +227,11 @@ def _collect_planned_runs(
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
-            overdue_s = _overdue_seconds(config, now)
+            overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
+        due.extend(_collect_probe_runs(paused_by_team.get(team.id, []), live_skills, now))
 
     if not due:
         return []
@@ -377,8 +381,19 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
     wildcard_ids: set[int] = set()
     if enrollment.wildcard:
         # Config rows persist under the canonical parent team, so these ids are already canonical.
+        # Breaker-paused configs keep the team enrolled even when nothing else is enabled: a
+        # wildcard team whose only scout tripped the breaker would otherwise drop out of
+        # participation entirely, and the recovery probe it was promised could never dispatch.
         wildcard_ids = set(
-            SignalScoutConfig.all_teams.filter(enabled=True).values_list("team_id", flat=True).distinct()
+            SignalScoutConfig.all_teams.filter(
+                Q(enabled=True)
+                | Q(
+                    status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                    pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                )
+            )
+            .values_list("team_id", flat=True)
+            .distinct()
         )
     wildcard_ids -= skip_canonical
     wildcard_ids -= explicit  # explicit wins the tag — it gets the seed pass below
@@ -390,8 +405,100 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
     return [(teams[team_id], team_id in explicit) for team_id in sorted(all_ids) if team_id in teams]
 
 
-def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
-    """Seconds past due (down to `-DUE_GRACE_SECONDS`), or None if not yet due. Never-run rows are maximally overdue."""
+def _breaker_paused_configs_by_team() -> dict[int, list[SignalScoutConfig]]:
+    """One cross-team fetch of every lane the failure-streak breaker has paused, keyed by team.
+
+    Deliberately a single fleet-wide query hoisted out of `_collect_planned_runs`'s per-team
+    loop: breaker trips are rare, so a per-team lookup would be one mostly-empty round-trip per
+    participating team per tick. The filter is reason-scoped — only the breaker's own pauses —
+    so a human's pause or another writer's is never fetched, let alone probed. Genuinely
+    cross-team, which is what `all_teams` is for; per-team scoping happens at the call site.
+    """
+    paused_by_team: dict[int, list[SignalScoutConfig]] = {}
+    paused = SignalScoutConfig.all_teams.filter(
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+    )
+    for config in paused:
+        paused_by_team.setdefault(config.team_id, []).append(config)
+    return paused_by_team
+
+
+def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: set[str], now: datetime) -> list[_DueRun]:
+    """The half-open side of the failure-streak breaker: one probe per cooldown for paused lanes.
+
+    A `(team, skill)` lane that fails every run still looks due every tick, and each dispatch
+    takes a sandbox lease for the full runtime cap to produce nothing — so an unrecoverable lane
+    costs a lease per interval indefinitely, with the only trace in the failure event stream.
+    Once the runner trips the breaker (`runner._record_failure_streak` →
+    `transition_status_by_system`), the pause syncs `enabled=False`, so the main dispatch query
+    stops seeing the lane. This is the reason-scoped exception that keeps the breaker half-open:
+    lanes paused with `repeated_failures` — never a human's pause, never another writer's,
+    guaranteed by `_breaker_paused_configs_by_team`'s filter — get one probe per
+    `AUTO_PAUSE_PROBE_INTERVAL_S`. A probe that succeeds resumes the lane
+    (`runner._clear_failure_streak`); a failed probe restarts the cooldown through its own
+    `last_run_at` stamp, with no extra bookkeeping.
+    """
+    probes: list[_DueRun] = []
+    for config in paused_configs:
+        if config.skill_name not in live_skills:
+            continue
+        # `last_run_at` is stamped on every dispatch, including the failed run that tripped the
+        # breaker, so the first probe lands one full cooldown after the trip. A null (possible
+        # only through manual row surgery) probes immediately rather than never.
+        cooldown_elapsed_s = (
+            (now - config.last_run_at).total_seconds() if config.last_run_at else float(AUTO_PAUSE_PROBE_INTERVAL_S)
+        )
+        overdue_s = cooldown_elapsed_s - AUTO_PAUSE_PROBE_INTERVAL_S
+        if overdue_s < 0:
+            continue
+        logger.info(
+            "signals_scout coordinator: dispatching probe for auto-paused scout",
+            team_id=config.team_id,
+            skill_name=config.skill_name,
+            consecutive_failure_count=config.consecutive_failure_count,
+        )
+        probes.append(_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name))
+    return probes
+
+
+def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
+    """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue."""
+    if config.run_cron_schedule:
+        # `schedule_changed_at` (stamped only on actual schedule edits — deliberately not
+        # `updated_at`, which every emit/enabled save bumps) anchors a newly saved schedule so
+        # selecting a future slot waits for that occurrence instead of immediately catching up
+        # against a slot from before the edit. `created_at` covers never-edited rows.
+        schedule_reference = max(
+            reference
+            for reference in (config.last_run_at, config.schedule_changed_at, config.created_at)
+            if reference is not None
+        )
+        local_schedule_reference = schedule_reference.astimezone(project_timezone)
+        try:
+            # First occurrence strictly after the reference. Iterated in *naive* project-local
+            # time and re-localized afterwards: tz-aware croniter preserves the absolute interval
+            # across a DST change (shifting the local hour), but the contract here is wall-clock —
+            # a 9am schedule stays 9am local through DST transitions.
+            naive_slot = croniter(config.run_cron_schedule, local_schedule_reference.replace(tzinfo=None)).get_next(
+                datetime
+            )
+            first_unfulfilled_slot = naive_slot.replace(tzinfo=project_timezone)
+        except CroniterError:
+            # The expression is serializer-validated on write, so this only fires on out-of-band
+            # writes. Fall through to the rolling interval rather than killing the whole tick.
+            logger.warning(
+                "signals_scout_invalid_cron_schedule",
+                config_id=str(config.pk),
+                run_cron_schedule=config.run_cron_schedule,
+            )
+        else:
+            if now < first_unfulfilled_slot:
+                return None
+            # Keep measuring from the first missed slot until dispatch so bounded coordinator ticks
+            # cannot reset a deferred run's priority when the next scheduled slot arrives.
+            return (now - first_unfulfilled_slot).total_seconds()
+
     if config.last_run_at is None:
         return float("inf")
     overdue = (now - config.last_run_at).total_seconds() - config.run_interval_minutes * 60

@@ -12,8 +12,8 @@ import * as zod from 'zod'
 /**
  * Onboard this project onto the organization's existing managed warehouse.
  *
- * Requires a schema name; records the project's membership both in duckgres and in the
- * Django backfill state. Restricted to organization admins.
+ * Requires a schema name and records the project's membership in the Duckgres control plane.
+ * Restricted to organization admins.
  */
 export const DataWarehouseOnboardTeamCreateBody = /* @__PURE__ */ zod.object({
     schema_name: zod
@@ -314,7 +314,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -376,7 +376,7 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -440,7 +440,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -506,7 +506,7 @@ export const WarehouseSavedQueriesAncestorsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -568,7 +568,7 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -634,7 +634,7 @@ export const WarehouseSavedQueriesDescendantsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -696,7 +696,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -761,7 +761,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -823,7 +823,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -888,7 +888,7 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -1000,11 +1000,46 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Turn a previously uploaded file into a self-managed warehouse table.
+ *
+ * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
+ * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
+ * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
+ * fall back to the node role, never a user-supplied key).
+ * @summary Create a self-managed warehouse table from an uploaded file
+ */
+export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({
+    upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
+    filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+    file_format: zod
+        .enum(['csv', 'json', 'parquet'])
+        .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
+        .describe(
+            "How the uploaded file is read: 'csv', 'json', or 'parquet'.\n\n\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet"
+        ),
+    table_name: zod.string().describe('Name the resulting table is queried by in HogQL.'),
+})
+
+/**
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Store an uploaded file in object storage so a self-managed table can be created from it.
+ *
+ * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
+ * this returns an `upload_id` the caller passes back to build the table. The file is written under
+ * a team-scoped prefix, so a table can only ever read back its own team's uploads.
+ * @summary Upload a file for a new self-managed warehouse table
+ */
+export const WarehouseTablesUploadFileCreateBody = /* @__PURE__ */ zod.object({
+    file: zod.instanceof(File).describe('The file to upload.'),
+    file_format: zod.enum(['csv', 'json', 'parquet']).describe('How the file will be read when the table is created.'),
+})
 
 /**
  * Create, Read, Update and Delete View Columns.
@@ -1020,13 +1055,31 @@ export const warehouseViewLinkCreateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinkCreateBodyFieldNameMax = 400
 
 export const WarehouseViewLinkCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinkCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinkCreateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinkCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinkCreateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinkCreateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinkCreateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1043,13 +1096,31 @@ export const warehouseViewLinkUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinkUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinkUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinkUpdateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinkUpdateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinkUpdateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinkUpdateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinkUpdateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1066,13 +1137,36 @@ export const warehouseViewLinkPartialUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinkPartialUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinkPartialUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinkPartialUpdateBodySourceTableNameMax).optional(),
-    source_table_key: zod.string().max(warehouseViewLinkPartialUpdateBodySourceTableKeyMax).optional(),
-    joining_table_name: zod.string().max(warehouseViewLinkPartialUpdateBodyJoiningTableNameMax).optional(),
-    joining_table_key: zod.string().max(warehouseViewLinkPartialUpdateBodyJoiningTableKeyMax).optional(),
-    field_name: zod.string().max(warehouseViewLinkPartialUpdateBodyFieldNameMax).optional(),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodySourceTableNameMax)
+        .optional()
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodySourceTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodyJoiningTableNameMax)
+        .optional()
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodyJoiningTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodyFieldNameMax)
+        .optional()
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1087,10 +1181,22 @@ export const warehouseViewLinkValidateCreateBodySourceTableNameMax = 255
 export const warehouseViewLinkValidateCreateBodySourceTableKeyMax = 255
 
 export const WarehouseViewLinkValidateCreateBody = /* @__PURE__ */ zod.object({
-    joining_table_name: zod.string().max(warehouseViewLinkValidateCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinkValidateCreateBodyJoiningTableKeyMax),
-    source_table_name: zod.string().max(warehouseViewLinkValidateCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinkValidateCreateBodySourceTableKeyMax),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
 })
 
 /**
@@ -1107,13 +1213,31 @@ export const warehouseViewLinksCreateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinksCreateBodyFieldNameMax = 400
 
 export const WarehouseViewLinksCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinksCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinksCreateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinksCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinksCreateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinksCreateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinksCreateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1130,13 +1254,31 @@ export const warehouseViewLinksUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinksUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinksUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinksUpdateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinksUpdateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinksUpdateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinksUpdateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinksUpdateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1153,13 +1295,36 @@ export const warehouseViewLinksPartialUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinksPartialUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinksPartialUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinksPartialUpdateBodySourceTableNameMax).optional(),
-    source_table_key: zod.string().max(warehouseViewLinksPartialUpdateBodySourceTableKeyMax).optional(),
-    joining_table_name: zod.string().max(warehouseViewLinksPartialUpdateBodyJoiningTableNameMax).optional(),
-    joining_table_key: zod.string().max(warehouseViewLinksPartialUpdateBodyJoiningTableKeyMax).optional(),
-    field_name: zod.string().max(warehouseViewLinksPartialUpdateBodyFieldNameMax).optional(),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodySourceTableNameMax)
+        .optional()
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodySourceTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodyJoiningTableNameMax)
+        .optional()
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodyJoiningTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodyFieldNameMax)
+        .optional()
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1174,8 +1339,20 @@ export const warehouseViewLinksValidateCreateBodySourceTableNameMax = 255
 export const warehouseViewLinksValidateCreateBodySourceTableKeyMax = 255
 
 export const WarehouseViewLinksValidateCreateBody = /* @__PURE__ */ zod.object({
-    joining_table_name: zod.string().max(warehouseViewLinksValidateCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinksValidateCreateBodyJoiningTableKeyMax),
-    source_table_name: zod.string().max(warehouseViewLinksValidateCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinksValidateCreateBodySourceTableKeyMax),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
 })

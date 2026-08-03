@@ -2,7 +2,7 @@
 
 Mirrors the frontend "Improve scanner prompt" message: the current prompt plus the rated sessions
 (thumbs down with feedback to fix, thumbs up to keep passing), handed to Gemini for a structured
-rewrite. Suggestions are persisted so the Quality tab can show the current one and its history.
+rewrite. Suggestions are persisted so the calibration tab can show the current one and its history.
 """
 
 import json
@@ -15,6 +15,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
@@ -53,6 +54,10 @@ _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
 _MAX_DISMISSED_EXAMPLES = 3
 _MAX_DISMISSED_PROMPT_CHARS = 600
+# `feedback` is an unbounded TextField, so one pasted log dump would otherwise balloon every future
+# briefing for that scanner (and the per-session tool payload).
+_MAX_BRIEFING_FEEDBACK_CHARS = 600
+_MAX_TOOL_FEEDBACK_CHARS = 2000
 _MAX_TOOL_ROUNDS = 6
 _MAX_SUMMARIES_PER_RUN = 2
 _MAX_TOOL_REASONING_CHARS = 4000
@@ -121,7 +126,17 @@ def _describe_reasoning(observation: ReplayObservation) -> str:
     reasoning = output.get("reasoning")
     if not isinstance(reasoning, str) or not reasoning:
         return ""
-    return reasoning[:_MAX_REASONING_CHARS] + ("…" if len(reasoning) > _MAX_REASONING_CHARS else "")
+    return _clip(reasoning, _MAX_REASONING_CHARS)
+
+
+def _defuse_fence(text: str) -> str:
+    """A rewrite containing \"\"\" would close its own fence early and have the remainder read as briefing
+    instructions."""
+    return text.replace('"""', "'''")
+
+
+def _clip(text: str, limit: int) -> str:
+    return text[:limit] + "…" if len(text) > limit else text
 
 
 def _label(observation: ReplayObservation) -> ReplayObservationLabel:
@@ -133,7 +148,8 @@ def _example_line(observation: ReplayObservation) -> str:
     label = _label(observation)
     parts = [f"- Session {observation.session_id}. Scanner output: {_describe_outcome(observation)}"]
     if label.feedback:
-        parts.append(f"{'What it should be' if not label.is_correct else 'Note'}: {label.feedback}")
+        feedback = _clip(label.feedback, _MAX_BRIEFING_FEEDBACK_CHARS)
+        parts.append(f"{'What it should be' if not label.is_correct else 'Note'}: {feedback}")
     reasoning = _describe_reasoning(observation)
     if reasoning:
         parts.append(f"Its reasoning: {reasoning}")
@@ -187,10 +203,8 @@ def _dismissed_lines(scanner: ReplayScanner) -> list[str]:
         "Previously rejected rewrites (the team dismissed these; do not propose them again or close variations):",
     ]
     for suggestion in dismissed:
-        prompt = suggestion.suggested_prompt
-        if len(prompt) > _MAX_DISMISSED_PROMPT_CHARS:
-            prompt = prompt[:_MAX_DISMISSED_PROMPT_CHARS] + "…"
-        lines.append(f'- """{prompt}"""')
+        prompt = _clip(suggestion.suggested_prompt, _MAX_DISMISSED_PROMPT_CHARS)
+        lines.append(f'- """{_defuse_fence(prompt)}"""')
     return lines
 
 
@@ -205,7 +219,7 @@ def _build_user_content(
         "",
         "Current prompt:",
         '"""',
-        str(base_config.get("prompt", "")),
+        _defuse_fence(str(base_config.get("prompt", ""))),
         '"""',
     ]
     if wrong:
@@ -227,11 +241,16 @@ def _build_user_content(
 
 def _gemini_client() -> GeminiClient:
     # The generate endpoint runs inline in a web worker, so a hung provider call must time out.
-    return genai.Client(
-        api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
+    try:
+        return genai.Client(
+            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
+    except Exception as e:
+        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # the friendly 400 instead of a 500.
+        raise PromptSuggestionError("model client unavailable") from e
 
 
 def _parse_llm_output(text: str) -> dict[str, Any]:
@@ -363,7 +382,7 @@ def _tool_get_rated_observation(state: _AgentToolState, session_id: str) -> dict
         "output": _describe_outcome(observation),
         "reasoning": reasoning[:_MAX_TOOL_REASONING_CHARS],
         "rating": "thumbs_up" if label.is_correct else "thumbs_down",
-        "feedback": label.feedback,
+        "feedback": _clip(label.feedback, _MAX_TOOL_FEEDBACK_CHARS),
         "prompt_version": snapshot.get("scanner_version"),
     }
 
@@ -585,7 +604,7 @@ def generate_prompt_suggestion(
     base_config = dict(scanner.scanner_config or {})
     distinct_id = str(user.uuid) if user else f"replay-vision-scanner-{scanner.id}"
     try:
-        # Fresh themes feed the briefing below and the Quality tab's chips; stale ones beat none.
+        # Fresh themes feed the briefing below and the calibration tab's chips; stale ones beat none.
         refresh_feedback_themes_if_stale(scanner, distinct_id=distinct_id)
     except Exception:
         logger.exception("replay_vision.feedback_themes.refresh_failed", scanner_id=str(scanner.id))
@@ -615,7 +634,16 @@ def generate_prompt_suggestion(
     # The change list is the source of truth for "did anything meaningful change": dict equality trips on
     # keys a proposer always injects (e.g. a defaulted allow_inconclusive) that the stored config never had.
     status = SuggestionStatus.NO_CHANGE if not changes else SuggestionStatus.PENDING
-    up = len([o for o in observations if _label(o).is_correct])
+    # Count the full rated set, not the capped briefing slice: the agent can page through every rated
+    # session via its tools, and the UI shows these next to chart totals computed over all ratings.
+    label_counts = ReplayObservation.objects.filter(
+        team_id=scanner.team_id,
+        scanner_id=scanner.id,
+        status=ObservationStatus.SUCCEEDED,
+        label__isnull=False,
+    ).aggregate(up=Count("id", filter=Q(label__is_correct=True)), total=Count("id"))
+    up = label_counts["up"] or 0
+    down = (label_counts["total"] or 0) - up
     with transaction.atomic():
         # Serialize per scanner: a manual generate racing the sweep refresh must not leave two pending rows.
         ReplayScanner.objects.select_for_update().filter(team_id=scanner.team_id, pk=scanner.pk).first()
@@ -634,7 +662,7 @@ def generate_prompt_suggestion(
             rationale=str(llm_output.get("rationale", "")).strip(),
             status=status,
             based_on_up=up,
-            based_on_down=len(observations) - up,
+            based_on_down=down,
             labels_fingerprint=labels_fingerprint(scanner),
             scanner_version=scanner.scanner_version,
             created_by=user,

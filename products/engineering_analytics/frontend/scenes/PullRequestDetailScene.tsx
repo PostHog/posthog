@@ -606,6 +606,8 @@ function PrWorkflowsTable({
     ]
     return (
         <LemonTable
+            // Namespaces the page search param so paging can't move other tables sharing this URL.
+            id="pr-workflows"
             dataSource={orderedRows}
             columns={columns}
             size="small"
@@ -630,6 +632,7 @@ function PrWorkflowsTable({
                     />
                 ),
             }}
+            pagination={{ pageSize: 10 }}
             emptyState="No CI runs match."
             nouns={['workflow', 'workflows']}
         />

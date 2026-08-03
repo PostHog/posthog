@@ -7,7 +7,8 @@ import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { TicketStatus } from '../../types'
+import type { TicketChannel, TicketStatus } from '../../types'
+import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 
 export interface MessageInputProps {
@@ -20,6 +21,8 @@ export interface MessageInputProps {
     ) => void
     messageSending: boolean
     placeholder?: string
+    /** Channel the ticket came from; drives the default placeholder and the send-button logo */
+    channel?: TicketChannel
     buttonText?: string
     minRows?: number
     /** Whether to show the "Send as private" checkbox */
@@ -36,6 +39,8 @@ export interface MessageInputProps {
     extraActions?: React.ReactNode
     /** Blocks sending customer-facing messages (private notes stay available). Shown as the button's disabled tooltip. */
     replyDisabledReason?: string | JSX.Element
+    /** Blocks sending entirely, including private notes (e.g. the user lacks edit access). Takes precedence. */
+    sendDisabledReason?: string | JSX.Element
     /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
     draftMode?: boolean
     /** Called when the draft-mode toggle changes; when provided, the toggle renders left of the send button */
@@ -51,7 +56,8 @@ export interface MessageInputProps {
 export function MessageInput({
     onSendMessage,
     messageSending,
-    placeholder = 'Type your message...',
+    placeholder,
+    channel,
     buttonText = 'Send',
     minRows = 3,
     showPrivateOption = false,
@@ -61,6 +67,7 @@ export function MessageInput({
     onPrivateChange,
     extraActions,
     replyDisabledReason,
+    sendDisabledReason,
     draftMode = false,
     onDraftModeChange,
     sendConfirmationMessage,
@@ -80,11 +87,13 @@ export function MessageInput({
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
+    const resolvedPlaceholder = placeholder ?? (isPrivate ? 'Type your private note...' : getReplyPlaceholder(channel))
+    const showChannelLogo = !isPrivate && hasReplyChannelBranding(channel)
     const sendVerb = isPrivate ? 'Attach' : 'Send'
 
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {
-        // These guard the Cmd+Enter path, which bypasses the (disabled) button.
-        if (replyDisabledReason && !isPrivate) {
+        // These guard the Cmd+Enter path, which bypasses the disabled button.
+        if (sendDisabledReason || (replyDisabledReason && !isPrivate)) {
             return
         }
         if (messageSending || isUploading) {
@@ -154,20 +163,27 @@ export function MessageInput({
         }
     }
 
-    const sendBlockedReason =
-        replyDisabledReason && !isPrivate
-            ? replyDisabledReason
-            : isEmpty
-              ? 'No message'
-              : isUploading
-                ? 'Uploading image...'
-                : undefined
+    const sendBlockedReason = sendDisabledReason
+        ? sendDisabledReason
+        : replyDisabledReason && !isPrivate
+          ? replyDisabledReason
+          : isEmpty
+            ? 'No message'
+            : isUploading
+              ? 'Uploading image...'
+              : undefined
+    const sendControlDisabledReason =
+        typeof sendDisabledReason === 'string'
+            ? sendDisabledReason
+            : sendDisabledReason
+              ? 'Sending is disabled'
+              : undefined
 
     return (
         <div>
             <SupportEditor
                 initialContent={draftContent}
-                placeholder={placeholder}
+                placeholder={resolvedPlaceholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
                     if (draftContent) {
@@ -177,7 +193,7 @@ export function MessageInput({
                 onUpdate={handleUpdate}
                 onPressCmdEnter={() => handleSubmit()}
                 onUploadingChange={setIsUploading}
-                disabled={messageSending}
+                disabled={messageSending || !!sendDisabledReason}
                 minRows={minRows}
                 className={
                     isPrivate
@@ -194,6 +210,7 @@ export function MessageInput({
                             <LemonCheckbox
                                 checked={isPrivate}
                                 onChange={setIsPrivate}
+                                disabledReason={sendControlDisabledReason}
                                 label={
                                     <span className="inline-flex items-center gap-1">
                                         <IconLock className="text-sm" />
@@ -216,7 +233,10 @@ export function MessageInput({
                                     checked={draftMode}
                                     onChange={onDraftModeChange}
                                     label="Draft mode"
-                                    disabledReason={isPrivate ? 'Draft mode has no effect on private notes' : undefined}
+                                    disabledReason={
+                                        sendControlDisabledReason ??
+                                        (isPrivate ? 'Draft mode has no effect on private notes' : undefined)
+                                    }
                                 />
                             </span>
                         </Tooltip>
@@ -250,7 +270,16 @@ export function MessageInput({
                                 : undefined
                         }
                     >
-                        {isPrivate ? 'Attach' : buttonText}
+                        {isPrivate ? (
+                            'Attach'
+                        ) : showChannelLogo ? (
+                            <span className="inline-flex items-center gap-1.5">
+                                {buttonText}
+                                <span className="text-sm dark:grayscale">{channelIcon[channel]}</span>
+                            </span>
+                        ) : (
+                            buttonText
+                        )}
                     </LemonButton>
                 </div>
             </div>

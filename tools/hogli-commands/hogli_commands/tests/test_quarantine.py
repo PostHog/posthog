@@ -100,6 +100,8 @@ def test_selector_matches(selector: str, test_id: str, expected: bool) -> None:
         ("frontend/src/x test.ts::name", "jest", False),  # whitespace in the path part
         ("::name-only", "jest", False),  # missing file path before ::
         ("product:batch_exports", "jest", False),  # underscored product form
+        ("playwright/e2e/login.spec.ts::Login redirects home", "playwright", True),  # spaces allowed after ::
+        ("playwright/e2e/login file.spec.ts::Login", "playwright", False),  # whitespace in the path part
         ("anything at all", "some-future-runner", True),  # unadapted runner: not validated
     ],
 )
@@ -408,8 +410,22 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
         ),
         # forward compat: a runner without an adapter (and an unknown field) warn but pass
         ([raw_entry(runner="some-future-runner", future_field="x")], 0, "no enforcement adapter"),
-        # jest now has an enforcement adapter; a valid jest entry passes clean
+        # a hand-edited future-dated entry must fail check, not sit active for years
+        (
+            [
+                raw_entry(
+                    runner="playwright",
+                    id="playwright/e2e/x.spec.ts",
+                    added=(core.today_utc() + timedelta(days=365)).isoformat(),
+                    expires=(core.today_utc() + timedelta(days=395)).isoformat(),
+                )
+            ],
+            1,
+            "is in the future",
+        ),
+        # jest and playwright have enforcement adapters; valid entries pass clean
         ([raw_entry(runner="jest", id="frontend/src/x.test.ts")], 0, "OK"),
+        ([raw_entry(runner="playwright", id="playwright/e2e/login.spec.ts::Login redirects home")], 0, "OK"),
         # known-product selector passes; unknown product fails
         ([raw_entry(id="product:batch-exports")], 0, "OK"),
         ([raw_entry(id="product:batch_exports")], 1, "dashed product name"),

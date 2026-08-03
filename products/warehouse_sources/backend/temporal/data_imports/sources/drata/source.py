@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.drata import (
     DrataResumeConfig,
     drata_source,
@@ -107,6 +104,7 @@ You can create an API key under **Settings → API keys** in [Drata](https://app
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only events exposes a server-side timestamp filter (createdAtStartDate), so it is the
         # only endpoint that supports incremental sync.
@@ -127,7 +125,7 @@ You can create an API key under **Settings → API keys** in [Drata](https://app
         return schemas
 
     def validate_credentials(
-        self, config: DrataSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DrataSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide; one probe validates the token itself. Per-endpoint scopes
         # are surfaced at sync time via get_non_retryable_errors.

@@ -5,6 +5,9 @@ import { IconArrowUpRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus } from '../../types'
@@ -22,7 +25,7 @@ const STATUS_TAG: Record<AgentRosterStatus, { label: string; type: LemonTagType 
 
 function resolveAgentStatus(
     armed: boolean,
-    syncStatus: SignalSourceConfigStatus | null | undefined
+    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
 ): AgentRosterStatus {
     if (!armed) {
         return 'standby'
@@ -42,7 +45,7 @@ interface AgentSourceState {
     loading: boolean
     /** True for data-warehouse sources that haven't been connected yet – shows a Connect button. */
     requiresSetup: boolean
-    syncStatus: SignalSourceConfigStatus | null | undefined
+    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
 }
 
 function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element {
@@ -158,6 +161,9 @@ export function AgentsRoster(): JSX.Element {
         zendeskTicketsConfig,
         pgAnalyzeIssuesConfig,
         healthChecksConfig,
+        ciSignalsConfig,
+        ciSignalsConfigLoading,
+        ciSignalsIsFullyEnabled,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isConversationsToggling,
@@ -169,16 +175,19 @@ export function AgentsRoster(): JSX.Element {
         isZendeskTicketsToggling,
         isPgAnalyzeIssuesToggling,
         isHealthChecksToggling,
+        isCiSignalsToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
         toggleConversations,
         toggleErrorTracking,
         toggleEvalReports,
+        toggleCiSignals,
         toggleAnomalyInvestigation,
         toggleHealthChecks,
         initiateDataWarehouseSourceToggle,
     } = useActions(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const stateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {
@@ -240,6 +249,14 @@ export function AgentsRoster(): JSX.Element {
                     return dwState(zendeskTicketsConfig, isZendeskTicketsToggling)
                 case 'pganalyze':
                     return dwState(pgAnalyzeIssuesConfig, isPgAnalyzeIssuesToggling)
+                case 'engineering_analytics':
+                    return {
+                        armed: ciSignalsIsFullyEnabled,
+                        // Config load counts as loading: rendering Connect before it resolves misleads.
+                        loading: isCiSignalsToggling || ciSignalsConfigLoading,
+                        requiresSetup: !(ciSignalsConfig?.configured ?? false),
+                        syncStatus: ciSignalsConfig?.sync_status,
+                    }
             }
         },
         [
@@ -263,6 +280,10 @@ export function AgentsRoster(): JSX.Element {
             isZendeskTicketsToggling,
             pgAnalyzeIssuesConfig,
             isPgAnalyzeIssuesToggling,
+            ciSignalsConfig,
+            ciSignalsConfigLoading,
+            ciSignalsIsFullyEnabled,
+            isCiSignalsToggling,
         ]
     )
 
@@ -288,16 +309,13 @@ export function AgentsRoster(): JSX.Element {
                     toggleHealthChecks()
                     return
                 case 'github':
-                    initiateDataWarehouseSourceToggle('Github')
-                    return
                 case 'linear':
-                    initiateDataWarehouseSourceToggle('Linear')
-                    return
                 case 'zendesk':
-                    initiateDataWarehouseSourceToggle('Zendesk')
-                    return
                 case 'pganalyze':
-                    initiateDataWarehouseSourceToggle('PgAnalyze')
+                    initiateDataWarehouseSourceToggle(source)
+                    return
+                case 'engineering_analytics':
+                    toggleCiSignals()
                     return
             }
         },
@@ -306,6 +324,7 @@ export function AgentsRoster(): JSX.Element {
             toggleConversations,
             toggleSessionAnalysis,
             toggleEvalReports,
+            toggleCiSignals,
             toggleAnomalyInvestigation,
             toggleHealthChecks,
             initiateDataWarehouseSourceToggle,
@@ -318,14 +337,16 @@ export function AgentsRoster(): JSX.Element {
                 <div key={group.label} className="flex flex-col gap-2">
                     <span className="text-[13px] font-medium text-muted">{group.label}</span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {group.agents.map((agent) => (
-                            <AgentCard
-                                key={agent.source}
-                                agent={agent}
-                                state={stateFor(agent.source)}
-                                onToggle={handleToggle}
-                            />
-                        ))}
+                        {group.agents
+                            .filter((agent) => !agent.flag || featureFlags[agent.flag])
+                            .map((agent) => (
+                                <AgentCard
+                                    key={agent.source}
+                                    agent={agent}
+                                    state={stateFor(agent.source)}
+                                    onToggle={handleToggle}
+                                />
+                            ))}
                     </div>
                 </div>
             ))}

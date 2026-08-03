@@ -128,20 +128,23 @@ describe('ml-mirror-pipeline', () => {
     })
 
     function buildPipeline(): ReturnType<typeof createMlMirrorReplayPipeline> {
-        return createMlMirrorReplayPipeline({
-            outputs,
-            eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
-            overflowMode: 'disabled',
-            promiseScheduler,
-            teamService: mockTeamService,
-            retentionService,
-            sessionTracker,
-            sessionFilter,
-            keyStore,
-            sessionKeyResolutionMaxConcurrency: 20,
-            topHog,
-            isDebugLoggingEnabled: () => false,
-        })
+        return createMlMirrorReplayPipeline(
+            {
+                outputs,
+                eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
+                overflowMode: 'disabled',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                isDebugLoggingEnabled: () => false,
+            },
+            { anonymizeMaxConcurrency: 4 }
+        )
     }
 
     function message(sessionId: string): Message {

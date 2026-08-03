@@ -28,20 +28,6 @@
             "readOnlyHint": true
         }
     },
-    "agent-resolve-resource": {
-        "description": "Fetch a builder playbook — a markdown guide for using the agent-platform authoring tools well, returned with the live, scope-aware tool surface for the operation. Resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown plus the tool surface.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Fetch an agent-platform operator playbook (markdown).",
-        "title": "Resolve an agent operator playbook",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": true
-        }
-    },
     "experiment-results-get": {
         "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
@@ -309,7 +295,7 @@
         }
     },
     "evaluation-test-hog": {
-        "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
+        "description": "Test Hog evaluation code against recent data without persisting results. Compiles the provided Hog source code and runs it against a sample from the last 7 days — set target to 'generation' to sample individual $ai_generation events or 'trace' to sample whole traces and run against trace-level globals. Returns per-sample results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Dry-run Hog evaluation code against sample events.",
@@ -330,9 +316,70 @@
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
         "feature_flag": "notebooks-collaboration",
+        "hidden_when_flag_on": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-create-markdown": {
+        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create a markdown notebook for executable cells.",
+        "title": "Create markdown notebook",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-add-cell": {
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
+        "title": "Add notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-update-cell": {
+        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Update a cell's code and re-run it.",
+        "title": "Update notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-delete-cell": {
+        "description": "Delete a cell from a markdown notebook by node_id. Nothing downstream is touched: the response lists orphaned_dependents — cells that referenced the deleted cell's dataframe and now need rewriting or deleting. The kernel keeps any already-materialized dataframe until it restarts, so a dependent may still run against the deleted cell's last result; rewrite dependents promptly.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Delete a notebook cell.",
+        "title": "Delete notebook cell",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -400,6 +447,20 @@
         "summary": "Update an event definition's metadata.",
         "title": "Update event definition",
         "required_scopes": ["event_definition:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "property-definition-update": {
+        "description": "Update property definition metadata. Can update description, tags, property type (DateTime, String, Numeric, Boolean, Duration), and mark status as verified or hidden. Use the exact property name like '$browser' or 'plan_type'. Pass 'type' to target event, person, group, or session properties (defaults to event); for group properties also pass 'groupTypeIndex'. Note: passing 'tags' replaces the property's entire tag list rather than merging, so include any existing tags you want to keep.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Update a property definition's metadata.",
+        "title": "Update property definition",
+        "required_scopes": ["property_definition:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -705,7 +766,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",
@@ -719,7 +780,7 @@
         }
     },
     "workflows-run-batch": {
-        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
+        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count AND the confirm_token from that same workflows-blast-radius preview; the API rejects dispatch without the token, on audience drift, over the cap, or after 15 minutes.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Run batch workflow",

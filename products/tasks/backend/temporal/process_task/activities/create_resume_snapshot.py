@@ -19,6 +19,12 @@ from products.tasks.backend.temporal.metrics import increment_snapshot_create, r
 
 logger = structlog.get_logger(__name__)
 
+# Both callers (process_task and execute_sandbox workflows) give this activity a
+# 5-minute start_to_close budget; the Modal-side snapshot timeout must be tighter so
+# a slow snapshot surfaces as the classified SnapshotTimeoutError instead of Temporal
+# killing the attempt first.
+RESUME_SNAPSHOT_TIMEOUT_SECONDS = 4 * 60
+
 PENDING_USER_STATE_KEYS = [
     "pending_user_message",
     "pending_user_artifact_ids",
@@ -81,7 +87,7 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         if snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
             external_id = sandbox.create_directory_snapshot(snapshot_mount_path)
         else:
-            external_id = sandbox.create_snapshot()
+            external_id = sandbox.create_snapshot(timeout_seconds=RESUME_SNAPSHOT_TIMEOUT_SECONDS)
     except SnapshotTimeoutError as e:
         outcome = "transient_error"
         logger.warning("create_resume_snapshot_transient_error", sandbox_id=input.sandbox_id, error=str(e))

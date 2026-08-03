@@ -1,5 +1,7 @@
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
+import type { AccessControlLevel } from '~/types'
+
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
 
@@ -28,7 +30,7 @@ export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
-    if (value === 'unassigned') {
+    if (value === 'unassigned' || value === 'me') {
         return true
     }
     if (typeof value !== 'object' || value === null) {
@@ -176,9 +178,12 @@ export interface Ticket {
     github_issue_number?: number | null
     zendesk_ticket_id?: number | null
     organization_id?: string | null
+    organization_id_source?: string | null
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
+    /** The effective access level the current user has for this ticket. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface ConversationTicket {

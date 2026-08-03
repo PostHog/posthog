@@ -45,4 +45,4 @@ Code that branches on the literal region (`get_instance_region()`, `region == "U
 
 `COMPACT_IN_REGION` controls which Cloud region registers the daily AI checkpoint compaction schedule. It defaults to `US`; set it explicitly only when moving the rollout to another region.
 
-See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog Code sandbox providers.
+See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog Desktop sandbox providers.

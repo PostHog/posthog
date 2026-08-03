@@ -682,7 +682,7 @@ export interface TicketPersonApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
     readonly id: string
@@ -761,8 +761,18 @@ export interface TicketApi {
      * @nullable
      */
     readonly organization_id: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedTicketListApi {
@@ -775,7 +785,7 @@ export interface PaginatedTicketListApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * Mixin for serializers to add user access control fields
  */
 export interface PatchedTicketApi {
     readonly id?: string
@@ -854,8 +864,18 @@ export interface PatchedTicketApi {
      * @nullable
      */
     readonly organization_id?: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -1183,7 +1203,7 @@ export type ConversationsListParams = {
 
 export type ConversationsTicketsListParams = {
     /**
-     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
+     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string
     /**
@@ -1207,6 +1227,10 @@ export type ConversationsTicketsListParams = {
      */
     distinct_ids?: string
     /**
+     * Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).
+     */
+    emails?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1223,7 +1247,7 @@ export type ConversationsTicketsListParams = {
      */
     priority?: string
     /**
-     * Free-text search. A numeric value matches a ticket number exactly; otherwise matches against the customer's name or email (case-insensitive, partial match).
+     * Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match).
      */
     search?: string
     /**

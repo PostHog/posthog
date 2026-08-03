@@ -72,8 +72,9 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
@@ -952,9 +953,9 @@ class SessionRecordingViewSet(
                     )
 
                     return response
-        except CHQueryErrorTooManySimultaneousQueries:
-            _count_session_recording_throttled(location="too_many_simultaneous_queries", auth_type=auth_type)
-            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except ClickHouseAtCapacity:
+            _count_session_recording_throttled(location="clickhouse_at_capacity", auth_type=auth_type)
+            raise Throttled(detail="ClickHouse is at capacity. Try again later.")
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
             # event) is the caller's problem, not a server error. Surface the actual reason as a 400
@@ -1041,7 +1042,13 @@ class SessionRecordingViewSet(
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
-        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        try:
+            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        except Exception as e:
+            # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
+            # it should just render empty like a session with no matching event would.
+            capture_exception(e)
+            properties = None
         return Response({"properties": properties})
 
     # Returns metadata about the recording
@@ -1492,7 +1499,7 @@ class SessionRecordingViewSet(
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
+            is_ch_error = isinstance(e, ClickHouseAtCapacity)
 
             message = (
                 "ClickHouse over capacity. Please retry"
@@ -1538,7 +1545,7 @@ class SessionRecordingViewSet(
             )
 
     @retry(
-        retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
+        retry=retry_if_exception_type(ClickHouseAtCapacity),
         # if retrying doesn't work, raise the actual error, not a retry error
         reraise=True,
         # try again after 0.2 seconds

@@ -1,22 +1,33 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 
 import { Experiment } from '~/types'
 
 import { isLaunched } from '../experimentStatus'
-import { EXPOSURE_UNLINKABLE_REASON, METRIC_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
-import { experimentReplayTabLogic } from './experimentReplayTabLogic'
+import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
+import { ExperimentReplayMetricOption, experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
-// LemonSegmentedButton values must be strings; the logic stores null for "All". Variant keys are
-// restricted to [a-zA-Z0-9_-], so the '$' prefix guarantees no collision with a real variant — a
-// variant literally named "all" just renders as its own option after the built-in "All".
+// LemonSegmentedButton values must be strings; the logic stores null for "All". '$' is not an
+// allowed character in variant keys, so the '$' prefix guarantees no collision with a real
+// variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
 
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
@@ -26,10 +37,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         variantKeys,
         recordingsFilters,
         exposureUnlinkable,
+        usingExposureFallback,
         effectiveMetricUuids,
         metricOptions,
     } = useValues(logic)
-    const { setSelectedVariantKey, setMetricSelected } = useActions(logic)
+    const { setSelectedVariantKey, setMetricSelected, recordingsLoaded, recordingOpened } = useActions(logic)
 
     if (!isLaunched(experiment)) {
         return <LemonBanner type="info">Launch the experiment to see recordings of participants.</LemonBanner>
@@ -39,8 +51,28 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         return <LemonBanner type="warning">{EXPOSURE_UNLINKABLE_REASON}</LemonBanner>
     }
 
+    // Selectable metrics render as checkboxes. Unlinkable ones move to labelled sections that
+    // explain once, via a section tooltip, why they can't be matched — instead of repeating the
+    // same reason on every row. One section per distinct reason, since metrics can be unmatchable
+    // for different reasons (server-side events, a retention window, data-warehouse-only sources).
+    const linkableMetricOptions = metricOptions.filter((option) => !option.unlinkable)
+    const unlinkableOptionsByReason = new Map<string, ExperimentReplayMetricOption[]>()
+    for (const option of metricOptions) {
+        if (option.unlinkable && option.unlinkableReason) {
+            unlinkableOptionsByReason.set(option.unlinkableReason, [
+                ...(unlinkableOptionsByReason.get(option.unlinkableReason) ?? []),
+                option,
+            ])
+        }
+    }
+
     return (
         <div data-attr="experiment-recordings-tab">
+            {usingExposureFallback && (
+                <LemonBanner type="info" className="mb-2">
+                    {EXPOSURE_FALLBACK_NOTICE}
+                </LemonBanner>
+            )}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"
@@ -69,28 +101,45 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                 : 'Metric events'}
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="min-w-fit max-w-100">
-                            {metricOptions.map((option) => (
+                            {linkableMetricOptions.map((option) => (
                                 <DropdownMenuCheckboxItem
                                     key={option.uuid}
                                     checked={effectiveMetricUuids.includes(option.uuid)}
                                     onCheckedChange={(checked: boolean) => setMetricSelected(option.uuid, checked)}
                                     closeOnClick={false}
-                                    disabled={option.unlinkable}
                                     data-attr="experiment-recordings-metric-option"
                                 >
-                                    {option.unlinkable ? (
-                                        // Disabled items get pointer-events: none, so a tooltip can't
-                                        // explain them — the reason renders inline instead.
-                                        <span className="flex flex-col items-start text-left">
-                                            <span>{option.name}</span>
-                                            <span className="text-muted whitespace-normal">
-                                                {METRIC_UNLINKABLE_REASON}
-                                            </span>
-                                        </span>
-                                    ) : (
-                                        option.name
-                                    )}
+                                    {option.name}
                                 </DropdownMenuCheckboxItem>
+                            ))}
+                            {[...unlinkableOptionsByReason.entries()].map(([reason, options], index) => (
+                                // Fragment, not a wrapper element: the separator, label, and items
+                                // must stay direct children of the menu for keyboard nav and ARIA.
+                                <Fragment key={reason}>
+                                    {(linkableMetricOptions.length > 0 || index > 0) && <DropdownMenuSeparator />}
+                                    {/* Quill's DropdownMenuLabel renders a Base UI GroupLabel, which must
+                                        live inside a DropdownMenuGroup or it throws at render. */}
+                                    <DropdownMenuGroup>
+                                        <DropdownMenuLabel inset className="flex items-center gap-1">
+                                            Can't match to recordings
+                                            <Tooltip title={reason}>
+                                                <IconInfo className="size-3 shrink-0" />
+                                            </Tooltip>
+                                        </DropdownMenuLabel>
+                                        {options.map((option) => (
+                                            // Informational only — not selectable. The section label above
+                                            // carries the explanation shared by this section's metrics.
+                                            <DropdownMenuItem
+                                                key={option.uuid}
+                                                inset
+                                                disabled
+                                                data-attr="experiment-recordings-metric-option"
+                                            >
+                                                {option.name}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuGroup>
+                                </Fragment>
                             ))}
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -101,6 +150,8 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     logicKey={`experiment-${experiment.id}`}
                     filters={recordingsFilters}
                     updateSearchParams={false}
+                    onRecordingsLoaded={(recordings) => recordingsLoaded(recordings.map((recording) => recording.id))}
+                    onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
                 />
             </div>
         </div>

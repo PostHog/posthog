@@ -821,6 +821,7 @@ class LazyComputationExecutor:
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
         stale_while_revalidate_seconds: float | None = None,
+        run_inserts: bool = True,
     ) -> None:
         if stale_while_revalidate_seconds is not None and stale_while_revalidate_seconds >= EXPIRY_BUFFER_SECONDS:
             raise ValueError("stale_while_revalidate_seconds must be below EXPIRY_BUFFER_SECONDS")
@@ -832,6 +833,11 @@ class LazyComputationExecutor:
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
         self.ch_start_grace_period_seconds = ch_start_grace_period_seconds
         self.stale_while_revalidate_seconds = stale_while_revalidate_seconds
+        # Check-only mode: never create jobs or wait on pending ones. A request
+        # either gets served from covering READY jobs (fresh, or stale within the
+        # revalidate grace) or is told `ready=False` immediately so it can fall
+        # back to a live query while something else computes in the background.
+        self.run_inserts = run_inserts
 
     def execute(
         self,
@@ -871,7 +877,11 @@ class LazyComputationExecutor:
         had_ready_at_start: bool | None = None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
-            if jobs_created == 0 and not waited_job_ids:
+            if outcome == "check_miss":
+                # Check-only misses return before any job is created or waited on,
+                # which the branch below would misread as a cache hit.
+                cache_state = "partial_hit" if had_ready_at_start else "miss"
+            elif jobs_created == 0 and not waited_job_ids:
                 cache_state = "hit"
             elif had_ready_at_start:
                 cache_state = "partial_hit"
@@ -943,6 +953,17 @@ class LazyComputationExecutor:
                         )
                         _log_execution("stale_hit", result)
                         return result
+
+                # Check-only mode: the range isn't fully covered by servable READY
+                # jobs (the stale-serve above would have returned), and this request
+                # must not compute inline or block on someone else's pending job —
+                # report the miss so the caller serves live and warms in background.
+                if not self.run_inserts and (ttl_ranges or pending_jobs):
+                    result = LazyComputationResult(
+                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                    )
+                    _log_execution("check_miss", result)
+                    return result
 
                 # Step 3: Insert missing ranges
                 did_work = False
@@ -1196,6 +1217,7 @@ def ensure_precomputed(
     wait_timeout_seconds: float | None = None,
     stale_while_revalidate_seconds: float | None = None,
     modifiers: HogQLQueryModifiers | None = None,
+    run_inserts: bool = True,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1348,6 +1370,7 @@ def ensure_precomputed(
         ttl_schedule=ttl_schedule,
         wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
+        run_inserts=run_inserts,
     )
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 

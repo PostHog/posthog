@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.codecov import (
     CodecovResumeConfig,
     codecov_source,
@@ -31,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codecov import (
     CodecovSourceConfig,
 )
@@ -144,6 +141,7 @@ By default all of the owner's active repositories are synced; enter a comma-sepa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Incremental syncs re-pull boundary rows (a whole page for commits, the boundary
         # interval for the coverage trend); only merge dedupes those on the primary key, so
@@ -166,7 +164,11 @@ By default all of the owner's active repositories are synced; enter a comma-sepa
         return schemas
 
     def validate_credentials(
-        self, config: CodecovSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CodecovSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_codecov_credentials(config.api_token, config.service, config.owner_username)
         if is_valid:

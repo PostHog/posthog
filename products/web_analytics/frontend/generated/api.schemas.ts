@@ -96,6 +96,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface HeatmapScreenshotResponseApi {
     readonly id: string
     /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
@@ -147,6 +150,11 @@ export interface HeatmapScreenshotResponseApi {
      * @nullable
      */
     readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface HeatmapResponseItemApi {
@@ -272,6 +280,66 @@ export interface PatchedSavedHeatmapRequestApi {
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
+}
+
+export interface HeatmapPreflightRequestApi {
+    /** Exact page URL to probe. Wildcards are not allowed. This is the URL that would be loaded in the live preview iframe, not the data URL used to look up heatmap events. */
+    url: string
+}
+
+/**
+ * * `allowed` - allowed
+ * * `blocked` - blocked
+ * * `unknown` - unknown
+ */
+export type FramingEnumApi = (typeof FramingEnumApi)[keyof typeof FramingEnumApi]
+
+export const FramingEnumApi = {
+    Allowed: 'allowed',
+    Blocked: 'blocked',
+    Unknown: 'unknown',
+} as const
+
+/**
+ * * `x_frame_options` - x_frame_options
+ * * `frame_ancestors` - frame_ancestors
+ */
+export type BlockedByEnumApi = (typeof BlockedByEnumApi)[keyof typeof BlockedByEnumApi]
+
+export const BlockedByEnumApi = {
+    XFrameOptions: 'x_frame_options',
+    FrameAncestors: 'frame_ancestors',
+} as const
+
+export interface HeatmapPreflightResponseApi {
+    /** Whether the page can be embedded in the live preview iframe. 'blocked' means the site's own headers forbid it, so only a screenshot or session recording background can work. 'unknown' means we could not tell, for example because the page was unreachable or redirected.
+     *
+     * * `allowed` - allowed
+     * * `blocked` - blocked
+     * * `unknown` - unknown */
+    framing: FramingEnumApi
+    /** Which response header forbids embedding, when framing is 'blocked'. Null otherwise.
+     *
+     * * `x_frame_options` - x_frame_options
+     * * `frame_ancestors` - frame_ancestors */
+    blocked_by: BlockedByEnumApi | null
+    /**
+     * HTTP status the page returned to us. A 4xx or 5xx here points at the customer's host or CDN rather than at PostHog. Null when the page could not be reached at all.
+     * @nullable
+     */
+    http_status: number | null
+    /**
+     * Short whitespace-collapsed excerpt of the response body, only present for non-2xx responses, so the user can see what their host returned. Truncated.
+     * @nullable
+     */
+    body_excerpt: string | null
+}
+
+export interface HeatmapPrewarmRequestApi {
+    /** Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed. */
+    url: string
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused. */
     block_consent_modals?: boolean
 }
 

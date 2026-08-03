@@ -21,6 +21,7 @@ import { LemonTagType } from '@posthog/lemon-ui'
 
 import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
+import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
 /**
  * Single source of truth for per-priority color. P0–P4 each get a DISTINCT hue so
@@ -107,12 +108,19 @@ export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): stri
     return [...selected].sort().join(', ')
 }
 
-export function inboxSourceFilterLabel(selected: string[]): string {
-    if (selected.length === 0) {
-        return 'All sources'
-    }
+export function inboxSourceFilterLabel(selected: string[], selectedScouts: string[] = []): string {
+    const parts: string[] = []
     if (selected.length === 1) {
-        return INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0]
+        parts.push(INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0])
+    } else if (selected.length > 1) {
+        parts.push(`${selected.length} sources`)
     }
-    return `${selected.length} sources`
+    if (selectedScouts.length === 1) {
+        // "Scout · " disambiguates from same-named source products (e.g. the error tracking
+        // scout vs the error tracking source), matching the report rows' attribution label.
+        parts.push(`Scout · ${prettifyScoutSkillName(selectedScouts[0])}`)
+    } else if (selectedScouts.length > 1) {
+        parts.push(`${selectedScouts.length} scouts`)
+    }
+    return parts.length > 0 ? parts.join(' · ') : 'All sources'
 }

@@ -176,9 +176,12 @@ export interface RoleLookupResponseApi {
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
  * * `meta-ads` - Meta Ads
+ * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
+ * * `posthog` - Posthog
  * * `reddit-ads` - Reddit Ads
+ * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
  * * `slack` - Slack
@@ -220,9 +223,12 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
@@ -383,6 +389,28 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface GitHubAvailableInstallationApi {
+    /** GitHub installation ID to pass to github/link_existing when linking this installation. */
+    installation_id: string
+    /**
+     * GitHub account (organization or user) the installation belongs to, for display in the picker.
+     * @nullable
+     */
+    account_name: string | null
+    /**
+     * GitHub account type, e.g. 'Organization' or 'User'.
+     * @nullable
+     */
+    account_type: string | null
+    /** A project in the organization that already has this installation linked. */
+    source_team_id: number
+}
+
+export interface GitHubAvailableInstallationsResponseApi {
+    /** Distinct GitHub installations in the organization available to link to this project. */
+    installations: GitHubAvailableInstallationApi[]
+}
+
 export interface GitHubLinkExistingRequestApi {
     /**
      * Sibling team in the same organization whose GitHub installation should be reused.
@@ -419,7 +447,7 @@ export interface GitHubOAuthAuthorizeResponseApi {
 }
 
 export interface GitHubPrepareCallbackRequestApi {
-    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop). */
     next?: string
     /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
     installation_id?: string
@@ -455,9 +483,12 @@ export interface IntegrationAccessRequestApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -544,9 +575,12 @@ export type IntegrationsListParams = {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -599,9 +633,12 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',

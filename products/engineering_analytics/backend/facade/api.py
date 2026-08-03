@@ -28,10 +28,12 @@ from products.engineering_analytics.backend.facade.contracts import (
     BrokenTestsResult,
     CICardSummary,
     CIFailureLogs,
+    CISignalsConfig,
     CurrentBranchHealth,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    MergedPullRequest,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -75,6 +77,22 @@ def _authorized_source(
     """
     return logic.CuratedGitHubSource.for_team(
         team, source_id=source_id, repo=repo, user_access_control=user_access_control
+    )
+
+
+def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:
+    return logic.get_ci_signals_config(team=team, user_access_control=user_access_control)
+
+
+def update_ci_signals_config(
+    *,
+    team: Team,
+    enabled: bool,
+    created_by_id: int,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CISignalsConfig:
+    return logic.update_ci_signals_config(
+        team=team, enabled=enabled, created_by_id=created_by_id, user_access_control=user_access_control
     )
 
 
@@ -287,6 +305,33 @@ def list_pull_requests(
     )
 
 
+def list_recently_merged_pull_requests(
+    *,
+    team: Team,
+    repository: str,
+    since: "datetime | None" = None,
+    numbers: list[int] | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[MergedPullRequest]:
+    """Merged pull requests in ``repository`` ('owner/name'), newest first, each with its branch-tip
+    ``head_sha`` — the discovery seam for ReviewHog telemetry. Raises
+    ``GitHubSourceNotConnectedError`` (propagated to the caller) when no GitHub source is connected.
+
+    Ask one of two ways. ``numbers`` returns exactly those PRs whatever their merge date, which is
+    what a caller waiting on specific PRs wants: it also keeps a high-merge-volume repo from pushing
+    them past the query's row ceiling. ``since`` scans everything merged at or after a cutoff. They
+    are alternatives, not filters that combine, so a by-number ask can never come back empty merely
+    because the PR merged before some cutoff. Supply exactly one; ``numbers`` wins if both are given.
+    """
+    return logic.build_merged_pull_requests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repository),
+        repo=repository,
+        since=since,
+        numbers=numbers,
+    )
+
+
 def list_workflow_health(
     *,
     team: Team,
@@ -312,7 +357,6 @@ def list_flaky_tests(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
     source_id: str | None = None,
@@ -323,7 +367,6 @@ def list_flaky_tests(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )
@@ -334,7 +377,6 @@ def list_team_ci_health(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
     source_id: str | None = None,
@@ -344,7 +386,6 @@ def list_team_ci_health(
         curated=_authorized_source(team, source_id, user_access_control),
         date_from=date_from,
         date_to=date_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )

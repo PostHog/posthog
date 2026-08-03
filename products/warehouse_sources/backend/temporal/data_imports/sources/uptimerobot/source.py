@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
     UptimerobotSourceConfig,
 )
@@ -89,6 +86,12 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
             AUTH_ERROR_PREFIX: "Your UptimeRobot API key is invalid or has been revoked. Create a new read-only API key under Integrations & API in your UptimeRobot dashboard, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried internally with backoff (see uptimerobot.py's tenacity-wrapped
+        # _post); if those retries still exhaust, the failure is transient and self-recovering, so
+        # let Temporal retry the activity without surfacing it as tracked exception noise.
+        return {"UptimeRobot API error (retryable)"}
+
     def get_schemas(
         self,
         config: UptimerobotSourceConfig,
@@ -96,6 +99,7 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "monitor_logs":
@@ -124,7 +128,11 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
         return schemas
 
     def validate_credentials(
-        self, config: UptimerobotSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UptimerobotSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_uptimerobot_credentials(config.api_key)
 

@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { parseScopes, labelsForTitle, loadRules } = require('./label-pr-from-title')
+const { parseScopes, parseType, docsLabelApplies, labelsForTitle, loadRules } = require('./label-pr-from-title')
 
 // Mirrors the rule shape in .github/auto-assign-labels.json so the logic is
 // exercised against the real structure without reading the file.
@@ -75,6 +75,39 @@ test('labelsForTitle', async (t) => {
     }
 })
 
+const PARSE_TYPE_CASES = [
+    { title: 'docs: add guide', expected: 'docs', description: 'type with no scope' },
+    { title: 'docs(internal): x', expected: 'docs', description: 'type with scope' },
+    { title: 'feat(flags): x', expected: 'feat', description: 'non-docs type' },
+    { title: 'chore!: drop thing', expected: 'chore', description: 'breaking-change bang' },
+    { title: 'update the docs please', expected: null, description: 'prose without a CC type -> null' },
+    { title: '', expected: null, description: 'empty title -> null' },
+]
+
+test('parseType', async (t) => {
+    for (const { title, expected, description } of PARSE_TYPE_CASES) {
+        await t.test(description, () => {
+            assert.equal(parseType(title), expected)
+        })
+    }
+})
+
+const DOCS_LABEL_CASES = [
+    { title: 'docs: x', author: 'someuser', expected: true, description: 'docs type applies' },
+    { title: 'docs(cdp): x', author: 'someuser', expected: true, description: 'docs type with scope applies' },
+    { title: 'feat(flags): x', author: 'inkeep[bot]', expected: true, description: 'inkeep author applies on any title' },
+    { title: 'feat(flags): x', author: 'someuser', expected: false, description: 'neither type nor author -> no docs label' },
+    { title: 'chore: tidy up docs', author: 'someuser', expected: false, description: 'docs only in prose does not apply' },
+]
+
+test('docsLabelApplies', async (t) => {
+    for (const { title, author, expected, description } of DOCS_LABEL_CASES) {
+        await t.test(description, () => {
+            assert.equal(docsLabelApplies(title, author), expected)
+        })
+    }
+})
+
 // Catches a malformed or empty .github/auto-assign-labels.json in this PR's
 // ci-scripts run, rather than letting it silently disable labeling on master.
 test('the shipped config loads into well-formed rules', () => {
@@ -101,5 +134,18 @@ test('the shipped config still maps the flags scope to labels', () => {
 for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
     test(`the shipped config maps the ${scope} scope to labels`, () => {
         assert.ok(labelsForTitle(`feat(${scope}): x`, loadRules()).length > 0, `${scope} scope maps to no labels`)
+    })
+}
+
+// Desktop PRs rely on these scopes for the `feature/desktop` label; bind each
+// to the shipped config so an edit that drops or mislabels one regresses
+// loudly here. Asserts containment rather than the exact list so the rule can
+// gain labels without breaking.
+for (const scope of ['desktop', 'tasks', 'agent-proxy']) {
+    test(`the shipped config maps the ${scope} scope to the desktop label`, () => {
+        assert.ok(
+            labelsForTitle(`feat(${scope}): x`, loadRules()).includes('feature/desktop'),
+            `${scope} scope does not map to feature/desktop`
+        )
     })
 }

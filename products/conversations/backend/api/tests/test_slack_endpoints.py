@@ -1,6 +1,6 @@
 import json
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
@@ -290,7 +290,7 @@ class TestSlackChannelsAPI(APIBaseTest):
         response = APIClient().post("/api/conversations/v1/slack/channels", {})
         assert response.status_code == 401
 
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_returns_503_when_support_bot_token_missing(self, mock_get_token: MagicMock):
         mock_get_token.return_value = ""
 
@@ -298,8 +298,8 @@ class TestSlackChannelsAPI(APIBaseTest):
 
         assert response.status_code == 503
 
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_handles_slack_api_error(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
         mock_get_token.return_value = "xoxb-support-token"
         client = MagicMock()
@@ -311,8 +311,8 @@ class TestSlackChannelsAPI(APIBaseTest):
         assert response.status_code == 400
         assert "Slack API error" in response.json()["error"]
 
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_paginates_and_sorts_channels(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
         mock_get_token.return_value = "xoxb-support-token"
         client = MagicMock()
@@ -336,9 +336,9 @@ class TestSlackChannelsAPI(APIBaseTest):
             {"id": "C2", "name": "beta"},
         ]
 
-    @patch("products.conversations.backend.api.slack_channels.MAX_CHANNEL_PAGES", 2)
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.MAX_CHANNEL_PAGES", 2)
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_returns_error_when_page_cap_exceeded(self, mock_support_config: MagicMock, mock_web_client: MagicMock):
         mock_support_config.return_value = "xoxb-support-token"
         client = MagicMock()
@@ -379,6 +379,11 @@ class TestSlackChannelPermissions(BaseTest):
 
         response = self.client.get("/api/conversations/v1/slack/authorize")
         assert response.status_code == 200
+
+        requested_scopes = parse_qs(urlparse(response.json()["url"]).query)["scope"][0].split(",")
+        # Attachment sync in both directions silently degrades without these
+        assert "files:read" in requested_scopes
+        assert "files:write" in requested_scopes
 
     @patch(
         "products.conversations.backend.api.slack_oauth.clear_supporthog_slack_token",

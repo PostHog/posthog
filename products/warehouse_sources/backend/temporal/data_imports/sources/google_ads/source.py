@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from django.core.cache import cache
 
+import requests
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -26,14 +27,11 @@ from posthog.models.integration import (
     google_ads_hierarchy_level,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -47,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
 )
@@ -82,9 +81,14 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
-    supported_versions = ("v23",)
-    default_version = "v23"
+    supported_versions = ("v23", "v24", "v25")
+    default_version = "v25"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
+    # Google sunsets each major ~12 months after release; v24 (released 2026-04-22) is projected
+    # for ~May 2027 but has no firm date on the sunset page yet, so `sunset_at` stays None until
+    # Google publishes one. Existing v24 pins stay on v24 until then — Google still serves it, and
+    # the repin belongs in the PR that records the real sunset date.
+    deprecated_versions = (VersionDeprecation(version="v24", sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -143,6 +147,7 @@ class GoogleAdsSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Deferred so registering this source doesn't import the google-ads SDK — see configs.py.
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
@@ -150,9 +155,12 @@ class GoogleAdsSource(
             get_schemas as get_google_ads_schemas,
         )
 
+        # Discover against the source's pinned version (falling back to the default) so a
+        # v23-pinned source reconciles schemas under v23, matching its sync path — not v24.
         google_ads_schemas = get_google_ads_schemas(
             config,
             team_id,
+            self.resolve_api_version(api_version),
         )
 
         ads_incremental_fields = get_google_ads_incremental_fields()
@@ -203,6 +211,7 @@ class GoogleAdsSource(
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
@@ -310,6 +319,13 @@ class GoogleAdsSource(
                 "Google rejected the credentials for this integration. Please reconnect your Google Ads "
                 "integration and make sure the connected account can access your Google Ads accounts."
             ) from e
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            # The walk retries a transient blip internally; this means every attempt on some request
+            # timed out or failed to connect. Actionable and retryable from the user's side, so surface
+            # a clean message instead of the raw connection error.
+            raise IntegrationAccountListingError(
+                "Google Ads did not respond in time while listing your accounts. Please try again."
+            ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}
         integration_accounts = [
@@ -364,7 +380,9 @@ class GoogleAdsSource(
 
         return is_valid, errors
 
-    def _validate_mcc_customer_access(self, client, config: GoogleAdsSourceConfig) -> tuple[bool, str | None]:
+    def _validate_mcc_customer_access(
+        self, client, config: GoogleAdsSourceConfig, api_version: str
+    ) -> tuple[bool, str | None]:
         """Validate that a client account is accessible through a manager (MCC) account.
 
         list_accessible_customers() only returns manager-level accounts, not client accounts
@@ -372,7 +390,7 @@ class GoogleAdsSource(
         is configured correctly in the client, this will succeed.
         """
         cleaned_customer_id = clean_customer_id(config.customer_id)
-        ga_service = client.get_service("GoogleAdsService")
+        ga_service = client.get_service("GoogleAdsService", version=api_version)
         query = "SELECT customer.id FROM customer"
         try:
             response = ga_service.search(customer_id=cleaned_customer_id, query=query)
@@ -392,19 +410,24 @@ class GoogleAdsSource(
         config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
             _is_transient_grpc_error,
             google_ads_client,
         )
 
+        # The SDK's client default is the newest bundled version, so leaving these probes unpinned
+        # would validate against a version the source may not sync with.
+        resolved_version = self.resolve_api_version(api_version)
+
         try:
             client = google_ads_client(config, team_id)
 
             if isinstance(config, GoogleAdsSourceConfig) and config.is_mcc_account and config.is_mcc_account.enabled:
-                return self._validate_mcc_customer_access(client, config)
+                return self._validate_mcc_customer_access(client, config, resolved_version)
 
-            customer_service = client.get_service("CustomerService")
+            customer_service = client.get_service("CustomerService", version=resolved_version)
             accessible_customers = customer_service.list_accessible_customers()
 
             customer_resource_name = f"customers/{clean_customer_id(config.customer_id)}"
@@ -464,5 +487,16 @@ class GoogleAdsSource(
                     False,
                     "Google Ads returned a temporary error while validating your credentials. This is "
                     "usually a transient issue on Google's side — please try again in a moment.",
+                )
+            # A gRPC INVALID_ARGUMENT ("Request contains an invalid argument") means Google rejected the
+            # request as malformed — most often a customer ID (or MCC manager ID) that isn't a valid
+            # account. Its str() is the same raw protobuf dump (with a per-request peer IP) the user
+            # can't act on, so surface an actionable prompt instead of leaking it.
+            if "INVALID_ARGUMENT" in error_message:
+                return (
+                    False,
+                    "Google Ads rejected the request as invalid while validating your credentials. Check "
+                    "that your customer ID (and your manager account ID, if using an MCC) is correct, then "
+                    "try again.",
                 )
             return False, f"Error validating credentials: {error_message}"

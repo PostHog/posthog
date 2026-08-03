@@ -42,6 +42,11 @@ export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_m
 // raw inlined replay images: ml-mirror producer -> image-scrub worker
 export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB = `${prefix}session_replay_image_scrub${suffix}`
 
+// images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
+// The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
+// thrown away either, so it waits here for the sidecar bug behind it to be fixed and replayed.
+export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ = `${prefix}session_replay_image_scrub_dlq${suffix}`
+
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse

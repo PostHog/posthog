@@ -243,6 +243,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
     )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
+    members_can_see_org_members = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(
         "ee.Role",
@@ -744,6 +749,21 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
     if deleted_count > 0:
         logger.info(
             "Removed alert subscriptions for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_event_streams_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from products.customer_analytics.backend.facade.api import delete_event_streams_for_user
+
+    deleted_count = delete_event_streams_for_user(user_id=instance.user_id, organization_id=instance.organization_id)
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed customer analytics event streams for user removed from organization",
             user_id=instance.user_id,
             organization_id=str(instance.organization_id),
             deleted_count=deleted_count,

@@ -63,19 +63,9 @@ test.describe('SQL Editor dual-mode synced Postgres source', () => {
                     INSERT INTO ${tableName} (id, label) VALUES (1, 'alpha'), (2, 'beta');
                 `,
             ])
-            await page.goto('/login')
-            await page.evaluate(
-                async ({ email, password }) => {
-                    await fetch('/api/login/', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ email, password }),
-                    })
-                },
-                { email: LOGIN_USERNAME, password: LOGIN_PASSWORD }
-            )
+            await page.request.post('/api/login/', {
+                data: { email: LOGIN_USERNAME, password: LOGIN_PASSWORD },
+            })
             await page.goto('/')
             await expect(page).toHaveURL(/\/project\/\d+/)
 

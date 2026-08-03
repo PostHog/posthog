@@ -2,6 +2,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import DashboardFilter
+
 from posthog.hogql_queries.apply_dashboard_filters import (
     dashboard_filter_from_dict,
     flatten_property_leaves,
@@ -39,6 +41,19 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["interval"] == "day"
         assert merged["filterTestAccounts"] is True
         assert merged["breakdown_filter"] == {"breakdown": "$browser", "breakdown_type": "event"}
+
+    @parameterized.expand(
+        [
+            ("null tile breakdown inherits dashboard breakdown", None, {"breakdown": "$os", "breakdown_type": "event"}),
+            ("empty tile breakdown clears dashboard breakdown", {}, {}),
+        ]
+    )
+    def test_tile_breakdown_null_inherits_empty_clears(self, _name, tile_breakdown, expected_breakdown):
+        merged = merge_filters_by_priority(
+            {"breakdown_filter": {"breakdown": "$os", "breakdown_type": "event"}},
+            {"breakdown_filter": tile_breakdown},
+        )
+        assert merged["breakdown_filter"] == expected_breakdown
 
     def test_properties_on_different_keys_are_and_combined_dashboard_first(self):
         dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
@@ -209,6 +224,98 @@ class TestResolveEffectiveDashboardFilters(SimpleTestCase):
         )
         assert effective["properties"] == [prop]
         assert effective["date_from"] == "-7d"
+
+
+class TestIgnoreDashboardFilters(SimpleTestCase):
+    _DASHBOARD = {
+        "date_from": "-30d",
+        "properties": [{"key": "$browser", "value": "Chrome", "type": "event"}],
+        "interval": "day",
+        "filterTestAccounts": True,
+    }
+
+    @parameterized.expand(
+        [
+            ("dashboard has filters", _DASHBOARD),
+            ("dashboard empty", None),
+        ]
+    )
+    def test_flag_drops_dashboard_layer_and_keeps_tile_values(self, _name, dashboard):
+        merged = merge_filters_by_priority(dashboard, {"ignoreDashboardFilters": True, "date_from": "-7d"})
+
+        assert merged == {"date_from": "-7d"}
+        DashboardFilter(**merged)  # the flag must never reach the extra="forbid" model
+
+    def test_flag_only_tile_yields_empty_effective_filters(self):
+        merged = merge_filters_by_priority(self._DASHBOARD, {"ignoreDashboardFilters": True})
+
+        assert merged == {}
+
+    def test_flag_with_property_group_tile_filters_flattens_for_query_application(self):
+        merged = merge_filters_by_priority(
+            self._DASHBOARD,
+            {
+                "ignoreDashboardFilters": True,
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"key": "$browser", "value": "Chrome", "type": "event"}]}],
+                },
+            },
+        )
+
+        assert merged == {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}
+
+    def test_false_flag_merges_normally_and_is_stripped(self):
+        merged = merge_filters_by_priority({"date_from": "-30d"}, {"ignoreDashboardFilters": False, "interval": "week"})
+
+        assert merged == {"date_from": "-30d", "interval": "week"}
+        DashboardFilter(**merged)
+
+    @parameterized.expand(
+        [
+            ("no tile override", None, {"date_from": "-30d"}),
+            (
+                "tile override present",
+                {"interval": "week"},
+                {"date_from": "-30d", "interval": "week"},
+            ),
+        ]
+    )
+    def test_flag_in_base_layer_is_stripped_without_dropping_the_layer(self, _name, tile, expected):
+        base = {"ignoreDashboardFilters": True, "date_from": "-30d"}
+
+        merged = merge_filters_by_priority(base, tile)
+
+        assert merged == expected
+        DashboardFilter(**merged)
+
+    def test_flag_in_base_layer_does_not_reach_effective_filters(self):
+        query = {"kind": "TrendsQuery", "series": []}
+
+        _, effective = resolve_effective_dashboard_filters(
+            query, {"ignoreDashboardFilters": True, "date_from": "-30d"}, None
+        )
+
+        assert effective == {"date_from": "-30d"}
+        DashboardFilter(**effective)
+
+    def test_dashboard_filter_from_dict_strips_flag(self):
+        assert dashboard_filter_from_dict({"ignoreDashboardFilters": True, "date_from": "-30d"}) == DashboardFilter(
+            date_from="-30d"
+        )
+
+    def test_resolve_layers_reports_dashboard_as_fully_overridden(self):
+        tile_prop = {"key": "$country", "value": "US", "type": "event"}
+
+        resolved = resolve_filter_layers_by_priority(
+            self._DASHBOARD, {"ignoreDashboardFilters": True, "properties": [tile_prop]}
+        )
+
+        assert resolved == {
+            "dashboard": {},
+            "tile": {"ignoreDashboardFilters": True, "properties": [tile_prop]},
+            "overridden_dashboard": self._DASHBOARD,
+        }
 
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
