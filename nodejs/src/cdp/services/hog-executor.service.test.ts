@@ -2337,10 +2337,10 @@ describe('Hog Executor', () => {
             expect(result.finished).toBe(false)
         })
 
-        it('should send inline when sendEmailsInline is set', async () => {
+        it('should send inline when isTest is set', async () => {
             const invocation = createEmailInvocation()
 
-            const result = await executor.executeWithAsyncFunctions(invocation, { sendEmailsInline: true })
+            const result = await executor.executeWithAsyncFunctions(invocation, { isTest: true })
 
             expect(result.invocation.queue).not.toBe('email')
             expect(result.finished).toBe(true)
