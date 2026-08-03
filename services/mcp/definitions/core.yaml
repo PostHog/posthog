@@ -443,6 +443,15 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
+    presence-heartbeat-create:
+        operation: presence_heartbeat_create
+        enabled: false
+    presence-leave-create:
+        operation: presence_leave_create
+        enabled: false
+    presence-list:
+        operation: presence_list
+        enabled: false
     product-enablement-create:
         operation: product_enablement_create
         enabled: false
