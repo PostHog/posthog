@@ -1511,9 +1511,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             groups=(groups(self.team.organization, self.team)),
         )
 
+        # user is typed Optional[User] but runtime also passes SharedLinkUser (shared renders).
+        # SharedLinkUser.id is None (it's an AnonymousUser), so carry the sharing configuration
+        # separately - otherwise the worker rebuilds a userless request and warehouse access
+        # control fails closed on every table/view, even though the share link authorizes it.
+        sharing_configuration_id = user.sharing_configuration.pk if isinstance(user, SharedLinkUser) else None
+
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
+            sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),

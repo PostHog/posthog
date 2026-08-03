@@ -25,8 +25,10 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.shared_link_user import SharedLinkUser
 
 
 def build_query(sql):
@@ -180,6 +182,62 @@ class TestExecuteProcessQuery(TestCase):
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         self.assertEqual(mock_capture_exception.called, should_capture)
+
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_reconstructs_shared_link_user_from_sharing_configuration_id(
+        self, mock_process_query_dict, mock_redis_client
+    ):
+        # A shared-dashboard viewer authenticates as SharedLinkUser, an AnonymousUser with no id, so
+        # enqueue_async_calculation has no user_id to carry across the Celery boundary. Without
+        # rebuilding the same principal here, the worker falls back to user=None and warehouse
+        # access control fails closed on every table/view for the shared dashboard.
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.return_value = {}
+
+        execute_process_query(
+            self.team.id,
+            None,
+            self.query_id,
+            self.query_json,
+            self.limit_context,
+            sharing_configuration_id=sharing_configuration.pk,
+        )
+
+        called_user = mock_process_query_dict.call_args.kwargs["user"]
+        self.assertIsInstance(called_user, SharedLinkUser)
+        self.assertEqual(called_user.sharing_configuration.pk, sharing_configuration.pk)
+
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_ignores_disabled_sharing_configuration(
+        self, mock_process_query_dict, mock_redis_client
+    ):
+        # The share link may be revoked between enqueue and pickup - re-check `enabled` rather
+        # than trusting the id was still valid when the query was queued.
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=False)
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.return_value = {}
+
+        execute_process_query(
+            self.team.id,
+            None,
+            self.query_id,
+            self.query_json,
+            self.limit_context,
+            sharing_configuration_id=sharing_configuration.pk,
+        )
+
+        self.assertIsNone(mock_process_query_dict.call_args.kwargs["user"])
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):

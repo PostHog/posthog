@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 import orjson as json
 import structlog
@@ -186,21 +186,33 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
 
     from posthog.api.services.query import ExecutionMode, process_query_dict
     from posthog.models import Team
+    from posthog.models.sharing_configuration import SharingConfiguration
     from posthog.models.user import User
+    from posthog.shared_link_user import SharedLinkUser
 
     team = Team.objects.get(pk=team_id)
     is_staff_user = False
 
-    user = None
+    user: Optional[User | SharedLinkUser] = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
+    elif sharing_configuration_id:
+        # The original request authenticated as a SharedLinkUser (an AnonymousUser with no id),
+        # so there was no user_id to carry across the Celery boundary - rebuild the same
+        # anonymous principal from the sharing configuration so warehouse access control sees
+        # the same bypass it would have on the synchronous path. Re-check `enabled` here since
+        # the link may have been revoked between enqueue and pickup.
+        sharing_configuration = SharingConfiguration.objects.filter(pk=sharing_configuration_id, enabled=True).first()
+        if sharing_configuration is not None:
+            user = SharedLinkUser(sharing_configuration)
 
     query_status = manager.get_query_status()
 
@@ -229,7 +241,9 @@ def execute_process_query(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
-            user=user,
+            # process_query_dict is typed Optional[User], but the query pipeline duck-types
+            # SharedLinkUser (an AnonymousUser) as a principal throughout - see database.py.
+            user=cast("Optional[User]", user),
             is_query_service=is_query_service,
             analytics_props=analytics_props,
         )
@@ -303,6 +317,7 @@ def enqueue_process_query_task(
     is_query_service: bool = False,
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -373,6 +388,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
+        sharing_configuration_id=sharing_configuration_id,
     )
 
     if _test_only_bypass_celery:
