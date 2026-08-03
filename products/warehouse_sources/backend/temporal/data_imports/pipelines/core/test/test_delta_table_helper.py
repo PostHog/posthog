@@ -227,6 +227,11 @@ class TestGetDeltaTableUnrecoverableErrors:
             "Kernel error: No table metadata or protocol found in delta log.",
             True,
         ),
+        (
+            "empty_log_segment",
+            "Generic delta kernel error: No files in log segment",
+            True,
+        ),
         ("bugged_decimal_data", "parse decimal overflow at column x", True),
         ("other_errors_reraise", "Generic DeltaTable error: something else went wrong", False),
     ]
