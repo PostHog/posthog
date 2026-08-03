@@ -210,7 +210,9 @@ def execute_process_query(
         # anonymous principal from the sharing configuration so warehouse access control sees
         # the same bypass it would have on the synchronous path. Re-check `enabled` here since
         # the link may have been revoked between enqueue and pickup.
-        sharing_configuration = SharingConfiguration.objects.filter(pk=sharing_configuration_id, enabled=True).first()
+        sharing_configuration = SharingConfiguration.objects.filter(
+            pk=sharing_configuration_id, team_id=team_id, enabled=True
+        ).first()
         if sharing_configuration is not None:
             user = SharedLinkUser(sharing_configuration)
 
