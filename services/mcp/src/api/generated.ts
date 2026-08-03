@@ -44949,15 +44949,6 @@ export namespace Schemas {
       results: FileSystemShortcut[];
     }
 
-    export interface PaginatedFolderInstructionsVersionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: FolderInstructionsVersion[];
-    }
-
     export interface PaginatedGatewayMemberSummaryList {
       count: number;
       /** @nullable */
