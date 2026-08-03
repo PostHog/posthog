@@ -38,6 +38,10 @@ Important HogQL differences versus other SQL dialects:
 - A WHERE clause must be after all the JOIN clauses.
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
+- `properties` (and `person.properties`) is a JSON string column, NOT a Map. Map functions
+  (`mapKeys`, `mapValues`, `mapContains`) fail at execution. To enumerate an event's property keys,
+  use `JSONExtractKeys(properties)` instead of `mapKeys(properties)`.
+- `flatten(...)` is not a HogQL function and fails validation. Use `arrayFlatten(...)` instead.
 
 
 <persons>

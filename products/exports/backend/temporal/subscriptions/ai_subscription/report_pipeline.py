@@ -1,3 +1,4 @@
+import re
 import uuid
 import asyncio
 from collections.abc import Sequence
@@ -93,6 +94,21 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     ExposedHogQLError,
     InternalHogQLError,
 )
+
+
+# The planner LLM (and its HogQL fix loop) keeps reaching for these ClickHouse Map/array idioms
+# despite the prompt guidance against them: `mapKeys(properties)`/`mapKeys(person.properties)` fail
+# at execution because `properties` is a JSON string column, not a Map, and `flatten(...)` isn't a
+# HogQL function at all. Rewriting programmatically means a step still runs correctly even when the
+# LLM ignores the prompt, instead of relying solely on prompt wording to prevent the pattern.
+_MAP_KEYS_ON_PROPERTIES_PATTERN = re.compile(r"\bmapKeys\s*\(\s*(properties|person\.properties)\s*\)", re.IGNORECASE)
+_FLATTEN_CALL_PATTERN = re.compile(r"\bflatten\s*\(", re.IGNORECASE)
+
+
+def _rewrite_known_invalid_hogql(hogql: str) -> str:
+    hogql = _MAP_KEYS_ON_PROPERTIES_PATTERN.sub(r"JSONExtractKeys(\1)", hogql)
+    hogql = _FLATTEN_CALL_PATTERN.sub("arrayFlatten(", hogql)
+    return hogql
 
 
 def _all_queries_failed_notice(total_steps: int) -> str:
@@ -409,7 +425,7 @@ async def _run_steps(
         # `current_hogql` keeps the window-agnostic form (the `{{date_range}}` placeholder) so it round-trips
         # through the fix LLM unchanged; the run's fresh bounds are substituted into `executable_hogql` on
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
-        current_hogql = step.hogql
+        current_hogql = _rewrite_known_invalid_hogql(step.hogql)
         last_exc: Optional[BaseException] = None
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
@@ -459,7 +475,7 @@ async def _run_steps(
                 )
                 if not fixed or fixed.strip() == current_hogql.strip():
                     break
-                current_hogql = fixed
+                current_hogql = _rewrite_known_invalid_hogql(fixed)
 
         logger.warning(
             "ai_report.query_failed",

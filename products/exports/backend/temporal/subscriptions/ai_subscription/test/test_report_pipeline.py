@@ -608,6 +608,54 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
 
 
 @pytest.mark.parametrize(
+    "planner_hogql,expected_fragment",
+    [
+        # mapKeys(properties) fails at ClickHouse execution: properties is a JSON string, not a Map.
+        pytest.param(
+            "SELECT arrayJoin(mapKeys(properties)) FROM events",
+            "JSONExtractKeys(properties)",
+            id="map_keys_on_properties",
+        ),
+        pytest.param(
+            "SELECT arrayJoin(mapKeys(person.properties)) FROM events",
+            "JSONExtractKeys(person.properties)",
+            id="map_keys_on_person_properties",
+        ),
+        # flatten(...) isn't a HogQL function at all; arrayFlatten(...) is the real one.
+        pytest.param(
+            "SELECT flatten(groupArray(a)) FROM events",
+            "arrayFlatten(groupArray(a))",
+            id="flatten",
+        ),
+    ],
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_rewrites_known_invalid_hogql_before_execution(
+    mock_executor_cls: MagicMock, planner_hogql: str, expected_fragment: str
+) -> None:
+    # The planner LLM keeps emitting these patterns despite the prompt guidance against them (#71697).
+    # A programmatic rewrite means the step still runs even when the LLM ignores the prompt.
+    captured: list[str] = []
+
+    async def _capture(query: object) -> tuple[str, None]:
+        captured.append(query.query)  # type: ignore[attr-defined]
+        return ("formatted", None)
+
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_capture)
+    spec = EnrichedPromptSpec(
+        cleaned_prompt="p",
+        context_blob="c",
+        plan=QueryPlan(overall_intent="i", steps=[QueryPlanStep(description="s", hogql=planner_hogql)]),
+    )
+
+    await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None)
+
+    assert expected_fragment in captured[0]
+    assert "mapKeys" not in captured[0]
+    assert "flatten(" not in captured[0].replace("arrayFlatten(", "")
+
+
+@pytest.mark.parametrize(
     "spec,run_result",
     [
         # All steps failed: freezing would replay a broken plan every delivery instead of re-planning.
