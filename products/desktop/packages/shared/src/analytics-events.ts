@@ -969,7 +969,8 @@ export type ChannelActionType =
   | "canvas_mode_toggle"
   /** Submitted a canvas-mode prompt (the agent resolves or creates the canvas). */
   | "canvas_generate"
-  | "activity_tab_change";
+  | "activity_tab_change"
+  | "artifacts_view_change";
 
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
@@ -990,6 +991,8 @@ export interface ChannelActionProperties {
   armed?: boolean;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
+  /** For artifacts_view_change: the selected layout. */
+  view_mode?: "list" | "grid" | "masonry";
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
 }
@@ -1007,6 +1010,7 @@ export type DashboardActionType =
   | "poll_mode_change"
   | "date_range_apply"
   | "link_copied"
+  | "delete_undo"
   | "pin"
   | "unpin";
 
