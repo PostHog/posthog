@@ -329,8 +329,8 @@ def test_table_from_py_list_with_null_filled_binary_column():
     ],
 )
 def test_table_from_py_list_schema_missing_temporal_column(value, expected_type):
-    # A column present in the batch but absent from the provided schema is typed via
-    # `_python_type_to_pyarrow_type`; temporal values used to crash it with "no pyarrow mapping".
+    # A column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must handle temporal values.
     schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
     table = table_from_py_list([{"id": 1, "ts": value}], schema)
 
