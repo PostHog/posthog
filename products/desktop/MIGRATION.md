@@ -31,6 +31,9 @@ be treated as a bug in the sync.
 The tree is a verbatim copy of the source at the pinned SHA except:
 
 - `.github/` is not imported (see workflow mapping below).
+- `.stamphog/` is not imported: it is the policy for the source repo's stamphog PR-approval
+  merge gate, whose workflow is dropped here (the monorepo runs its own pr-approval-agent
+  on all PRs). Delete it on resync.
 - `MIGRATION.md` (this file), `POST-MIGRATION.md` (the post-merge runbook) and
   `docs/plan.md` (the migration plan) exist only in the monorepo; restore all three on a
   resync.

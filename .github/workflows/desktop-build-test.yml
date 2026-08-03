@@ -39,9 +39,9 @@ jobs:
             npm_config_platform: darwin
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
-            POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
-            POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
-            POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
+            # No sourcemap secrets: without them the posthog vite plugin skips
+            # release creation and sourcemap upload, keeping test builds
+            # hermetic instead of calling the prod API and flaking on it.
             CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
             CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
             APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -207,6 +207,9 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Build workspace packages
+              # bash, not pwsh: pwsh only fails a multi-line step on the LAST
+              # command's exit code, silently swallowing earlier failures.
+              shell: bash
               run: |
                   pnpm --filter @posthog/electron-trpc run build
                   pnpm --filter @posthog/platform run build
@@ -216,11 +219,26 @@ jobs:
                   pnpm --filter @posthog/harness run build
                   pnpm --filter @posthog/agent run build
 
-            - name: Build app
+            # Two separate steps: in a multi-line pwsh script only the last
+            # command's exit code fails the step, so a broken electron-vite
+            # build let electron-builder package an app with no renderer.
+            - name: Build app bundles
+              working-directory: products/desktop/apps/code
+              run: pnpm exec electron-vite build
+
+            - name: Package installer
+              working-directory: products/desktop/apps/code
+              run: pnpm exec electron-builder build --win --x64 --publish never --config electron-builder.ts
+
+            - name: Verify package
+              shell: pwsh
               working-directory: products/desktop/apps/code
               run: |
-                  pnpm exec electron-vite build
-                  pnpm exec electron-builder build --win --x64 --publish never --config electron-builder.ts
+                  if (!(Test-Path ".vite/renderer/main_window/index.html")) {
+                    Write-Error "FAIL: renderer bundle missing from electron-vite output"
+                    exit 1
+                  }
+                  echo "OK: renderer bundle"
 
             - name: Upload artifacts
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

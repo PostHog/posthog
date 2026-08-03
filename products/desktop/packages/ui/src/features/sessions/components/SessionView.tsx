@@ -78,6 +78,13 @@ import {
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+export function getNewAttachments(
+  previousIds: ReadonlySet<string>,
+  attachments: FileAttachment[],
+): FileAttachment[] {
+  return attachments.filter(({ id }) => !previousIds.has(id));
+}
+
 interface SessionViewProps {
   events: AcpMessage[];
   taskId?: string;
@@ -286,36 +293,68 @@ export function SessionView({
   const editorRef = useRef<PromptInputHandle>(null);
   const sendInFlightRef = useRef(false);
   const composerSubmissionRef = useRef(0);
-  const attachmentUploadRef = useRef(0);
+  const attachmentIdsRef = useRef<Set<string>>(new Set());
+  const attachmentUploadTokensRef = useRef<Map<string, symbol>>(new Map());
   const [attachmentUploadStatuses, setAttachmentUploadStatuses] = useState<
     Record<string, AttachmentUploadStatus>
   >({});
 
   const handleAttachmentsChange = useCallback(
     (attachments: FileAttachment[]) => {
-      const requestId = ++attachmentUploadRef.current;
+      const attachmentIds = new Set(attachments.map(({ id }) => id));
+      const addedAttachments = getNewAttachments(
+        attachmentIdsRef.current,
+        attachments,
+      );
+      attachmentIdsRef.current = attachmentIds;
+
       if (!isCloudRun || !taskId || attachments.length === 0) {
         setAttachmentUploadStatuses({});
         return;
       }
 
-      setAttachmentUploadStatuses(
-        Object.fromEntries(attachments.map(({ id }) => [id, "uploading"])),
+      const uploadToken = Symbol();
+      for (const { id } of addedAttachments) {
+        attachmentUploadTokensRef.current.set(id, uploadToken);
+      }
+
+      setAttachmentUploadStatuses((statuses) =>
+        Object.fromEntries([
+          ...Object.entries(statuses).filter(([id]) => attachmentIds.has(id)),
+          ...addedAttachments.map(({ id }) => [id, "uploading"] as const),
+        ]),
       );
+      if (addedAttachments.length === 0) return;
+
+      const isCurrentUpload = (id: string) =>
+        attachmentUploadTokensRef.current.get(id) === uploadToken;
+
       void sessionService
         .prepareCloudAttachments(
           taskId,
-          attachments.map(({ id }) => id),
+          addedAttachments.map(({ id }) => id),
         )
         .then(() => {
-          if (attachmentUploadRef.current === requestId) {
-            setAttachmentUploadStatuses({});
-          }
+          const uploadedIds = new Set(addedAttachments.map(({ id }) => id));
+          setAttachmentUploadStatuses((statuses) =>
+            Object.fromEntries(
+              Object.entries(statuses).filter(
+                ([id]) => !uploadedIds.has(id) || !isCurrentUpload(id),
+              ),
+            ),
+          );
         })
         .catch((error) => {
-          if (attachmentUploadRef.current !== requestId) return;
-          setAttachmentUploadStatuses(
-            Object.fromEntries(attachments.map(({ id }) => [id, "error"])),
+          setAttachmentUploadStatuses((statuses) =>
+            Object.fromEntries([
+              ...Object.entries(statuses),
+              ...addedAttachments
+                .filter(
+                  ({ id }) =>
+                    attachmentIdsRef.current.has(id) && isCurrentUpload(id),
+                )
+                .map(({ id }) => [id, "error"] as const),
+            ]),
           );
           toast.error("Failed to upload attachments", {
             description:

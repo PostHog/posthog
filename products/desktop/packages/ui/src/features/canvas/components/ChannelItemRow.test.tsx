@@ -68,7 +68,8 @@ beforeEach(() => {
 describe("ChannelItemRow", () => {
   // The dot vocabulary in one table: what the row's leading mark says for each
   // state a task can be in. Only the states a reader can act on get a voice —
-  // run mechanics (queued, failed) resolve to "working" or "something to read".
+  // run mechanics (queued, failed) resolve to a dot that describes the work
+  // rather than the status: starting, live but stalled, or something to read.
   it.each([
     [
       "a permission prompt",
@@ -85,9 +86,31 @@ describe("ChannelItemRow", () => {
       "Pending — no work in flight",
     ],
     [
+      // Launching: a sandbox is being claimed and the backend leaves this state
+      // on its own, so the motion is honest.
       "a queued cloud run",
+      { taskRunStatus: "queued" as const, workspaceMode: "cloud" as const },
+      "Starting",
+    ],
+    [
+      // A local run's status is never advanced, so queued here means "was
+      // launched at some point", not "is starting". Seen parked for hours.
+      "a local run parked at queued",
       { taskRunStatus: "queued" as const },
       "Pending — no work in flight",
+    ],
+    [
+      // A PR outranks a run that only claims to be working, but not one that is
+      // demonstrably coming up. Re-running a task that already shipped a PR
+      // leaves the url on the session and the state in the PR query, so this is
+      // the ordinary shape of a second run, not an edge case.
+      "a re-queued cloud run on a task that already has a PR",
+      {
+        taskRunStatus: "queued" as const,
+        workspaceMode: "cloud" as const,
+        prState: "open" as const,
+      },
+      "Starting",
     ],
     [
       "a broken run with unseen output",

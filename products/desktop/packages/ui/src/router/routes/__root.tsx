@@ -44,6 +44,7 @@ import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
+import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
 import {
@@ -222,6 +223,7 @@ function RootLayout() {
   useScoutDeepLink();
   useCanvasDeepLink();
   useChannelDeepLink();
+  useLoopDeepLink();
   const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();

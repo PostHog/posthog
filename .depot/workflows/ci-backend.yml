@@ -722,7 +722,8 @@ jobs:
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
+                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
+                  # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
