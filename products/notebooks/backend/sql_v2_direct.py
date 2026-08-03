@@ -127,6 +127,23 @@ def apply_page_bounds(query: str, limit: int, offset: int) -> str:
     return _wrap_hogql_page_query(query, limit, offset)
 
 
+def apply_raw_page_bounds(query: str, limit: int, offset: int) -> str:
+    """Bound a raw (engine-dialect) query the same way, without parsing it.
+
+    Raw SQL never reaches the HogQL parser, so `apply_page_bounds`'s pushdown analysis
+    can't apply — wrap unconditionally. The derived table carries an alias because
+    Postgres and MySQL both reject an unaliased subquery in FROM, and the alias is
+    harmless on the engines that don't care.
+    """
+    query = query.rstrip()
+    if query.endswith(";"):
+        query = query[:-1].rstrip()
+    # The wrapper is engine SQL by construction, not interpolated HogQL, and the bounds are
+    # int()-cast; the connection's own raw-SQL guard still applies to the result.
+    # nosemgrep: semgrep.rules.security.hogql-fstring-audit
+    return f"select * from (\n{query}\n) as posthog_notebook_page limit {int(limit)} offset {int(offset)}"
+
+
 def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) -> None:
     """Enqueue a direct (hogql) run on the async query manager.
 
@@ -134,13 +151,26 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
     access control, the per-team concurrency limiter, and the Redis status/result
     store all come with it. Fetches one extra row past the cache ceiling so
     `sync_direct_run` can detect has_more, mirroring the kernel's capped fetch.
+
+    A run bound to an external connection rides the same lane: the query runner routes it
+    to that source's engine, so nothing here needs to know which engine that is.
     """
-    bounded = apply_page_bounds(run.code, limit=RESULT_CACHE_ROWS + 1, offset=0)
+    limit, offset = RESULT_CACHE_ROWS + 1, 0
+    bounded = (
+        apply_raw_page_bounds(run.code, limit, offset)
+        if run.send_raw_query
+        else apply_page_bounds(run.code, limit, offset)
+    )
+    query_json: dict[str, Any] = {"kind": "HogQLQuery", "query": bounded}
+    if run.connection_id:
+        query_json["connectionId"] = str(run.connection_id)
+        if run.send_raw_query:
+            query_json["sendRawQuery"] = True
     with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
         enqueue_process_query_task(
             team=team,
             user_id=user.id if user else None,
-            query_json={"kind": "HogQLQuery", "query": bounded},
+            query_json=query_json,
             query_id=notebook_direct_query_id(str(run.id)),
             # A Run click always executes; never serve a stale cached result.
             refresh_requested=True,

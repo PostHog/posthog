@@ -74,18 +74,52 @@ export const getSqlEditorSourceQuery = (query: QuerySchema): DataVisualizationNo
     return null
 }
 
-const buildSourceQuery = (query: string): DataVisualizationNode => ({
-    kind: NodeKind.DataVisualizationNode,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query,
-        tags: {
-            productKey: ProductKey.NOTEBOOKS,
-            scene: 'Notebook',
+/** Which connection a code cell runs against, as the node persists it. */
+export interface NotebookSQLConnection {
+    connectionId?: string | null
+    sendRawQuery?: boolean | null
+}
+
+/** The same thing resolved: no undefined, and raw mode only ever set alongside a connection. */
+export interface NotebookSQLConnectionValue {
+    connectionId: string | null
+    sendRawQuery: boolean
+}
+
+export const normalizeNotebookSQLConnection = (connection: NotebookSQLConnection): NotebookSQLConnectionValue => {
+    const connectionId = connection.connectionId ?? null
+    // Raw mode only means anything with a connection; PostHog always compiles from HogQL.
+    return { connectionId, sendRawQuery: connectionId ? !!connection.sendRawQuery : false }
+}
+
+export const readNotebookSQLConnection = (query: DataVisualizationNode): NotebookSQLConnectionValue =>
+    normalizeNotebookSQLConnection({
+        connectionId: query.source.connectionId,
+        sendRawQuery: query.source.sendRawQuery,
+    })
+
+const sameNotebookSQLConnection = (
+    a: NotebookSQLConnectionValue | null,
+    b: NotebookSQLConnectionValue | null
+): boolean => a?.connectionId === b?.connectionId && a?.sendRawQuery === b?.sendRawQuery
+
+const buildSourceQuery = (query: string, connection: NotebookSQLConnection): DataVisualizationNode => {
+    const { connectionId, sendRawQuery } = normalizeNotebookSQLConnection(connection)
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            query,
+            connectionId: connectionId ?? undefined,
+            sendRawQuery: sendRawQuery || undefined,
+            tags: {
+                productKey: ProductKey.NOTEBOOKS,
+                scene: 'Notebook',
+            },
         },
-    },
-    display: ChartDisplayType.ActionsTable,
-})
+        display: ChartDisplayType.ActionsTable,
+    }
+}
 
 const locallyPushedSqlEditorSourceQueryByTabId = new Map<string, DataVisualizationNode>()
 
@@ -239,14 +273,15 @@ function useNotebookQuerySQLEditorOutputSync<T extends { query: QuerySchema }>({
     return editorSourceQuery
 }
 
-export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
+export function useNotebookCodeSQLEditorSync<T extends { code: string } & NotebookSQLConnection>({
     attributes,
     updateAttributes,
     tabId,
-}: NotebookNodeAttributeProperties<T> & { tabId: string }): void {
+    persistConnection = false,
+}: NotebookNodeAttributeProperties<T> & { tabId: string; persistConnection?: boolean }): void {
     const code = typeof attributes.code === 'string' ? attributes.code : ''
     const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
-    const { queryInput } = useValues(logic)
+    const { queryInput, sourceQuery } = useValues(logic)
     const { initialize, setQueryInput, setSourceQuery } = useActions(logic)
 
     // Tracks the last `code` and `queryInput` we observed in sync. A real attribute change
@@ -256,6 +291,19 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
     // One ref isn't enough: after a push it would falsely classify the lag as a remote change.
     const lastCodeRef = useRef<string | null>(null)
     const lastQueryRef = useRef<string | null>(null)
+
+    const attributeConnection = useMemo(
+        () =>
+            normalizeNotebookSQLConnection({
+                connectionId: attributes.connectionId,
+                sendRawQuery: attributes.sendRawQuery,
+            }),
+        [attributes.connectionId, attributes.sendRawQuery]
+    )
+    const editorConnection = useMemo(() => readNotebookSQLConnection(sourceQuery), [sourceQuery])
+    // Same two-ref reconciliation as the code sync above, for the connection the cell runs on.
+    const lastAttributeConnectionRef = useRef<NotebookSQLConnectionValue | null>(null)
+    const lastEditorConnectionRef = useRef<NotebookSQLConnectionValue | null>(null)
 
     useEffect(() => {
         initialize()
@@ -273,7 +321,7 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
             lastCodeRef.current = code
             lastQueryRef.current = code
             setQueryInput(code)
-            setSourceQuery(buildSourceQuery(code))
+            setSourceQuery(buildSourceQuery(code, attributeConnection))
             return
         }
 
@@ -282,9 +330,12 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
             // "Run query" uses what the user is actually looking at. Skip the push when
             // queryInput resets to null (e.g. a re-initialize while `code` hasn't changed) —
             // otherwise we'd write `code: null` and clear the cell on the next round-trip.
+            // Rebuild from the live sourceQuery, not from scratch: a connection the user picked
+            // moments ago may not have round-tripped through Tiptap yet, and rebuilding from the
+            // attributes would drop it (this is what reset the selector on every keystroke).
             lastQueryRef.current = queryInput
             if (queryInput !== null) {
-                setSourceQuery(buildSourceQuery(queryInput))
+                setSourceQuery(buildSourceQuery(queryInput, editorConnection))
                 updateAttributes({ code: queryInput } as Partial<NotebookNodeAttributes<T>>)
             }
             return
@@ -292,7 +343,32 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
 
         // Both sides match what we last observed but each other doesn't — Tiptap is still
         // catching up to a push we already made. Do nothing; the next render will reconcile.
-    }, [code, queryInput, setQueryInput, setSourceQuery, updateAttributes])
+    }, [code, queryInput, attributeConnection, editorConnection, setQueryInput, setSourceQuery, updateAttributes])
+
+    useEffect(() => {
+        if (!persistConnection || sameNotebookSQLConnection(attributeConnection, editorConnection)) {
+            lastAttributeConnectionRef.current = attributeConnection
+            lastEditorConnectionRef.current = editorConnection
+            return
+        }
+
+        if (!sameNotebookSQLConnection(attributeConnection, lastAttributeConnectionRef.current)) {
+            lastAttributeConnectionRef.current = attributeConnection
+            lastEditorConnectionRef.current = attributeConnection
+            setSourceQuery(buildSourceQuery(queryInput ?? code, attributeConnection))
+            return
+        }
+
+        if (!sameNotebookSQLConnection(editorConnection, lastEditorConnectionRef.current)) {
+            // The connection selector writes straight into sqlEditorLogic; persist it on the cell
+            // so the next run targets it and a reload keeps it.
+            lastEditorConnectionRef.current = editorConnection
+            updateAttributes({
+                connectionId: editorConnection.connectionId,
+                sendRawQuery: editorConnection.sendRawQuery,
+            } as Partial<NotebookNodeAttributes<T>>)
+        }
+    }, [persistConnection, attributeConnection, editorConnection, code, queryInput, setSourceQuery, updateAttributes])
 }
 
 export const getNotebookSqlEditorOutputTab = (outputTab: unknown): OutputTab => {
@@ -412,7 +488,7 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
     )
 }
 
-export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
+export function NotebookCodeSQLEditorSettings<T extends { code: string } & NotebookSQLConnection>({
     attributes,
     updateAttributes,
     tabIdSuffix,
@@ -422,22 +498,25 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryTooltip,
     onCancelQuery,
     cancelQueryLoading,
+    persistConnection,
 }: NotebookNodeAttributeProperties<T> & {
     tabIdSuffix: string
-    /** Called with the live editor text — `attributes.code` can lag it by a Tiptap round-trip. */
-    onRunQuery?: (code: string) => void
+    /** Called with the live editor text and connection — the attributes can lag both by a Tiptap round-trip. */
+    onRunQuery?: (code: string, connection: NotebookSQLConnectionValue) => void
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
     /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
     onCancelQuery?: () => void
     cancelQueryLoading?: boolean
+    /** Store the picked connection on the cell. Only for cells whose run actually honors it. */
+    persistConnection?: boolean
 }): JSX.Element {
     const tabId = useMemo(
         () => getNotebookSqlEditorTabId(attributes.nodeId, tabIdSuffix),
         [attributes.nodeId, tabIdSuffix]
     )
-    useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
+    useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId, persistConnection })
     const extraTreeSections = useNotebookDataframeTreeSections()
     const editorLogic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(editorLogic)
@@ -466,15 +545,20 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 defaultShowDatabaseTree={false}
                 extraTreeSections={extraTreeSections}
                 autoFocusQueryPane={autoFocusQueryPane}
-                // Read the editor's current text imperatively at run time. The Cmd+Enter keybinding
-                // fires a stale closure (and Monaco's keybinding value can come through empty), so a
-                // captured `liveCode` would run the previous query. The mounted logic's `queryInput`
-                // is the same source the Run button uses; fall back to `liveCode` before first sync.
+                // Read the editor's current text and connection imperatively at run time. The
+                // Cmd+Enter keybinding fires a stale closure (and Monaco's keybinding value can come
+                // through empty), so a captured `liveCode` would run the previous query. The mounted
+                // logic is the same source the Run button uses; fall back to `liveCode` before first
+                // sync. The connection is read here too because a just-picked one may not have
+                // round-tripped through Tiptap into the attributes yet.
                 onRunQuery={
                     onRunQuery
                         ? () => {
                               const current = editorLogic.values.queryInput
-                              onRunQuery(typeof current === 'string' && current.trim() ? current : liveCode)
+                              onRunQuery(
+                                  typeof current === 'string' && current.trim() ? current : liveCode,
+                                  readNotebookSQLConnection(editorLogic.values.sourceQuery)
+                              )
                           }
                         : undefined
                 }
