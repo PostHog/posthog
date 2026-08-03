@@ -1,4 +1,12 @@
-import { ArrowLeftIcon, LinkIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  CheckCircleIcon,
+  LinkIcon,
+  PauseIcon,
+  PencilSimpleIcon,
+  PlayIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -292,7 +300,7 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
               <Badge variant={loopStatusBadgeVariant(loop)}>
                 {loopStatusLabel(loop)}
               </Badge>
-              <Badge>{loop.visibility}</Badge>
+              <Badge>{loop.visibility.toUpperCase()}</Badge>
             </Flex>
             <Flex align="center" gap="2">
               <Button
@@ -302,6 +310,11 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
                 disabled={updateLoop.isPending}
                 onClick={() => handleToggleEnabled(!loop.enabled)}
               >
+                {loop.enabled ? (
+                  <PauseIcon size={14} />
+                ) : (
+                  <PlayIcon size={14} />
+                )}
                 {loop.enabled ? "Pause" : "Resume"}
               </Button>
               <Button
@@ -319,11 +332,17 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
                 disabled={runNowPending}
                 onClick={() => void handleRunNow()}
               >
+                <PlayIcon size={14} />
                 Run now
               </Button>
               <Button
-                variant={isEditing ? "default" : "outline"}
+                variant="outline"
                 size="sm"
+                className={
+                  isEditing
+                    ? "border-(--accent-7) bg-(--accent-3) text-(--accent-11)"
+                    : undefined
+                }
                 onClick={() => {
                   if (isEditing) {
                     requestLeaveEdit("summary");
@@ -332,6 +351,11 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
                   setIsEditing(true);
                 }}
               >
+                {isEditing ? (
+                  <CheckCircleIcon size={14} weight="fill" />
+                ) : (
+                  <PencilSimpleIcon size={14} />
+                )}
                 {isEditing ? "Editing" : "Edit"}
               </Button>
               <Button
@@ -339,6 +363,7 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
                 size="sm"
                 onClick={() => setDeleteOpen(true)}
               >
+                <TrashIcon size={14} />
                 Delete
               </Button>
             </Flex>
