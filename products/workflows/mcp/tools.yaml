@@ -102,6 +102,9 @@ tools:
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
         enabled: false
+    internal-hog-flows-account-audience-create:
+        operation: internal_hog_flows_account_audience_create
+        enabled: false
     internal-hog-flows-batch-jobs-status-update:
         operation: internal_hog_flows_batch_jobs_status_update
         enabled: false
