@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.db import transaction
 
@@ -78,7 +78,7 @@ def _claim_resume(run_id: str) -> tuple[TaskRun | None, list[dict[str, Any]], in
         if attempts >= MAX_ORCHESTRATION_RESUME_ATTEMPTS:
             return None, [], attempts
         queued = state.get(PENDING_ORCHESTRATION_WAKES_STATE_KEY)
-        wakes = list(queued) if isinstance(queued, list) else []
+        wakes = cast(list[dict[str, Any]], list(queued)) if isinstance(queued, list) else []
         if not wakes:
             return None, [], attempts
         state[ORCHESTRATION_RESUME_STATE_KEY] = {"in_flight": True, "attempts": attempts + 1}
