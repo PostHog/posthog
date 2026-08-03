@@ -854,6 +854,7 @@ def cleanup_canvas_builds() -> int:
         if pending_keys:
             object_storage.delete_objects(pending_keys)
         if pending_build_ids:
+            # nosemgrep: idor-lookup-without-team (cross-team retention sweep; ids collected from DB rows above, no user input)
             CanvasBuild.objects.unscoped().filter(id__in=pending_build_ids).update(artifact_object_prefix=None)
         pruned += len(pending_build_ids)
         pending_keys.clear()
