@@ -1170,7 +1170,7 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, entity_id, breakdown_value) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_flag_evaluations (
-  team_id UInt64,
+  team_id Int64,
   uuid UUID,
   timestamp DateTime64(6, 'UTC') CODEC(DoubleDelta, ZSTD(1)),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp CODEC(DoubleDelta, ZSTD(1)),
@@ -3120,7 +3120,7 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id));
 CREATE TABLE posthog.flag_evaluations (
-  team_id UInt64,
+  team_id Int64,
   uuid UUID,
   timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,

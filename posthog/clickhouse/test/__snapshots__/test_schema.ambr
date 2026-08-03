@@ -294,7 +294,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_flag_evaluations
   (
-      team_id UInt64,
+      team_id Int64,
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
@@ -1905,7 +1905,7 @@
   
   CREATE TABLE IF NOT EXISTS flag_evaluations
   (
-      team_id UInt64,
+      team_id Int64,
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
@@ -2563,7 +2563,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_flag_evaluations
   (
-      team_id UInt64,
+      team_id Int64,
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
@@ -6932,7 +6932,7 @@
   
   CREATE TABLE IF NOT EXISTS sharded_flag_evaluations
   (
-      team_id UInt64,
+      team_id Int64,
       uuid UUID,
       timestamp DateTime64(6, 'UTC') CODEC(DoubleDelta, ZSTD(1)),
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp CODEC(DoubleDelta, ZSTD(1)),
@@ -9241,7 +9241,7 @@
   
   CREATE TABLE IF NOT EXISTS writable_flag_evaluations
   (
-      team_id UInt64,
+      team_id Int64,
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
@@ -11900,7 +11900,7 @@
   
   CREATE TABLE IF NOT EXISTS sharded_flag_evaluations
   (
-      team_id UInt64,
+      team_id Int64,
       uuid UUID,
       timestamp DateTime64(6, 'UTC') CODEC(DoubleDelta, ZSTD(1)),
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp CODEC(DoubleDelta, ZSTD(1)),

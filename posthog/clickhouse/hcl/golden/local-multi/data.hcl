@@ -1687,7 +1687,7 @@ database "posthog" {
 
   table "flag_evaluations" {
     column "team_id" {
-      type = "UInt64"
+      type = "Int64"
     }
     column "uuid" {
       type = "UUID"
@@ -6118,7 +6118,7 @@ database "posthog" {
       ttl_only_drop_parts = "1"
     }
     column "team_id" {
-      type = "UInt64"
+      type = "Int64"
     }
     column "uuid" {
       type = "UUID"

@@ -54,7 +54,7 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, cityHash64(distinct_id))"
 # shard, so without them a direct insert via writable_flag_evaluations would
 # store epoch instead of the sharded table's fallback.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
-    team_id UInt64,
+    team_id Int64,
     uuid UUID,
     timestamp DateTime64(6, 'UTC'),
     inserted_at DateTime64(6, 'UTC'){ts_default},
@@ -121,7 +121,7 @@ FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
-    team_id UInt64,
+    team_id Int64,
     uuid UUID,
     timestamp DateTime64(6, 'UTC') CODEC(DoubleDelta, ZSTD(1)),
     inserted_at DateTime64(6, 'UTC') DEFAULT timestamp CODEC(DoubleDelta, ZSTD(1)),
