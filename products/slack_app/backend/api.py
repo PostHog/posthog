@@ -66,7 +66,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
@@ -97,6 +97,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_user_info import (
+    clear_workspace_profile_cache,
     get_cached_bot_user_id,
     get_slack_user_info,
     normalize_slack_response,
@@ -1769,19 +1770,17 @@ def _route_assistant_event(
     )
 
 
-def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str, *, proxied: bool, other_domain: str) -> str:
+def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """Drop the workspace's cached Slack profiles so a reinstall resolves users from
     fresh ``users.info`` data instead of emails cached under the previous install.
 
     Fanned out once to the other region (loop-guarded) since a dual-owned workspace
     caches profiles on both sides.
     """
-    deleted, _ = SlackUserProfileCache.objects.filter(
-        integration__kind=SLACK_INTEGRATION_KIND, integration__integration_id=slack_team_id
-    ).delete()
+    deleted = clear_workspace_profile_cache(slack_team_id)
     logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
-    if not proxied and cross_region_routing_enabled():
-        _proxy_event_to_region(request, other_domain)
+    if not was_proxied(request) and cross_region_routing_enabled():
+        _proxy_event_to_region(request, other_region_domain(request.get_host()))
     return ROUTE_HANDLED_LOCALLY
 
 
@@ -1818,7 +1817,7 @@ def route_posthog_code_event_to_relevant_region(
     )
 
     if event_type == "app_uninstalled":
-        return _handle_app_uninstalled(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+        return _handle_app_uninstalled(request, slack_team_id)
 
     # App Home tab: published per-user when they open the Home tab. Always
     # handled locally — `views.publish` just renders a snapshot of the user's
