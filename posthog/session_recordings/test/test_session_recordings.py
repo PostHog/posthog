@@ -977,6 +977,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "other_viewers": 0,
         }
 
+    def test_capture_diagnostics_degrades_gracefully_on_clickhouse_error(self):
+        session_recording_id = "session_1"
+        produce_replay_summary(session_id=session_recording_id, team_id=self.team.pk, distinct_id="d1")
+
+        with patch(
+            "posthog.session_recordings.session_recording_api.get_latest_session_event_properties",
+            side_effect=Exception("Connection refused"),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/capture_diagnostics"
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"properties": None}
+
     def test_get_single_session_recording_viewed_stats_can_404(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/12345/viewed")
         assert response.status_code == status.HTTP_200_OK
