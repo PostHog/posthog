@@ -48,6 +48,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_rows_metric,
     get_ducklake_register_data_imports_stale_metric,
     get_ducklake_register_data_imports_started_metric,
+    record_ducklake_register_data_imports_stage_duration,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -63,6 +64,7 @@ def _stage_timer(*, stage: str, team_id: int, schema_id: str) -> ExecutionTimeRe
         "Execution duration of one post-gate DuckLake data import registration stage.",
         {"stage": stage, "team_id": str(team_id), "schema_id": schema_id},
         log=True,
+        histogram_recorder=record_ducklake_register_data_imports_stage_duration,
     )
 
 
