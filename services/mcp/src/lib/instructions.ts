@@ -96,6 +96,19 @@ interface ToolItem {
  * All query-* tools collapse to a single "query" domain (`search query-` lists
  * them); their typed catalog is documented separately in the prompt.
  */
+const SEPARATOR = '|'
+/** ASCII so the marker itself costs the same in bytes as in characters, which keeps
+ *  the budget arithmetic exact for clients that cap the payload in bytes. */
+const OVERFLOW_MARKER = '|...'
+
+function fitsInBytes(text: string, maxBytes: number): boolean {
+    return Buffer.byteLength(text, 'utf8') <= maxBytes
+}
+
+function dedupeSorted(values: string[]): string[] {
+    return [...new Set(values)].sort()
+}
+
 export class ToolDomainExtractor {
     /** A family at or below this many tools stays one domain; above it, split
      *  into sub-family roots. ~25 keeps flat CRUD families (e.g. experiment) whole
@@ -179,6 +192,85 @@ export class ToolDomainExtractor {
 
     toCompact(): string {
         return this.getDomains().join('|')
+    }
+
+    /** Render the compact index within `maxBytes`, degrading precision instead of
+     *  coverage: families collapse to their shared prefix, then the longest domains
+     *  shed trailing segments one at a time. Every rendered domain stays a valid
+     *  `search` prefix at a segment boundary, so a shortened domain still finds the
+     *  tools it stands for. Domains are only dropped (marked with a trailing `...`)
+     *  when even one-segment roots overflow the budget. */
+    toCompactBounded(maxBytes: number): string {
+        const plain = this.getDomains()
+        if (fitsInBytes(plain.join(SEPARATOR), maxBytes)) {
+            return plain.join(SEPARATOR)
+        }
+        let domains = ToolDomainExtractor.foldFamilies(plain)
+        while (!fitsInBytes(domains.join(SEPARATOR), maxBytes)) {
+            const shortened = ToolDomainExtractor.shortenLongest(domains)
+            if (!shortened) {
+                break
+            }
+            domains = shortened
+        }
+        if (fitsInBytes(domains.join(SEPARATOR), maxBytes)) {
+            return domains.join(SEPARATOR)
+        }
+        while (domains.length > 1 && !fitsInBytes(domains.join(SEPARATOR) + OVERFLOW_MARKER, maxBytes)) {
+            domains = ToolDomainExtractor.dropLongest(domains)
+        }
+        return domains.join(SEPARATOR) + OVERFLOW_MARKER
+    }
+
+    /** Collapse each root family to the segment prefix its members share, so the
+     *  21 `experiment-*` sub-domains render as `experiment` and the three
+     *  `external-data-*` ones as `external-data`. */
+    private static foldFamilies(domains: string[]): string[] {
+        const byRoot = new Map<string, string[][]>()
+        for (const domain of domains) {
+            const segments = domain.split('-')
+            const root = segments[0] ?? domain
+            byRoot.set(root, [...(byRoot.get(root) ?? []), segments])
+        }
+        const folded: string[] = []
+        for (const family of byRoot.values()) {
+            folded.push(ToolDomainExtractor.sharedPrefix(family).join('-'))
+        }
+        return dedupeSorted(folded)
+    }
+
+    private static sharedPrefix(family: string[][]): string[] {
+        const first = family[0] ?? []
+        let length = 1
+        while (length < first.length && family.every((segments) => segments[length] === first[length])) {
+            length++
+        }
+        return first.slice(0, length)
+    }
+
+    /** Drop the last segment of the longest multi-segment domain. Returns null once
+     *  every domain is a single segment and precision can't be traded any further. */
+    private static shortenLongest(domains: string[]): string[] | null {
+        const target = ToolDomainExtractor.longest(domains, (domain) => domain.includes('-'))
+        if (!target) {
+            return null
+        }
+        const shortened = target.split('-').slice(0, -1).join('-')
+        return dedupeSorted(domains.map((domain) => (domain === target ? shortened : domain)))
+    }
+
+    private static dropLongest(domains: string[]): string[] {
+        const target = ToolDomainExtractor.longest(domains, () => true)
+        return domains.filter((domain) => domain !== target)
+    }
+
+    /** Longest match, breaking ties on the last name alphabetically so the rendered
+     *  index is stable for a given tool set. */
+    private static longest(domains: string[], eligible: (domain: string) => boolean): string | undefined {
+        return domains
+            .filter(eligible)
+            .sort((a, b) => a.length - b.length || a.localeCompare(b))
+            .pop()
     }
 
     /** Reduce a group sharing a `depth`-segment prefix to one or more domains,
@@ -270,6 +362,10 @@ export function buildToolDomainsBlock(tools: ToolInfo[]): string {
 
 export function buildToolDomainsCompact(tools: ToolInfo[]): string {
     return new ToolDomainExtractor(tools).toCompact()
+}
+
+export function buildToolDomainsBounded(tools: ToolInfo[], maxBytes: number): string {
+    return new ToolDomainExtractor(tools).toCompactBounded(maxBytes)
 }
 
 export interface QueryToolInfo {

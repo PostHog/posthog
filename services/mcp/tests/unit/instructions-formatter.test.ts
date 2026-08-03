@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
 import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
+import { CODEX_INSTRUCTIONS_BUDGET_BYTES } from '@/lib/client-detection'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
 
 const realisticGroupTypes: GroupType[] = [
     { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
@@ -359,43 +361,65 @@ describe('InstructionsFormatter', () => {
         })
     })
 
-    // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
-    // `instructions` field, env-context moves out of the `command` description and into
-    // `instructions`: tool domains (including the `query` domain), user preferences
+    // Codex truncates `instructions` at 1000 bytes, so the payload it receives has to fit
+    // the shipped catalog inside that budget. This guards the growth direction: adding
+    // tools (or prose to the compact template) must degrade the domain index instead of
+    // pushing the payload over the cap, where Codex would cut it mid-domain.
+    describe('buildBoundedExecInstructions', () => {
+        it('fits the shipped tool catalog into the Codex budget', () => {
+            const tools = Object.entries(getToolDefinitions()).map(([name, definition]) => ({
+                name,
+                category: definition.category,
+            }))
+            const payload = new InstructionsFormatter().buildBoundedExecInstructions(
+                { ...fullCtx, tools },
+                CODEX_INSTRUCTIONS_BUDGET_BYTES
+            )
+
+            expect(Buffer.byteLength(payload, 'utf8')).toBeLessThanOrEqual(CODEX_INSTRUCTIONS_BUDGET_BYTES)
+            expect(payload).toContain('Prioritize skills over tools')
+            expect(payload.split('|')).toContain('skill')
+        })
+    })
+
+    // Mirrors the single-exec wiring in `src/hono/instructions.ts`. When the client honors
+    // the MCP `instructions` field, env-context moves out of the `command` description and
+    // into `instructions`: tool domains (including the `query` domain), user preferences
     // (timezone/name via `{metadata}`), and defined group types. The query-tool catalog
-    // stays on the `command` description. Codex (no `instructions` support) keeps today's
-    // behavior: empty `instructions`, everything inlined in the `command` description.
+    // stays on the `command` description. A client that truncates `instructions` (Codex)
+    // gets the tool-domain index there and keeps env-context on the `command` description.
     describe('exec mode wiring', () => {
         it.each([
-            { name: 'supportsInstructions=true (Claude Code etc.)', supportsInstructions: true },
-            { name: 'supportsInstructions=false (Codex)', supportsInstructions: false },
-        ])('$name: splits product context between instructions and commandReference', ({ supportsInstructions }) => {
+            { name: 'unbudgeted instructions (Claude Code etc.)', budgeted: false },
+            { name: 'budgeted instructions (Codex)', budgeted: true },
+        ])('$name: splits product context between instructions and commandReference', ({ budgeted }) => {
             const formatter = new InstructionsFormatter()
-            const instructions = supportsInstructions ? formatter.buildExecInstructions(fullCtx) : ''
+            const instructions = budgeted
+                ? formatter.buildBoundedExecInstructions(fullCtx, 1000)
+                : formatter.buildExecInstructions(fullCtx)
             const commandReference = formatter.buildExecCommandReference(fullCtx, {
-                stripEnvContext: supportsInstructions,
+                stripEnvContext: !budgeted,
             })
 
             expect(commandReference).toContain('SCHEMA DRILL-DOWN RULE')
             expect(commandReference).toContain('### Basic functionality')
             // the query catalog always lives on the command reference, both modes
             expect(commandReference).toContain('- `query-trends` — time series')
+            // queries surface in instructions only as the `query` tool domain
+            expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
+            expect(instructions).not.toContain('- `query-trends` — time series')
+            expect(commandReference).not.toContain('dashboard|execute-sql')
 
-            if (supportsInstructions) {
-                // queries surface in instructions only as the `query` tool domain
-                expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
-                expect(instructions).not.toContain('- `query-trends` — time series')
+            if (budgeted) {
+                expect(instructions).not.toContain("The user's name is Jane Doe")
+                expect(instructions).not.toContain('Defined group types: organization')
+                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain('Defined group types: organization')
+            } else {
                 expect(instructions).toContain("The user's name is Jane Doe")
                 expect(instructions).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain("The user's name is Jane Doe")
                 expect(commandReference).not.toContain('Defined group types: organization')
-                expect(commandReference).not.toContain('dashboard|execute-sql')
-            } else {
-                expect(instructions).toBe('')
-                expect(commandReference).toContain('- `query-trends` — time series')
-                expect(commandReference).toContain("The user's name is Jane Doe")
-                expect(commandReference).not.toContain('dashboard|execute-sql')
-                expect(commandReference).toContain('Defined group types: organization')
             }
         })
     })

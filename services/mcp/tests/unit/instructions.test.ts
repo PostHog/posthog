@@ -6,6 +6,7 @@ import {
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
+    buildToolDomainsBounded,
     buildToolDomainsCompact,
     QueryToolCatalog,
     type QueryToolInfo,
@@ -170,6 +171,48 @@ describe('buildToolDomainsCompact', () => {
 
     it('returns an empty string for an empty array', () => {
         expect(buildToolDomainsCompact([])).toBe('')
+    })
+})
+
+describe('buildToolDomainsBounded', () => {
+    // A family wide enough that the plain index overflows a small budget, plus a
+    // singleton and a query wrapper, so folding, shortening and the `query` domain are
+    // all exercised from one fixture.
+    const tools = [
+        ...['activity', 'archive', 'calculate', 'holdouts', 'timeseries', 'unarchive'].map((sub) => ({
+            name: `experiment-${sub}-get`,
+            category: 'Experiments',
+        })),
+        { name: 'external-data-sources-get', category: 'Warehouse' },
+        { name: 'external-data-schemas-get', category: 'Warehouse' },
+        { name: 'session-recording-get', category: 'Replay' },
+        { name: 'skill-get', category: 'Skills' },
+        { name: 'query-trends', category: 'Query wrappers' },
+    ]
+    const plain = buildToolDomainsCompact(tools)
+
+    it('renders the full index unchanged when it already fits', () => {
+        expect(buildToolDomainsBounded(tools, plain.length)).toBe(plain)
+    })
+
+    it.each([[plain.length - 1], [60], [40], [20]])(
+        'fits %i bytes with searchable prefixes of the full index',
+        (maxBytes) => {
+            const rendered = buildToolDomainsBounded(tools, maxBytes)
+
+            expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(maxBytes)
+            // Precision may be traded away, but a rendered domain the model can't find
+            // anything with is worse than a missing one: each must still prefix a real
+            // domain at a segment boundary.
+            for (const domain of rendered.split('|').filter((entry) => entry !== '...')) {
+                expect(plain.split('|').some((full) => full === domain || full.startsWith(`${domain}-`))).toBe(true)
+            }
+        }
+    )
+
+    it('marks the index as partial once domains have to be dropped', () => {
+        expect(buildToolDomainsBounded(tools, 20)).toContain('|...')
+        expect(buildToolDomainsBounded(tools, plain.length)).not.toContain('|...')
     })
 })
 

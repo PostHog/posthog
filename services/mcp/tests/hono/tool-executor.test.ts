@@ -15,6 +15,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { CODEX_INSTRUCTIONS_BUDGET_BYTES } from '@/lib/client-detection'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -187,32 +188,35 @@ describe('ToolExecutor', () => {
         })
 
         // Env-context (active project metadata + tool-domain index) must reach the model
-        // on the exec `command` for clients that don't otherwise receive the `instructions`
-        // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
-        // web/desktop report `true` but silently ignore it. Claude Code and Cowork strip
-        // it here because it arrives via `instructions` instead.
+        // on the exec `command` for clients that don't receive it through the `instructions`
+        // payload: Codex truncates that payload so it only carries the tool-domain index,
+        // and Claude web/desktop report support but silently ignore it. Claude Code and
+        // Cowork strip it here because it arrives via `instructions` instead.
         it.each([
             {
                 label: 'Claude web/desktop (ignores instructions)',
-                supportsInstructions: true,
+                capabilities: { supportsInstructions: true },
                 isClaudeChatHost: true,
                 expectEnv: true,
             },
             {
-                label: 'Codex (supportsInstructions: false)',
-                supportsInstructions: false,
+                label: 'Codex (budgeted instructions)',
+                capabilities: {
+                    supportsInstructions: true,
+                    instructionsBudgetBytes: CODEX_INSTRUCTIONS_BUDGET_BYTES,
+                },
                 isClaudeChatHost: false,
                 expectEnv: true,
             },
             {
                 label: 'Claude Code / Cowork (consume instructions)',
-                supportsInstructions: true,
+                capabilities: { supportsInstructions: true },
                 isClaudeChatHost: false,
                 expectEnv: false,
             },
         ])(
             'injects project metadata into the exec command for $label → $expectEnv',
-            async ({ supportsInstructions, isClaudeChatHost, expectEnv }) => {
+            async ({ capabilities, isClaudeChatHost, expectEnv }) => {
                 const tools = catalog
                     .getPreBuiltEntries()
                     .slice(0, 5)
@@ -223,7 +227,7 @@ describe('ToolExecutor', () => {
                     useSingleExec: true,
                     metadata: metadataMarker,
                     clientProfile: {
-                        capabilities: { supportsInstructions },
+                        capabilities,
                         isCliModeEnabled: vi.fn(() => true),
                         isClaudeUiHost: vi.fn(() => false),
                         isInlineExecUiHost: vi.fn(() => false),

@@ -34,12 +34,18 @@ export class InstructionsBuilder {
     }
 
     build(state: ResolvedState): string {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
+        const { supportsInstructions, instructionsBudgetBytes } = state.clientProfile.capabilities
         if (!supportsInstructions) {
             return ''
         }
 
         const ctx = this.buildContext(state)
+        // A budgeted payload only carries the tool-domain index, so it applies to both
+        // modes: in tools mode the per-tool descriptions already cover the rest, and in
+        // single-exec mode the exec `command` description does.
+        if (instructionsBudgetBytes !== undefined) {
+            return this.formatter.buildBoundedExecInstructions(ctx, instructionsBudgetBytes)
+        }
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
         }
@@ -105,21 +111,22 @@ export class InstructionsBuilder {
     }
 
     buildExecCommandReference(state: ResolvedState): string {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
+        const { supportsInstructions, instructionsBudgetBytes } = state.clientProfile.capabilities
         // Claude web/desktop report `supportsInstructions` but never surface the
         // `instructions` payload to the model, so its env-context (tool domains,
         // project metadata, group types) would be lost. Keep it on the exec command
         // description for those chat hosts only — Cowork surfaces instructions
-        // normally and gets env-context through them. (Codex, which reports
-        // `supportsInstructions: false`, already gets the full env-context via the
-        // un-stripped path.)
+        // normally and gets env-context through them.
         const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
         if (keepEnvContext) {
             return this.formatter.buildClaudeExecCommandReference(ctx)
         }
+        // A budgeted `instructions` payload (Codex) spends its whole budget on the
+        // tool-domain index and carries no env-context, so this description has to keep
+        // it. This parameter description is the one surface these clients read in full.
         return this.formatter.buildExecCommandReference(ctx, {
-            stripEnvContext: supportsInstructions,
+            stripEnvContext: supportsInstructions && instructionsBudgetBytes === undefined,
         })
     }
 

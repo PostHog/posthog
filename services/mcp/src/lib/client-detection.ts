@@ -35,8 +35,8 @@
  *   them. Cowork surfaces instructions normally, so it is deliberately excluded.
  *
  * - `capabilities` is a feature-flag-style object describing protocol
- *   features the client actually implements (e.g. `supportsInstructions` —
- *   Codex ignores the `instructions` field returned from `initialize`).
+ *   features the client actually implements (e.g. `instructionsBudgetBytes` —
+ *   Codex truncates the `instructions` field returned from `initialize`).
  */
 
 function normalizeClientName(s: string): string {
@@ -203,14 +203,24 @@ export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGM
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
-    // clients inject into the model's system prompt. Codex discards it, so
-    // we skip sending it (saving the payload cost) for those sessions.
+    // clients inject into the model's system prompt. A client that ignores it
+    // gets no payload at all, saving the transfer cost.
     supportsInstructions: boolean
+    // Set when the client truncates `instructions` instead of passing it through
+    // whole. The payload is then rendered to fit the budget and everything that
+    // doesn't fit stays on the exec `command` description, which is not capped.
+    instructionsBudgetBytes?: number
 }
 
 export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {
     supportsInstructions: true,
 }
+
+/** Codex surfaces `instructions` as the *namespace description* of the MCP server's
+ *  tool namespace, and bounds that description at 1000 bytes
+ *  (`MAX_MCP_NAMESPACE_DESCRIPTION_BYTES` in codex-rs/core/src/tools/handlers/mcp.rs),
+ *  cutting the rest mid-string. */
+export const CODEX_INSTRUCTIONS_BUDGET_BYTES = 1000
 
 type CapabilityOverride = {
     // Matched against the self-reported `clientInfo.name`.
@@ -226,7 +236,10 @@ const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
     {
         fragments: ['codex'],
         userAgentFragments: ['codex'],
-        capabilities: { supportsInstructions: false },
+        capabilities: {
+            supportsInstructions: true,
+            instructionsBudgetBytes: CODEX_INSTRUCTIONS_BUDGET_BYTES,
+        },
     },
 ]
 

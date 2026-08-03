@@ -4,6 +4,7 @@ import {
     ANTHROPIC_CLIENT_NAME_FRAGMENTS,
     ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
     ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
+    CODEX_INSTRUCTIONS_BUDGET_BYTES,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
@@ -465,24 +466,28 @@ describe('MCPClientProfile', () => {
         })
     })
 
-    describe('capabilities.supportsInstructions', () => {
+    describe('capabilities.instructionsBudgetBytes', () => {
         it.each([['codex'], ['Codex'], ['CODEX'], ['codex-cli'], ['Codex CLI'], ['codex/1.2.3'], ['openai-codex']])(
-            'is false for Codex variant %s',
+            'is budgeted for Codex variant %s',
             (clientName) => {
-                expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(false)
+                const capabilities = new MCPClientProfile({ clientName }).capabilities
+                expect(capabilities.supportsInstructions).toBe(true)
+                expect(capabilities.instructionsBudgetBytes).toBe(CODEX_INSTRUCTIONS_BUDGET_BYTES)
             }
         )
 
-        it('is false for the name-less Codex surface of openai-mcp (User-Agent only)', () => {
+        it('is budgeted for the name-less Codex surface of openai-mcp (User-Agent only)', () => {
             expect(
-                new MCPClientProfile({ userAgent: 'openai-mcp/1.0.0 (Codex)' }).capabilities.supportsInstructions
-            ).toBe(false)
+                new MCPClientProfile({ userAgent: 'openai-mcp/1.0.0 (Codex)' }).capabilities.instructionsBudgetBytes
+            ).toBe(CODEX_INSTRUCTIONS_BUDGET_BYTES)
         })
 
         it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (ChatGPT)']])(
-            'stays true for the non-Codex openai-mcp user-agent %s',
+            'stays unbudgeted for the non-Codex openai-mcp user-agent %s',
             (userAgent) => {
-                expect(new MCPClientProfile({ userAgent }).capabilities.supportsInstructions).toBe(true)
+                const capabilities = new MCPClientProfile({ userAgent }).capabilities
+                expect(capabilities.supportsInstructions).toBe(true)
+                expect(capabilities.instructionsBudgetBytes).toBeUndefined()
             }
         )
 
@@ -495,12 +500,12 @@ describe('MCPClientProfile', () => {
             ['mcp-inspector'],
             ['windsurf'],
             ['zed'],
-        ])('is true for non-Codex client %s', (clientName) => {
-            expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(true)
+        ])('is unbudgeted for non-Codex client %s', (clientName) => {
+            expect(new MCPClientProfile({ clientName }).capabilities.instructionsBudgetBytes).toBeUndefined()
         })
 
-        it.each([[undefined], [''], ['   ']])('defaults to true for %s', (clientName) => {
-            expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(true)
+        it.each([[undefined], [''], ['   ']])('defaults to unbudgeted for %s', (clientName) => {
+            expect(new MCPClientProfile({ clientName }).capabilities.instructionsBudgetBytes).toBeUndefined()
         })
     })
 
@@ -528,7 +533,8 @@ describe('MCPClientProfile', () => {
 })
 
 describe('DEFAULT_CLIENT_CAPABILITIES', () => {
-    it('has supportsInstructions=true by default', () => {
+    it('has supportsInstructions=true and no budget by default', () => {
         expect(DEFAULT_CLIENT_CAPABILITIES.supportsInstructions).toBe(true)
+        expect(DEFAULT_CLIENT_CAPABILITIES.instructionsBudgetBytes).toBeUndefined()
     })
 })

@@ -3,6 +3,7 @@ import {
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
+    buildToolDomainsBounded,
     buildToolDomainsCompact,
     type QueryToolInfo,
     type ToolInfo,
@@ -31,6 +32,12 @@ import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecHelpEntry, LEARN_COMMAND_LINE } from '@/tools/exec-help'
+
+/** Squeeze the runs of blank lines left behind by placeholders a caller deliberately
+ *  resolved to nothing, so a budgeted payload doesn't spend bytes on whitespace. */
+function collapseBlankLines(text: string): string {
+    return text.replace(/\n{3,}/g, '\n\n')
+}
 
 export interface InstructionsContext {
     guidelines: string
@@ -80,6 +87,31 @@ export class InstructionsFormatter {
      *  description (`buildExecCommandReference`) — this is just env + tool index. */
     buildExecInstructions(ctx: InstructionsContext): string {
         return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+    }
+
+    /** Build an `instructions` payload that fits `maxBytes` for clients that truncate
+     *  the field (Codex caps it at 1000 bytes). Env context is dropped rather than
+     *  squeezed: it survives on the exec `command` description, whereas the tool-domain
+     *  index has no other home in these sessions, so it gets the whole budget and
+     *  degrades its own precision to fit (see `ToolDomainExtractor.toCompactBounded`). */
+    buildBoundedExecInstructions(ctx: InstructionsContext, maxBytes: number): string {
+        const render = (toolDomains: string): string =>
+            collapseBlankLines(
+                this.compose(
+                    [COMPACT_INSTRUCTIONS],
+                    { guidelines: ctx.guidelines },
+                    {
+                        compact: true,
+                        toolDomains,
+                    }
+                )
+            )
+        // Measure the scaffold by rendering a one-byte stand-in rather than an empty
+        // string: `formatPrompt` trims the result, so an empty index would also swallow
+        // the newlines that separate it from the heading and understate the cost.
+        const scaffoldBytes = Buffer.byteLength(render('x'), 'utf8') - 1
+        const domains = ctx.tools ? buildToolDomainsBounded(ctx.tools, Math.max(0, maxBytes - scaffoldBytes)) : ''
+        return render(domains)
     }
 
     /** Build the top-level description of the `posthog:exec` tool. */
@@ -231,7 +263,13 @@ export class InstructionsFormatter {
     private compose(
         sections: string[],
         ctx: InstructionsContext,
-        opts: { compact: boolean; compactToolDomains?: boolean; extraCommands?: string }
+        opts: {
+            compact: boolean
+            compactToolDomains?: boolean
+            extraCommands?: string
+            /** Pre-rendered index, used when the caller sizes it itself. */
+            toolDomains?: string
+        }
     ): string {
         const renderToolDomains =
             opts.compact || opts.compactToolDomains ? buildToolDomainsCompact : buildToolDomainsBlock
@@ -242,7 +280,7 @@ export class InstructionsFormatter {
             guidelines: ctx.guidelines.trim(),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
-            tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
+            tool_domains: opts.toolDomains ?? (ctx.tools ? renderToolDomains(ctx.tools) : ''),
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
             extra_commands: opts.extraCommands ?? '',

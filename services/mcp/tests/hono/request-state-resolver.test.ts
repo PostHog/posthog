@@ -80,6 +80,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
+import { CODEX_INSTRUCTIONS_BUDGET_BYTES } from '@/lib/client-detection'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { Env } from '@/tools/types'
@@ -193,7 +194,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpClientName).toBe('Claude Desktop')
         expect(result.sessionContext?.mcpClientName).toBe('codex')
         expect(result.clientProfile.clientName).toBe('codex')
-        expect(result.clientProfile.capabilities.supportsInstructions).toBe(false)
+        expect(result.clientProfile.capabilities.instructionsBudgetBytes).toBe(CODEX_INSTRUCTIONS_BUDGET_BYTES)
     })
 
     it('uses explicit mode when cached session client props would resolve differently', async () => {
