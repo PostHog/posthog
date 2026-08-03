@@ -100,6 +100,7 @@ export {
 } from "./cloud-task-models";
 export {
   buildInboxDeeplink,
+  buildLoopDeeplink,
   buildScoutDeeplink,
   DEEPLINK_PROTOCOL_DEVELOPMENT,
   DEEPLINK_PROTOCOL_PRODUCTION,
@@ -359,9 +360,11 @@ export type {
 } from "./task-creation-domain";
 export {
   formatClockTime,
+  formatDaySeparatorLabel,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
   getLocalDayDiff,
+  getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
 export {

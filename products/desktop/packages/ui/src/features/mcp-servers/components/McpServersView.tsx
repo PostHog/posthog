@@ -2,7 +2,10 @@ import type {
   McpRecommendedServer,
   McpServerInstallation,
 } from "@posthog/api-client/posthog-client";
+import { MCP_GATEWAY_FLAG } from "@posthog/shared";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useLocalMcpCloudServers } from "@posthog/ui/features/local-mcp/useLocalMcpCloudServers";
+import { McpGatewayView } from "@posthog/ui/features/mcp-gateway/components/McpGatewayView";
 import { AddCustomServerForm } from "@posthog/ui/features/mcp-server-manager/AddCustomServerForm";
 import { MarketplaceView } from "@posthog/ui/features/mcp-servers/components/parts/MarketplaceView";
 import { McpInstalledRail } from "@posthog/ui/features/mcp-servers/components/parts/McpInstalledRail";
@@ -27,6 +30,14 @@ type SceneView =
   | { kind: "add-custom" };
 
 export function McpServersView() {
+  // The team gateway replaces the per-user marketplace wherever the backend
+  // rollout has reached; the legacy surface stays as the fallback.
+  const gatewayEnabled = useFeatureFlag(MCP_GATEWAY_FLAG);
+  if (gatewayEnabled) return <McpGatewayView />;
+  return <McpMarketplaceView />;
+}
+
+function McpMarketplaceView() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<SceneView>({ kind: "marketplace" });
   const [query, setQuery] = useState("");

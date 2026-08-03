@@ -183,7 +183,7 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
         ? "We didn't hear back from GitHub. If the browser tab was closed, click Try again."
         : connecting
           ? "Waiting for GitHub… finish authorizing in your browser, then return here."
-          : "Connect your GitHub account to import issues as Self-driving findings.";
+          : "Connect your GitHub account to import issues as Self-driving signals.";
     return (
       <SetupFormContainer title="Connect GitHub">
         <Flex direction="column" gap="3">

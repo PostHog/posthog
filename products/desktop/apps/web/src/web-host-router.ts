@@ -1,10 +1,10 @@
-import { fetchPosthogPiModelCatalog } from "@posthog/agent/pi/model-catalog";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { AuthService } from "@posthog/core/auth/auth";
 import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import { TEAM_SKILLS_SERVICE } from "@posthog/core/skills/identifiers";
 import type { TeamSkillsService } from "@posthog/core/skills/teamSkillsService";
 import { resolveService } from "@posthog/di/container";
+import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
 import { analyticsRouter } from "@posthog/host-router/routers/analytics.router";
 import { authRouter } from "@posthog/host-router/routers/auth.router";
 import { canvasDataRouter } from "@posthog/host-router/routers/canvas-data.router";
@@ -65,6 +65,7 @@ const deepLinkStubRouter = router({
   getPendingOpenTarget: publicProcedure.query(() => null),
   getPendingCanvasLink: publicProcedure.query(() => null),
   getPendingChannelLink: publicProcedure.query(() => null),
+  getPendingLoopLink: publicProcedure.query(() => null),
   onOpenTask: neverEmit,
   onOpenReport: neverEmit,
   onOpenScout: neverEmit,
@@ -73,6 +74,7 @@ const deepLinkStubRouter = router({
   onOpenTarget: neverEmit,
   onOpenCanvas: neverEmit,
   onOpenChannel: neverEmit,
+  onOpenLoop: neverEmit,
 });
 
 // Slack/GitHub connect. Desktop opens the PostHog integration authorize URL in

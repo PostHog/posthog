@@ -197,7 +197,7 @@ function ScoutTroopWidget(): JSX.Element {
             tone={hasAny ? 'done' : 'todo'}
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
-            description="Scheduled agents that sweep this project on a cadence and report findings."
+            description="Scheduled agents that sweep this project on a cadence and report signals."
             onClick={() => openSetupModal('scout-troop')}
         />
     )
@@ -316,13 +316,13 @@ const SETUP_MODALS: Record<
     },
     'scout-troop': {
         title: 'Scout troop',
-        description: 'Scheduled agents that sweep this project on a cadence and emit findings to your inbox.',
+        description: 'Scheduled agents that sweep this project on a cadence and emit signals to your inbox.',
         width: 760,
         body: <ScoutsFleetSection />,
     },
     slack: {
         title: 'Notifications',
-        description: 'Get pinged in Slack when you’re a suggested reviewer on a new inbox item.',
+        description: 'Get pinged in Slack when you’re a suggested reviewer on a new report.',
         width: 560,
         body: <SlackNotificationsSection />,
     },

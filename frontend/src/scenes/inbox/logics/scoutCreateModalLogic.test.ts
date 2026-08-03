@@ -43,6 +43,7 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         consecutive_failure_count: 0,
         status_changed_at: null,
         auto_pause_exempt: false,
+        network_access: 'trusted',
         created_at: '2026-07-24T00:00:00Z',
     },
 }

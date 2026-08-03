@@ -6,8 +6,8 @@ monorepo; anything else that differs from the source at the pinned SHA is drift 
 be treated as a bug in the sync.
 
 - Source: https://github.com/PostHog/code
-- Pinned SHA: `5ac5892a2f566b18125b2be89e8e11f17a7218e8` (main)
-- Imported: 2026-07-20; resynced: 2026-07-30
+- Pinned SHA: `fc991d3eea2d1ac649e2502c0197b0fda9b19f58` (main)
+- Imported: 2026-07-20; resynced: 2026-08-01
 
 ## Resync protocol (for a human or an agent)
 
@@ -31,6 +31,9 @@ be treated as a bug in the sync.
 The tree is a verbatim copy of the source at the pinned SHA except:
 
 - `.github/` is not imported (see workflow mapping below).
+- `.stamphog/` is not imported: it is the policy for the source repo's stamphog PR-approval
+  merge gate, whose workflow is dropped here (the monorepo runs its own pr-approval-agent
+  on all PRs). Delete it on resync.
 - `MIGRATION.md` (this file), `POST-MIGRATION.md` (the post-merge runbook) and
   `docs/plan.md` (the migration plan) exist only in the monorepo; restore all three on a
   resync.
@@ -45,14 +48,20 @@ The tree is a verbatim copy of the source at the pinned SHA except:
   `packages/ui/src/features/inbox/CLAUDE.md` renamed to `AGENTS.md` plus a symlink, and
   symlinks added in `packages/ui/src/features/{browser-tabs,canvas}/`. Upstream these to
   PostHog/code so resyncs do not reintroduce the violations.
+- `docs/testing.md`: the "Storybook Visual Regression" CI paragraphs are replaced with a
+  note that the storybook CI was removed post-merge (see `POST-MIGRATION.md` step 6). The
+  source still documents its own storybook workflow; reapply on resync.
 - Local security patches (reapply on resync until the pin includes the upstream fix):
   `apps/code/src/main/utils/encryption.ts` passes `{ authTagLength: 16 }` to
   `createDecipheriv` (semgrep `gcm-no-tag-length`, ERROR). For the simple-git 3.36 RCE fix,
-  `packages/git/src/client.ts` opts into `unsafe.{allowUnsafeFsMonitor,allowUnsafeEditor,
-  allowUnsafePager}` (3.36's block-unsafe plugin otherwise rejects the hardcoded
-  core.fsmonitor perf flag and inherited GIT_EDITOR/PAGER), and `packages/git/src/queries.ts`
-  runs `git worktree list` through raw `execFile` instead of simple-git. All upstreamed to
-  PostHog/code (#4030).
+  `packages/git/package.json` bumps `simple-git` to `^3.36.0` (the source is on `^3.30.0`,
+  so the nested lockfile diverges there too), `packages/git/src/client.ts` opts into
+  `unsafe.{allowUnsafeFsMonitor,allowUnsafeEditor,allowUnsafePager}` (3.36's block-unsafe
+  plugin otherwise rejects the hardcoded core.fsmonitor perf flag and inherited
+  GIT_EDITOR/PAGER), and `packages/git/src/queries.ts` runs `git worktree list` through raw
+  `execFile` instead of simple-git. The upstream attempt (PostHog/code#4030) was closed
+  unmerged, so these stay local patches; restoring the four files from the previous
+  monorepo commit and refreshing the nested lockfile is the reapply.
 
 The nested workspace is intentional: `products/desktop/` keeps its own `pnpm-workspace.yaml`,
 lockfile, Biome config and Node 22, and is NOT in the root `pnpm-workspace.yaml` globs.
@@ -109,14 +118,14 @@ separate project.
 
 | Source (.github/workflows/) | Port | Notes beyond the standard transforms |
 | --- | --- | --- |
-| _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the five gating workflows; see transform rule 7 |
+| _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the four gating workflows; see transform rule 7 |
 | build.yml | desktop-build.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Build Pass` |
 | warm-caches.yml | desktop-warm-caches.yml | seeds every cache the restore-only desktop PR workflows use; pnpm-store caching is explicit (`desktop-pnpm-*` keys) instead of setup-node auto-cache so PR restores share the namespace |
 | agent-release-verify.yml | desktop-agent-release-verify.yml | restore-only pnpm store |
 | typecheck.yml | desktop-typecheck.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Typecheck Pass` |
 | code-quality.yml | desktop-quality.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Quality Pass` |
 | test.yml | desktop-test.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Tests Pass`; live-gateway e2e kept with `POSTHOG_CODE_E2E_*` org secrets |
-| code-storybook.yml | desktop-storybook.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Storybook Pass`; VR CLI checkout still pulls `PostHog/posthog` master (same repo now, but master's CLI, not the PR branch's, is the intended version) |
+| code-storybook.yml | _(not ported)_ | removed post-merge: the code-signed VR baseline flagged every story as new from this repo (see the Visual Review baseline note). Do not re-port on resync unless VR is re-registered against posthog/posthog first |
 | code-build-test.yml | desktop-build-test.yml | `workflow_dispatch` only; the source's `refactor/electron-vite` push trigger is a code-repo branch and is dropped |
 | code-release.yml | desktop-release.yml | tags `desktop-v*`; legacy publishing to PostHog/code releases kept (see below) |
 | code-tag.yml | desktop-tag.yml | computes and pushes `desktop-v*` tags; quiet-period check and patch count scoped `-- products/desktop/` (monorepo master always has fresh commits; unscoped counts would be meaningless) |
@@ -161,12 +170,12 @@ ports from source using these rules.
    every monorepo file, so each filter gains a positive `products/desktop/**` scope and its excludes
    are reanchored under `products/desktop/` (`predicate-quantifier: every` retained). Non-gating
    workflows get top-level `paths: ["products/desktop/**", <own workflow file>]` filters instead.
-7. **Merge queue**: gating workflows (build, typecheck, quality, test, storybook) become
+7. **Merge queue**: gating workflows (build, typecheck, quality, test) become
    `workflow_call` reusable workflows with no triggers of their own beyond the `push:` master
    arm, and end in an always-running `Desktop <X> Pass` collation job. They are dispatched by
    `desktop-ci.yml` (monorepo-native, no source counterpart), which owns the `pull_request:`
    and `merge_group:` triggers, the PR concurrency group, and the secrets each child declares.
-   That keeps the whole suite to one workflow run per PR event instead of five, against
+   That keeps the whole suite to one workflow run per PR event instead of four, against
    GitHub's 500-runs/10s dispatch cap.
    Two consequences worth knowing before registering required checks:
    - The check context is `<caller job id> / Desktop <X> Pass` (for example
@@ -251,8 +260,8 @@ the PR's side; that file is the one to follow on merge day.
   Connect (mobile). Until they exist, the corresponding workflows red on this PR — that is
   the dry run telling us which are missing.
 - **Required checks**: register `Desktop Build Pass`, `Desktop Typecheck Pass`,
-  `Desktop Quality Pass`, `Desktop Tests Pass` (and optionally `Desktop Storybook Pass`)
-  as required status checks once this merges.
+  `Desktop Quality Pass` and `Desktop Tests Pass` as required status checks once this
+  merges.
 - **Base tag**: create `desktop-v<X>.<Y>.0`, or the tag workflow has no base to count from.
   Use the next unused minor above the code repo's latest release, not the minor it is
   currently on: the patch counter restarts from the new tag, so reusing that minor emits a
@@ -298,8 +307,8 @@ the PR's side; that file is the one to follow on merge day.
   PostHog/code VR registration, so submitting from this repo flags every story as new and
   the job reds. In-app approval can't fix it (the VR bot can't commit a posthog-signed
   baseline onto the PR branch, and each resync re-imports the file from code and
-  overwrites it). It resolves at real cutover when the folder is on master and VR points
-  at the posthog repo. Until then the `desktop-skip-vr` PR label force-skips the
-  `visual-regression` job (its `if:` checks the label); the `Desktop Storybook Pass`
-  aggregate treats a skipped job as success. This label gate is an intentional drift:
-  reapply it to `desktop-storybook.yml` on every resync and keep the label on the PR.
+  overwrites it). After the merge the storybook CI was removed outright rather than kept
+  behind the `desktop-skip-vr` label gate: `desktop-storybook.yml`, its `storybook` job in
+  `desktop-ci.yml` and the Playwright cache warming in `desktop-warm-caches.yml` are gone.
+  Do not re-port `code-storybook.yml` on a resync; `POST-MIGRATION.md` step 6 covers how
+  to bring it back once VR is re-registered against posthog/posthog.

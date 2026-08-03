@@ -52,10 +52,6 @@
       "types": "./dist/pi/types.d.ts",
       "import": "./dist/pi/types.js"
     },
-    "./pi/model-catalog": {
-      "types": "./dist/pi/model-catalog.d.ts",
-      "import": "./dist/pi/model-catalog.js"
-    },
     "./pr-url-detector": {
       "types": "./dist/pr-url-detector.d.ts",
       "import": "./dist/pr-url-detector.js"

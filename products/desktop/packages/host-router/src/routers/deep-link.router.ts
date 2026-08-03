@@ -18,6 +18,7 @@ import {
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
+  LOOP_LINK_SERVICE,
   NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE,
   SCOUT_LINK_SERVICE,
@@ -28,6 +29,11 @@ import {
   type InboxLinkService,
   type PendingInboxDeepLink,
 } from "@posthog/core/links/inbox-link";
+import {
+  LoopLinkEvent,
+  type LoopLinkPayload,
+  type LoopLinkService,
+} from "@posthog/core/links/loop-link";
 import {
   NewTaskLinkEvent,
   type NewTaskLinkPayload,
@@ -203,6 +209,24 @@ export const deepLinkRouter = router({
     ({ ctx }): ChannelLinkPayload | null => {
       return ctx.container
         .get<ChannelLinkService>(CHANNEL_LINK_SERVICE)
+        .consumePendingDeepLink();
+    },
+  ),
+
+  onOpenLoop: publicProcedure.subscription(async function* (opts) {
+    const service = opts.ctx.container.get<LoopLinkService>(LOOP_LINK_SERVICE);
+    const iterable = service.toIterable(LoopLinkEvent.OpenLoop, {
+      signal: opts.signal,
+    });
+    for await (const data of iterable) {
+      yield data;
+    }
+  }),
+
+  getPendingLoopLink: publicProcedure.query(
+    ({ ctx }): LoopLinkPayload | null => {
+      return ctx.container
+        .get<LoopLinkService>(LOOP_LINK_SERVICE)
         .consumePendingDeepLink();
     },
   ),

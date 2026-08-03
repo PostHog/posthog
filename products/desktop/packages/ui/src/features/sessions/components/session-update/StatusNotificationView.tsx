@@ -35,6 +35,29 @@ export function formatCompactionFailure(error?: string): string {
   return detail ? `Compacting failed: ${detail}` : "Compacting failed";
 }
 
+export function formatRetryStatus({
+  attempt,
+  maxAttempts,
+  message,
+  remainingMs,
+}: {
+  attempt?: number;
+  maxAttempts?: number;
+  message?: string;
+  remainingMs: number;
+}): string {
+  const rateLimited = /\b429\b|rate[ _]limit(?:ed)?|too many requests/i.test(
+    message ?? "",
+  );
+  const retryAt =
+    remainingMs > 0 ? `in ${formatDuration(remainingMs, 0)}` : "now";
+  const attemptLabel =
+    attempt && maxAttempts ? ` (attempt ${attempt} of ${maxAttempts})` : "";
+  const prefix = rateLimited ? "Rate limit reached. " : "";
+
+  return `${prefix}Retrying ${retryAt}${attemptLabel}`;
+}
+
 export function StatusNotificationView({
   status,
   isComplete,
@@ -179,14 +202,12 @@ function RetryingStatusView({
     return () => clearInterval(interval);
   }, [delayMs, startedAt]);
 
-  const attemptLabel =
-    attempt && maxAttempts
-      ? `Attempt ${attempt} of ${maxAttempts}`
-      : "Retrying";
-  const retryLabel =
-    remainingMs > 0
-      ? `${attemptLabel} in ${formatDuration(remainingMs, 1)}`
-      : `${attemptLabel} now`;
+  const retryLabel = formatRetryStatus({
+    attempt,
+    maxAttempts,
+    message,
+    remainingMs,
+  });
 
   return (
     <ChatMarker variant="separator">
@@ -194,9 +215,6 @@ function RetryingStatusView({
         <Flex align="center" gap="2">
           <ArrowsClockwise size={13} className="animate-spin text-amber-9" />
           <Text className="text-[13px] text-gray-11">{retryLabel}</Text>
-          {message && (
-            <Text className="truncate text-[13px] text-gray-10">{message}</Text>
-          )}
         </Flex>
       </ChatMarkerContent>
     </ChatMarker>

@@ -29,6 +29,7 @@
     "@posthog/di": "workspace:*",
     "@posthog/enricher": "workspace:*",
     "@posthog/git": "workspace:*",
+    "@posthog/harness": "workspace:*",
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
     "@trpc/server": "catalog:",

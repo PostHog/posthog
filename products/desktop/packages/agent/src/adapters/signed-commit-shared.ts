@@ -135,7 +135,11 @@ export interface SignedCommitToolResult {
   [key: string]: unknown;
 }
 
-export type SignedCommitToolCtx = SignedCommitCtx & { taskRunId?: string };
+export type SignedCommitToolCtx = SignedCommitCtx & {
+  taskRunId?: string;
+  /** The task repository cwd, before a tool-call `cwd` override is applied. */
+  taskRepositoryCwd: string;
+};
 
 async function runSignedTool<A>(
   toolName: string,
@@ -176,11 +180,17 @@ export function runSignedCommitTool(
     SIGNED_COMMIT_TOOL_NAME,
     async (c, a: SignedCommitInput) => {
       const result = await createSignedCommit(c, a);
-      await reportTaskRunBranch({
-        taskId: ctx.taskId,
-        taskRunId: ctx.taskRunId,
-        branch: result.branch,
-      });
+      // TaskRun.branch is the branch that provisioning checks out in the task's
+      // repository on resume. A task can also commit to sibling repositories by
+      // passing `cwd`; persisting one of those branches here makes the next run
+      // try to clone the task repository at a branch that only exists elsewhere.
+      if (ctx.cwd === ctx.taskRepositoryCwd) {
+        await reportTaskRunBranch({
+          taskId: ctx.taskId,
+          taskRunId: ctx.taskRunId,
+          branch: result.branch,
+        });
+      }
       // The "commit hook": every pushed commit becomes a `commit` artefact on the signal
       // reports this task is associated with. Best-effort and awaited inside the tool's
       // try/catch-free success path — reportCommitArtefacts never throws, so a failed

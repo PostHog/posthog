@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   formatClockTime,
+  formatDaySeparatorLabel,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
   getLocalDayDiff,
+  getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
 
@@ -122,5 +124,39 @@ describe("getRelativeDateGroup", () => {
 
   it("groups older dates as Earlier", () => {
     expect(getRelativeDateGroup(NOW - 40 * DAY)).toBe("Earlier");
+  });
+});
+
+describe("getLocalDayKey", () => {
+  it("gives two times on the same local day one key", () => {
+    expect(getLocalDayKey(new Date(2026, 5, 15, 0, 1))).toBe(
+      getLocalDayKey(new Date(2026, 5, 15, 23, 59)),
+    );
+  });
+
+  it("separates adjacent days", () => {
+    expect(getLocalDayKey(new Date(2026, 5, 15))).not.toBe(
+      getLocalDayKey(new Date(2026, 5, 16)),
+    );
+  });
+});
+
+describe("formatDaySeparatorLabel", () => {
+  const now = new Date(2026, 5, 15, 12);
+
+  it.each([
+    ["today", new Date(2026, 5, 15, 9), "Today"],
+    ["yesterday", new Date(2026, 5, 14, 9), "Yesterday"],
+    // Within the week the weekday alone is unambiguous.
+    ["earlier this week", new Date(2026, 5, 11), "Thursday 11th"],
+    // Past a week it needs the month, and past a year the year too.
+    ["last month", new Date(2026, 4, 20), "Wednesday, May 20th"],
+    ["last year", new Date(2025, 11, 3), "Wednesday, December 3rd, 2025"],
+  ])("labels %s", (_case, date: Date, expected) => {
+    expect(formatDaySeparatorLabel(date, now)).toBe(expected);
+  });
+
+  it("labels a future timestamp as today rather than counting backwards", () => {
+    expect(formatDaySeparatorLabel(new Date(2026, 5, 16), now)).toBe("Today");
   });
 });

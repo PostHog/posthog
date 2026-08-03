@@ -18,7 +18,11 @@ export function useTaskPrStatus(task: {
 }): TaskPrStatus {
   const trpc = useHostTRPC();
 
-  const skipQuery = task.taskRunEnvironment === "cloud" && !task.cloudPrUrl;
+  // No id means no task — canvas rows share this hook — and a cloud run with no
+  // PR url yet has nothing to look up either. Both would spend a round trip to
+  // be told nothing.
+  const skipQuery =
+    !task.id || (task.taskRunEnvironment === "cloud" && !task.cloudPrUrl);
 
   const { data } = useQuery(
     trpc.workspace.getTaskPrStatus.queryOptions(

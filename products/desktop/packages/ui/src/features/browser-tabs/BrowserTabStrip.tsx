@@ -166,8 +166,11 @@ export function BrowserTabStrip() {
   // decides where a task/blank tab navigates.
   const inChannels = pathname.startsWith("/website");
   // Top-level app pages (Inbox, Agents, Skills, MCP servers, Command Center)
-  // are tab targets too. useAppView normalizes both the /code routes and
-  // their /website mirrors to the same view.type, so a tab survives either space.
+  // are tab targets too. useAppView normalizes both the /code routes and their
+  // /website mirrors to the same view.type, so a tab survives either space. A
+  // top-level route that ISN'T here falls through to `task-input`, and the
+  // strip then reconciles the location against the wrong tab and navigates
+  // straight back off the page.
   const view = useAppView();
   const routeAppView: AppView | null = isAppView(view.type) ? view.type : null;
 

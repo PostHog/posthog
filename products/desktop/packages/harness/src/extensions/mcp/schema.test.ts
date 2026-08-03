@@ -1,3 +1,4 @@
+import { Compile } from "typebox/compile";
 import { describe, expect, it } from "vitest";
 import { convertJsonSchemaToTypebox } from "./schema";
 
@@ -105,6 +106,18 @@ describe("convertJsonSchemaToTypebox", () => {
     expect(result.anyOf).toHaveLength(2);
     expect(result.anyOf?.[0]).toMatchObject({ type: "string" });
     expect(result.anyOf?.[1]).toMatchObject({ type: "null" });
+  });
+
+  it("validates nullable arrays", () => {
+    const schema = convertJsonSchemaToTypebox({
+      type: ["array", "null"],
+      items: { type: "string" },
+    });
+    const check = Compile(schema);
+
+    expect(check.Check(null)).toBe(true);
+    expect(check.Check(["value"])).toBe(true);
+    expect(check.Check([1])).toBe(false);
   });
 
   it.each([["oneOf"], ["anyOf"]])("converts %s to a union", (key) => {

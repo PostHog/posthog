@@ -30,6 +30,9 @@ const PROMPT_WITH_CONTEXT =
 const PROMPT_WITH_CANVAS_INSTRUCTIONS =
   "add a retention chart\n\n<canvas_generation_instructions>\nauthoring contract\n</canvas_generation_instructions>";
 
+const PROMPT_WITH_PI_SKILL =
+  '<skill name="code-review" location="/skills/code-review/SKILL.md">\nReferences are relative to /skills/code-review.\n\n# Review\n\nInspect the diff.\n</skill>\n\nReview this pull request.';
+
 describe("UserMessage", () => {
   // useFeatureFlag falls back to import.meta.env.DEV, which is true under
   // vitest. Pin DEV off in the flag-gating cases so they exercise the flag
@@ -77,6 +80,14 @@ describe("UserMessage", () => {
     expect(screen.queryByText("#billing CONTEXT.md")).not.toBeInTheDocument();
     // The raw <channel_context> XML must never leak to flag-off viewers.
     expect(screen.queryByText(/channel_context/)).not.toBeInTheDocument();
+  });
+
+  it("renders Pi skill invocations as a command chip", () => {
+    renderWithFlags(<UserMessage content={PROMPT_WITH_PI_SKILL} />, true);
+
+    expect(screen.getByText("/code-review")).toBeInTheDocument();
+    expect(screen.getByText("Review this pull request.")).toBeInTheDocument();
+    expect(screen.queryByText("Inspect the diff.")).not.toBeInTheDocument();
   });
 
   it("shows the canvas-instructions tag when project-bluebird is enabled", () => {

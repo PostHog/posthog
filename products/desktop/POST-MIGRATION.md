@@ -105,9 +105,9 @@ the same minor and race to publish to the same release feed.
 
 ## 4. Expect the first master-push CI wave
 
-Seven desktop workflows trigger on push to `master`: `desktop-warm-caches`,
-`desktop-build`, `desktop-typecheck`, `desktop-quality`, `desktop-test`,
-`desktop-storybook` and `desktop-agent-tag`.
+Six desktop workflows trigger on push to `master`: `desktop-warm-caches`,
+`desktop-build`, `desktop-typecheck`, `desktop-quality`, `desktop-test`
+and `desktop-agent-tag`.
 
 `desktop-warm-caches` seeds every cache the restore-only PR workflows depend on. Until it
 finishes, desktop PRs run without a warm pnpm store and are slow. That is expected, not a
@@ -121,15 +121,16 @@ These run and pass today, but nothing enforces them:
 - `Desktop Typecheck Pass`
 - `Desktop Quality Pass`
 - `Desktop Tests Pass`
-- `Desktop Storybook Pass` (optional, see step 6)
 
-## 6. Retire the `desktop-skip-vr` label
+## 6. Storybook CI (removed post-merge)
 
-The committed `apps/code/snapshots.yml` is signed for the PostHog/code Visual Review
-registration, so submitting from this repo flags every story as new. The label force-skips
-the `visual-regression` job until the folder is on `master` and VR points at posthog. Once
-that holds, drop the label and the `if:` gate in `desktop-storybook.yml`, and let the VR
-bot commit a posthog-signed baseline.
+`desktop-storybook.yml` was removed after the merge. The committed `apps/code/snapshots.yml`
+is signed for the PostHog/code Visual Review registration, so every submission from this repo
+flagged all stories as new and the job could not go green without a full VR re-registration.
+The `desktop-skip-vr` label is obsolete and can be deleted. To bring visual regression back,
+re-register VR against posthog/posthog first, then restore the workflow (and its `storybook`
+job in `desktop-ci.yml` and the Playwright cache warming in `desktop-warm-caches.yml`) from
+git history and let the VR bot commit a posthog-signed baseline.
 
 ## 7. Re-register the npm trusted publisher
 

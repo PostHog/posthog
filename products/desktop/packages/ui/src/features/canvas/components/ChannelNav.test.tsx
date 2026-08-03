@@ -74,9 +74,48 @@ describe("ChannelNav", () => {
 
     const activity = screen.getByLabelText("Activity");
     expect(activity).toBeEnabled();
+    expect(activity).not.toHaveAttribute("aria-haspopup");
     await user.hover(activity);
 
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
+  });
+
+  it("leaves no popover state on the bell after it navigates to Activity", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<ChannelNav />);
+    const bell = () => screen.getByLabelText("Activity");
+
+    await user.hover(bell());
+    await screen.findByText("Recent activity card", {}, { timeout: 1_000 });
+    await user.click(bell());
+    mocks.view = { type: "activity" };
+    rerender(<ChannelNav />);
+
+    expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
+    expect(bell()).not.toHaveAttribute("data-popup-open");
+    expect(bell()).not.toHaveAttribute("data-pressed");
+  });
+
+  it("neither resurfaces nor wedges the hover card once the bell has navigated", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<ChannelNav />);
+    const bell = () => screen.getByLabelText("Activity");
+
+    await user.hover(bell());
+    await user.click(bell());
+    mocks.view = { type: "activity" };
+    rerender(<ChannelNav />);
+    await user.unhover(bell());
+
+    mocks.view = { type: "task-detail" };
+    rerender(<ChannelNav />);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
+
+    await user.hover(bell());
+    expect(
+      await screen.findByText("Recent activity card", {}, { timeout: 1_000 }),
+    ).toBeInTheDocument();
   });
 });
