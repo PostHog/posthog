@@ -6,9 +6,8 @@ checker="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-pr-backend-coupling
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
-# gh stub: `gh api [flags] <path>` prints the fixture registered for that
-# path, fails when a .fail marker exists and 404s on anything unregistered,
-# matching the script's fail-closed contract. jq stays real.
+# gh stub: prints the fixture registered for the requested path, fails on a
+# .fail marker and 404s on anything unregistered. jq stays real.
 fake_bin="$workdir/bin"
 fixtures="$workdir/fixtures"
 mkdir -p "$fake_bin" "$fixtures"
@@ -77,8 +76,7 @@ assert_result "coupled PR fails with split guidance" 3 1 "must be separated into
 register_pr 4 '[{"name": "skip-desktop-backend-check"}]' products/desktop/apps/foo.ts posthog/models.py
 assert_result "skip label suppresses the check" 4 0 "skipping the coupling check"
 
-# One arm per classifier branch, paired with a desktop file: `yes` means the
-# path counts as backend and must fail the PR.
+# `yes` marks paths that count as backend and must fail the PR.
 pr=100
 while IFS='|' read -r path gated; do
     pr=$((pr + 1))

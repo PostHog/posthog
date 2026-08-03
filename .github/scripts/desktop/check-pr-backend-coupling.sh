@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Fails any PR that changes both products/desktop/** and backend code that
-# ships in the Django image. Desktop releases auto-update users on their own
-# schedule and are not orchestrated with backend deploys, so a coupled PR can
-# put a client in production that calls endpoints that are not deployed yet.
-# Sequencing is enforced at review time, like the migration/service separation
-# check: backend PR first, desktop PR after the backend is live.
+# ships in the Django image: desktop releases auto-update users on their own
+# schedule, with no orchestration against backend deploys, so a coupled PR can
+# ship a client that calls endpoints that are not deployed yet.
 set -euo pipefail
 
 REPOSITORY="${REPOSITORY:?}"
@@ -35,8 +33,7 @@ is_desktop_path() {
     esac
 }
 
-# An API failure must fail the check, not read as an empty file list: a missed
-# coupling would ship in the next desktop release.
+# A GitHub API failure must fail the check rather than read as an empty file list.
 fetch_api() {
     if ! gh api "$@"; then
         echo "::error::GitHub API request failed for $*; cannot verify desktop/backend separation" >&2
@@ -58,9 +55,8 @@ if [ "$touched_desktop" = false ]; then
     exit 0
 fi
 
-# Labels are read from the API, not the workflow event payload, so applying
-# the skip label and re-running this check is enough; label changes do not
-# retrigger pull_request runs.
+# Labels come from the API, not the event payload, so applying the skip label
+# and re-running is enough; label changes do not retrigger pull_request runs.
 pr_json=$(fetch_api "repos/$REPOSITORY/pulls/$PR_NUMBER") || exit 1
 if jq -e '[.labels[]?.name] | index("skip-desktop-backend-check") != null' <<<"$pr_json" >/dev/null; then
     echo "::notice::PR #$PR_NUMBER carries skip-desktop-backend-check; skipping the coupling check."

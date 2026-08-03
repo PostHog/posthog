@@ -5,11 +5,10 @@ name: Desktop CI
 # workflows counts once, so the whole desktop suite costs one slot per push.
 #
 # The suites themselves stay unfiltered here on purpose: each child gates its
-# own work on an internal `changes` job (and the backend-coupling check exits
-# as soon as it sees no products/desktop files), so a non-desktop PR pays a
-# handful of short detector jobs and skips everything else. A trigger-level
-# `paths:` filter would stop the `Desktop * Pass` checks from ever reporting,
-# leaving any PR that requires them stuck waiting for status.
+# own work on an internal `changes` job, so a non-desktop PR pays a handful of
+# short detector jobs and skips everything else. A trigger-level `paths:`
+# filter would stop the `Desktop * Pass` checks from ever reporting, leaving
+# any PR that requires them stuck waiting for status.
 
 on:
     pull_request:
@@ -56,16 +55,12 @@ jobs:
             POSTHOG_CODE_E2E_GATEWAY_URL: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
             TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
-    # Rejects a PR that couples products/desktop/** with backend code shipping
-    # in the Django image: desktop releases auto-update users and are not
-    # orchestrated with backend deploys, so the two halves must land as
-    # separate, sequenced PRs. Same idea as the migration/service separation
-    # check in pr-housekeeping; it lives here so the existing Desktop Tests
-    # Pass check covers it without a new required-check name.
+    # Desktop counterpart of the migration/service separation check (see the
+    # script header for why). Lives here rather than pr-housekeeping so the
+    # existing Desktop Tests Pass required check covers it.
     backend-coupling:
         name: Desktop backend coupling
-        # merge_group entries skip: the check already gated the PR itself, and
-        # there is no pull_request payload to inspect here.
+        # merge_group has no pull_request payload; the check already ran on the PR
         if: github.event_name == 'pull_request'
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -77,7 +72,7 @@ jobs:
                   persist-credentials: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              # forks can't read org secrets — fall back to github.token
+              # forks can't read org secrets; fall back to github.token
               if: github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
