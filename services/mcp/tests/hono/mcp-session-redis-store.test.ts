@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { McpSessionRedisStore } from '@/hono/cache/McpSessionRedisStore'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import type { MCPClientContext } from '@/hono/mcp-context'
+import { hash } from '@/lib/utils'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
 interface MockRedis extends RedisLike {
     store: Map<string, string>
+    eval: ReturnType<typeof vi.fn>
 }
 
 function createRedis(): MockRedis {
@@ -20,6 +22,20 @@ function createRedis(): MockRedis {
             store.set(key, value)
             return 'OK'
         }),
+        eval: vi.fn(
+            async (_script: string, _numberOfKeys: number, key: string, cachedRaw: string, desiredRaw: string) => {
+                const current = JSON.parse(store.get(key) ?? '{}') as Record<string, string>
+                const cached = cachedRaw === '' ? null : (JSON.parse(cachedRaw) as Record<string, string>)
+                const desired = JSON.parse(desiredRaw) as Record<string, string>
+                for (const [field, value] of Object.entries(desired)) {
+                    if (current[field] === undefined || (cached !== null && current[field] === cached[field])) {
+                        current[field] = value
+                    }
+                }
+                store.set(key, JSON.stringify(current))
+                return 1
+            }
+        ),
         del: vi.fn(async (...keys: string[]) => keys.filter((key) => store.delete(key)).length),
         scan: vi.fn(async () => ['0', []] as [string, string[]]),
         ...rateLimitStubs,
@@ -51,6 +67,15 @@ describe('McpSessionRedisStore', () => {
         expect(keys.filter((key) => key.startsWith('mcp:s:'))).toHaveLength(1)
         expect(keys.find((key) => key.startsWith('mcp:s:'))).toMatch(/^mcp:s:[A-Za-z0-9_-]{22}:c$/)
         expect(JSON.parse(redis.store.get(keys.find((key) => key.startsWith('mcp:s:'))!)!)).toEqual(liveContext)
+    })
+
+    it('reads legacy keys written with the existing session hash', async () => {
+        const redis = createRedis()
+        redis.store.set(`mcp:session:${hash('session-1')}:mcpClientName`, JSON.stringify('legacy-client'))
+
+        expect((await new McpSessionRedisStore(redis, 'session-1').resolve({}, '1')).mcpClientName).toBe(
+            'legacy-client'
+        )
     })
 
     it('keeps legacy state authoritative until the project is enabled', async () => {
@@ -108,6 +133,20 @@ describe('McpSessionRedisStore', () => {
             expect.stringMatching(/^mcp:session:.*:mcpVendorClient$/),
             JSON.stringify('ClaudeCode'),
         ])
+    })
+
+    it('preserves fields added by concurrent compact writes', async () => {
+        const redis = createRedis()
+        const first = new McpSessionRedisStore(redis, 'session-1').resolve({ mcpClientName: 'claude-code' }, '1')
+        const second = new McpSessionRedisStore(redis, 'session-1').resolve({ mcpConsumer: 'posthog-code' }, '1')
+
+        await Promise.all([first, second])
+
+        process.env.MCP_SESSION_CACHE_V2_READ_ALL = 'true'
+        expect(await new McpSessionRedisStore(redis, 'session-1').resolve({}, '1')).toMatchObject({
+            mcpClientName: 'claude-code',
+            mcpConsumer: 'posthog-code',
+        })
     })
 
     it('starts compact and legacy reads in parallel', async () => {

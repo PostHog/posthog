@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+import { hash } from '@/lib/utils'
+
 import type { MCPClientContext } from '../mcp-context'
 import { sessionCacheComparisonsTotal, sessionCacheOperationsTotal } from '../metrics'
 import type { RedisLike } from './RedisCache'
@@ -16,6 +18,25 @@ const SESSION_CONTEXT_KEYS = [
 
 type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]
 type SessionContext = Pick<MCPClientContext, SessionContextKey>
+type RedisWithEval = RedisLike & {
+    eval(script: string, numberOfKeys: number, ...args: string[]): Promise<unknown>
+}
+
+const MERGE_COMPACT_CONTEXT_SCRIPT = `
+local currentRaw = redis.call('GET', KEYS[1])
+local current = currentRaw and cjson.decode(currentRaw) or {}
+local cached = ARGV[1] ~= '' and cjson.decode(ARGV[1]) or nil
+local desired = cjson.decode(ARGV[2])
+
+for key, value in pairs(desired) do
+    if current[key] == nil or (cached ~= nil and current[key] == cached[key]) then
+        current[key] = value
+    end
+end
+
+redis.call('SET', KEYS[1], cjson.encode(current), 'EX', ARGV[3])
+return 1
+`
 
 export class McpSessionRedisStore {
     private readonly legacyPrefix: string
@@ -25,8 +46,8 @@ export class McpSessionRedisStore {
         private readonly redis: RedisLike,
         sessionId: string
     ) {
+        this.legacyPrefix = `mcp:session:${hash(sessionId)}`
         const digest = createHash('sha256').update(sessionId).digest()
-        this.legacyPrefix = `mcp:session:${digest.toString('hex')}`
         this.compactKey = `mcp:s:${digest.subarray(0, 16).toString('base64url')}:c`
     }
 
@@ -88,7 +109,14 @@ export class McpSessionRedisStore {
                 await this.redis.expire(this.compactKey, COMPACT_IDLE_TTL_SECONDS)
                 sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'refresh' })
             } else {
-                await this.redis.set(this.compactKey, JSON.stringify(context), 'EX', COMPACT_IDLE_TTL_SECONDS)
+                await (this.redis as RedisWithEval).eval(
+                    MERGE_COMPACT_CONTEXT_SCRIPT,
+                    1,
+                    this.compactKey,
+                    cached === null ? '' : JSON.stringify(cached),
+                    JSON.stringify(context),
+                    String(COMPACT_IDLE_TTL_SECONDS)
+                )
                 sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'write' })
             }
         } catch {
