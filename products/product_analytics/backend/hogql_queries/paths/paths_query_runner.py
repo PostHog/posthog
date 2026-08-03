@@ -344,13 +344,13 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         fields += [
             ast.Alias(
                 alias="groupings",
-                expr=ast.Constant(value=self.query.pathsFilter.pathGroupings or None),
+                expr=ast.Constant(value=self.query.pathsFilter.pathGroupings or []),
             ),
             ast.Alias(
                 alias="group_index",
                 expr=ast.Call(
                     name="multiMatchAnyIndex",
-                    args=[ast.Field(chain=[final_path_item_column]), ast.Constant(value=self.regex_groupings or None)],
+                    args=[ast.Field(chain=[final_path_item_column]), ast.Constant(value=self.regex_groupings)],
                 ),
             ),
             ast.Alias(

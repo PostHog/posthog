@@ -45,8 +45,16 @@ export function Paths(): JSX.Element {
     }, [rawCanvasWidth, rawCanvasHeight])
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
-        useValues(pathsDataLogic(insightProps))
+    const {
+        insightQuery,
+        paths,
+        pathsFilter,
+        funnelPathsFilter,
+        insightDataLoading,
+        insightDataError,
+        theme,
+        hasLoadedOnce,
+    } = useValues(pathsDataLogic(insightProps))
     const { loadData } = useActions(insightDataLogic(insightProps))
 
     const interactionLogic = pathsInteractionLogic(insightProps)
@@ -161,7 +169,9 @@ export function Paths(): JSX.Element {
                     } as React.CSSProperties
                 }
             >
-                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
+                {!insightDataLoading && hasLoadedOnce && paths && paths.nodes.length === 0 && !insightDataError && (
+                    <InsightEmptyState />
+                )}
                 {!insightDataError &&
                     resolvedNodeCards.map((node, idx) => (
                         <PathNodeCard

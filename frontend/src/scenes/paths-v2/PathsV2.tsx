@@ -24,8 +24,16 @@ export function PathsV2(): JSX.Element {
     const [nodes, setNodes] = useState<PathNodeData[]>([])
 
     const { insightProps } = useValues(insightLogic)
-    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
-        useValues(pathsDataLogic(insightProps))
+    const {
+        insightQuery,
+        paths,
+        pathsFilter,
+        funnelPathsFilter,
+        insightDataLoading,
+        insightDataError,
+        theme,
+        hasLoadedOnce,
+    } = useValues(pathsDataLogic(insightProps))
     const { openPersonsModal } = useActions(pathsDataLogic(insightProps))
     const { loadData } = useActions(insightDataLogic(insightProps))
 
@@ -87,7 +95,9 @@ export function PathsV2(): JSX.Element {
                     } as React.CSSProperties
                 }
             >
-                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
+                {!insightDataLoading && hasLoadedOnce && paths && paths.nodes.length === 0 && !insightDataError && (
+                    <InsightEmptyState />
+                )}
                 {!insightDataError &&
                     nodes &&
                     nodes.map((node, idx) => <PathNodeLabel key={idx} node={node} insightProps={insightProps} />)}

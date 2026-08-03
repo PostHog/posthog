@@ -4,6 +4,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -71,9 +72,11 @@ export interface pathsDataLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     dateRange: DateRange | null | undefined // insightVizDataLogic
     funnelPathsFilter: FunnelPathsFilter | null | undefined // insightVizDataLogic
+    hasLoadedOnce: boolean
     insightData: Record<string, any> // insightVizDataLogic
     insightDataError: Record<string, any> | null // insightVizDataLogic
     insightDataLoading: boolean // insightVizDataLogic
+    insightDataRaw: Record<string, any> | null // insightDataLogic
     insightQuery: DataNode<Record<string, any>> // insightVizDataLogic
     pathsFilter: PathsFilter | null // insightVizDataLogic
     theme: DataColorTheme | null // insightVizDataLogic
@@ -117,6 +120,7 @@ export interface pathsDataLogicMeta {
         results: (insightQuery: DataNode<Record<string, any>>, insightData: Record<string, any>) => PathsLink[]
         paths: (results: PathsLink[]) => Paths
         taxonomicGroupTypes: (pathsFilter: PathsFilter | null) => TaxonomicFilterGroupType[]
+        hasLoadedOnce: (insightDataRaw: Record<string, any> | null) => boolean
     }
 }
 
@@ -146,6 +150,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'dateRange',
                 'theme',
             ],
+            insightDataLogic(props),
+            ['insightDataRaw'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -159,6 +165,10 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
     }),
 
     selectors({
+        hasLoadedOnce: [
+            (s) => [s.insightDataRaw],
+            (insightDataRaw: Record<string, any> | null): boolean => insightDataRaw !== null,
+        ],
         results: [
             (s) => [s.insightQuery, s.insightData],
             (
