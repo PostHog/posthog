@@ -73,6 +73,23 @@ async def test_registration_gate_uses_independent_feature_flag(monkeypatch, atea
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("server_provisioned", [True, False])
+async def test_registration_gate_requires_provisioned_duckgres_server(monkeypatch, ateam, server_provisioned):
+    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(
+        registration_module,
+        "get_duckgres_server_by_team_org",
+        lambda team_id: MagicMock() if server_provisioned else None,
+    )
+
+    result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
+
+    assert result is server_provisioned
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam):
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam,
