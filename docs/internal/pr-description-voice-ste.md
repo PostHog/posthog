@@ -1,177 +1,215 @@
-# Simplified Technical English for PR descriptions
+# What a PR description looks like in Simplified Technical English
 
-An evaluation, not a proposal to adopt.
-The question: can we enforce ASD-STE100 in PR descriptions through `AGENTS.md` and `.github/pull_request_template.md`?
+Two of our own merged PRs, rewritten in ASD-STE100, next to what actually shipped.
+The point is to see the difference and judge whether it reads better.
+This is not a proposal to enforce anything, and nothing here changes `AGENTS.md` or the PR template.
 
-Short answer: those two files can ask for it, and neither can enforce it.
-Enforcement needs a check that reads the PR body.
-About half of STE is mechanically checkable; the half that carries most of its value is not, because the approved-word dictionary is licensed and cannot be checked into a public repo.
+## The standard, in short
 
-## What ASD-STE100 is
-
-A controlled-language standard from the AeroSpace, Security and Defence Industries Association of Europe, maintained by the STE Maintenance Group.
+ASD-STE100 is a controlled-language standard from the AeroSpace, Security and Defence Industries Association of Europe.
 It was written for aircraft maintenance manuals read by technicians whose first language is not English.
-It has two halves:
+It has two halves: roughly 65 writing rules, and a dictionary of roughly 900 approved words where each word has one meaning and one part of speech.
 
-- Roughly 65 writing rules. Sentence-length ceilings, active voice, no `-ing` verb forms, keep the articles, simple tenses, one instruction per sentence, no noun cluster longer than three words.
-- A dictionary of roughly 900 approved words. Each word has one approved meaning and one approved part of speech. "Follow" means "come after", never "obey". "Test" is a noun, not a verb.
+The dictionary is licensed and cannot be redistributed, so the rewrites below follow the writing rules only.
+That is also the honest ceiling on what a repo rule or an agent instruction can reproduce.
 
-The specification is free on request from asd-ste100.org, under a license that does not allow redistribution.
-That matters for enforcement: we cannot vendor the word list, so a checker in this repo would carry a hand-maintained subset and would not be STE conformance in any auditable sense.
+The rules that do the visible work:
 
-## What the repo asks for today
+1. One idea per sentence.
+2. Procedural sentences stay under 20 words, descriptive sentences under 25.
+3. Active voice, with a stated subject.
+4. Simple tenses. No perfect or progressive forms.
+5. No `-ing` verb forms outside technical names.
+6. Keep the articles. "The job downloads the artifact", not "job downloads artifact".
+7. Define an abbreviation the first time, then use it consistently.
+8. No idioms, no understatement, no humor.
+9. Use the same word for the same thing every time. Never vary for style.
+10. Write sequential facts as separate sentences, not as one clause pile.
 
-`.github/pull_request_template.md` already sets a voice, and it is the opposite standard:
+## Example 1: a short PR, in full
 
-> Write with a crisp, direct Silicon Valley communication style. [...] Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive.
+[fix(ci): recover jest shard identity in flat junit downloads](https://github.com/PostHog/posthog/pull/74003).
 
-That instruction breaks three STE rules in one sentence: an idiom ("over coffee"), an `-ing` verb form ("keeping"), and a 20-word sentence carrying two ideas.
-The two styles cannot both be in effect. Adopting STE means deleting the voice paragraph, not appending to it.
+### As shipped
 
-## Where they disagree
+```markdown
+## Problem
 
-|                              | Silicon Valley voice (today)                 | ASD-STE100                                      |
-| ---------------------------- | -------------------------------------------- | ----------------------------------------------- |
-| Reader                       | A colleague who shares your context          | A technician who does not, in a second language |
-| Purpose                      | Persuade a reviewer that the change is right | Remove every possible misreading                |
-| Sentence length              | Whatever reads well                          | 20 words procedural, 25 descriptive             |
-| Voice                        | Active, by taste                             | Active, by rule                                 |
-| Vocabulary                   | Any word that lands                          | ~900 approved words, one meaning each           |
-| Tone                         | Light but substantive                        | No tone. Tone is noise                          |
-| Idiom, humor, understatement | Encouraged                                   | Banned                                          |
-| `-ing` forms                 | Free                                         | Banned outside technical names                  |
-| Tables, diagrams, links      | Encouraged, and the template pushes for them | Out of scope. STE says nothing about them       |
-| Enforcement                  | Reviewer taste                               | Rule set plus licensed dictionary               |
+- When the signals job's artifact glob matches one artifact (every selective-mode run), `download-artifact` extracts it flat, so spans get `job_key junit-artifacts:junit-artifacts:None` ([example](https://github.com/PostHog/posthog/actions/runs/30283912832)) and re-run recovery joins miss.
 
-The deepest disagreement is not style, it is purpose.
-STE optimizes for a reader who must execute a procedure exactly and cannot ask a question.
-A PR description optimizes for a reviewer who must judge whether a change is correct, and who can ask.
-Those two readers want different text.
+## Changes
 
-## Measured on 60 merged PRs
+- Mark flat downloads; recover shard identity from the `junit-<segment>-<chunk>.xml` filename (jest only).
 
-Corpus: the 60 most recent PRs merged by one author on this repo, 141,247 characters of body text.
-Fenced code and mermaid are 7% of that, table rows 17%; the remaining 77% is prose, so STE would govern most of the text rather than a corner of it.
-Prose was extracted by stripping code fences, mermaid, tables, headings, HTML comments and checkboxes, then sentence-split.
-Passive voice and `-ing` detection are regex heuristics, so treat those two rows as indicative, not exact.
+## How did you test this code?
 
-| Measure                                         | Value     |
-| ----------------------------------------------- | --------- |
-| Prose sentences                                 | 930       |
-| Prose words                                     | 11,684    |
-| Mean words per sentence                         | 12.6      |
-| Sentences over 20 words (STE procedural limit)  | 142 (15%) |
-| Sentences over 25 words (STE descriptive limit) | 63 (7%)   |
-| Passive-voice hits                              | 78        |
-| `-ing` verb forms                               | 318       |
-| PRs already clean on all three                  | 1 of 60   |
+- New parameterized test: recovered key equals the subdirectory layout's; non-matching filenames / pytest keep the fallback. Reporter suite 60/60.
 
-The mean sentence is already well inside the STE ceiling.
-The failures are concentrated: 15% of sentences carry the length problem, and 153 distinct `-ing` forms carry most of the rest ("failing" 30 times, "existing" 27, "writing" 15).
-Vocabulary that a dictionary pass would replace, ranked by how many PRs contain it: "via" (16 PRs, approved equivalent "with"), "surface" as a verb (7), "shadow" as a verb (7), "burn" (3), plus filler words STE deletes outright, "just" (4) and "actually" (3).
+## Docs update
 
-Longest sentence in the corpus, 60 words, from [chore(data-modeling): freeze test clock at test start, not import](https://github.com/PostHog/posthog/pull/73628):
+None.
 
-> Follow-ups, not in this PR: `products/batch_exports/backend/tests/temporal/test_monitoring.py` has the same module-level `NOW` + `@freeze_time(NOW)` shape (no S3 signing today, so latent); the Temporal CI job's `bin/ci-wait-for-docker wait` omits `objectstorage` while the core job waits for it explicitly; and that job's "Show docker compose logs on failure" step is gated to skip precisely when tests fail, which is what made this hard to diagnose.
+## 🤖 Agent context
 
-## Before and after on shipped PRs
+**Autonomy:** Human-driven (agent-assisted). Bug found auditing live trace spans post-merge. Skills: `/writing-tests`, `/writing-code-comments`.
+```
 
-Word counts follow the measurement script: markdown stripped, and each inline code span counted as one word.
+### In STE
 
-### 1. [fix(ci): recover jest shard identity in flat junit downloads](https://github.com/PostHog/posthog/pull/74003)
+```markdown
+## Problem
 
-Shipped, 25 words, one sentence:
+- The signals job downloads the JUnit artifacts with a glob pattern.
+- In selective mode, the pattern matches only one artifact.
+- Then the `download-artifact` action extracts the files flat.
+- The trace span gets the job key `junit-artifacts:junit-artifacts:None` ([example](https://github.com/PostHog/posthog/actions/runs/30283912832)).
+- The re-run recovery cannot join on this key.
 
-> When the signals job's artifact glob matches one artifact (every selective-mode run), `download-artifact` extracts it flat, so spans get `job_key junit-artifacts:junit-artifacts:None` and re-run recovery joins miss.
+## Changes
 
-STE, 44 words, five sentences, longest 11:
+- Mark the flat downloads.
+- Get the shard identity from the file name `junit-<segment>-<chunk>.xml`.
+- This applies to jest only.
 
-> The signals job downloads the JUnit artifacts with a glob pattern. In selective mode, the pattern matches only one artifact. Then the download-artifact action extracts the files flat. The trace span gets the job key `junit-artifacts:junit-artifacts:None`. The re-run recovery cannot join on this key.
+## How did you test this code?
 
-76% longer. It also states the causal chain as four separate facts instead of one clause pile, which is the actual gain: a reader can stop after any sentence and still be correct.
+- A new parameterized test compares the two layouts.
+- The recovered key is equal to the key from the subdirectory layout.
+- Other file names and pytest use the fallback.
+- The reporter test suite passes: 60 of 60 tests.
 
-### 2. [fix(engineering-analytics): ignore fork PRs in run attribution](https://github.com/PostHog/posthog/pull/73969)
+## Docs update
 
-Shipped, 28 words, one sentence:
+None.
 
-> GitHub's `pull_requests` association lists every PR in the fork network sharing the run's head SHA, so our master pushes arrive carrying downstream forks' open "sync from upstream" PRs.
+## 🤖 Agent context
 
-STE, 39 words, three sentences, longest 18:
+**Autonomy:** Human-driven (agent-assisted)
 
-> The GitHub `pull_requests` association lists all pull requests with the same head SHA. This includes the pull requests of all forks. Thus a push to the master branch shows the open "sync from upstream" pull requests of the forks.
+- An audit of the live trace spans after the merge found this defect.
+- Skills: `/writing-tests`, `/writing-code-comments`.
+```
 
-39% longer. Two participles go ("sharing", "carrying"), and the stacked possessives ("the run's", "forks'") flatten into prepositions.
-"PR" survives only if the description defines the abbreviation once, which STE requires and no PR here does.
+Three sentences became eleven, and the prose is about 40% longer.
+The shipped Problem is one 25-word sentence holding a five-step causal chain: the glob matches one file, the action extracts it flat, the key degrades, the join misses.
+A reader has to hold four steps to reach the fifth. In STE each step stands on its own line and can be checked on its own.
 
-### 3. The 60-word sentence above
+## Example 2: a heavier PR
 
-STE, 78 words, seven sentences, longest 20:
+[fix(engineering-analytics): ignore fork PRs in run attribution](https://github.com/PostHog/posthog/pull/73969).
+The three substantive sections only. The mermaid diagrams, tables and checkbox sections are left out, because STE says nothing about them and they do not change.
 
-> This pull request does not correct three related problems. First, `test_monitoring.py` has the same module-level `NOW` and `@freeze_time(NOW)` shape. That test does not sign S3 requests today, thus the problem stays latent. Second, the wait command of the Temporal CI job does not include `objectstorage`. The core job waits for `objectstorage` explicitly. Third, the step "Show docker compose logs on failure" has a condition that skips the step when the tests fail. This condition made the diagnosis difficult.
+### As shipped
 
-30% longer, and the only rewrite here that is unambiguously better than what shipped.
-A 60-word sentence with two semicolons is not a style preference, it is a defect.
+```markdown
+## Problem
 
-### 4. The template's own voice rule
+A push to master linked to a stranger's PR.
 
-Shipped, 20 words:
+GitHub's `pull_requests` association lists every PR in the fork network sharing the run's head SHA, so our master pushes arrive carrying downstream forks' open "sync from upstream" PRs. The builder from [cost/friction lens + warehouse-shape fix](https://github.com/PostHog/posthog/pull/64421) took entry 1 unfiltered and paired that number with our own owner/name, linking an unrelated PR of ours. The same wrong key feeds `engineering_analytics_ci_job_history`, which is how the CI-breakage skill answers "master went red at SHA X, via PR Z".
 
-> Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive.
+## Changes
 
-STE, 12 words:
+One derivation point, `logic/views/workflow_runs.py`. Everything downstream inherits it.
 
-> Write short sentences. Give the necessary technical facts. Do not use idioms.
+`ci_job_history` reads both keys off the builder now, collapsing a nesting layer that existed only to host [that regex](https://github.com/PostHog/posthog/pull/70556). Seed and `fixtures/fetch.py` keep the ids the filter needs; they stripped them before, so local seeds attributed nothing.
 
-40% shorter, because the original sentence was mostly tone.
-This is the one place STE reliably wins: instructions.
+> [!NOTE]
+> Query-time only. No migration, no backfill, existing rows unaffected.
 
-Across the four passages, 133 words become 173, a 30% increase.
+## How did you test this code?
 
-## What enforcement would take
+Against the live table, new expression vs old:
 
-`AGENTS.md` and the PR template can only ask.
-Nothing reads the PR body today, so agents and humans drift immediately.
-A real check runs on `pull_request` (`opened`, `edited`, `synchronize`), pulls the body, strips code fences, mermaid, tables and HTML comments, then applies rules.
+On a local stack, seeded and driven through the UI:
 
-Checkable mechanically:
+New tests: a builder case where a foreign entry is listed **first** and must not shadow ours (no existing fixture ever had a foreign entry, so nothing covered this), plus a `ci_job_history` master-push row carrying the fork network.
 
-- Sentence length ceilings.
-- `-ing` verb forms, with an allow list for technical names.
-- Passive voice, at heuristic accuracy.
-- A banned-word list, which is where the "no leverage, no utilize" rules already in `CLAUDE.md` live.
-- Paragraph length.
+Green locally: 373 eng-analytics backend tests, 62 Jest, `tsgo`, repo-wide `mypy`, `hogli ci:preflight`.
+```
 
-Not checkable here:
+### In STE
 
-- Approved-word conformance, the core of the standard. The dictionary is licensed. A hand-maintained subset drifts and gives false confidence.
-- One meaning per word, one part of speech per word. Needs the dictionary plus part-of-speech tagging.
-- Noun-cluster limits. Needs tagging; a regex over lowercase runs produces mostly noise, which is why that measurement is not in the table above.
+```markdown
+## Problem
 
-So the honest ceiling is: we can enforce the STE writing rules that a linter can see, and we cannot claim STE conformance.
+A push to the master branch linked to a pull request from a different repository.
 
-Tooling, if we do it: a prose linter such as Vale (a Go binary, rules in YAML, runs on markdown) reads a body dumped to a file, or a short Python check in an existing PR workflow.
-The Python route avoids a new binary in CI and keeps the rules next to the repo's other PR checks.
+- The GitHub `pull_requests` association lists all pull requests with the same head SHA.
+- This includes the pull requests of all forks of this repository.
+- Thus a push to the master branch also shows the open "sync from upstream" pull requests of the forks.
+- The builder used the first entry of that list. It did not filter the entry.
+- The builder joined that number to our own owner name and repository name.
+- The result was a link to an unrelated pull request of this repository.
+- The table `engineering_analytics_ci_job_history` uses the same incorrect key.
+- The CI-breakage skill reads that table to find the pull request that made the master branch red.
+
+## Changes
+
+The change is in one file: `logic/views/workflow_runs.py`. All downstream code gets the new behavior.
+
+- The `ci_job_history` view now reads the two keys from the builder.
+- This removes one level of nesting. That level contained only the regular expression.
+- The seed and `fixtures/fetch.py` keep the ids that the filter needs.
+- They removed these ids before. Thus the local seeds showed no attribution.
+
+> [!NOTE]
+> The change applies at query time. There is no migration and no backfill. The existing rows do not change.
+
+## How did you test this code?
+
+I compared the new expression with the old expression on the live table.
+
+I seeded a local stack and examined the result in the user interface.
+
+- A new test puts a foreign entry first in the list. The builder must ignore that entry.
+- No test fixture contained a foreign entry before, thus no test found this defect.
+- A second new test adds a master-branch row that contains the fork entries.
+- These tests passed locally: 373 engineering analytics backend tests, 62 Jest tests, `tsgo`, `mypy` on all files, and `hogli ci:preflight`.
+```
+
+What changed, and what it cost:
+
+- The opener lost its edge. "A stranger's PR" is a good line, and STE cannot keep it, because "stranger" is not a technical word and the thing it produces is tone.
+- The causal chain in the Problem became eight facts a reviewer can check one at a time. This is the clearest gain in either example.
+- "Sharing", "carrying", "collapsing" and "auditing" all disappear. The stacked possessives ("the run's", "forks'", "the subdirectory layout's") flatten into prepositions. Longer, and unambiguous.
+- One thing got worse in a way worth naming. The shipped text says the wrong key "is how the CI-breakage skill answers 'master went red at SHA X, via PR Z'". That clause tells a reviewer why the bug matters. The STE version states the same fact with the stakes drained out of it.
+- The tables, mermaid diagrams and alert survive untouched, so the PR looks nearly the same on screen. Much of what makes these descriptions fast to scan is not prose, and STE does not reach it.
+
+## How much would actually change
+
+From the 60 most recent PRs merged by one author.
+Figures come from `docs/internal/pr-description-voice-ste-measure.py`; the passive and `-ing` counts are regex heuristics.
+
+| Measure                                              | Value                          |
+| ---------------------------------------------------- | ------------------------------ |
+| Prose sentences                                      | 930                            |
+| Mean words per sentence                              | 12.6                           |
+| Over the 20-word procedural limit                    | 142 (15%)                      |
+| Over the 25-word descriptive limit                   | 63 (7%)                        |
+| Passive-voice hits                                   | 78                             |
+| `-ing` verb forms                                    | 318, across 153 distinct words |
+| PRs already clean on length, voice and `-ing`        | 1 of 60                        |
+| Share of body text that is prose, not tables or code | 77%                            |
+
+The sentence-length rule is nearly free: the mean is 12.6 words, and only 7% of sentences pass the descriptive limit.
+The `-ing` rule is where almost every PR fails, on ordinary words: "failing" 30 times, "existing" 27, "writing" 15.
+Removing those costs little meaning, which says the rule is cheap to follow and, on its own, low value.
+
+## If we want agents to write this way
+
+Guidance, not a check. The repo already has both mechanisms:
+
+- A skill, loaded by the agent that writes the description. The ten rules and a worked before/after belong there, because a skill loads only when relevant and can be long enough to teach a style.
+- A short pointer in `AGENTS.md` under "PR descriptions", naming the skill so an authoring agent knows to load it.
+
 Neither is written yet.
+The one instruction that matters more than any of the ten: apply this to prose only, and leave the tables, diagrams and links alone.
 
-## Recommendation
+`.github/pull_request_template.md` currently asks for "a crisp, direct Silicon Valley communication style" and a tone that is "light but substantive".
+STE has no tone. If both instructions are live an agent follows whichever it read last, so this would replace that paragraph rather than sit next to it.
 
-Do not adopt ASD-STE100.
-The standard is built for procedures executed by a reader who cannot ask a question, and a PR description is an argument made to a reviewer who can.
-Its ban on tables and its silence on diagrams and links also collide with the parts of our template that make review faster.
-
-Take the four rules that pay off, and enforce those:
-
-1. Hard ceiling of 25 words per sentence. This is the one real defect in the corpus, and it is one regex.
-2. Active voice in the Problem and Changes sections.
-3. No `-ing` verb form where a simple tense works.
-4. Extend the existing banned-word list with the STE substitutions that already match house style: "via" becomes "with", "surface" as a verb becomes "show", and delete "just", "actually", "simply".
-
-That is a change to `AGENTS.md`, the template's authoring rules, and a body check in a PR workflow.
-It gets most of the readability gain, keeps tables and diagrams, and does not claim a conformance we cannot verify.
-
-## Reproducing the numbers
-
-`docs/internal/pr-description-voice-ste-measure.py` regenerates every figure in this document.
+## Reproducing the figures
 
 ```bash
 gh pr list --author @me --state merged --limit 60 --json number,title,url,body > prs.json
