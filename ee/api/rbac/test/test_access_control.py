@@ -1131,7 +1131,9 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
-        baseline = 8
+        # The 9th query is domain enforcement resolving the user's current organization — this
+        # endpoint is the only one here that doesn't already load it for other reasons.
+        baseline = 9
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 10):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
@@ -1180,7 +1182,9 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        baseline = 8
+        # The 9th query is domain enforcement resolving the user's current organization — this
+        # endpoint is the only one here that doesn't already load it for other reasons.
+        baseline = 9
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 10):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses

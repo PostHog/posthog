@@ -29,6 +29,10 @@ def generate_verification_challenge() -> str:
 class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
+        # INVARIANT for that future work: never clear `verified_at` while the owning organization
+        # has `enforce_verified_domains` on — the domain would drop out of the enforcement
+        # allow-list and lock out every member on it at once, admins included. Suspend or flag
+        # instead of clearing.
         # `select_related` the IdP config since reads of SAML/SCIM/ID-JAG settings resolve through
         # it (`OrganizationDomain.idp_config`) in the hot auth paths.
         return self.exclude(verified_at__isnull=True).select_related("identity_provider_config")
