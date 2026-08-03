@@ -1,4 +1,5 @@
 import ipaddress
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional, TypedDict
 
@@ -89,25 +90,34 @@ def _is_non_public_ip(ip_address: str) -> bool:
     )
 
 
+@dataclass(frozen=True, kw_only=True)
+class CachedLocation:
+    """One memoized geoip result. Keyword-only because latitude and longitude share a type and would
+    otherwise be swappable at the call site."""
+
+    latitude: Optional[float]
+    longitude: Optional[float]
+    country_code: Optional[str]
+
+
 @lru_cache(maxsize=GEOIP_LOCATION_CACHE_SIZE)
-def _lookup_location(ip_address: str) -> tuple[Optional[float], Optional[float], Optional[str]]:
+def _lookup_location(ip_address: str) -> CachedLocation:
     """Cached lookup behind get_geoip_location, which runs on every authenticated request.
 
     The database is opened once at import and never written, so the mapping from address to location
-    cannot change under a running process — a deploy shipping a new database restarts it. Returns a
-    tuple rather than the dict callers get, so a cached entry can't be mutated through one caller and
-    observed by the next. lru_cache doesn't store exceptions, so a failed lookup is retried rather
-    than pinned for the life of the process.
+    cannot change under a running process — a deploy shipping a new database restarts it. Frozen, so a
+    cached entry can't be mutated through one caller and observed by the next. lru_cache doesn't store
+    exceptions, so a failed lookup is retried rather than pinned for the life of the process.
     """
     assert geoip is not None  # caller checks; keeps the cached path free of the None branch
     city = geoip.city(ip_address)
     latitude = city.get("latitude")
     longitude = city.get("longitude")
     country_code = city.get("country_code")
-    return (
-        float(latitude) if isinstance(latitude, int | float) else None,
-        float(longitude) if isinstance(longitude, int | float) else None,
-        country_code if isinstance(country_code, str) else None,
+    return CachedLocation(
+        latitude=float(latitude) if isinstance(latitude, int | float) else None,
+        longitude=float(longitude) if isinstance(longitude, int | float) else None,
+        country_code=country_code if isinstance(country_code, str) else None,
     )
 
 
@@ -116,15 +126,15 @@ def get_geoip_location(ip_address: Optional[str]) -> GeoLocation:
     if not ip_address or not geoip or _is_non_public_ip(ip_address):
         return {}
     try:
-        latitude, longitude, country_code = _lookup_location(ip_address)
+        location = _lookup_location(ip_address)
     except Exception:
         logger.exception("geoIP location error")
         return {}
     out: GeoLocation = {}
-    if latitude is not None:
-        out["latitude"] = latitude
-    if longitude is not None:
-        out["longitude"] = longitude
-    if country_code is not None:
-        out["country_code"] = country_code
+    if location.latitude is not None:
+        out["latitude"] = location.latitude
+    if location.longitude is not None:
+        out["longitude"] = location.longitude
+    if location.country_code is not None:
+        out["country_code"] = location.country_code
     return out

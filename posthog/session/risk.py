@@ -25,6 +25,13 @@ logger = structlog.get_logger(__name__)
 
 # Per-process circuit breaker for the dedup cache: how many consecutive failures still emit (and log)
 # before we assume a real outage and stay quiet rather than emitting once per request.
+#
+# The count is deliberately approximate. Separate workers are separate processes and so hold separate
+# counters, which is the intent — each one throttles its own logging. Within a process, `+= 1` is a
+# read-modify-write and two threads can lose an increment between them, while the `= 0` reset is a
+# single store and can't tear. A lost increment can only make the breaker trip later, never sooner,
+# because the count rises solely on real failures — so the worst case is a few extra events during an
+# outage, which is the direction we'd rather err in anyway.
 _CACHE_FAILURE_EMIT_LIMIT = 10
 _consecutive_cache_failures = 0
 
