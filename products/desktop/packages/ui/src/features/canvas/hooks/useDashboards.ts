@@ -1,3 +1,4 @@
+import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
   DashboardRecord,
   DashboardSummary,
@@ -19,16 +20,12 @@ import {
 
 const log = logger.scope("dashboards");
 
-// Default name for a canvas created without one. Also the marker we use to
-// detect a still-unnamed canvas worth auto-naming from its generation prompt.
-export const UNTITLED_CANVAS_NAME = "Untitled canvas";
-
-// True when a canvas name is a placeholder (never user-chosen), so auto-naming
-// from a generation prompt is safe and won't clobber a real title.
-export function isPlaceholderCanvasName(name: string): boolean {
-  const trimmed = name.trim();
-  return trimmed === UNTITLED_CANVAS_NAME || trimmed === "Untitled dashboard";
-}
+// The naming helpers moved to @posthog/core (CanvasApplicationService uses them
+// for auto-naming); re-exported here for the UI surfaces that import them.
+export {
+  isPlaceholderCanvasName,
+  UNTITLED_CANVAS_NAME,
+} from "@posthog/core/canvas/canvasNaming";
 
 /** Saved canvases for a channel (file-backed freeform React apps). */
 export function useDashboards(

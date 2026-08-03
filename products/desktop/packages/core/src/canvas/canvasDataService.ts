@@ -23,6 +23,18 @@ import {
 // Last-resort attribution if we can't resolve the signed-in user (and the
 // canvas didn't pass its own distinctId).
 const FALLBACK_DISTINCT_ID = "freeform-canvas";
+const MAX_CANVAS_RESULT_ROWS = 1_000;
+const MAX_CANVAS_RESULT_BYTES = 2 * 1024 * 1024;
+
+function boundedResult(result: CanvasDataResult): CanvasDataResult {
+  if (
+    result.results.length > MAX_CANVAS_RESULT_ROWS ||
+    JSON.stringify(result).length > MAX_CANVAS_RESULT_BYTES
+  ) {
+    throw new Error("Canvas data result exceeds the result limit");
+  }
+  return result;
+}
 
 /**
  * The host-side data avenue behind a freeform canvas's `ph.query` shim.
@@ -70,7 +82,7 @@ export class CanvasDataService {
       const { columns, results } = await runQuery(this.authService, node, {
         refresh: "blocking",
       });
-      return {
+      return boundedResult({
         columns,
         // HogQL returns rows; normalise a bare scalar row to a 1-cell array.
         // Typed nodes return SERIES OBJECTS — pass them through untouched (wrapping
@@ -78,7 +90,7 @@ export class CanvasDataService {
         results: isTyped
           ? results
           : results.map((r) => (Array.isArray(r) ? r : [r])),
-      };
+      });
     } catch (err) {
       this.log.warn("Canvas query failed", {
         error: err instanceof Error ? err.message : String(err),
@@ -102,12 +114,12 @@ export class CanvasDataService {
       // OBJECTS, which must pass through untouched (wrapping them reads every value
       // as 0).
       const isRows = insight.queryKind === "HogQLQuery";
-      return {
+      return boundedResult({
         columns: insight.columns,
         results: isRows
           ? insight.results.map((r) => (Array.isArray(r) ? r : [r]))
           : insight.results,
-      };
+      });
     } catch (err) {
       this.log.warn("Canvas loadInsight failed", {
         shortId: input.shortId,

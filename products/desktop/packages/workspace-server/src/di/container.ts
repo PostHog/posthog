@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
+import { CanvasBuildService } from "../services/canvas-build/canvas-build";
 import { ConnectivityService } from "../services/connectivity/service";
 import { EnvironmentService } from "../services/environment/service";
 import { FocusService } from "../services/focus/service";
@@ -10,6 +11,7 @@ import { LOGS_SERVICE } from "../services/local-logs/identifiers";
 import { LocalLogsService } from "../services/local-logs/service";
 import { WatcherService } from "../services/watcher/service";
 import {
+  CANVAS_BUILD_SERVICE,
   CONNECTIVITY_SERVICE,
   ENVIRONMENT_SERVICE,
   FOCUS_SERVICE,
@@ -21,6 +23,7 @@ import {
 } from "./tokens";
 
 export interface WorkspaceServerBindings {
+  [CANVAS_BUILD_SERVICE]: CanvasBuildService;
   [FOCUS_SERVICE]: FocusService;
   [FOCUS_SYNC_SERVICE]: FocusSyncService;
   [GIT_SERVICE]: GitService;
@@ -42,3 +45,4 @@ container.bind(LOCAL_LOGS_SERVICE).to(LocalLogsService).inSingletonScope();
 container.bind(LOGS_SERVICE).toService(LOCAL_LOGS_SERVICE);
 container.bind(CONNECTIVITY_SERVICE).to(ConnectivityService).inSingletonScope();
 container.bind(ENVIRONMENT_SERVICE).to(EnvironmentService).inSingletonScope();
+container.bind(CANVAS_BUILD_SERVICE).to(CanvasBuildService).inSingletonScope();

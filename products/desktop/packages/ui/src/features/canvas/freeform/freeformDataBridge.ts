@@ -3,11 +3,38 @@ import type {
   CanvasDataQueryInput,
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
+import type { CanvasCapabilities } from "@posthog/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
 // Namespace for every cached canvas read.
 export const CANVAS_QUERY_KEY = "canvasData/read";
+
+export function assertCanvasCapability(
+  capabilities: CanvasCapabilities,
+  method: string,
+  payload: unknown,
+): void {
+  if (method === "query" && !capabilities.posthog.inlineQueries) {
+    throw new Error("Inline queries are not allowed by this canvas");
+  }
+  if (
+    method === "loadInsight" &&
+    !capabilities.posthog.insights.includes(
+      (payload as CanvasLoadInsightInput)?.shortId,
+    )
+  ) {
+    throw new Error("Insight is not allowed by this canvas");
+  }
+  if (
+    method === "capture" &&
+    !capabilities.posthog.captureEvents.includes(
+      (payload as CanvasCaptureInput)?.event,
+    )
+  ) {
+    throw new Error("Event capture is not allowed by this canvas");
+  }
+}
 
 // Deterministic stringify for cache keys: object keys are emitted in sorted order
 // at every depth so two reads that differ only by key order share a cache entry.

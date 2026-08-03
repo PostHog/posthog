@@ -1,4 +1,9 @@
 import {
+  canvasBuildActionInputSchema,
+  canvasBuildLifecycleSchema,
+  canvasBuildRecordSchema,
+} from "@posthog/core/canvas/canvasBuildSchemas";
+import {
   createDashboardInput,
   dashboardIdInput,
   dashboardRecordSchema,
@@ -29,6 +34,22 @@ export const dashboardsRouter = router({
     .output(dashboardRecordSchema.nullable())
     .query(({ ctx, input }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).get(input.id),
+    ),
+  builds: publicProcedure
+    .input(dashboardIdInput)
+    .output(canvasBuildLifecycleSchema)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .getBuilds(input.id),
+    ),
+  actOnBuild: publicProcedure
+    .input(canvasBuildActionInputSchema)
+    .output(canvasBuildRecordSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .actOnBuild(input),
     ),
   create: publicProcedure
     .input(createDashboardInput)

@@ -1,3 +1,8 @@
+import type {
+  CanvasBuildActionInput,
+  CanvasBuildLifecycle,
+  CanvasBuildRecord,
+} from "./canvasBuildSchemas";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type { DashboardRecord, DashboardSummary } from "./dashboardSchemas";
 import type {
@@ -45,6 +50,9 @@ export interface IDashboardsService {
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  // Read a canvas's build lifecycle (pointers + recent builds).
+  getBuilds(id: string): Promise<CanvasBuildLifecycle>;
+  actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
   // Idempotently create + seed a channel's home canvas, returning it.
   ensureHomeCanvas(channelId: string): Promise<DashboardRecord>;

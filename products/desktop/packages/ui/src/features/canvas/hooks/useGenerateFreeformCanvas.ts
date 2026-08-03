@@ -1,27 +1,14 @@
-import {
-  REPORT_MODEL_RESOLVER,
-  type ReportModelResolver,
-} from "@posthog/core/inbox/identifiers";
-import { TITLE_GENERATOR_SERVICE } from "@posthog/core/sessions/titleGeneratorIdentifiers";
-import type { TitleGeneratorService } from "@posthog/core/sessions/titleGeneratorService";
-import {
-  TASK_SERVICE,
-  type TaskService,
-} from "@posthog/core/task-detail/taskService";
+import type {
+  CanvasApplicationService,
+  CanvasGenerationGateway,
+} from "@posthog/core/canvas/canvasApplicationService";
+import { CANVAS_APPLICATION_SERVICE } from "@posthog/core/canvas/identifiers";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import {
-  type Adapter,
-  getCloudUrlFromRegion,
-  type WorkspaceMode,
-} from "@posthog/shared";
+import type { Adapter, WorkspaceMode } from "@posthog/shared";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { buildFreeformGenerationPrompt } from "@posthog/ui/features/canvas/freeformPrompt";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
-import {
-  isPlaceholderCanvasName,
-  useDashboardMutations,
-} from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useDashboardMutations } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import { useCanvasGenerationTrackerStore } from "@posthog/ui/features/canvas/stores/canvasGenerationTrackerStore";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
@@ -30,14 +17,13 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
-// Kicks off freeform canvas generation as a repo-less task, files it to the
-// channel, and records it as the canvas's generation task (in the canvas's meta)
-// so every client's canvas view tracks the in-flight run. Canvas generation
-// reads PostHog data via the MCP rather than repo code, so no repo is selected
-// up front — the agent attaches one lazily only if it decides it needs one. The
-// task runs as a cloud run (not a local agent) so generation proceeds
-// server-side regardless of which client kicked it off, and the agent publishes
-// the result via the `desktop-file-system-canvas-partial-update` MCP tool.
+// Thin mutation adapter over CanvasApplicationService (@posthog/core), which
+// owns the generation orchestration: model resolution, the skills-routing
+// prompt, task creation, channel filing, generation-task recording, and
+// auto-naming. This hook contributes only presentation state — the isStarting
+// flag, error toasts, the completion-toast tracker, and query-cache
+// invalidation — plus the tRPC-backed gateway the renderer uses for canvas
+// persistence effects.
 export function useGenerateFreeformCanvas(args: {
   channelId: string;
   channelName: string;
@@ -50,12 +36,10 @@ export function useGenerateFreeformCanvas(args: {
   channelContext?: string;
 }) {
   const { channelId, channelName } = args;
-  const taskService = useService<TaskService>(TASK_SERVICE);
-  const modelResolver = useService<ReportModelResolver>(REPORT_MODEL_RESOLVER);
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-  const titleGenerator = useService<TitleGeneratorService>(
-    TITLE_GENERATOR_SERVICE,
+  const canvasApplication = useService<CanvasApplicationService>(
+    CANVAS_APPLICATION_SERVICE,
   );
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const { invalidateTasks } = useCreateTask();
@@ -85,8 +69,6 @@ export function useGenerateFreeformCanvas(args: {
       // channel's task feed like a plain composer submit.
       backendChannelId?: string;
       // The composer's picks, when the surface exposes model/effort selectors.
-      // The model is validated against the gateway (falling back to the
-      // adapter's default) so a stale id can't 403 the run.
       adapter?: Adapter;
       model?: string;
       reasoningLevel?: string;
@@ -94,127 +76,83 @@ export function useGenerateFreeformCanvas(args: {
       useStarter?: boolean;
       // Dev-only override (the bar exposes a local/cloud picker in dev so a
       // local build of these features can be tested before merging). Production
-      // always runs in the cloud — see the default below.
+      // always runs in the cloud.
       workspaceMode?: WorkspaceMode;
     }): Promise<string | null> => {
-      const {
-        dashboardId,
-        name,
-        templateId,
-        instruction,
-        currentCode,
-        backendChannelId,
-        adapter = "claude",
-        reasoningLevel,
-        useStarter,
-        // Defaults to a cloud run — canvas generation should never tie up (or
-        // depend on) the local machine, and it's never the sticky last-used
-        // workspace mode. The dev-only picker can override to "local" to test a
-        // local build of these features before merging.
-        workspaceMode = "cloud",
-      } = opts;
+      const { dashboardId, name, instruction } = opts;
       setIsStarting(true);
       try {
-        // A cloud run requires an explicit adapter + model (the API rejects a
-        // cloud runtime without a model). Resolve the caller's pick — or the
-        // adapter's server default when none — the same way the inbox one-click
-        // flows do; the resolver validates against the gateway, so a stale id
-        // can't slip through and 403 the run.
-        let model: string | undefined = opts.model;
-        if (workspaceMode === "cloud") {
-          model = cloudRegion
-            ? await modelResolver.resolveDefaultModel(
-                getCloudUrlFromRegion(cloudRegion),
-                adapter,
-                opts.model,
-              )
-            : undefined;
-          if (!model) {
+        const gateway: CanvasGenerationGateway = {
+          fileTask: async (cid, taskId, taskTitle) => {
+            await fileTask(cid, taskId, taskTitle);
+          },
+          setGenerationTask: async (id, taskId) => {
+            await setGenerationTask(id, taskId);
+          },
+          renameCanvas: async (id, title) => {
+            await renameDashboard(id, title);
+          },
+          onTaskReady: (task) => invalidateTasks(task),
+          // Keep the tracked generation's name in sync so its completion toast
+          // reads the real title, not "Untitled canvas".
+          onAutoNamed: (taskId, title) =>
+            useCanvasGenerationTrackerStore
+              .getState()
+              .updateName(taskId, title),
+        };
+
+        const result = await canvasApplication.generateCanvas(
+          {
+            dashboardId,
+            name,
+            templateId: opts.templateId,
+            instruction,
+            // The agent re-reads the live source through the canvas tools, so
+            // the hook only signals whether this is an edit of published code.
+            isEdit: !!opts.currentCode?.trim(),
+            useStarter: opts.useStarter,
+            channelId,
+            channelName,
+            backendChannelId: opts.backendChannelId,
+            channelContext,
+            adapter: opts.adapter,
+            model: opts.model,
+            reasoningLevel: opts.reasoningLevel,
+            workspaceMode: opts.workspaceMode,
+            cloudRegion,
+          },
+          gateway,
+        );
+
+        if (!result.ok) {
+          if (result.reason === "no-model") {
             toast.error("Couldn't start canvas generation", {
               description: "No model is configured for cloud runs.",
             });
-            return null;
+          } else {
+            toastError("Couldn't start canvas generation", result.error);
           }
-        }
-
-        const result = await taskService.createTask(
-          {
-            content: buildFreeformGenerationPrompt({
-              dashboardId,
-              name,
-              channelName,
-              templateId,
-              instruction,
-              currentCode,
-              useStarter,
-            }),
-            taskDescription: `Generate canvas "${name}"`,
-            // Unattended generation: run in auto mode so it doesn't stall on edit-approval prompts.
-            executionMode: "auto" as const,
-            workspaceMode,
-            adapter,
-            model,
-            reasoningLevel,
-            allowNoRepo: true,
-            channelContext,
-            channelName,
-            channelId: backendChannelId,
-          },
-          (output) => invalidateTasks(output.task),
-        );
-
-        if (!result.success) {
-          toastError("Couldn't start canvas generation", result.error);
           return null;
         }
 
-        const task = result.data.task;
-        // File into the channel + record as the canvas's generation task. Both
-        // are best-effort: a failure here shouldn't undo a started task. The
-        // generation-task write is awaited so a caller that navigates to the
-        // canvas right after generate() lands on the generating view (with the
-        // run in the side panel), not the empty hero.
-        void fileTask(channelId, task.id, task.title).catch(() => {});
-        await setGenerationTask(dashboardId, task.id).catch(() => {});
         // Track this run so a toast (with a link back here) fires when it
         // finishes, even after the user navigates to another canvas.
         useCanvasGenerationTrackerStore
           .getState()
-          .track({ taskId: task.id, dashboardId, channelId, name });
+          .track({ taskId: result.taskId, dashboardId, channelId, name });
         // Refresh the workspace cache so the new cloud workspace row appears and
         // the task view resolves the cloud run instead of the repo-picker prompt.
         void queryClient.invalidateQueries({
           queryKey: trpc.workspace.getAll.queryKey(),
         });
-        // Auto-name a still-unnamed canvas from its generation prompt, using the
-        // same helper model that names tasks. Best-effort: a failure (or a user
-        // who already named the canvas) leaves the existing title untouched.
-        if (isPlaceholderCanvasName(name)) {
-          void titleGenerator
-            .generateCanvasName(instruction)
-            .then(async (generated) => {
-              const title = generated?.trim();
-              if (title) {
-                await renameDashboard(dashboardId, title);
-                // Keep the tracked generation's name in sync so its completion
-                // toast reads the real title, not "Untitled canvas".
-                useCanvasGenerationTrackerStore
-                  .getState()
-                  .updateName(task.id, title);
-              }
-            })
-            .catch(() => {});
-        }
-        return task.id;
+        return result.taskId;
       } finally {
         setIsStarting(false);
       }
     },
     [
-      taskService,
-      modelResolver,
+      canvasApplication,
       cloudRegion,
-      titleGenerator,
       trpc,
       queryClient,
       invalidateTasks,

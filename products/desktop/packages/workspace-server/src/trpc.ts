@@ -1,6 +1,11 @@
+import {
+  canvasBuildRequestSchema,
+  canvasBuildResultSchema,
+} from "@posthog/shared";
 import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
 import { z } from "zod";
+import type { CanvasBuildService } from "./services/canvas-build/canvas-build";
 import { connectivityStatusOutput } from "./services/connectivity/schemas";
 import type { ConnectivityService } from "./services/connectivity/service";
 import {
@@ -180,6 +185,7 @@ export {
 } from "./services/watcher/schemas";
 
 export interface WorkspaceServerServices {
+  canvasBuildService: CanvasBuildService;
   focusService: FocusService;
   focusSyncService: FocusSyncService;
   gitService: GitService;
@@ -191,6 +197,7 @@ export interface WorkspaceServerServices {
 }
 
 export function createAppRouter({
+  canvasBuildService: canvasBuildServiceInst,
   focusService: focusServiceInst,
   focusSyncService: focusSyncServiceInst,
   gitService: gitServiceInst,
@@ -200,6 +207,7 @@ export function createAppRouter({
   connectivityService: connectivityServiceInst,
   environmentService: environmentServiceInst,
 }: WorkspaceServerServices) {
+  const canvasBuildService = () => canvasBuildServiceInst;
   const focusService = () => focusServiceInst;
   const focusSyncService = () => focusSyncServiceInst;
   const gitService = () => gitServiceInst;
@@ -210,6 +218,16 @@ export function createAppRouter({
   const environmentService = () => environmentServiceInst;
 
   return t.router({
+    canvasBuild: t.router({
+      // The local implementation of the shared canvas build contract:
+      // validation + preview only. Cloud builds are authoritative for
+      // publication (see the canvas application build pipeline plan).
+      build: t.procedure
+        .input(canvasBuildRequestSchema)
+        .output(canvasBuildResultSchema)
+        .mutation(({ input }) => canvasBuildService().buildCanvas(input)),
+    }),
+
     focus: t.router({
       getSession: t.procedure
         .input(mainRepoPathInput)
