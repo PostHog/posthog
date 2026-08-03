@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch
 
 from products.tasks.backend.logic.services.custom_prompt_internals import _check_logs, _stream_new_lines
@@ -112,15 +113,30 @@ class TestCheckLogs:
         assert text is None
         assert empty_end_turn is False
 
-    def test_end_turn_after_refusal_wins(self):
-        """A successful end_turn later in the same slice outranks the earlier refusal —
-        failing the turn then would discard a good response."""
-        log = "\n".join([_refusal_line(), _agent_message_line("recovered"), _end_turn_line()])
+    @pytest.mark.parametrize(
+        "lines,expected_text",
+        [
+            pytest.param(
+                [_refusal_line(), _agent_message_line("recovered"), _end_turn_line()],
+                "recovered",
+                id="refusal-then-end-turn",
+            ),
+            pytest.param(
+                [_agent_message_line("done"), _end_turn_line(), _refusal_line()],
+                "done",
+                id="end-turn-then-refusal",
+            ),
+        ],
+    )
+    def test_end_turn_outranks_refusal_in_either_order(self, lines: list[str], expected_text: str):
+        """A successful end_turn outranks a refusal in the same slice regardless of order —
+        failing a finished turn as refused would discard a good response."""
+        log = "\n".join(lines)
         with patch("posthog.storage.object_storage.read", return_value=log):
             finished, text, _, _, empty_end_turn, refused = _check_logs(FakeTaskRun())
         assert refused is False
         assert finished is True
-        assert text == "recovered"
+        assert text == expected_text
         assert empty_end_turn is False
 
 
