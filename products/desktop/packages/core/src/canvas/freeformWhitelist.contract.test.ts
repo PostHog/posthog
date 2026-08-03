@@ -1,4 +1,4 @@
-import { CANVAS_PLATFORM_DEPENDENCIES } from "@posthog/shared";
+import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import { FREEFORM_WHITELIST } from "./freeformWhitelist";
 
@@ -18,10 +18,9 @@ describe("freeform whitelist ↔ platform dependency registry", () => {
       ),
     );
     const registry = Object.fromEntries(
-      Object.entries(CANVAS_PLATFORM_DEPENDENCIES).map(([name, admission]) => [
-        name,
-        admission.version,
-      ]),
+      Object.entries(CANVAS_PLATFORM_MANIFEST.dependencies).map(
+        ([name, admission]) => [name, admission.version],
+      ),
     );
     expect(whitelist).toEqual(registry);
   });
@@ -30,12 +29,9 @@ describe("freeform whitelist ↔ platform dependency registry", () => {
     for (const entry of FREEFORM_WHITELIST.filter((e) =>
       isSubpathSpecifier(e.name),
     )) {
-      const segments = entry.name.split("/");
-      const packageName = entry.name.startsWith("@")
-        ? segments.slice(0, 2).join("/")
-        : segments[0];
-      const admission = CANVAS_PLATFORM_DEPENDENCIES[packageName];
-      expect(admission?.runtimeImports?.[entry.name], entry.name).toBeTruthy();
+      const runtimeImports: Record<string, string> =
+        CANVAS_PLATFORM_MANIFEST.runtimeImports;
+      expect(runtimeImports[entry.name], entry.name).toBeTruthy();
     }
   });
 });

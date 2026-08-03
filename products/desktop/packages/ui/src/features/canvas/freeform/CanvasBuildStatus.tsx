@@ -12,15 +12,49 @@ import {
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
+import type { CanvasDiagnostic } from "@posthog/shared";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
-// Compact build indicator for the canvas toolbar: spinner while a queued
-// publish builds, a quiet check once the live build is current, and the
-// error diagnostics (in a tooltip) when the latest build failed — the canvas
-// keeps rendering the last good build in that case.
-export function CanvasBuildStatus({ dashboardId }: { dashboardId: string }) {
+// How often the queued/building elapsed-time label refreshes. Coarse on
+// purpose — it's a progress hint, not a stopwatch.
+const ELAPSED_TICK_MS = 5_000;
+
+function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+// The top error diagnostics, one per line, for tooltips and fix prompts.
+function topErrors(diagnostics: CanvasDiagnostic[]): string[] {
+  return diagnostics
+    .filter((diagnostic) => diagnostic.severity === "error")
+    .slice(0, 3)
+    .map((diagnostic) =>
+      diagnostic.path
+        ? `${diagnostic.path}${diagnostic.line ? `:${diagnostic.line}` : ""} — ${diagnostic.message}`
+        : diagnostic.message,
+    );
+}
+
+// Compact build indicator for the canvas toolbar (both view and edit mode):
+// spinner + elapsed time while a queued publish builds, a quiet check once the
+// live build is current, and the error diagnostics (in a tooltip) when the
+// latest build failed — the canvas keeps rendering the last good build in that
+// case. `onAskAgentToFix` (edit mode) prefills the edit composer with the top
+// diagnostics, mirroring the runtime-error self-repair affordance.
+export function CanvasBuildStatus({
+  dashboardId,
+  onAskAgentToFix,
+}: {
+  dashboardId: string;
+  onAskAgentToFix?: (prompt: string) => void;
+}) {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const action = useMutation(
@@ -32,19 +66,34 @@ export function CanvasBuildStatus({ dashboardId }: { dashboardId: string }) {
     }),
   );
   const { lifecycle } = useCanvasBuilds(dashboardId);
+
+  const active = lifecycle?.builds.find(
+    (build) =>
+      build.buildStatus === "queued" || build.buildStatus === "building",
+  );
+  const activeId = active?.id;
+
+  // Elapsed-time ticker for the active build. Keyed on the build id so a new
+  // build restarts the clock; idle when no build is active.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!activeId) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS);
+    return () => clearInterval(timer);
+  }, [activeId]);
+
   if (!lifecycle || lifecycle.builds.length === 0) return null;
 
-  if (hasActiveCanvasBuild(lifecycle)) {
-    const queued = lifecycle.builds.find(
-      (build) => build.buildStatus === "queued",
-    );
+  if (active && hasActiveCanvasBuild(lifecycle)) {
+    const elapsed = formatElapsed(now - Date.parse(active.createdAt));
     return (
-      <Flex align="center" gap="1">
+      <Flex align="center" gap="1" data-testid="canvas-build-active">
         <SpinnerGapIcon size={14} className="animate-spin text-gray-9" />
         <Text size="1" className="text-gray-10">
-          Building
+          {active.buildStatus === "queued" ? "Queued" : "Building"} · {elapsed}
         </Text>
-        {queued && (
+        {active.buildStatus === "queued" && (
           <Button
             size="icon"
             variant="default"
@@ -53,7 +102,7 @@ export function CanvasBuildStatus({ dashboardId }: { dashboardId: string }) {
             onClick={() =>
               action.mutate({
                 id: dashboardId,
-                buildId: queued.id,
+                buildId: active.id,
                 action: "cancel",
               })
             }
@@ -69,37 +118,55 @@ export function CanvasBuildStatus({ dashboardId }: { dashboardId: string }) {
   if (!latest) return null;
 
   if (latest.buildStatus === "failed") {
-    const errors = latest.diagnostics
-      .filter((diagnostic) => diagnostic.severity === "error")
-      .slice(0, 3)
-      .map((diagnostic) => diagnostic.message)
-      .join("\n");
+    const errors = topErrors(latest.diagnostics);
     return (
-      <Tooltip
-        content={`Latest build failed — the previous version stays live.\n${errors}`}
-      >
-        <Flex align="center" gap="1" data-testid="canvas-build-failed">
-          <WarningCircleIcon size={14} className="text-red-9" />
-          <Text size="1" className="text-red-10">
-            Build failed
-          </Text>
+      <Flex align="center" gap="1" data-testid="canvas-build-failed">
+        <Tooltip
+          content={[
+            "Latest build failed — the previous version stays live.",
+            ...errors,
+          ].join("\n")}
+        >
+          <Flex align="center" gap="1">
+            <WarningCircleIcon size={14} className="text-red-9" />
+            <Text size="1" className="text-red-10">
+              Build failed
+            </Text>
+          </Flex>
+        </Tooltip>
+        {onAskAgentToFix && (
           <Button
-            size="icon"
-            variant="default"
-            aria-label="Retry build"
-            disabled={action.isPending}
+            size="sm"
+            variant="outline"
             onClick={() =>
-              action.mutate({
-                id: dashboardId,
-                buildId: latest.id,
-                action: "retry",
-              })
+              onAskAgentToFix(
+                [
+                  "The canvas build failed with these errors:",
+                  ...errors.map((error) => `- ${error}`),
+                  "Fix the canvas source so the build succeeds.",
+                ].join("\n"),
+              )
             }
           >
-            <ArrowClockwiseIcon size={14} />
+            Ask agent to fix
           </Button>
-        </Flex>
-      </Tooltip>
+        )}
+        <Button
+          size="icon"
+          variant="default"
+          aria-label="Retry build"
+          disabled={action.isPending}
+          onClick={() =>
+            action.mutate({
+              id: dashboardId,
+              buildId: latest.id,
+              action: "retry",
+            })
+          }
+        >
+          <ArrowClockwiseIcon size={14} />
+        </Button>
+      </Flex>
     );
   }
 

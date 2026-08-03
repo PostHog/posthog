@@ -1,316 +1,236 @@
+import { transform } from "esbuild";
 import { describe, expect, it, vi } from "vitest";
 import { DashboardsService } from "./dashboardsService";
-import type { DesktopFsClient, FsEntryBase } from "./desktopFsClient";
+import type { ProjectApiClient } from "./projectApiClient";
 
-// ensureHomeCanvas fetches the signed-in user's label via posthogApi; stub it so
-// the service doesn't reach the network in tests.
-vi.mock("./posthogApi", () => ({
-  fetchCurrentUser: vi.fn(async () => ({ label: "Tester" })),
-}));
-
-// A dashboard FS row carrying our payload under `meta`, as the backend returns it.
-function dashboardRow(
-  id: string,
-  name: string,
-  channelId: string,
-  updatedAt: number,
-): FsEntryBase & {
-  meta: Record<string, unknown>;
-  created_by?: { uuid: string } | null;
-} {
+// A canvas as the PostHog canvases API returns it.
+function apiCanvas(overrides: Record<string, unknown> = {}) {
   return {
-    id,
-    path: `Channels/${channelId}/${name}`,
-    type: "dashboard",
-    meta: { channelId, updatedAt, templateId: "dashboard", spec: null },
+    id: "c1",
+    name: "Revenue board",
+    channel: "chan-1",
+    template_id: "freeform",
+    context: "",
+    generation_task_id: null,
+    pinned_at: null,
+    is_home: false,
+    current_version_id: "v1",
+    published_build_id: null,
+    created_by: { first_name: "Ada", last_name: "L", email: "ada@x.com" },
+    created_at: "2026-07-01T00:00:00Z",
+    updated_at: "2026-07-02T00:00:00Z",
+    ...overrides,
   };
 }
 
-// A fake DesktopFsClient exposing only the two methods `list` touches:
-// getEntry (to resolve the channel folder path) and listByQuery (the filtered
-// fetch). listByQuery is declared with explicit params so spy calls carry args.
-function fakeFs(rows: FsEntryBase[]) {
-  const listByQuery = vi.fn(
-    async (_query: string, _errorLabel: string): Promise<FsEntryBase[]> => rows,
-  );
-  const fs = {
-    getEntry: async (id: string) => ({ id, path: `Channels/${id}` }),
-    listByQuery,
+// A fake ProjectApiClient recording calls; per-path handlers return payloads.
+function fakeApi(
+  handlers: Record<string, unknown | ((init?: RequestInit) => unknown)>,
+) {
+  const calls: { path: string; init?: RequestInit }[] = [];
+  const resolve = (path: string, init?: RequestInit) => {
+    calls.push({ path, init });
+    const key = Object.keys(handlers).find((prefix) => path.startsWith(prefix));
+    if (key === undefined) throw new Error(`Unhandled path: ${path}`);
+    const handler = handlers[key];
+    return typeof handler === "function"
+      ? (handler as (init?: RequestInit) => unknown)(init)
+      : handler;
   };
-  return { fs: fs as unknown as DesktopFsClient, listByQuery };
+  const api = {
+    json: vi.fn(async (path: string, _label: string, init?: RequestInit) =>
+      resolve(path, init),
+    ),
+    listPaginated: vi.fn(async (path: string) => resolve(path) as unknown[]),
+    fetch: vi.fn(async (path: string, init?: RequestInit) => {
+      const body = resolve(path, init);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => body,
+      } as unknown as Response;
+    }),
+  };
+  return { api: api as unknown as ProjectApiClient, calls };
 }
 
 describe("DashboardsService.list", () => {
-  it("fetches with a parent-scoped, type-filtered query", async () => {
-    const { fs, listByQuery } = fakeFs([]);
-    const service = new DashboardsService(fs, {} as never);
+  it("maps API canvases to camelCase records", async () => {
+    const { api, calls } = fakeApi({
+      "canvases/?channel=chan-1": [apiCanvas()],
+    });
+    const service = new DashboardsService(api);
 
-    await service.list("chan-1");
+    const rows = await service.list("chan-1");
 
-    expect(listByQuery).toHaveBeenCalledTimes(1);
-    const [query] = listByQuery.mock.calls[0];
-    expect(query).toContain("parent=");
-    expect(query).toContain(encodeURIComponent("Channels/chan-1"));
-    expect(query).toContain("type=dashboard");
-  });
-
-  it("maps rows to summaries sorted by updatedAt descending", async () => {
-    const { fs } = fakeFs([
-      dashboardRow("a", "Older", "chan-1", 100),
-      dashboardRow("b", "Newer", "chan-1", 300),
-      dashboardRow("c", "Middle", "chan-1", 200),
-    ]);
-    const service = new DashboardsService(fs, {} as never);
-
-    const result = await service.list("chan-1");
-
-    expect(result.map((d) => d.id)).toEqual(["b", "c", "a"]);
-    expect(result[0]).toMatchObject({ name: "Newer", channelId: "chan-1" });
-  });
-
-  it("maps the backend creator uuid onto summaries", async () => {
-    const row = dashboardRow("a", "Canvas", "chan-1", 100);
-    row.created_by = { uuid: "creator-uuid" };
-    const { fs } = fakeFs([row]);
-
-    const [result] = await new DashboardsService(fs, {} as never).list(
-      "chan-1",
-    );
-
-    expect(result.createdByUuid).toBe("creator-uuid");
-  });
-
-  // The backend sends `created_by: null` once the creator is deleted. Leaving
-  // the uuid undefined is what makes such a row fail closed out of #me.
-  it("leaves the creator uuid undefined when the row has no creator", async () => {
-    const row = dashboardRow("a", "Canvas", "chan-1", 100);
-    row.created_by = null;
-    const { fs } = fakeFs([row]);
-
-    const [result] = await new DashboardsService(fs, {} as never).list(
-      "chan-1",
-    );
-
-    expect(result.createdByUuid).toBeUndefined();
+    expect(calls[0].path).toBe("canvases/?channel=chan-1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: "c1",
+      channelId: "chan-1",
+      name: "Revenue board",
+      createdBy: "Ada L",
+      currentVersionId: "v1",
+      isHome: false,
+    });
+    expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
   });
 });
-
-// Fake exposing getEntry (resolves the row to rename) + fetch (the PATCH).
-function fakeFsForRename(entry: FsEntryBase) {
-  const fetch = vi.fn(async (_path: string, init?: RequestInit) => ({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      ...entry,
-      path: JSON.parse((init?.body as string) ?? "{}").path ?? entry.path,
-    }),
-  }));
-  const fs = {
-    getEntry: async () => entry,
-    fetch,
-  };
-  return { fs: fs as unknown as DesktopFsClient, fetch };
-}
-
-describe("DashboardsService.rename", () => {
-  it("PATCHes a new last path segment built from the name", async () => {
-    const entry = dashboardRow("d1", "Untitled canvas", "chan-1", 100);
-    const { fs, fetch } = fakeFsForRename(entry);
-    const service = new DashboardsService(fs, {} as never);
-
-    const result = await service.rename({ id: "d1", name: "Churn by plan" });
-
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const [, init] = fetch.mock.calls[0];
-    expect(init?.method).toBe("PATCH");
-    expect(JSON.parse((init?.body as string) ?? "{}").path).toBe(
-      "Channels/chan-1/Churn by plan",
-    );
-    expect(result.name).toBe("Churn by plan");
-  });
-
-  it("no-ops (no fetch) when the name resolves to the same path", async () => {
-    const entry = dashboardRow("d1", "Same name", "chan-1", 100);
-    const { fs, fetch } = fakeFsForRename(entry);
-    const service = new DashboardsService(fs, {} as never);
-
-    const result = await service.rename({ id: "d1", name: "Same name" });
-
-    expect(fetch).not.toHaveBeenCalled();
-    expect(result.name).toBe("Same name");
-  });
-});
-
-// A stateful fake exposing getEntry + fetch, enough for create/saveFreeform/PATCH.
-// POST "" assigns an id and stores the row; PATCH "<id>/" merges meta/path.
-function statefulFs(initial: Record<string, Record<string, unknown>>) {
-  const entries: Record<string, Record<string, unknown>> = { ...initial };
-  let seq = 0;
-  const fetch = vi.fn(
-    async (suffix: string, init?: { method?: string; body?: string }) => {
-      const method = init?.method ?? "GET";
-      const body = init?.body ? JSON.parse(init.body) : undefined;
-      if (suffix === "" && method === "POST") {
-        const id = `new-${++seq}`;
-        const entry = {
-          id,
-          path: body.path,
-          type: body.type,
-          meta: body.meta ?? {},
-        };
-        entries[id] = entry;
-        return { ok: true, status: 200, json: async () => entry } as Response;
-      }
-      const id = decodeURIComponent(suffix.replace(/\/$/, ""));
-      const prev = entries[id] ?? { id, path: "", meta: {} };
-      const next = { ...prev };
-      if (body?.meta) next.meta = body.meta;
-      if (body?.path) next.path = body.path;
-      entries[id] = next;
-      return { ok: true, status: 200, json: async () => next } as Response;
-    },
-  );
-  const getEntry = vi.fn(async (id: string) => entries[id] ?? null);
-  const fs = { getEntry, fetch } as unknown as DesktopFsClient;
-  return { fs, fetch, entries };
-}
 
 describe("DashboardsService.ensureHomeCanvas", () => {
-  it("creates + seeds a freeform canvas and records it on the channel folder", async () => {
-    const { fs, entries } = statefulFs({
-      "chan-1": {
-        id: "chan-1",
-        path: "marketing",
-        type: "folder",
-        meta: {},
-      },
+  it("returns an existing seeded home canvas without creating another", async () => {
+    const home = apiCanvas({
+      id: "home-1",
+      is_home: true,
+      current_version_id: "v9",
     });
-    const service = new DashboardsService(fs, {} as never);
+    const { api, calls } = fakeApi({
+      "canvases/?channel=chan-1&is_home=true": [home],
+    });
+    const service = new DashboardsService(api);
 
     const record = await service.ensureHomeCanvas("chan-1");
 
-    // The freeform canvas was created under the channel folder.
-    expect(record.id).toBe("new-1");
-    expect(record.templateId).toBe("freeform");
-    expect(entries["new-1"]?.path).toBe("marketing/Home");
+    expect(record.id).toBe("home-1");
+    expect(
+      calls.every((call) => !call.init || call.init.method === undefined),
+    ).toBe(true);
+  });
 
-    // Its seeded source queries the file_system system table and bakes both ids.
-    const meta = entries["new-1"]?.meta as { code?: string };
-    expect(meta.code).toContain("system.file_system");
-    expect(meta.code).toContain("chan-1");
-    expect(meta.code).toContain("new-1");
+  it("creates and publish-seeds a home canvas when the channel has none", async () => {
+    const created = apiCanvas({
+      id: "home-1",
+      is_home: true,
+      current_version_id: null,
+    });
+    let published: Record<string, unknown> | null = null;
+    const { api } = fakeApi({
+      "canvases/?channel=chan-1&is_home=true": [],
+      "canvases/home-1/publish/": (init?: RequestInit) => {
+        published = JSON.parse(String(init?.body));
+        return { current_version_id: "v1" };
+      },
+      "canvases/home-1/": apiCanvas({
+        id: "home-1",
+        is_home: true,
+        current_version_id: "v1",
+      }),
+      "canvases/": created,
+    });
+    const service = new DashboardsService(api);
 
-    // The channel folder now points at the home canvas.
-    const folderMeta = entries["chan-1"]?.meta as { homeCanvasId?: string };
-    expect(folderMeta.homeCanvasId).toBe("new-1");
+    const record = await service.ensureHomeCanvas("chan-1");
+
+    expect(record.currentVersionId).toBe("v1");
+    expect(published).not.toBeNull();
+    const payload = published as unknown as {
+      project: {
+        files: Record<string, string>;
+        capabilities: { posthog: { inlineQueries: boolean } };
+      };
+      expected_current_version_id: string | null;
+    };
+    // The board queries system tables ad hoc, so the capability must be
+    // declared or view mode rejects every data request.
+    expect(payload.project.capabilities.posthog.inlineQueries).toBe(true);
+    expect(payload.expected_current_version_id).toBeNull();
+    expect(payload.project.files["src/canvas.tsx"]).toContain(
+      "system.canvases",
+    );
+    expect(payload.project.files["src/canvas.tsx"]).toContain("system.tasks");
   });
 
   it("seeds source that transpiles as valid TSX", async () => {
-    const { fs, entries } = statefulFs({
-      "chan-1": { id: "chan-1", path: "marketing", type: "folder", meta: {} },
+    const { api } = fakeApi({
+      "canvases/?channel=chan-1&is_home=true": [],
+      "canvases/home-1/publish/": { current_version_id: "v1" },
+      "canvases/home-1/": apiCanvas({
+        id: "home-1",
+        is_home: true,
+        current_version_id: "v1",
+      }),
+      "canvases/": apiCanvas({
+        id: "home-1",
+        is_home: true,
+        current_version_id: null,
+      }),
     });
-    const service = new DashboardsService(fs, {} as never);
+    const service = new DashboardsService(api);
 
     await service.ensureHomeCanvas("chan-1");
-    const code = (entries["new-1"]?.meta as { code?: string }).code ?? "";
 
-    // The sandbox transpiles the seeded code with Babel at runtime; mirror that
-    // here with esbuild so a syntax error is caught in CI, not in the iframe.
-    const { transform } = await import("esbuild");
+    const publish = (api.json as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([path]) => String(path).endsWith("/publish/"),
+    );
+    expect(publish).toBeDefined();
+    const body = JSON.parse(String(publish?.[2]?.body)) as {
+      project: { files: Record<string, string> };
+    };
     await expect(
-      transform(code, { loader: "tsx", format: "esm" }),
+      transform(body.project.files["src/canvas.tsx"], { loader: "tsx" }),
     ).resolves.toBeDefined();
-  });
-
-  it("is idempotent: returns the existing home canvas without creating another", async () => {
-    const { fs, fetch, entries } = statefulFs({
-      "chan-1": {
-        id: "chan-1",
-        path: "marketing",
-        type: "folder",
-        meta: { homeCanvasId: "home-x" },
-      },
-      "home-x": {
-        id: "home-x",
-        path: "marketing/Home",
-        type: "dashboard",
-        meta: {
-          channelId: "chan-1",
-          templateId: "freeform",
-          code: "// seeded",
-        },
-      },
-    });
-    const service = new DashboardsService(fs, {} as never);
-
-    const record = await service.ensureHomeCanvas("chan-1");
-
-    expect(record.id).toBe("home-x");
-    // No create/patch happened — the folder already had a live home canvas.
-    expect(fetch).not.toHaveBeenCalled();
-    expect(Object.keys(entries)).toEqual(["chan-1", "home-x"]);
   });
 });
 
 describe("DashboardsService.resetHomeCanvas", () => {
-  it("appends a fresh default version without dropping history", async () => {
-    const { fs, entries } = statefulFs({
-      "chan-1": {
-        id: "chan-1",
-        path: "marketing",
-        type: "folder",
-        meta: { homeCanvasId: "home-x" },
-      },
-      "home-x": {
-        id: "home-x",
-        path: "marketing/Home",
-        type: "dashboard",
-        meta: {
-          channelId: "chan-1",
-          templateId: "freeform",
-          code: "// edited by the user",
-          versions: [{ id: "v1", code: "// edited by the user", createdAt: 1 }],
-          currentVersionId: "v1",
-        },
-      },
+  it("publishes a fresh default guarded on the current head", async () => {
+    const home = apiCanvas({
+      id: "home-1",
+      is_home: true,
+      current_version_id: "v3",
     });
-    const service = new DashboardsService(fs, {} as never);
+    let published: Record<string, unknown> | null = null;
+    const { api } = fakeApi({
+      "canvases/?channel=chan-1&is_home=true": [home],
+      "canvases/home-1/publish/": (init?: RequestInit) => {
+        published = JSON.parse(String(init?.body));
+        return { current_version_id: "v4" };
+      },
+      "canvases/home-1/": apiCanvas({
+        id: "home-1",
+        is_home: true,
+        current_version_id: "v4",
+      }),
+    });
+    const service = new DashboardsService(api);
 
     const record = await service.resetHomeCanvas("chan-1");
 
-    // The returned record carries the regenerated default source (queries the
-    // file_system table and bakes both ids), not the user's edit.
-    expect(record.id).toBe("home-x");
-    expect(record.code).toContain("system.file_system");
-    expect(record.code).toContain("chan-1");
-    expect(record.code).toContain("home-x");
-    expect(record.code).not.toContain("// edited by the user");
-
-    // History is preserved: the prior version stays and the default is appended
-    // as the new head, so Undo can restore the user's edit.
-    expect(record.versions?.map((v) => v.id)).toEqual([
-      "v1",
-      record.currentVersionId,
-    ]);
-    expect(record.currentVersionId).not.toBe("v1");
-    expect(record.versions?.at(-1)?.code).toBe(record.code);
-
-    // Persisted to the same canvas (no new canvas created).
-    expect(Object.keys(entries)).toEqual(["chan-1", "home-x"]);
-  });
-
-  it("creates a home canvas if the channel has none yet", async () => {
-    const { fs, entries } = statefulFs({
-      "chan-1": { id: "chan-1", path: "marketing", type: "folder", meta: {} },
-    });
-    const service = new DashboardsService(fs, {} as never);
-
-    const record = await service.resetHomeCanvas("chan-1");
-
-    expect(record.id).toBe("new-1");
-    expect(record.code).toContain("system.file_system");
+    expect(record.currentVersionId).toBe("v4");
     expect(
-      (entries["chan-1"]?.meta as { homeCanvasId?: string }).homeCanvasId,
-    ).toBe("new-1");
+      (published as unknown as { expected_current_version_id: string | null })
+        ?.expected_current_version_id,
+    ).toBe("v3");
+  });
+});
+
+describe("DashboardsService.getBuilds", () => {
+  it("normalizes the lifecycle payload", async () => {
+    const { api } = fakeApi({
+      "canvases/c1/builds/": {
+        published_build_id: "b1",
+        current_version_id: "v1",
+        builds: [
+          {
+            id: "b1",
+            source_version_id: "v1",
+            build_status: "ready",
+            diagnostics: [],
+            manifest: null,
+            artifact_url: null,
+            pinned: false,
+            created_at: "2026-07-01T00:00:00Z",
+            finished_at: null,
+          },
+        ],
+      },
+    });
+    const service = new DashboardsService(api);
+
+    const lifecycle = await service.getBuilds("c1");
+
+    expect(lifecycle.publishedBuildId).toBe("b1");
+    expect(lifecycle.currentVersionId).toBe("v1");
+    expect(lifecycle.builds[0].buildStatus).toBe("ready");
   });
 });

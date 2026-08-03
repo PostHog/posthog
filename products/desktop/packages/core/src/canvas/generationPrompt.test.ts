@@ -25,8 +25,8 @@ describe("buildCanvasGenerationPrompt", () => {
     expect(prompt).toContain('canvas id: "dash-1"');
     // Guarded publish loop via the typed canvas tools — not a local file, not a
     // code reply, and never an unguarded overwrite.
-    expect(prompt).toContain("desktop-file-system-canvas-source-retrieve");
-    expect(prompt).toContain("desktop-file-system-canvas-publish-create");
+    expect(prompt).toContain("canvas-source-retrieve");
+    expect(prompt).toContain("canvas-publish-create");
     expect(prompt).toContain("expected_current_version_id");
     // The authoring contract itself lives in the skills, not the prompt.
     expect(prompt).not.toContain("OUTPUT FORMAT");

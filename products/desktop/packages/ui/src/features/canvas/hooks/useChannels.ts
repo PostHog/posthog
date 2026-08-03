@@ -1,52 +1,44 @@
-import type { Schemas } from "@posthog/api-client";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 const CHANNELS_POLL_INTERVAL_MS = 30_000;
-const CHANNELS_QUERY_KEY = ["canvas-channels"] as const;
 
-/** A Home-space channel: a top-level folder on the desktop file system. */
+/** A Home-space channel: a backend task channel (one UUID for everything). */
 export interface Channel {
+  /** Backend task channel UUID. */
   id: string;
-  /** Display name — the channel's single-segment path. */
+  /** Normalized display name (lowercase-dashed; rendered "#name"). */
   name: string;
-  /**
-   * Raw file-system path of the folder. Used as the `ref` when starring the
-   * channel, so the desktop shortcut links back to this exact folder.
-   */
-  path: string;
-  /**
-   * File-system id of the channel's home canvas, if one has been created.
-   * Stored on the folder row's `meta`; used to open the home canvas when the
-   * channel name is clicked. Absent on channels made before home canvases
-   * existed (those are backfilled lazily on first open).
-   */
-  homeCanvasId?: string;
+  /** `personal` is the user's private "#me" channel. */
+  channelType: "public" | "personal";
+  /** Whether the current user starred this channel. */
+  starred: boolean;
 }
 
-function toChannel(fs: Schemas.FileSystem): Channel {
-  // The generated OpenAPI type declares `meta` as null, but the API returns our
-  // free-form blob at runtime; read homeCanvasId past the type.
-  const meta = fs.meta as { homeCanvasId?: string } | null | undefined;
-  // Top-level channels have a single-segment path; strip any leading slash.
+function toChannel(channel: TaskChannel): Channel {
   return {
-    id: fs.id,
-    name: fs.path.replace(/^\/+/, ""),
-    path: fs.path,
-    homeCanvasId: meta?.homeCanvasId,
+    id: channel.id,
+    name: channel.name,
+    channelType: channel.channel_type,
+    starred: channel.starred,
   };
 }
 
-/** List the project's channels (top-level desktop file-system folders). */
+/**
+ * List the project's channels. Shares the task-channels query key so star and
+ * create mutations keep one cache coherent.
+ */
 export function useChannels(options?: { enabled?: boolean }): {
   channels: Channel[];
   isLoading: boolean;
 } {
-  const query = useAuthenticatedQuery<Schemas.FileSystem[]>(
-    CHANNELS_QUERY_KEY,
-    (client) => client.getDesktopFileSystemChannels(),
+  const query = useAuthenticatedQuery<TaskChannel[]>(
+    TASK_CHANNELS_QUERY_KEY,
+    (client) => client.getTaskChannels(),
     {
       enabled: options?.enabled ?? true,
       refetchInterval: CHANNELS_POLL_INTERVAL_MS,
@@ -57,7 +49,6 @@ export function useChannels(options?: { enabled?: boolean }): {
   const channels = useMemo(
     () =>
       (query.data ?? [])
-        .filter((fs) => fs.type === "folder")
         .map(toChannel)
         .sort((a, b) => a.name.localeCompare(b.name)),
     [query.data],
@@ -66,32 +57,34 @@ export function useChannels(options?: { enabled?: boolean }): {
 }
 
 /**
- * Create/delete channels. Both invalidate the shared query key so the list
- * refetches immediately rather than waiting on the poll.
+ * Create/rename/delete channels. All invalidate the shared query key so the
+ * list refetches immediately rather than waiting on the poll.
  */
 export function useChannelMutations() {
   const client = useOptionalAuthenticatedClient();
   const queryClient = useQueryClient();
 
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: CHANNELS_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
   }, [queryClient]);
 
   const createMutation = useMutation({
     mutationFn: async (name: string) => {
       if (!client) throw new Error("Not authenticated");
-      return client.createDesktopFileSystemChannel(name);
+      // Resolve-or-create is idempotent server-side, so racing creators of the
+      // same name converge on one channel.
+      return client.resolveTaskChannel(name);
     },
-    onSuccess: (newFs) => {
+    onSuccess: (created) => {
       // Insert the created channel into the cache immediately so the sidebar
       // updates the instant the POST resolves, rather than waiting on the
-      // paginated refetch that `invalidate` triggers.
-      queryClient.setQueryData<Schemas.FileSystem[]>(
-        CHANNELS_QUERY_KEY,
+      // refetch that `invalidate` triggers.
+      queryClient.setQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
         (old) => {
-          if (!old) return [newFs];
-          if (old.some((fs) => fs.id === newFs.id)) return old;
-          return [...old, newFs];
+          if (!old) return [created];
+          if (old.some((c) => c.id === created.id)) return old;
+          return [...old, created];
         },
       );
       invalidate();
@@ -101,7 +94,7 @@ export function useChannelMutations() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       if (!client) throw new Error("Not authenticated");
-      return client.deleteDesktopFileSystem(id);
+      return client.deleteTaskChannel(id);
     },
     onSuccess: invalidate,
   });
@@ -109,7 +102,7 @@ export function useChannelMutations() {
   const renameMutation = useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
       if (!client) throw new Error("Not authenticated");
-      return client.renameDesktopFileSystemChannel(id, name);
+      return client.renameTaskChannel(id, name);
     },
     onSuccess: invalidate,
   });

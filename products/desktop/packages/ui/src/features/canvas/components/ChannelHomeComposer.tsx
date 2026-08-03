@@ -12,7 +12,6 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { track } from "../../../shell/analytics";
-import { useOptionalAuthenticatedClient } from "../../auth/authClient";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
 import { PromptInput } from "../../message-editor/components/PromptInput";
 import { contentToPlainText } from "../../message-editor/content";
@@ -40,10 +39,6 @@ import {
   useDashboardMutations,
 } from "../hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "../hooks/useGenerateFreeformCanvas";
-import {
-  normalizeChannelName,
-  PERSONAL_CHANNEL_NAME,
-} from "../hooks/useTaskChannels";
 import type { PendingKickoff } from "./ChannelFeedView";
 
 export interface ChannelHomeComposerHandle {
@@ -52,12 +47,11 @@ export interface ChannelHomeComposerHandle {
 }
 
 interface ChannelHomeComposerProps {
+  /** Backend channel UUID that owns the created task (its feed home). */
   channelId: string;
   channelName?: string;
   /** Channel CONTEXT.md, attached to the created task as background. */
   channelContext?: string;
-  /** Backend channel UUID that will own the created task (its feed home). */
-  backendChannelId?: string;
   onTaskCreated: (task: Task) => void;
   /** Post an optimistic kickoff to the feed the instant a submit is accepted. */
   onPendingStart: (kickoff: PendingKickoff) => void;
@@ -79,7 +73,6 @@ export const ChannelHomeComposer = forwardRef<
     channelId,
     channelName,
     channelContext,
-    backendChannelId,
     onTaskCreated,
     onPendingStart,
     onPendingEnd,
@@ -198,27 +191,9 @@ export const ChannelHomeComposer = forwardRef<
       : undefined;
 
   const queryClient = useQueryClient();
-  const apiClient = useOptionalAuthenticatedClient();
   const handleCanvasSubmit = useCallback(async () => {
     const instruction = editorRef.current?.getText().trim();
     if (!instruction || isStartingCanvas) return;
-    // The folder→backend channel mapping can still be resolving when the user
-    // submits (fresh channel, cold channels list). Resolve it here rather than
-    // silently creating a run the feed will never show. The personal channel
-    // can't be resolved by name; it only arrives via the channels list.
-    let feedChannelId = backendChannelId;
-    const normalizedName = channelName ? normalizeChannelName(channelName) : "";
-    if (
-      !feedChannelId &&
-      apiClient &&
-      normalizedName &&
-      normalizedName !== PERSONAL_CHANNEL_NAME
-    ) {
-      feedChannelId = await apiClient
-        .resolveTaskChannel(normalizedName)
-        .then((c) => c.id)
-        .catch(() => undefined);
-    }
     let record: { id: string; name: string };
     try {
       record = await trackAndCreateCanvas(
@@ -232,15 +207,13 @@ export const ChannelHomeComposer = forwardRef<
       return;
     }
     // generate() surfaces its own failure toasts; on success it files the task
-    // to the channel and tracks completion for the finished-generation toast.
+    // to the channel (so the run shows as a card in the feed, like a plain
+    // composer submit) and tracks completion for the finished-generation toast.
     const taskId = await generateCanvas({
       dashboardId: record.id,
       name: record.name,
       templateId: "freeform",
       instruction,
-      // Owned by the backend channel so the run shows as a card in the feed,
-      // like a plain composer submit.
-      backendChannelId: feedChannelId,
       adapter: adapter ?? "claude",
       model: currentModel,
       reasoningLevel: currentReasoningLevel,
@@ -249,7 +222,7 @@ export const ChannelHomeComposer = forwardRef<
     if (!taskId) return;
     // Surface the new card without waiting for the feed's next poll.
     void queryClient.invalidateQueries({
-      queryKey: channelFeedQueryKey(feedChannelId),
+      queryKey: channelFeedQueryKey(channelId),
     });
     editorRef.current?.clear();
     setCanvasArmed(false);
@@ -259,9 +232,6 @@ export const ChannelHomeComposer = forwardRef<
     });
   }, [
     channelId,
-    channelName,
-    backendChannelId,
-    apiClient,
     adapter,
     currentModel,
     currentReasoningLevel,
@@ -308,7 +278,7 @@ export const ChannelHomeComposer = forwardRef<
     allowNoRepo: true,
     channelContext,
     channelName,
-    channelId: backendChannelId,
+    channelId,
     channelContextId: channelId,
     onTaskCreated: handleTaskCreated,
   });

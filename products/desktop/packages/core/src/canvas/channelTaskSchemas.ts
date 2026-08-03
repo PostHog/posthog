@@ -15,7 +15,6 @@ export const listChannelTasksInput = z.object({
 export const fileChannelTaskInput = z.object({
   channelId: z.string().min(1),
   taskId: z.string().min(1),
-  taskTitle: z.string().min(1),
 });
 
 export const channelTaskIdInput = z.object({ id: z.string().min(1) });

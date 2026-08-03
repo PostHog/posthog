@@ -1,5 +1,3 @@
-import type { AuthService } from "@posthog/core/auth/auth";
-import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import { inject, injectable } from "inversify";
 import {
   type CanvasBuildActionInput,
@@ -9,444 +7,392 @@ import {
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
 import type {
-  DashboardFileMeta,
+  CanvasSource,
+  CanvasSourceProject,
+  CanvasVersion,
   DashboardRecord,
-  DashboardSummary,
 } from "./dashboardSchemas";
-import {
-  DESKTOP_FS_CLIENT,
-  type DesktopFsClient,
-  type FsEntryBase,
-} from "./desktopFsClient";
-import { FREEFORM_TEMPLATE_ID, type FreeformVersion } from "./freeformSchemas";
-import { fetchCurrentUser } from "./posthogApi";
-
-// Desktop file-system "type" tag for a dashboard entry. Channels are `folder`
-// rows (depth 1); dashboards are these `dashboard` files nested beneath them.
-const DASHBOARD_TYPE = "dashboard";
+import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
+import { PROJECT_API_CLIENT, type ProjectApiClient } from "./projectApiClient";
 
 // Display name (canvas h1) of a channel's auto-created home canvas.
 const HOME_CANVAS_NAME = "Home";
 
-// Dashboard-specific shape on top of the shared FS row. Our payload rides in
-// `meta` — see DashboardFileMeta for what that blob holds.
-interface FsEntry extends FsEntryBase {
-  meta?: DashboardFileMeta | null;
-  // The backend's creator user (standard PostHog UserBasic shape). Absent on
-  // rows the API returns without an expanded creator.
+// The entry shell for a client-authored single-file project (the home canvas
+// seed): the runtime mounts the default export of src/canvas.tsx.
+const SINGLE_FILE_INDEX_HTML = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/canvas.tsx"></script>
+  </body>
+</html>
+`;
+
+// A canvas as the PostHog canvases API returns it.
+interface ApiCanvas {
+  id: string;
+  name: string;
+  channel: string;
+  template_id: string;
+  context: string;
+  generation_task_id: string | null;
+  pinned_at: string | null;
+  is_home: boolean;
+  current_version_id: string | null;
+  published_build_id: string | null;
   created_by?: {
     uuid: string;
     first_name?: string | null;
     last_name?: string | null;
     email?: string | null;
   } | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ApiVersion {
+  id: string;
+  parent_version_id: string | null;
+  prompt: string | null;
+  task_id: string | null;
+  created_by?: ApiCanvas["created_by"];
+  created_at: string;
+}
+
+function creatorLabel(created_by: ApiCanvas["created_by"]): string | undefined {
+  if (!created_by) return undefined;
+  const name = [created_by.first_name, created_by.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return name || created_by.email || undefined;
+}
+
+function toEpoch(value: string | null | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function toRecord(api: ApiCanvas): DashboardRecord {
+  return {
+    id: api.id,
+    channelId: api.channel,
+    name: api.name,
+    templateId: api.template_id || FREEFORM_TEMPLATE_ID,
+    context: api.context ?? "",
+    generationTaskId: api.generation_task_id,
+    createdBy: creatorLabel(api.created_by),
+    createdByUuid: api.created_by?.uuid,
+    createdAt: toEpoch(api.created_at) ?? 0,
+    updatedAt: toEpoch(api.updated_at) ?? 0,
+    pinnedAt: toEpoch(api.pinned_at),
+    isHome: api.is_home,
+    currentVersionId: api.current_version_id,
+    publishedBuildId: api.published_build_id,
+  };
+}
+
+function toBuildRecord(build: Record<string, unknown>): CanvasBuildRecord {
+  return canvasBuildRecordSchema.parse({
+    id: build.id,
+    sourceVersionId: build.source_version_id,
+    buildStatus: build.build_status,
+    diagnostics: build.diagnostics ?? [],
+    manifest: build.manifest ?? null,
+    artifactUrl: build.artifact_url,
+    pinned: build.pinned,
+    createdAt: build.created_at,
+    finishedAt: build.finished_at,
+  });
 }
 
 /**
- * Dashboards backed by the PostHog desktop file system (not local files), so a
- * dashboard is a `dashboard`-typed row nested under its channel folder and its
- * name is the last path segment — i.e. the canvas title. The freeform React
- * source lives in the row's `meta.code`. This keeps dashboards (and their names)
- * in sync with the backend, the same surface that owns channel names.
+ * Canvases backed by the PostHog canvases API. A canvas is a first-class row
+ * filed into a backend channel; its source is versioned per publish
+ * (source/versions endpoints) and its rendered output is the published
+ * build's artifact (builds endpoints).
  */
 @injectable()
 export class DashboardsService {
-  // The current user's display label, fetched once and reused (the creator is
-  // the same user for the app's lifetime). `undefined` = not fetched yet;
-  // `null` = fetched but unavailable (don't refetch on every create).
-  private userLabel: string | null | undefined;
-
   constructor(
-    @inject(DESKTOP_FS_CLIENT)
-    private readonly fs: DesktopFsClient,
-    @inject(AUTH_SERVICE)
-    private readonly authService: AuthService,
+    @inject(PROJECT_API_CLIENT)
+    private readonly api: ProjectApiClient,
   ) {}
 
-  // The signed-in user's display name (or email), for stamping `created by` onto
-  // canvases. Cached after the first lookup; never throws (returns undefined).
-  private async currentUserLabel(): Promise<string | undefined> {
-    if (this.userLabel !== undefined) return this.userLabel ?? undefined;
-    const user = await fetchCurrentUser(this.authService);
-    this.userLabel = user?.label ?? null;
-    return this.userLabel ?? undefined;
-  }
-
-  private getEntry(id: string): Promise<FsEntry | null> {
-    return this.fs.getEntry<FsEntry>(id, "dashboard");
-  }
-
-  async list(channelId: string): Promise<DashboardSummary[]> {
-    // Fetch only this channel's dashboards via a server-side filter
-    // (`parent=<channelPath>&type=dashboard`) rather than walking the whole
-    // project file system and filtering client-side. Dashboards are created as
-    // direct children of the channel folder, so the parent filter matches them.
-    const channelPath = await this.channelPath(channelId);
-    const entries = await this.fs.listByQuery<FsEntry>(
-      `parent=${encodeURIComponent(channelPath)}&type=${DASHBOARD_TYPE}`,
-      "dashboards",
+  async list(channelId: string): Promise<DashboardRecord[]> {
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      `canvases/?channel=${encodeURIComponent(channelId)}`,
+      "list canvases",
     );
-    return entries
-      .map((e) => toRecord(e))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map(
-        ({
-          id,
-          channelId: cid,
-          name,
-          templateId,
-          createdBy,
-          createdByUuid,
-          updatedAt,
-          code,
-          generationTaskId,
-          pinnedAt,
-        }) => ({
-          id,
-          channelId: cid,
-          name,
-          templateId,
-          createdBy,
-          createdByUuid,
-          updatedAt,
-          code,
-          generationTaskId,
-          pinnedAt,
-        }),
-      );
+    return rows.map(toRecord);
   }
 
   async get(id: string): Promise<DashboardRecord | null> {
-    const entry = await this.getEntry(id);
-    return entry ? toRecord(entry) : null;
+    const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Failed to load canvas (${res.status})`);
+    return toRecord((await res.json()) as ApiCanvas);
   }
 
   async create(input: {
     channelId: string;
     name: string;
     templateId?: string;
+    isHome?: boolean;
   }): Promise<DashboardRecord> {
-    const channelPath = await this.channelPath(input.channelId);
-    const now = Date.now();
-    const templateId = input.templateId ?? "freeform";
-    const meta: DashboardFileMeta = {
-      channelId: input.channelId,
-      templateId,
-      createdBy: await this.currentUserLabel(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    const res = await this.fs.fetch("", {
+    const api = await this.api.json<ApiCanvas>(`canvases/`, "create canvas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        path: `${channelPath}/${sanitizeSegment(input.name)}`,
-        type: DASHBOARD_TYPE,
-        meta,
+        channel_id: input.channelId,
+        name: input.name,
+        template_id: input.templateId ?? FREEFORM_TEMPLATE_ID,
+        is_home: input.isHome ?? false,
       }),
     });
-    if (!res.ok) throw new Error(`Failed to create dashboard (${res.status})`);
-    return toRecord((await res.json()) as FsEntry);
+    return toRecord(api);
   }
 
-  // Persist a freeform canvas's source + edit history.
-  async saveFreeform(input: {
+  private async patch(
+    id: string,
+    body: Record<string, unknown>,
+    errorLabel: string,
+  ): Promise<DashboardRecord> {
+    const api = await this.api.json<ApiCanvas>(
+      `canvases/${encodeURIComponent(id)}/`,
+      errorLabel,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return toRecord(api);
+  }
+
+  // Persist the author-written context (markdown) passed to generation tasks.
+  saveContext(input: {
     id: string;
-    name?: string;
-    code: string;
-    versions: FreeformVersion[];
-    currentVersionId?: string;
-    context?: string;
+    context: string;
   }): Promise<DashboardRecord> {
-    const entry = await this.getEntry(input.id);
-    const now = Date.now();
-    const prevMeta = entry?.meta ?? {};
-    const meta: DashboardFileMeta = {
-      ...prevMeta,
-      code: input.code,
-      versions: input.versions,
-      currentVersionId: input.currentVersionId,
-      context: input.context,
-      updatedAt: now,
-      createdAt: prevMeta.createdAt ?? toEpoch(entry?.created_at),
-    };
-
-    const body: Record<string, unknown> = { meta };
-    if (input.name && entry) {
-      const parent = parentPath(entry.path);
-      const next = sanitizeSegment(input.name);
-      const newPath = parent ? `${parent}/${next}` : next;
-      if (newPath !== entry.path) body.path = newPath;
-    }
-
-    const res = await this.fs.fetch(`${encodeURIComponent(input.id)}/`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`Failed to save canvas (${res.status})`);
-    return toRecord((await res.json()) as FsEntry);
+    return this.patch(
+      input.id,
+      { context: input.context },
+      "save canvas context",
+    );
   }
 
   // Record (or clear, when taskId is null) the task currently generating this
-  // canvas. Merges into meta like the other writers so it never clobbers
-  // code/versions; the agent's MCP publish likewise merges, so the two coexist.
-  async setGenerationTask(input: {
+  // canvas.
+  setGenerationTask(input: {
     id: string;
     taskId: string | null;
   }): Promise<DashboardRecord> {
-    const entry = await this.getEntry(input.id);
-    const prevMeta = entry?.meta ?? {};
-    const meta: DashboardFileMeta = {
-      ...prevMeta,
-      generationTaskId: input.taskId,
-    };
-    const res = await this.fs.fetch(`${encodeURIComponent(input.id)}/`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meta }),
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to set generation task (${res.status})`);
-    }
-    return toRecord((await res.json()) as FsEntry);
+    return this.patch(
+      input.id,
+      { generation_task_id: input.taskId },
+      "set generation task",
+    );
   }
 
-  // Pin (or unpin) a canvas to its channel. Writes `pinnedAt` into the row's
-  // meta — shared across users — merging like the other writers so it never
-  // clobbers code/versions. Unpinning drops the key (the PATCH sends the merged
-  // meta sans pinnedAt, which the backend stores verbatim).
-  async setPinned(input: {
+  // Pin (or unpin) a canvas to its channel (shared across users).
+  setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord> {
+    return this.patch(input.id, { pinned: input.pinned }, "set pin");
+  }
+
+  rename(input: { id: string; name: string }): Promise<DashboardRecord> {
+    return this.patch(input.id, { name: input.name }, "rename canvas");
+  }
+
+  // Read the canvas's source project — the head, or a historical version.
+  async getSource(input: {
     id: string;
-    pinned: boolean;
-  }): Promise<DashboardRecord> {
-    const entry = await this.getEntry(input.id);
-    const prevMeta = entry?.meta ?? {};
-    const meta: DashboardFileMeta = {
-      ...prevMeta,
-      pinnedAt: input.pinned ? Date.now() : undefined,
-    };
-    const res = await this.fs.fetch(`${encodeURIComponent(input.id)}/`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meta }),
-    });
-    if (!res.ok) throw new Error(`Failed to set pin (${res.status})`);
-    return toRecord((await res.json()) as FsEntry);
+    versionId?: string;
+  }): Promise<CanvasSource> {
+    const suffix = input.versionId
+      ? `?version_id=${encodeURIComponent(input.versionId)}`
+      : "";
+    const body = await this.api.json<{
+      project: CanvasSourceProject;
+      current_version_id: string | null;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/source/${suffix}`,
+      "load canvas source",
+    );
+    return { project: body.project, currentVersionId: body.current_version_id };
   }
 
-  // Rename a canvas by rewriting the last path segment (the title). Touches only
-  // the path, leaving meta (code/versions/etc.) intact — used to auto-name a
-  // freshly-created canvas from its generation prompt.
-  async rename(input: { id: string; name: string }): Promise<DashboardRecord> {
-    const entry = await this.getEntry(input.id);
-    if (!entry) throw new Error("Dashboard not found");
-    const parent = parentPath(entry.path);
-    const next = sanitizeSegment(input.name);
-    const newPath = parent ? `${parent}/${next}` : next;
-    if (newPath === entry.path) return toRecord(entry);
-    const res = await this.fs.fetch(`${encodeURIComponent(input.id)}/`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: newPath }),
-    });
-    if (!res.ok) throw new Error(`Failed to rename canvas (${res.status})`);
-    return toRecord((await res.json()) as FsEntry);
+  // The canvas's version history, newest first (metadata only).
+  async listVersions(id: string): Promise<CanvasVersion[]> {
+    const rows = await this.api.json<ApiVersion[]>(
+      `canvases/${encodeURIComponent(id)}/versions/`,
+      "list canvas versions",
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      parentVersionId: row.parent_version_id,
+      prompt: row.prompt,
+      taskId: row.task_id,
+      createdBy: creatorLabel(row.created_by),
+      createdAt: toEpoch(row.created_at) ?? 0,
+    }));
   }
 
-  // Ensure the channel has a home canvas: the freeform board shown when the
-  // channel name is clicked. Idempotent — if the channel folder's meta already
-  // points at a live canvas, return it; otherwise create one, seed its source,
-  // and record its id on the folder. Safe to call on channel create and lazily
-  // on first open (backfills channels made before home canvases existed).
-  async ensureHomeCanvas(channelId: string): Promise<DashboardRecord> {
-    const folder = await this.getEntry(channelId);
-    if (!folder) throw new Error("Channel not found");
-
-    // Resolve (or create) the canvas, then seed it. Each step is recorded before
-    // the next runs, so a failure mid-way leaves a retryable state rather than an
-    // orphan: if `create` succeeds but seeding throws, the folder already points
-    // at the canvas, so the next call reuses it (and seeds it below) instead of
-    // creating a second "Home".
-    const existingId = folder.meta?.homeCanvasId;
-    let record = existingId ? await this.get(existingId) : null;
-    if (!record) {
-      // The canvas's own id is baked into the code so it can exclude itself from
-      // the "Canvases" list; the channel id lets it resolve the (rename-safe)
-      // folder path at runtime.
-      record = await this.create({
-        channelId,
-        name: HOME_CANVAS_NAME,
-        templateId: FREEFORM_TEMPLATE_ID,
-      });
-      await this.setHomeCanvasId(channelId, record.id, folder);
-    }
-
-    // Seed the source if it isn't already (covers a prior create whose seed
-    // failed). A canvas that already has code is returned untouched.
-    if (!record.code) {
-      const code = buildHomeCanvasCode(channelId, record.id);
-      const version: FreeformVersion = {
-        id: `home-${record.id}`,
-        code,
-        createdAt: Date.now(),
-      };
-      record = await this.saveFreeform({
-        id: record.id,
-        code,
-        versions: [version],
-        currentVersionId: version.id,
-      });
-    }
-    return record;
-  }
-
-  // Rebuild a channel's home canvas from the default template, discarding edits.
-  // Non-destructive: the pre-reset source is kept as the prior version (so Undo
-  // restores it) and the regenerated default is appended as the new head. If the
-  // channel has no home canvas yet, this is just a create. Only valid for the
-  // home canvas — regular canvases have no "default" to reset to.
-  async resetHomeCanvas(channelId: string): Promise<DashboardRecord> {
-    const folder = await this.getEntry(channelId);
-    if (!folder) throw new Error("Channel not found");
-
-    const homeCanvasId = folder.meta?.homeCanvasId;
-    if (!homeCanvasId) return this.ensureHomeCanvas(channelId);
-    const record = await this.get(homeCanvasId);
-    if (!record) return this.ensureHomeCanvas(channelId);
-
-    const code = buildHomeCanvasCode(channelId, homeCanvasId);
-    const version: FreeformVersion = {
-      id: `reset-${homeCanvasId}-${Date.now()}`,
-      code,
-      createdAt: Date.now(),
-    };
-    return this.saveFreeform({
-      id: homeCanvasId,
-      code,
-      versions: [...(record.versions ?? []), version],
-      currentVersionId: version.id,
-    });
-  }
-
-  // Point a channel folder at its home canvas by writing homeCanvasId onto the
-  // folder's meta (preserving any existing meta keys).
-  private async setHomeCanvasId(
-    channelId: string,
-    homeCanvasId: string,
-    folder?: FsEntry | null,
-  ): Promise<void> {
-    const entry = folder ?? (await this.getEntry(channelId));
-    const prevMeta = entry?.meta ?? {};
-    const meta: DashboardFileMeta = { ...prevMeta, homeCanvasId };
-    const res = await this.fs.fetch(`${encodeURIComponent(channelId)}/`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ meta }),
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to set channel home canvas (${res.status})`);
-    }
+  // Move the canvas's head back to an existing version and rebuild it.
+  async revertToVersion(input: {
+    id: string;
+    versionId: string;
+  }): Promise<CanvasBuildRecord> {
+    const build = await this.api.json<Record<string, unknown>>(
+      `canvases/${encodeURIComponent(input.id)}/revert/`,
+      "revert canvas",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: input.versionId }),
+      },
+    );
+    return toBuildRecord(build);
   }
 
   // Read a canvas's build lifecycle (pointers + recent builds). Publishing
   // queues a build server-side; callers poll this until it settles.
   async getBuilds(id: string): Promise<CanvasBuildLifecycle> {
-    const res = await this.fs.fetch(`${encodeURIComponent(id)}/canvas/builds/`);
-    if (!res.ok)
-      throw new Error(`Failed to load canvas builds (${res.status})`);
-    const body = (await res.json()) as {
+    const body = await this.api.json<{
       published_build_id: string | null;
-      current_source_version_id: string | null;
-      builds: {
-        id: string;
-        source_version_id: string;
-        build_status: string;
-        diagnostics?: unknown[];
-        manifest: unknown | null;
-        artifact_url: string | null;
-        pinned: boolean;
-        created_at: string;
-        finished_at: string | null;
-      }[];
-    };
+      current_version_id: string | null;
+      builds: Record<string, unknown>[];
+    }>(`canvases/${encodeURIComponent(id)}/builds/`, "load canvas builds");
     return canvasBuildLifecycleSchema.parse({
       publishedBuildId: body.published_build_id,
-      currentSourceVersionId: body.current_source_version_id,
-      builds: body.builds.map((build) => ({
-        id: build.id,
-        sourceVersionId: build.source_version_id,
-        buildStatus: build.build_status,
-        diagnostics: build.diagnostics ?? [],
-        manifest: build.manifest ?? null,
-        artifactUrl: build.artifact_url,
-        pinned: build.pinned,
-        createdAt: build.created_at,
-        finishedAt: build.finished_at,
-      })),
+      currentVersionId: body.current_version_id,
+      builds: body.builds.map(toBuildRecord),
     });
   }
 
   async actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord> {
-    const res = await this.fs.fetch(
-      `${encodeURIComponent(input.id)}/canvas/builds/action/`,
+    const build = await this.api.json<Record<string, unknown>>(
+      `canvases/${encodeURIComponent(input.id)}/builds/action/`,
+      "update canvas build",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: input.action, build_id: input.buildId }),
+      },
+    );
+    return toBuildRecord(build);
+  }
+
+  // Ensure the channel has a home canvas: the freeform board shown when the
+  // channel opens. Idempotent — reuses the channel's existing home canvas, and
+  // seeds its source (via a real publish, so it gets built) when empty.
+  async ensureHomeCanvas(channelId: string): Promise<DashboardRecord> {
+    let record = await this.findHomeCanvas(channelId);
+    if (!record) {
+      try {
+        record = await this.create({
+          channelId,
+          name: HOME_CANVAS_NAME,
+          templateId: FREEFORM_TEMPLATE_ID,
+          isHome: true,
+        });
+      } catch {
+        // Lost the uniqueness race — another client created it; reuse theirs.
+        record = await this.findHomeCanvas(channelId);
+        if (!record) throw new Error("Failed to create home canvas");
+      }
+    }
+    if (!record.currentVersionId) {
+      record = await this.publishHomeSeed(record, channelId);
+    }
+    return record;
+  }
+
+  // Rebuild a channel's home canvas from the default template. Non-destructive:
+  // the pre-reset source stays in the version history, so a revert restores it.
+  async resetHomeCanvas(channelId: string): Promise<DashboardRecord> {
+    const record = await this.findHomeCanvas(channelId);
+    if (!record) return this.ensureHomeCanvas(channelId);
+    return this.publishHomeSeed(record, channelId);
+  }
+
+  private async findHomeCanvas(
+    channelId: string,
+  ): Promise<DashboardRecord | null> {
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      `canvases/?channel=${encodeURIComponent(channelId)}&is_home=true`,
+      "find home canvas",
+    );
+    return rows.length ? toRecord(rows[0]) : null;
+  }
+
+  // Publish the generated home board as the canvas's new head version. The
+  // board queries system.canvases/system.tasks ad hoc, so inline queries are
+  // declared as a capability.
+  private async publishHomeSeed(
+    record: DashboardRecord,
+    channelId: string,
+  ): Promise<DashboardRecord> {
+    const project = {
+      schemaVersion: 1,
+      files: {
+        "index.html": SINGLE_FILE_INDEX_HTML,
+        "src/canvas.tsx": buildHomeCanvasCode(channelId, record.id),
+      },
+      entryHtml: "index.html",
+      dependencies: { react: "19.0.0" },
+      canvasSdkVersion: "0.1.0",
+      capabilities: {
+        posthog: { insights: [], inlineQueries: true, captureEvents: [] },
+        network: { origins: [] },
+      },
+    };
+    await this.api.json<unknown>(
+      `canvases/${encodeURIComponent(record.id)}/publish/`,
+      "seed home canvas",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: input.action,
-          build_id: input.buildId,
+          project,
+          prompt: "Default home board",
+          expected_current_version_id: record.currentVersionId ?? null,
         }),
       },
     );
-    if (!res.ok)
-      throw new Error(`Failed to update canvas build (${res.status})`);
-    const build = (await res.json()) as Record<string, unknown>;
-    return canvasBuildRecordSchema.parse({
-      id: build.id,
-      sourceVersionId: build.source_version_id,
-      buildStatus: build.build_status,
-      diagnostics: build.diagnostics ?? [],
-      manifest: build.manifest ?? null,
-      artifactUrl: build.artifact_url,
-      pinned: build.pinned,
-      createdAt: build.created_at,
-      finishedAt: build.finished_at,
-    });
+    const fresh = await this.get(record.id);
+    return fresh ?? record;
   }
 
   async delete(id: string): Promise<void> {
-    const res = await this.fs.fetch(`${encodeURIComponent(id)}/`, {
+    const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`, {
       method: "DELETE",
     });
     // Already gone is a successful delete; surface anything else.
     if (!res.ok && res.status !== 404) {
-      throw new Error(`Failed to delete dashboard (${res.status})`);
+      throw new Error(`Failed to delete canvas (${res.status})`);
     }
-  }
-
-  // Resolve a channel's folder path from its file-system id so child dashboards
-  // can be created beneath it (paths are name-based, ids are not).
-  private async channelPath(channelId: string): Promise<string> {
-    const entry = await this.getEntry(channelId);
-    if (!entry) throw new Error("Channel not found");
-    return entry.path;
   }
 }
 
 // The seeded React source for a channel's home canvas. It runs in the freeform
 // sandbox (null-origin iframe), so its only data avenue is `window.ph.query`
-// (HogQL). It reads three lists from the `system.file_system` HogQL table:
-//   - Canvases: this channel's `dashboard` rows (excluding the home canvas).
+// (HogQL). It reads its lists from the `system.canvases`/`system.tasks` HogQL tables:
+//   - Canvases: this channel's canvases (excluding the home canvas).
 //   - Inbox / to-dos: stubbed (no data source yet) with an assignee filter.
-//   - Tasks: this channel's filed `task` rows, newest first.
+//   - Tasks: this channel's tasks, newest first.
 // Each list shows a page at a time and loads more as its own box is scrolled.
 // Rows and the "New" buttons drive host routing via the allowlisted
 // `ph.navigate` bridge (toTask/toNewTask/toCanvas/toNewCanvas); the Inbox stub
 // stays a no-op until it has a data source. channelId is host-supplied, so the
-// canvas can only navigate within its own channel.
-// channelId is baked in (the path is resolved at runtime so renames are safe);
-// homeCanvasId lets the Canvases list exclude this board.
+// canvas can only navigate within its own channel; homeCanvasId lets the
+// Canvases list exclude this board.
 function buildHomeCanvasCode(channelId: string, homeCanvasId: string): string {
   const cid = JSON.stringify(channelId);
   const hid = JSON.stringify(homeCanvasId);
@@ -463,31 +409,14 @@ function sql(v: string): string {
   return "'" + String(v).replace(/'/g, "''") + "'";
 }
 
-function lastSegment(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i === -1 ? path : path.slice(i + 1);
-}
-
-// Resolve the channel folder's current path from its stable id, so renaming the
-// channel doesn't break the lists (the path, not the id, scopes child rows).
-async function resolveChannelPath(): Promise<string> {
-  const res = await ph.query(
-    "SELECT path FROM system.file_system WHERE id = " + sql(CHANNEL_ID) + " LIMIT 1",
-  );
-  const rows = (res && res.results) || [];
-  return rows.length ? String(rows[0][0]) : "";
-}
-
 type Row = { id: string; title: string; ref: string | null; createdAt: string };
 
-// Paginated reader for the channel's filesystem rows of a given type, newest
-// first. Resolves the channel path once, then walks pages by offset.
+// Paginated reader for the channel's canvases or tasks, newest first.
 function useChannelRows(kind: "dashboard" | "task") {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const offsetRef = useRef(0);
-  const pathRef = useRef<string | null>(null);
   const busyRef = useRef(false);
 
   const loadMore = useCallback(async () => {
@@ -495,24 +424,20 @@ function useChannelRows(kind: "dashboard" | "task") {
     busyRef.current = true;
     setLoading(true);
     try {
-      if (pathRef.current === null) pathRef.current = await resolveChannelPath();
-      const prefix = pathRef.current + "/";
-      const exclude =
-        kind === "dashboard" ? " AND id != " + sql(HOME_CANVAS_ID) : "";
+      const page = " ORDER BY created_at DESC LIMIT " + PAGE_SIZE + " OFFSET " + offsetRef.current;
       const query =
-        "SELECT id, path, ref, created_at FROM system.file_system" +
-        " WHERE type = " + sql(kind) +
-        " AND surface = 'desktop'" +
-        " AND startsWith(path, " + sql(prefix) + ")" +
-        exclude +
-        " ORDER BY created_at DESC LIMIT " + PAGE_SIZE +
-        " OFFSET " + offsetRef.current;
+        kind === "dashboard"
+          ? "SELECT id, name, created_at FROM system.canvases" +
+            " WHERE channel_id = " + sql(CHANNEL_ID) +
+            " AND id != " + sql(HOME_CANVAS_ID) + page
+          : "SELECT id, title, created_at FROM system.tasks" +
+            " WHERE channel_id = " + sql(CHANNEL_ID) + page;
       const res = await ph.query(query);
       const batch: Row[] = ((res && res.results) || []).map((r: any[]) => ({
         id: String(r[0]),
-        title: lastSegment(String(r[1])),
-        ref: r[2] == null ? null : String(r[2]),
-        createdAt: String(r[3]),
+        title: String(r[1]),
+        ref: kind === "task" ? String(r[0]) : null,
+        createdAt: String(r[2]),
       }));
       offsetRef.current += batch.length;
       setRows((prev) => prev.concat(batch));
@@ -850,61 +775,4 @@ export default function ChannelHome() {
   );
 }
 `;
-}
-
-// Build the renderer-facing record from a file-system row. The name is the last
-// path segment (the canvas title); code + timestamps ride in `meta`.
-function toRecord(entry: FsEntry): DashboardRecord {
-  const meta = entry.meta ?? {};
-  const createdAt = meta.createdAt ?? toEpoch(entry.created_at);
-  return {
-    id: entry.id,
-    channelId: meta.channelId ?? "",
-    name: lastSegment(entry.path),
-    templateId: meta.templateId ?? "freeform",
-    code: meta.code,
-    versions: meta.versions,
-    currentVersionId: meta.currentVersionId,
-    context: meta.context,
-    generationTaskId: meta.generationTaskId,
-    // Prefer our stamped meta; fall back to the FS row's creator if present.
-    createdBy: meta.createdBy ?? creatorName(entry.created_by),
-    createdByUuid: entry.created_by?.uuid,
-    createdAt,
-    updatedAt: meta.updatedAt ?? createdAt,
-    pinnedAt: meta.pinnedAt,
-  };
-}
-
-// Human-readable creator from the backend's `created_by` user: full name when
-// present, else email, else undefined (we don't render an id).
-function creatorName(createdBy?: FsEntry["created_by"]): string | undefined {
-  if (!createdBy) return undefined;
-  const name = [createdBy.first_name, createdBy.last_name]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  return name || createdBy.email || undefined;
-}
-
-// Path segments are "/"-separated on the backend, so a name can't contain one.
-function sanitizeSegment(name: string): string {
-  const cleaned = name.replace(/\//g, " ").replace(/\s+/g, " ").trim();
-  return cleaned || "Untitled dashboard";
-}
-
-function parentPath(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i === -1 ? "" : path.slice(0, i);
-}
-
-function lastSegment(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i === -1 ? path : path.slice(i + 1);
-}
-
-function toEpoch(iso?: string): number {
-  if (!iso) return Date.now();
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? Date.now() : t;
 }

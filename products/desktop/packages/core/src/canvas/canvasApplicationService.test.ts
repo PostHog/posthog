@@ -33,9 +33,7 @@ function makeDeps(overrides?: {
 
 function makeGateway() {
   return {
-    fileTask: vi.fn(
-      async (_channelId: string, _taskId: string, _title: string) => {},
-    ),
+    fileTask: vi.fn(async (_channelId: string, _taskId: string) => {}),
     setGenerationTask: vi.fn(
       async (_dashboardId: string, _taskId: string) => {},
     ),
@@ -82,11 +80,7 @@ describe("CanvasApplicationService", () => {
       model: "model-1",
       allowNoRepo: true,
     });
-    expect(gateway.fileTask).toHaveBeenCalledWith(
-      "chan-1",
-      "task-1",
-      TASK.title,
-    );
+    expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
     expect(gateway.setGenerationTask).toHaveBeenCalledWith("dash-1", "task-1");
   });
 

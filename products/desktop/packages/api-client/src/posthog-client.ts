@@ -1,33 +1,21 @@
 import "./generated.augment";
+import { isSupportedReasoningEffort } from "@posthog/agent/adapters/reasoning-effort";
 import type {
   Adapter,
   CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
-  CreateTaskAutomationOptions,
   ExecutionMode,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
   StoredLogEntry,
-  TaskAutomation,
   TaskRunArtifactMetadata,
-  UpdateTaskAutomationOptions,
 } from "@posthog/shared";
 import {
-  buildCloudTaskConfigOptions,
-  type CloudTaskConfigOption,
-  createTaskAutomationSchema,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
-  getCloudTaskGatewayUrl,
-  isSupportedReasoningEffort,
-  normalizeGatewayModelsResponse,
   resolveCloudInitialPermissionMode,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  updateTaskAutomationSchema,
 } from "@posthog/shared";
 import type {
   AgentAnalyticsData,
@@ -113,12 +101,7 @@ import {
   type HogQLGrid,
   shapeAgentAnalytics,
 } from "./agent-analytics";
-import {
-  ApiRequestError,
-  buildApiFetcher,
-  type FetchImplementation,
-  requestErrorStatus,
-} from "./fetcher";
+import { buildApiFetcher, requestErrorStatus } from "./fetcher";
 import { createApiClient, type Schemas } from "./generated";
 import type {
   McpAuditCounts,
@@ -161,13 +144,6 @@ let clientAppVersion = "unknown";
 
 export function setPosthogApiClientAppVersion(version: string): void {
   clientAppVersion = version;
-}
-
-export interface PostHogAPIClientOptions {
-  fetch?: FetchImplementation;
-  appVersion?: string;
-  userAgent?: string | null;
-  githubConnectFrom?: string;
 }
 
 export function getPosthogApiClientAppVersion(): string {
@@ -215,36 +191,6 @@ export class CloudUsageLimitError extends Error {
     this.resetAt = params.resetAt;
     this.isPro = params.isPro;
   }
-}
-
-export class TaskAutomationValidationError extends Error {
-  readonly status = 400;
-  readonly code: string;
-  readonly attr: string | null;
-
-  constructor(details: {
-    detail: string;
-    code: string;
-    attr: string | null;
-  }) {
-    super(details.detail);
-    this.name = "TaskAutomationValidationError";
-    this.code = details.code;
-    this.attr = details.attr;
-  }
-}
-
-function rethrowTaskAutomationError(error: unknown): never {
-  if (error instanceof ApiRequestError && error.status === 400) {
-    const validationError = taskAutomationValidationErrorSchema.safeParse(
-      error.body,
-    );
-    if (validationError.success) {
-      throw new TaskAutomationValidationError(validationError.data);
-    }
-  }
-
-  throw error;
 }
 
 export const MCP_CATEGORIES = [
@@ -586,7 +532,7 @@ export interface SourceConfig {
   fields: SourceFieldConfig[];
 }
 
-export interface FolderInstructionsUser {
+export interface ChannelInstructionsUser {
   id?: number;
   uuid?: string;
   first_name?: string;
@@ -594,29 +540,24 @@ export interface FolderInstructionsUser {
   email?: string;
 }
 
-export interface FolderInstructions {
-  id: string;
+/**
+ * A channel's versioned markdown instructions (CONTEXT.md). A channel with no
+ * published instructions reads as blank content at version 0.
+ */
+export interface ChannelInstructions {
+  channel: string;
   content: string;
   version: number;
-  is_latest: boolean;
-  created_by: FolderInstructionsUser | null;
   created_at: string;
-  updated_at: string;
+  created_by: ChannelInstructionsUser | null;
 }
 
-export interface FolderInstructionsVersion {
-  id: string;
+/** One entry of a channel's instructions version history (metadata only). */
+export interface ChannelInstructionsVersion {
+  channel: string;
   version: number;
-  is_latest: boolean;
-  created_by: FolderInstructionsUser | null;
   created_at: string;
-}
-
-interface PaginatedFolderInstructionsVersions {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: FolderInstructionsVersion[];
+  created_by: ChannelInstructionsUser | null;
 }
 
 // Thrown when PUT /instructions/ rejects a publish because the caller's
@@ -625,7 +566,7 @@ interface PaginatedFolderInstructionsVersions {
 export class FolderInstructionsConflictError extends Error {
   status = 409;
   constructor(
-    message = "Folder instructions changed since you started editing",
+    message = "Channel instructions changed since you started editing",
   ) {
     super(message);
     this.name = "FolderInstructionsConflictError";
@@ -665,7 +606,7 @@ export interface FinalizedTaskArtifactUpload {
   uploaded_at?: string;
 }
 
-export interface CloudRunOptions {
+interface CloudRunOptions {
   adapter?: Adapter;
   piRuntime?: boolean;
   model?: string;
@@ -687,56 +628,6 @@ export interface CloudRunOptions {
    */
   importedMcpServers?: CloudMcpServerImport[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
-}
-
-export type CloudRunCommandMethod =
-  | "user_message"
-  | "permission_response"
-  | "set_config_option"
-  | "cancel"
-  | "close";
-
-export class CloudCommandError extends Error {
-  readonly status: number;
-  readonly backendError: string | null;
-  readonly method: CloudRunCommandMethod;
-
-  constructor(
-    method: CloudRunCommandMethod,
-    status: number,
-    backendError: string | null,
-    message: string,
-  ) {
-    super(message);
-    this.name = "CloudCommandError";
-    this.method = method;
-    this.status = status;
-    this.backendError = backendError;
-  }
-
-  isSandboxInactive(): boolean {
-    const backendError = this.backendError?.toLowerCase();
-    return (
-      this.status === 404 ||
-      backendError?.includes("no active sandbox") === true ||
-      backendError?.includes("returned 404") === true
-    );
-  }
-}
-
-function cloudCommandBackendError(payload: unknown): string | null {
-  if (typeof payload === "string") return payload || null;
-  if (!payload || typeof payload !== "object") return null;
-
-  const error = "error" in payload ? payload.error : null;
-  if (typeof error === "string") return error || null;
-  if (error && typeof error === "object" && "message" in error) {
-    return typeof error.message === "string" ? error.message : null;
-  }
-  if ("message" in payload && typeof payload.message === "string") {
-    return payload.message;
-  }
-  return null;
 }
 
 interface CreateTaskRunOptions extends CloudRunOptions {
@@ -1483,30 +1374,36 @@ function previewTokenHeader(
 }
 
 export class PostHogAPIClient {
+  async getCloudTaskConfigOptions(
+    adapter: Adapter = "claude",
+  ): Promise<CloudTaskConfigOption[]> {
+    const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: url.pathname,
+    });
+    return buildCloudTaskConfigOptions(
+      normalizeGatewayModelsResponse(await response.json()),
+      adapter,
+    );
+  }
+
   private api: ReturnType<typeof createApiClient>;
   private _teamId: number | null = null;
-  private githubConnectFrom: string;
-  private readonly fetch: FetchImplementation;
-  private readonly apiHost: string;
 
   constructor(
     apiHost: string,
     getAccessToken: () => Promise<string>,
     refreshAccessToken: () => Promise<string>,
     teamId?: number,
-    options: PostHogAPIClientOptions = {},
   ) {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
-    this.apiHost = baseUrl;
-    this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
-    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
         refreshAccessToken,
-        appVersion: options.appVersion ?? clientAppVersion,
-        fetch: options.fetch,
-        userAgent: options.userAgent,
+        appVersion: clientAppVersion,
       }),
       baseUrl,
     );
@@ -1543,363 +1440,6 @@ export class PostHogAPIClient {
     return data;
   }
 
-  async getCloudTaskConfigOptions(
-    adapter: Adapter = "claude",
-  ): Promise<CloudTaskConfigOption[]> {
-    const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: url.pathname,
-    });
-    return buildCloudTaskConfigOptions(
-      normalizeGatewayModelsResponse(await response.json()),
-      adapter,
-    );
-  }
-
-  // Desktop file system — the backend surface that backs canvas channels
-  // (top-level folders) and dashboards. These routes aren't in the generated
-  // OpenAPI client, so we use the raw fetcher.
-  // Channels are top-level folders on the desktop file system. Filtering to
-  // `type=folder` server-side (and requesting a large page) keeps us from
-  // paginating over every dashboard and filed task just to populate the
-  // sidebar channel list — the bulk of the initial-load cost otherwise.
-  async getDesktopFileSystemChannels(): Promise<Schemas.FileSystem[]> {
-    const DESKTOP_FILE_SYSTEM_MAX_PAGES = 50;
-    const DESKTOP_FILE_SYSTEM_PAGE_SIZE = 200;
-    const teamId = await this.getTeamId();
-    const all: Schemas.FileSystem[] = [];
-    let urlPath: string = `/api/projects/${teamId}/desktop_file_system/?type=folder&limit=${DESKTOP_FILE_SYSTEM_PAGE_SIZE}`;
-    for (let i = 0; i < DESKTOP_FILE_SYSTEM_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch desktop file system channels: ${response.statusText}`,
-        );
-      }
-      const page = (await response.json()) as Schemas.PaginatedFileSystemList;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `getDesktopFileSystemChannels hit MAX_PAGES (${DESKTOP_FILE_SYSTEM_MAX_PAGES}); returning partial results`,
-      { returned: all.length },
-    );
-    return all;
-  }
-
-  // Create a top-level channel (a folder row whose path is a single segment).
-  async createDesktopFileSystemChannel(
-    name: string,
-  ): Promise<Schemas.FileSystem> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ path: name, type: "folder", depth: 1 }),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to create desktop file system channel: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystem;
-  }
-
-  // Rename a top-level channel: PATCH its path (a single segment) to the new
-  // name. The backend recomputes depth from the path.
-  async renameDesktopFileSystemChannel(
-    id: string,
-    name: string,
-  ): Promise<Schemas.FileSystem> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ path: name }),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to rename desktop file system channel: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystem;
-  }
-
-  // Delete a desktop file system entry by id (used to remove top-level channels).
-  async deleteDesktopFileSystem(id: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete desktop file system channel: ${response.statusText}`,
-      );
-    }
-  }
-
-  // Desktop file system shortcuts — the user-scoped "starred" items on the
-  // desktop surface (e.g. starred channels). Unlike the file system rows above,
-  // shortcuts are per-user, so they back cross-device starring without leaking
-  // one user's stars to their teammates. Not in the generated OpenAPI client,
-  // so we use the raw fetcher.
-  async getDesktopFileSystemShortcuts(): Promise<Schemas.FileSystemShortcut[]> {
-    const SHORTCUTS_MAX_PAGES = 50;
-    const SHORTCUTS_PAGE_SIZE = 200;
-    const teamId = await this.getTeamId();
-    const all: Schemas.FileSystemShortcut[] = [];
-    let urlPath: string = `/api/projects/${teamId}/desktop_file_system_shortcut/?limit=${SHORTCUTS_PAGE_SIZE}`;
-    for (let i = 0; i < SHORTCUTS_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch desktop file system shortcuts: ${response.statusText}`,
-        );
-      }
-      const page =
-        (await response.json()) as Schemas.PaginatedFileSystemShortcutList;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `getDesktopFileSystemShortcuts hit MAX_PAGES (${SHORTCUTS_MAX_PAGES}); returning partial results`,
-      { returned: all.length },
-    );
-    return all;
-  }
-
-  // Create a desktop shortcut for the current user. For a folder/channel the
-  // backend links by `ref` (the folder's full path), with `path` as the label.
-  async createDesktopFileSystemShortcut(input: {
-    path: string;
-    type: string;
-    ref?: string;
-    href?: string;
-  }): Promise<Schemas.FileSystemShortcut> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system_shortcut/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to create desktop file system shortcut: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystemShortcut;
-  }
-
-  // Delete a desktop shortcut by id (used to unstar). A 404 means it's already
-  // gone, which is the desired end state, so we treat it as success.
-  async deleteDesktopFileSystemShortcut(id: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system_shortcut/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete desktop file system shortcut: ${response.statusText}`,
-      );
-    }
-  }
-
-  // Per-folder, versioned markdown instructions for a desktop folder. The
-  // endpoint is keyed on the FileSystem row id (must be `type === "folder"`).
-  // Returns the current latest version or null when none has been published.
-  async getDesktopFolderInstructions(
-    folderId: string,
-  ): Promise<FolderInstructions | null> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch folder instructions: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as FolderInstructions;
-  }
-
-  // Publish a new version of the folder's instructions. Pass `base_version`
-  // (the latest version the editor was started from) for optimistic
-  // concurrency; use 0 when no instructions exist yet. A 409 turns into a
-  // typed `FolderInstructionsConflictError` so the UI can prompt to reload.
-  async putDesktopFolderInstructions(
-    folderId: string,
-    input: { content: string; base_version?: number },
-  ): Promise<FolderInstructions> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "put",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (response.status === 409) {
-      throw new FolderInstructionsConflictError();
-    }
-    if (!response.ok) {
-      throw new Error(
-        `Failed to publish folder instructions: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as FolderInstructions;
-  }
-
-  // Soft-delete all versions of this folder's instructions. The folder row
-  // itself is not affected.
-  async deleteDesktopFolderInstructions(folderId: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete folder instructions: ${response.statusText}`,
-      );
-    }
-  }
-
-  // List version metadata (no content) newest-first. Single page is enough for
-  // the typical UI; we cap follow-up pages to avoid runaway pagination on
-  // pathological histories.
-  async listDesktopFolderInstructionVersions(
-    folderId: string,
-  ): Promise<FolderInstructionsVersion[]> {
-    const VERSIONS_MAX_PAGES = 20;
-    const teamId = await this.getTeamId();
-    const all: FolderInstructionsVersion[] = [];
-    let urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/versions/`;
-    for (let i = 0; i < VERSIONS_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch folder instruction versions: ${response.statusText}`,
-        );
-      }
-      const page =
-        (await response.json()) as PaginatedFolderInstructionsVersions;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `listDesktopFolderInstructionVersions hit MAX_PAGES (${VERSIONS_MAX_PAGES}); returning partial results`,
-      { folderId, returned: all.length },
-    );
-    return all;
-  }
-
-  // The task currently generating this folder's CONTEXT.md, shared across the
-  // project so any user sees an in-progress generation (instead of fragile
-  // local state). Keyed on the folder row (which always exists), not the
-  // instructions object (which doesn't until the first version is published).
-  // Returns null when nothing is generating — or, until the backend ships this
-  // endpoint, on 404 (the feature degrades to no shared indicator).
-  async getDesktopFolderGenerationTask(
-    folderId: string,
-  ): Promise<string | null> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/context_generation/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch folder generation task: ${response.statusText}`,
-      );
-    }
-    const data = (await response.json()) as { task_id?: string | null };
-    return data.task_id ?? null;
-  }
-
-  // Record (or clear, with null) the task generating this folder's CONTEXT.md.
-  async setDesktopFolderGenerationTask(
-    folderId: string,
-    taskId: string | null,
-  ): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/context_generation/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "put",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ task_id: taskId }),
-      },
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to set folder generation task: ${response.statusText}`,
-      );
-    }
-  }
-
   async getGithubLogin(): Promise<string | null> {
     const data = (await this.api.get("/api/users/{uuid}/github_login/", {
       path: { uuid: "@me" },
@@ -1922,10 +1462,7 @@ export class PostHogAPIClient {
       url,
       path: urlPath,
       overrides: {
-        body: JSON.stringify({
-          team_id: id,
-          connect_from: this.githubConnectFrom,
-        }),
+        body: JSON.stringify({ team_id: id, connect_from: "posthog_code" }),
       },
     });
     if (!response.ok) {
@@ -2427,7 +1964,7 @@ export class PostHogAPIClient {
     originProduct?: string;
     internal?: boolean;
     channel?: string;
-  }): Promise<Task[]> {
+  }) {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
       limit: 500,
@@ -2458,9 +1995,7 @@ export class PostHogAPIClient {
       query: params,
     });
 
-    return (data.results ?? []).map((task) =>
-      normalizeTaskResponse(task, { teamId }),
-    );
+    return data.results ?? [];
   }
 
   async getTaskSummaries(ids: string[]) {
@@ -2638,7 +2173,6 @@ export class PostHogAPIClient {
           Task,
           | "title"
           | "repository"
-          | "repositories"
           | "json_schema"
           | "origin_product"
           | "runtime"
@@ -2656,7 +2190,7 @@ export class PostHogAPIClient {
         pending_user_artifact_ids?: string[];
         auto_publish?: boolean;
       },
-  ): Promise<Task> {
+  ) {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
 
@@ -2668,13 +2202,10 @@ export class PostHogAPIClient {
       } as unknown as Schemas.Task,
     });
 
-    return normalizeTaskResponse(data, { teamId });
+    return data;
   }
 
-  async updateTask(
-    taskId: string,
-    updates: Partial<Schemas.Task>,
-  ): Promise<Task> {
+  async updateTask(taskId: string, updates: Partial<Schemas.Task>) {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
       `/api/projects/{project_id}/tasks/{id}/`,
@@ -2684,7 +2215,7 @@ export class PostHogAPIClient {
       },
     );
 
-    return normalizeTaskResponse(data, { teamId });
+    return data;
   }
 
   async deleteTask(taskId: string) {
@@ -2700,8 +2231,6 @@ export class PostHogAPIClient {
       description: task.description ?? "",
       title: task.title,
       repository: task.repository,
-      repositories:
-        task.repositories ?? (task.repository ? [task.repository] : []),
       json_schema: task.json_schema,
       origin_product: task.origin_product,
       github_integration: task.github_integration,
@@ -2710,10 +2239,11 @@ export class PostHogAPIClient {
   }
 
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
-  // go through the raw fetcher like the desktop file-system endpoints above.
+  // go through the raw fetcher.
 
   // List backend task channels: all public channels plus the requester's
   // personal "#me" channel (provisioned lazily server-side on first list).
+  // Entries carry the requester's per-user `starred` flag.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2744,27 +2274,215 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
-  async updateTaskChannel(
-    channelId: string,
-    updates: {
-      github_integration: number | null;
-      repositories: string[];
-    },
-  ): Promise<TaskChannel> {
+  async getTaskChannel(id: string): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/`;
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch task channel: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  // Rename a channel. The server normalizes the name (lowercase-dashed).
+  async renameTaskChannel(id: string, name: string): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
     const response = await this.api.fetcher.fetch({
       method: "patch",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify(updates) },
+      overrides: { body: JSON.stringify({ name }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to rename task channel: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  // Delete a channel. A 404 means it's already gone, which is the desired end
+  // state, so we treat it as success.
+  async deleteTaskChannel(id: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Failed to delete task channel: ${response.statusText}`);
+    }
+  }
+
+  // Star/unstar a channel for the current user (204 on success).
+  async starTaskChannel(id: string, starred: boolean): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/star/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ starred }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to star task channel: ${response.statusText}`);
+    }
+  }
+
+  // A channel's versioned markdown instructions (CONTEXT.md). A channel that
+  // has never published instructions reads as blank content at version 0.
+  async getChannelInstructions(
+    channelId: string,
+  ): Promise<ChannelInstructions> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
     });
     if (!response.ok) {
       throw new Error(
-        `Failed to update space repositories: ${response.statusText}`,
+        `Failed to fetch channel instructions: ${response.statusText}`,
       );
     }
-    return (await response.json()) as TaskChannel;
+    return (await response.json()) as ChannelInstructions;
+  }
+
+  // Publish a new version of the channel's instructions. Pass `baseVersion`
+  // (the version the editor was started from) for optimistic concurrency; use
+  // 0 when no instructions exist yet. A 409 turns into a typed
+  // `FolderInstructionsConflictError` so the UI can prompt to reload.
+  async putChannelInstructions(
+    channelId: string,
+    input: { content: string; baseVersion?: number },
+  ): Promise<ChannelInstructions> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          content: input.content,
+          ...(input.baseVersion !== undefined
+            ? { base_version: input.baseVersion }
+            : {}),
+        }),
+      },
+    });
+    if (response.status === 409) {
+      throw new FolderInstructionsConflictError();
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Failed to publish channel instructions: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelInstructions;
+  }
+
+  // Delete the channel's instructions (all versions). The channel itself is
+  // not affected.
+  async deleteChannelInstructions(channelId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to delete channel instructions: ${response.statusText}`,
+      );
+    }
+  }
+
+  // Version metadata for the channel's instructions, newest first. Tolerates
+  // both a plain list and a DRF-paginated body (walking `next` links, capped
+  // to avoid runaway pagination on pathological histories).
+  async listChannelInstructionVersions(
+    channelId: string,
+  ): Promise<ChannelInstructionsVersion[]> {
+    const VERSIONS_MAX_PAGES = 20;
+    const teamId = await this.getTeamId();
+    const all: ChannelInstructionsVersion[] = [];
+    let urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/versions/`;
+    for (let i = 0; i < VERSIONS_MAX_PAGES; i++) {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch channel instruction versions: ${response.statusText}`,
+        );
+      }
+      const body = (await response.json()) as
+        | ChannelInstructionsVersion[]
+        | { next: string | null; results: ChannelInstructionsVersion[] };
+      if (Array.isArray(body)) return [...all, ...body];
+      all.push(...body.results);
+      if (!body.next) return all;
+      const nextUrl = new URL(body.next);
+      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
+    }
+    log.warn(
+      `listChannelInstructionVersions hit MAX_PAGES (${VERSIONS_MAX_PAGES}); returning partial results`,
+      { channelId, returned: all.length },
+    );
+    return all;
+  }
+
+  // The task currently generating this channel's CONTEXT.md, shared across the
+  // project so any user sees an in-progress generation (instead of fragile
+  // local state). Returns null when nothing is generating.
+  async getChannelGenerationTask(channelId: string): Promise<string | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/context_generation/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch channel generation task: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
+  }
+
+  // Record (or clear, with null) the task generating this channel's CONTEXT.md.
+  async setChannelGenerationTask(
+    channelId: string,
+    taskId: string | null,
+  ): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/context_generation/`;
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ task_id: taskId }),
+      },
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to set channel generation task: ${response.statusText}`,
+      );
+    }
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
@@ -3008,28 +2726,9 @@ export class PostHogAPIClient {
   async sendRunCommand(
     taskId: string,
     runId: string,
-    method: CloudRunCommandMethod,
+    method: "user_message" | "cancel" | "close",
     params?: Record<string, unknown>,
   ): Promise<{ success: boolean; result?: unknown; error?: string }> {
-    try {
-      return {
-        success: true,
-        result: await this.sendCloudRunCommand(taskId, runId, method, params),
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      };
-    }
-  }
-
-  async sendCloudRunCommand(
-    taskId: string,
-    runId: string,
-    method: CloudRunCommandMethod,
-    params: Record<string, unknown> = {},
-  ): Promise<unknown> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/command/`,
@@ -3037,7 +2736,7 @@ export class PostHogAPIClient {
     const body = {
       jsonrpc: "2.0",
       method,
-      params,
+      params: params ?? {},
       id: `posthog-code-${Date.now()}`,
     };
 
@@ -3051,52 +2750,37 @@ export class PostHogAPIClient {
         },
       });
 
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        let errorMessage = `Command failed: ${response.statusText}`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage =
+            errorJson.error?.message ?? errorJson.error ?? errorMessage;
+        } catch {
+          if (errorText) errorMessage = errorText;
+        }
+        return { success: false, error: errorMessage };
+      }
+
       const data = (await response.json()) as {
-        error?: unknown;
+        error?: { message?: string };
         result?: unknown;
       };
       if (data.error) {
-        const backendError = cloudCommandBackendError(data);
-        throw new CloudCommandError(
-          method,
-          response.status,
-          backendError,
-          `Cloud command '${method}' error: ${backendError ?? JSON.stringify(data.error)}`,
-        );
+        return {
+          success: false,
+          error: data.error.message ?? JSON.stringify(data.error),
+        };
       }
 
-      return data.result;
+      return { success: true, result: data.result };
     } catch (error) {
-      if (error instanceof CloudCommandError) throw error;
-      if (error instanceof ApiRequestError) {
-        const backendError = cloudCommandBackendError(error.body);
-        throw new CloudCommandError(
-          method,
-          error.status,
-          backendError,
-          `Cloud command '${method}' failed: ${error.status}${backendError ? ` ${backendError}` : ""}`,
-        );
-      }
-      throw error;
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
     }
-  }
-
-  async cancelTaskRun(
-    taskId: string,
-    runId: string,
-    reason?: string,
-  ): Promise<{ status?: string }> {
-    const teamId = await this.getTeamId();
-    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/cancel/`;
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url: new URL(`${this.api.baseUrl}${path}`),
-      path,
-      overrides: {
-        body: JSON.stringify(reason ? { reason } : {}),
-      },
-    });
-    return (await response.json().catch(() => ({}))) as { status?: string };
   }
 
   async runTaskInCloud(
@@ -3122,7 +2806,7 @@ export class PostHogAPIClient {
       }),
     );
 
-    return normalizeTaskResponse(data, { teamId });
+    return data as unknown as Task;
   }
 
   async warmTask(options: {
@@ -3393,8 +3077,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
-    return normalizeTaskRunResponse(data, { teamId, taskId });
+    return (await response.json()) as TaskRun;
   }
 
   async listTaskRuns(taskId: string): Promise<TaskRun[]> {
@@ -3412,11 +3095,8 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch task runs: ${response.statusText}`);
     }
 
-    const data =
-      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailList>;
-    return (data.results ?? []).map((run) =>
-      normalizeTaskRunResponse(run, { teamId, taskId }),
-    );
+    const data = (await response.json()) as { results?: TaskRun[] };
+    return data.results ?? [];
   }
 
   async getTaskRun(taskId: string, runId: string): Promise<TaskRun> {
@@ -3434,8 +3114,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
-    return normalizeTaskRunResponse(data, { teamId, taskId });
+    return (await response.json()) as TaskRun;
   }
 
   async createTaskRun(
@@ -3467,8 +3146,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to create task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
-    return normalizeTaskRunResponse(data, { teamId, taskId });
+    return (await response.json()) as TaskRun;
   }
 
   async startTaskRun(
@@ -3498,8 +3176,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to start task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.Task;
-    return normalizeTaskResponse(data, { teamId });
+    return (await response.json()) as Task;
   }
 
   async updateTaskRun(
@@ -3524,7 +3201,7 @@ export class PostHogAPIClient {
         body: updates as Record<string, unknown>,
       },
     );
-    return normalizeTaskRunResponse(data, { teamId, taskId });
+    return data as unknown as TaskRun;
   }
 
   /**
@@ -3614,14 +3291,14 @@ export class PostHogAPIClient {
 
   async getTaskLogs(taskId: string): Promise<StoredLogEntry[]> {
     try {
-      const task = await this.getTask(taskId);
+      const task = (await this.getTask(taskId)) as unknown as Task;
       const logUrl = task?.latest_run?.log_url;
 
       if (!logUrl) {
         return [];
       }
 
-      const response = await this.fetch(logUrl);
+      const response = await fetch(logUrl);
 
       if (!response.ok) {
         log.warn(

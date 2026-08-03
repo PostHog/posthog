@@ -1,6 +1,6 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import type { ChannelTaskRecord } from "@posthog/core/canvas/channelTaskSchemas";
-import type { DashboardSummary } from "@posthog/core/canvas/dashboardSchemas";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
@@ -54,24 +54,22 @@ export function WebsiteChannelHistory({ channelId }: { channelId: string }) {
   const archivedTaskIds = useArchivedTaskIds();
 
   const items = useMemo<HistoryItem[]>(() => {
-    const canvasItems: HistoryItem[] = dashboards.map(
-      (d: DashboardSummary) => ({
-        key: `canvas:${d.id}`,
-        kind: "canvas",
-        title: d.name,
-        ts: d.updatedAt,
-        icon: iconForTemplate(d.templateId, {
-          size: 15,
-          className: "text-violet-9",
-        }),
-        accent: "violet",
-        onClick: () =>
-          navigate({
-            to: "/website/$channelId/dashboards/$dashboardId",
-            params: { channelId, dashboardId: d.id },
-          }),
+    const canvasItems: HistoryItem[] = dashboards.map((d: DashboardRecord) => ({
+      key: `canvas:${d.id}`,
+      kind: "canvas",
+      title: d.name,
+      ts: d.updatedAt,
+      icon: iconForTemplate(d.templateId, {
+        size: 15,
+        className: "text-violet-9",
       }),
-    );
+      accent: "violet",
+      onClick: () =>
+        navigate({
+          to: "/website/$channelId/dashboards/$dashboardId",
+          params: { channelId, dashboardId: d.id },
+        }),
+    }));
 
     const taskById = new Map(tasks?.map((t) => [t.id, t]) ?? []);
     const taskItems: HistoryItem[] = filedTasks.flatMap(

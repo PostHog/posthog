@@ -25,10 +25,7 @@ import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { ensurePersonalChannel } from "@posthog/ui/features/canvas/ensurePersonalChannel";
-import {
-  useChannelMutations,
-  useChannels,
-} from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   useDashboard,
@@ -175,7 +172,6 @@ export function BrowserTabStrip() {
   const routeAppView: AppView | null = isAppView(view.type) ? view.type : null;
 
   const { channels } = useChannels();
-  const { createChannel } = useChannelMutations();
   // Whether the channels surface is live — the same gate the sidebar uses. This
   // (not the current route) decides a new tab's default: with channels on a
   // fresh tab opens #me, otherwise the Code new-task screen. Keying off the
@@ -726,20 +722,19 @@ export function BrowserTabStrip() {
       navigate({ to: "/code", state });
       return;
     }
-    // #me is provisioned lazily the first time (same bridge the sidebar's #me
-    // row uses); fall back to the new-task screen if it can't be created.
-    void (async () => {
-      try {
-        const folder = await ensurePersonalChannel(channels, createChannel);
-        navigate({
-          to: "/website/$channelId",
-          params: { channelId: folder.id },
-          state,
-        });
-      } catch {
-        navigate({ to: "/code", state });
-      }
-    })();
+    // #me is provisioned lazily server-side with the channel list (same source
+    // the sidebar's #me row reads); fall back to the new-task screen while it
+    // hasn't loaded yet.
+    const personal = ensurePersonalChannel(channels);
+    if (personal) {
+      navigate({
+        to: "/website/$channelId",
+        params: { channelId: personal.id },
+        state,
+      });
+    } else {
+      navigate({ to: "/code", state });
+    }
   };
 
   // New tab is fully local: mint the id here, append the blank tab to the

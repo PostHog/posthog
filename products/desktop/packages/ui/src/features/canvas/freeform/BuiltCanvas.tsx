@@ -26,6 +26,9 @@ export interface BuiltCanvasProps {
   artifactUrl: string;
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   onError?: (message: string, stack?: string) => void;
+  /** The artifact's runtime booted and posted "ready" — proof the signed URL
+   * actually loaded (an expired URL never gets this far). */
+  onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
 }
@@ -34,14 +37,21 @@ export function BuiltCanvas({
   artifactUrl,
   onDataRequest,
   onError,
+  onReady,
   onRendered,
   onNavigate,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const lastExternalOpenRef = useRef(0);
   const activeDataRequestsRef = useRef(0);
-  const latest = useRef({ onDataRequest, onError, onRendered, onNavigate });
-  latest.current = { onDataRequest, onError, onRendered, onNavigate };
+  const latest = useRef({
+    onDataRequest,
+    onError,
+    onReady,
+    onRendered,
+    onNavigate,
+  });
+  latest.current = { onDataRequest, onError, onReady, onRendered, onNavigate };
 
   useLayoutEffect(() => {
     const post = (message: HostToCanvasMessage) =>
@@ -109,6 +119,7 @@ export function BuiltCanvas({
           }
           break;
         case "ready":
+          latest.current.onReady?.();
           break;
       }
     };

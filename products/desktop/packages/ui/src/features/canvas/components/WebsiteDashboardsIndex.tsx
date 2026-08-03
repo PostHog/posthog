@@ -1,13 +1,6 @@
 import { DotsThreeIcon, LinkIcon, TrashIcon } from "@phosphor-icons/react";
-import type { DashboardSummary } from "@posthog/core/canvas/dashboardSchemas";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Badge,
   Button,
   Card,
@@ -21,17 +14,14 @@ import {
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { FreeformPreview } from "@posthog/ui/features/canvas/components/FreeformPreview";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
-import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   useDashboardMutations,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
-import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -96,23 +86,11 @@ const DashboardCard = memo(function DashboardCard({
   templateLabel,
 }: {
   channelId: string;
-  summary: DashboardSummary;
+  summary: DashboardRecord;
   templateLabel: string;
 }) {
-  // While the canvas is inside its delete-undo window the card stays in the
-  // grid — dimmed, with a pulsing trash can over its preview — so undoing puts
-  // it back exactly where it was rather than re-inserting a row.
-  const deleting = useIsCanvasPendingDelete(summary.id);
-
-  // The React source rides along in the list response, so the grid renders
-  // previews without a per-card fetch (no N+1 of get()).
   return (
-    <Box
-      className={cn(
-        "group relative",
-        deleting && "pointer-events-none opacity-60",
-      )}
-    >
+    <Box className="group relative">
       <Link
         to="/website/$channelId/dashboards/$dashboardId"
         params={{ channelId, dashboardId: summary.id }}
@@ -128,25 +106,7 @@ const DashboardCard = memo(function DashboardCard({
         }
       >
         <Card className="gap-0 overflow-hidden p-0">
-          <Box className="relative">
-            <FreeformPreview
-              code={summary.code}
-              className="border-border border-b"
-            />
-            {deleting && (
-              <Flex
-                align="center"
-                justify="center"
-                gap="2"
-                className="absolute inset-0 bg-gray-1/80"
-              >
-                <TrashIcon size={18} className="animate-pulse text-red-9" />
-                <Text size="xs" variant="muted">
-                  Deleting…
-                </Text>
-              </Flex>
-            )}
-          </Box>
+          <PreviewFrame />
           <CardContent className="flex flex-col gap-0.5 p-3">
             <Flex align="center" justify="between" gap="2">
               <Text size="sm" weight="medium" className="truncate">
@@ -176,6 +136,17 @@ const DashboardCard = memo(function DashboardCard({
   );
 });
 
+// The card's preview frame. Canvas records no longer carry source code — the
+// rendered output is the published build's artifact, wired up separately — so
+// the grid shows a stable placeholder frame instead of a live per-card render.
+function PreviewFrame() {
+  return (
+    <Box className="relative h-44 overflow-hidden border-border border-b bg-muted">
+      <PreviewPlaceholder label="Canvas preview" />
+    </Box>
+  );
+}
+
 function DashboardCardMenu({
   id,
   name,
@@ -186,24 +157,31 @@ function DashboardCardMenu({
   channelId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const spacesLayout = useChannelsLayout();
-  const containerNoun = spacesLayout ? "space" : "channel";
-  // "Delete…" opens a confirmation rather than deleting inline — the canvas and
-  // its version history go away for everyone in the space.
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const { invalidateDashboards } = useDashboardMutations();
+  const { deleteDashboard, isDeleting } = useDashboardMutations();
 
-  // The card disappears immediately, but the delete isn't sent until the undo
-  // toast's timer runs out — Undo simply cancels it.
-  const confirmDelete = () => {
-    setConfirmDeleteOpen(false);
-    deleteCanvasWithUndo({
-      dashboardId: id,
-      channelId,
-      name,
-      surface: "dashboards_grid",
-      invalidate: invalidateDashboards,
-    });
+  const onDelete = () => {
+    deleteDashboard(id)
+      .then(() => {
+        track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+          action_type: "delete",
+          surface: "dashboards_grid",
+          channel_id: channelId,
+          dashboard_id: id,
+          success: true,
+        });
+      })
+      .catch((error) => {
+        track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+          action_type: "delete",
+          surface: "dashboards_grid",
+          channel_id: channelId,
+          dashboard_id: id,
+          success: false,
+        });
+        toast.error("Couldn't delete canvas", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
   };
 
   return (
@@ -236,38 +214,28 @@ function DashboardCardMenu({
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            onClick={() => setConfirmDeleteOpen(true)}
+            disabled={isDeleting}
+            onClick={onDelete}
           >
             <TrashIcon size={14} />
-            Delete…
+            Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {/* Destructive confirm for "Delete…" — the canvas goes for everyone. */}
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete canvas</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete <span className="font-medium">{name}</span>? Its code and
-              version history go for everyone in the {containerNoun}. You get a
-              few seconds to undo, then it's permanent.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
-            />
-            <Button variant="destructive" size="sm" onClick={confirmDelete}>
-              Delete
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Box>
+  );
+}
+
+function PreviewPlaceholder({ label }: { label: string }) {
+  return (
+    <Flex
+      align="center"
+      justify="center"
+      className="absolute inset-0 text-center"
+    >
+      <Text size="xs" variant="muted">
+        {label}
+      </Text>
+    </Flex>
   );
 }

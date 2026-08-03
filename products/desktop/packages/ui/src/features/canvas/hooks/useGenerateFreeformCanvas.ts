@@ -65,9 +65,6 @@ export function useGenerateFreeformCanvas(args: {
       templateId?: string;
       instruction: string;
       currentCode?: string;
-      // Backend channel UUID that owns the created task, so it lands in the
-      // channel's task feed like a plain composer submit.
-      backendChannelId?: string;
       // The composer's picks, when the surface exposes model/effort selectors.
       adapter?: Adapter;
       model?: string;
@@ -83,8 +80,8 @@ export function useGenerateFreeformCanvas(args: {
       setIsStarting(true);
       try {
         const gateway: CanvasGenerationGateway = {
-          fileTask: async (cid, taskId, taskTitle) => {
-            await fileTask(cid, taskId, taskTitle);
+          fileTask: async (cid, taskId) => {
+            await fileTask(cid, taskId);
           },
           setGenerationTask: async (id, taskId) => {
             await setGenerationTask(id, taskId);
@@ -113,7 +110,6 @@ export function useGenerateFreeformCanvas(args: {
             useStarter: opts.useStarter,
             channelId,
             channelName,
-            backendChannelId: opts.backendChannelId,
             channelContext,
             adapter: opts.adapter,
             model: opts.model,

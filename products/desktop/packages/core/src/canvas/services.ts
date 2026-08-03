@@ -4,7 +4,11 @@ import type {
   CanvasBuildRecord,
 } from "./canvasBuildSchemas";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
-import type { DashboardRecord, DashboardSummary } from "./dashboardSchemas";
+import type {
+  CanvasSource,
+  CanvasVersion,
+  DashboardRecord,
+} from "./dashboardSchemas";
 import type {
   CanvasCaptureConfig,
   CanvasCaptureInput,
@@ -12,7 +16,6 @@ import type {
   CanvasDataQueryInput,
   CanvasDataResult,
   CanvasLoadInsightInput,
-  FreeformVersion,
 } from "./freeformSchemas";
 import type { CanvasTemplate, CanvasTemplateSummary } from "./templateSchemas";
 
@@ -31,33 +34,36 @@ export interface ICanvasTemplatesService {
 }
 
 export interface IDashboardsService {
-  list(channelId: string): Promise<DashboardSummary[]>;
+  list(channelId: string): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
   create(input: {
     channelId: string;
     name: string;
     templateId?: string;
   }): Promise<DashboardRecord>;
-  saveFreeform(input: {
-    id: string;
-    name?: string;
-    code: string;
-    versions: FreeformVersion[];
-    currentVersionId?: string;
-  }): Promise<DashboardRecord>;
+  saveContext(input: { id: string; context: string }): Promise<DashboardRecord>;
   setGenerationTask(input: {
     id: string;
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  // Read the canvas's source project (the head, or a historical version).
+  getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
+  // The canvas's source-version history, newest first (metadata only).
+  listVersions(id: string): Promise<CanvasVersion[]>;
+  // Move the canvas's head back to an existing version and rebuild it.
+  revertToVersion(input: {
+    id: string;
+    versionId: string;
+  }): Promise<CanvasBuildRecord>;
   // Read a canvas's build lifecycle (pointers + recent builds).
   getBuilds(id: string): Promise<CanvasBuildLifecycle>;
   actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
   // Idempotently create + seed a channel's home canvas, returning it.
   ensureHomeCanvas(channelId: string): Promise<DashboardRecord>;
-  // Append a fresh template version to the home canvas (non-destructive; the
-  // prior version stays in history so the edit can be restored via undo).
+  // Publish a fresh template version to the home canvas (non-destructive; the
+  // prior version stays in history so the edit can be restored via revert).
   resetHomeCanvas(channelId: string): Promise<DashboardRecord>;
   delete(id: string): Promise<void>;
 }
@@ -74,7 +80,7 @@ export interface IChannelTasksService {
   file(input: {
     channelId: string;
     taskId: string;
-    taskTitle: string;
   }): Promise<ChannelTaskRecord>;
-  unfile(id: string): Promise<void>;
+  // Unfile a task from its channel (clears the task's channel field).
+  unfile(taskId: string): Promise<void>;
 }

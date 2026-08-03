@@ -5,7 +5,6 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app";
 import { container } from "./di/container";
 import {
-  CANVAS_BUILD_SERVICE,
   CONNECTIVITY_SERVICE,
   ENVIRONMENT_SERVICE,
   FOCUS_SERVICE,
@@ -16,7 +15,6 @@ import {
   WATCHER_SERVICE,
 } from "./di/tokens";
 import { removeLegacyNodeShimDirs } from "./services/agent/legacy-node-shim";
-import type { CanvasBuildService } from "./services/canvas-build/canvas-build";
 import type { ConnectivityService } from "./services/connectivity/service";
 import type { EnvironmentService } from "./services/environment/service";
 import type { FocusService } from "./services/focus/service";
@@ -69,7 +67,6 @@ for (const dir of shimCleanup.failed) {
 }
 
 const router = createAppRouter({
-  canvasBuildService: container.get<CanvasBuildService>(CANVAS_BUILD_SERVICE),
   focusService: container.get<FocusService>(FOCUS_SERVICE),
   focusSyncService: container.get<FocusSyncService>(FOCUS_SYNC_SERVICE),
   gitService: container.get<GitService>(GIT_SERVICE),

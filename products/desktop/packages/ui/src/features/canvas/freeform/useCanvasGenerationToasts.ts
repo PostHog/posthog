@@ -1,4 +1,9 @@
+import {
+  type CanvasBuildLifecycle,
+  hasActiveCanvasBuild,
+} from "@posthog/core/canvas/canvasBuildSchemas";
 import { useServiceOptional } from "@posthog/di/react";
+import { useHostTRPC } from "@posthog/host-router/react";
 import {
   type CanvasTerminalStatus,
   hasCanvasGenerationStarted,
@@ -9,7 +14,7 @@ import { useCanvasGenerationTrackerStore } from "@posthog/ui/features/canvas/sto
 import { NotificationBus } from "@posthog/ui/features/notifications/notifications";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 
 // Poll cadence for the run status of a tracked generation task. Matches the
@@ -17,14 +22,37 @@ import { useEffect, useMemo, useRef } from "react";
 // land together.
 const POLL_MS = 4000;
 
+interface TrackedCanvasEntry {
+  channelId: string;
+  dashboardId: string;
+  name: string;
+}
+
+// Whether a finished generation actually produced a live canvas: the newest
+// build must not have failed, and the head source version needs a ready build
+// (a build still in flight counts — the artifact is moments away, and calling
+// that "failed" would be just as untruthful as a premature "ready").
+function isCanvasBuildHealthy(lifecycle: CanvasBuildLifecycle): boolean {
+  const newest = lifecycle.builds[0];
+  if (newest?.buildStatus === "failed") return false;
+  if (hasActiveCanvasBuild(lifecycle)) return true;
+  return lifecycle.builds.some(
+    (build) =>
+      build.buildStatus === "ready" &&
+      (!lifecycle.currentVersionId ||
+        build.sourceVersionId === lifecycle.currentVersionId),
+  );
+}
+
 // Hand a finished canvas generation to the notification bus, which decides
 // whether to suppress (user is on the canvas), toast (focused elsewhere), or
 // fire a native OS notification (app backgrounded) — and threads the canvas
 // target so any click lands back on the canvas.
 function emitCanvasGenerationNotification(
   bus: NotificationBus,
-  entry: { channelId: string; dashboardId: string; name: string },
+  entry: TrackedCanvasEntry,
   status: CanvasTerminalStatus,
+  buildHealthy: boolean,
 ): void {
   const name = entry.name.trim() || "Canvas";
   const target = {
@@ -34,11 +62,24 @@ function emitCanvasGenerationNotification(
   };
 
   if (status === "completed") {
-    bus.notify({
-      body: `${name} is ready`,
-      target,
-      toast: { level: "success", description: "Generation finished." },
-    });
+    if (buildHealthy) {
+      bus.notify({
+        body: `${name} is ready`,
+        target,
+        toast: { level: "success", description: "Generation finished." },
+      });
+    } else {
+      // The agent finished but the canvas build didn't succeed — announcing
+      // "ready" would be a lie the user only discovers on opening the canvas.
+      bus.notify({
+        body: `${name} finished with a failed build`,
+        target,
+        toast: {
+          level: "warning",
+          description: "Open the canvas to review the build diagnostics.",
+        },
+      });
+    }
   } else if (status === "failed") {
     bus.notify({
       body: `${name} generation failed`,
@@ -61,6 +102,9 @@ function emitCanvasGenerationNotification(
 // Completion is read from the same signal the canvas view uses (isCanvasGenerating:
 // the live ACP session for local runs, cloudStatus for cloud) rather than the
 // dashboard's generationTaskId, which is never cleared for freeform canvases.
+// A "completed" run additionally checks the canvas's build lifecycle before
+// announcing success — the rendered output is the published build's artifact,
+// so task completion alone doesn't mean the canvas is actually ready.
 export function useCanvasGenerationToasts(): void {
   const tracked = useCanvasGenerationTrackerStore((s) => s.tracked);
   const untrack = useCanvasGenerationTrackerStore((s) => s.untrack);
@@ -70,6 +114,22 @@ export function useCanvasGenerationToasts(): void {
   const bus = useServiceOptional<NotificationBus>(NotificationBus);
   const busRef = useRef(bus);
   busRef.current = bus;
+
+  const trpc = useHostTRPC();
+  const queryClient = useQueryClient();
+  // One-shot build-lifecycle read for a canvas whose generation just finished.
+  // Kept in a ref (trpc/queryClient are stable) so the transition effect below
+  // needn't depend on them.
+  const fetchLifecycleRef = useRef(
+    (dashboardId: string): Promise<CanvasBuildLifecycle> =>
+      queryClient.fetchQuery(
+        trpc.dashboards.builds.queryOptions({ id: dashboardId }),
+      ),
+  );
+  fetchLifecycleRef.current = (dashboardId) =>
+    queryClient.fetchQuery(
+      trpc.dashboards.builds.queryOptions({ id: dashboardId }),
+    );
 
   const taskIds = useMemo(() => Object.keys(tracked), [tracked]);
 
@@ -140,14 +200,31 @@ export function useCanvasGenerationToasts(): void {
       toastedRef.current.add(st.id);
       const entry = useCanvasGenerationTrackerStore.getState().tracked[st.id];
       if (entry && busRef.current) {
-        emitCanvasGenerationNotification(
-          busRef.current,
-          entry,
-          resolveCanvasGenerationStatus({
-            latestRun: st.latestRun,
-            session: st.session,
-          }),
-        );
+        const bus = busRef.current;
+        const status = resolveCanvasGenerationStatus({
+          latestRun: st.latestRun,
+          session: st.session,
+        });
+        if (status === "completed") {
+          // Verify the build before announcing "ready". A failed lifecycle
+          // read falls back to the plain success toast — a broken builds
+          // endpoint mustn't swallow the completion signal entirely.
+          void fetchLifecycleRef
+            .current(entry.dashboardId)
+            .then((lifecycle) =>
+              emitCanvasGenerationNotification(
+                bus,
+                entry,
+                status,
+                isCanvasBuildHealthy(lifecycle),
+              ),
+            )
+            .catch(() =>
+              emitCanvasGenerationNotification(bus, entry, status, true),
+            );
+        } else {
+          emitCanvasGenerationNotification(bus, entry, status, true);
+        }
       }
       // Stop tracking (and polling) this task now that it's done.
       untrack(st.id);

@@ -79,25 +79,21 @@ The root `AGENTS.md` architecture rules still apply.
 
 ## Canvas naming
 
-- **A canvas's name is its file-system path segment**, set at creation
+- **A canvas's name is its own field on the record**, set at creation
   (`Untitled canvas` by default; the template picker / `useCreateAndOpenDashboard`
   drive it) and copied with a `(fork)` suffix on fork. It is independent of any
   heading the agent renders inside the React app.
 
 ## Storage
 
-- Canvases are **backed by the PostHog desktop file system**, not local files.
-  A canvas is a `dashboard`-typed row nested under its channel folder; its name
-  is the last path segment. The agent-authored React source + edit history ride
-  in `meta` (`code`, `versions`, `currentVersionId`, `context`, `templateId`).
-  See `@posthog/core/canvas/dashboardsService.ts`; the `meta` payload is typed +
-  documented as `DashboardFileMeta` in `dashboardSchemas.ts`. This keeps canvas
-  and channel names in sync with the backend — the same surface that owns
-  channels (top-level `folder` rows, see `hooks/useChannels.ts`).
-- `meta` is **last-write-wins, unversioned** at the fs layer (no `base_version`).
-  Freeform autosaves the whole file each agent turn, so a concurrent edit from
-  another client can clobber. Acceptable for now; revisit with optimistic
-  concurrency if multi-client editing becomes real.
+- Canvases are **first-class PostHog rows** (the `canvases` API), not local
+  files. Each canvas belongs to a backend channel (`channelId`), and its
+  agent-authored source lives in **server-side versions**: every publish
+  appends an immutable source version, guarded by `expected_current_version_id`
+  so concurrent publishes conflict (409) instead of clobbering. The rendered
+  output is the published build's artifact, served from the isolated artifact
+  origin. See `@posthog/core/canvas/dashboardsService.ts` and
+  `dashboardSchemas.ts` for the record/source/version shapes.
 
 ## Channel sidebar preloading
 

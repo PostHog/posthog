@@ -17,6 +17,3 @@ export const ENVIRONMENT_SERVICE = Symbol.for(
 export const BROWSER_TABS_SERVICE = Symbol.for(
   "posthog.workspace.browser-tabs-service",
 );
-export const CANVAS_BUILD_SERVICE = Symbol.for(
-  "posthog.workspace.canvas-build-service",
-);

@@ -5,8 +5,8 @@ import {
 } from "@posthog/shared";
 import { z } from "zod";
 
-// Client-facing shape of a canvas's build lifecycle (the desktop_file_system
-// canvas/builds endpoint, normalized to camelCase by DashboardsService).
+// Client-facing shape of a canvas's build lifecycle (the canvases builds
+// endpoint, normalized to camelCase by DashboardsService).
 
 export const canvasBuildRecordSchema = z.object({
   id: z.string(),
@@ -45,8 +45,8 @@ export function publishedCanvasBuild(
 export const canvasBuildLifecycleSchema = z.object({
   /** The live (last successful, still-eligible) build, null until one completes. */
   publishedBuildId: z.string().nullable(),
-  /** The source-version row the canvas's head points at. */
-  currentSourceVersionId: z.string().nullable(),
+  /** The source version the canvas's head points at. */
+  currentVersionId: z.string().nullable(),
   /** Most recent builds, newest first. */
   builds: z.array(canvasBuildRecordSchema),
 });

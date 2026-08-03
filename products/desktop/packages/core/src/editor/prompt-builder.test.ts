@@ -31,7 +31,7 @@ describe("buildChannelContextText", () => {
   it("emits an id-addressed upkeep instruction when the context id is known", () => {
     const text = buildChannelContextText("# Billing", "billing", "chan-123");
     expect(text).toContain("out of date");
-    expect(text).toContain("desktop-file-system-instructions-partial-update");
+    expect(text).toContain("channel-instructions-update");
     expect(text).toContain('id "chan-123"');
     expect(text).toContain("do not resolve the channel by name");
     expect(text).toContain("base_version");
@@ -40,7 +40,7 @@ describe("buildChannelContextText", () => {
   it("omits the upkeep write instruction when no context id is supplied", () => {
     const text = buildChannelContextText("# Billing", "billing");
     expect(text).not.toContain(
-      "desktop-file-system-instructions-partial-update",
+      "channel-instructions-update",
     );
     expect(text).not.toContain("Upkeep is the one exception");
     // Still framed as reference material, and the body is preserved.

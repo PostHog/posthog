@@ -7,7 +7,7 @@ import {
   publishedCanvasBuild,
 } from "./canvasBuildSchemas";
 import { DashboardsService } from "./dashboardsService";
-import type { DesktopFsClient } from "./desktopFsClient";
+import type { ProjectApiClient } from "./projectApiClient";
 
 function build(
   id: string,
@@ -31,7 +31,7 @@ function build(
 }
 
 function lifecycle(builds: CanvasBuildRecord[]): CanvasBuildLifecycle {
-  return { publishedBuildId: null, currentSourceVersionId: null, builds };
+  return { publishedBuildId: null, currentVersionId: null, builds };
 }
 
 describe("canvas build lifecycle", () => {
@@ -79,7 +79,7 @@ describe("canvas build lifecycle", () => {
         new Response(
           JSON.stringify({
             published_build_id: "b0",
-            current_source_version_id: "sv-1",
+            current_version_id: "sv-1",
             builds: [
               {
                 id: "b1",
@@ -102,14 +102,15 @@ describe("canvas build lifecycle", () => {
           { status: 200 },
         ),
     );
-    const service = new DashboardsService(
-      { fetch: fetchMock } as unknown as DesktopFsClient,
-      {} as never,
-    );
+    const service = new DashboardsService({
+      json: async (path: string) => {
+        expect(path).toBe("canvases/canvas-1/builds/");
+        return (await fetchMock()).json();
+      },
+    } as unknown as ProjectApiClient);
 
     const result = await service.getBuilds("canvas-1");
 
-    expect(fetchMock).toHaveBeenCalledWith("canvas-1/canvas/builds/");
     expect(result.publishedBuildId).toBe("b0");
     expect(result.builds[0]).toMatchObject({
       id: "b1",

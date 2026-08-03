@@ -27,11 +27,9 @@ export interface GenerateCanvasInput {
   isEdit: boolean;
   /** First builds only: point the agent at the known-good starter scaffold. */
   useStarter?: boolean;
-  /** Channel that owns the canvas (desktop file-system folder id). */
+  /** Backend channel (task channel UUID) that owns the canvas and the task. */
   channelId: string;
   channelName: string;
-  /** Backend channel UUID that owns the created task, when the surface has one. */
-  backendChannelId?: string;
   /** The channel's CONTEXT.md, passed as background for the run. */
   channelContext?: string;
   adapter?: Adapter;
@@ -49,7 +47,7 @@ export interface GenerateCanvasInput {
  */
 export interface CanvasGenerationGateway {
   /** File the task into the channel feed (best-effort). */
-  fileTask(channelId: string, taskId: string, taskTitle: string): Promise<void>;
+  fileTask(channelId: string, taskId: string): Promise<void>;
   /** Record the task as the canvas's in-flight generation run. */
   setGenerationTask(dashboardId: string, taskId: string): Promise<void>;
   /** Rename the canvas (auto-naming a placeholder title). */
@@ -135,7 +133,7 @@ export class CanvasApplicationService {
         allowNoRepo: true,
         channelContext: input.channelContext,
         channelName: input.channelName,
-        channelId: input.backendChannelId,
+        channelId: input.channelId,
       },
       (output) => gateway.onTaskReady?.(output.task),
     );
@@ -149,7 +147,7 @@ export class CanvasApplicationService {
     // best-effort (a failure shouldn't undo a started task); the generation-task
     // write is awaited so a caller that navigates to the canvas right after
     // generate() lands on the generating view, not the empty hero.
-    void gateway.fileTask(input.channelId, task.id, task.title).catch(() => {});
+    void gateway.fileTask(input.channelId, task.id).catch(() => {});
     await gateway.setGenerationTask(input.dashboardId, task.id).catch(() => {});
 
     // Auto-name a still-unnamed canvas from its generation prompt, using the

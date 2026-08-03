@@ -487,9 +487,9 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
 }));
 
 // ── Canvas / Channels: host-agnostic dashboard + freeform canvas services ──
-// They only need AuthService + fetch (they reach the PostHog desktop_file_system
-// API), so the web host binds them by loading the same core module desktop does;
-// the web host router forwards its canvas routers to these.
+// They only need AuthService + fetch (they reach the PostHog canvases and
+// task_channels APIs), so the web host binds them by loading the same core
+// module desktop does; the web host router forwards its canvas routers to these.
 container.load(canvasCoreModule);
 container.load(canvasApplicationModule);
 container.load(taskThreadCoreModule);

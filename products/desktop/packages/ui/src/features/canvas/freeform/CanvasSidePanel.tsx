@@ -25,7 +25,7 @@ export function CanvasSidePanel({
   channelName,
   name,
   templateId,
-  currentCode,
+  isEdit,
   editorRef,
   onStarted,
 }: {
@@ -36,7 +36,9 @@ export function CanvasSidePanel({
   channelName: string;
   name: string;
   templateId?: string;
-  currentCode?: string;
+  /** Whether the canvas already has published source (a follow-up edit rather
+   * than a first build) — the agent re-reads the live source itself. */
+  isEdit?: boolean;
   // Exposes the edit composer's editor so self-repair can prefill it.
   editorRef?: Ref<EditorHandle>;
   onStarted?: (taskId: string) => void;
@@ -85,7 +87,7 @@ export function CanvasSidePanel({
               channelName={channelName}
               name={name}
               templateId={templateId}
-              currentCode={currentCode}
+              isEdit={isEdit}
               onStarted={onStarted}
             />
           </Flex>

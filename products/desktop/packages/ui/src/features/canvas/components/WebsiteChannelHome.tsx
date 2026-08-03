@@ -27,14 +27,10 @@ import {
   channelCreationMessage,
   useChannelFeedMessages,
 } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
-import {
-  PERSONAL_CHANNEL_NAME,
-  useBackendChannel,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -54,8 +50,11 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { channels, isLoading: isLoadingChannels } = useChannels();
-  const channelName = channels.find((c) => c.id === channelId)?.name;
+  // The raw channel row (creator + creation time) feeds the intro and the
+  // Slack-style "joined" opener; the Channel projection doesn't carry those.
+  const { channels, isLoading: isLoadingChannels } = useTaskChannels();
+  const channel = channels.find((c) => c.id === channelId);
+  const channelName = channel?.name;
   const { fileTask } = useChannelTaskMutations();
 
   // Poll while empty so the intro's context.md card flips to "created" when
@@ -64,36 +63,20 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     useFolderInstructions(channelId, { pollWhileEmpty: true });
   const channelContext = instructions?.content;
 
-  // The folder channel maps onto a backend channel (by name; "me" → the
-  // personal channel), which owns the task feed and threads.
-  const { channel: backendChannel, isLoading: isResolvingChannel } =
-    useBackendChannel(channelName);
-  const { tasks, isLoading: isLoadingFeed } = useChannelFeed(
-    backendChannel?.id,
-  );
+  const { tasks, isLoading: isLoadingFeed } = useChannelFeed(channelId);
   // Marking this channel read lives in ChannelHeader (rendered by every channel
   // surface), so opening Artifacts or CONTEXT.md counts as reading it too.
 
-  // Durable "PostHog agent" rows (CONTEXT.md being built, …) live on the
-  // backend channel — the same id the feed tasks use, not the folder id.
+  // Durable "PostHog agent" rows (CONTEXT.md being built, …).
   const { messages: feedMessages, isLoading: isLoadingMessages } =
-    useChannelFeedMessages(backendChannel?.id);
-  // Until the backend channel resolves there's no feed to ask for, and the feed
-  // query is disabled — which reports isLoading:false, indistinguishable from
-  // "this channel is empty". useBackendChannel reports loading for the whole
-  // identity-resolution window (settling if the resolve fails), so fold it in:
-  // we can't call a channel empty until we know which channel it is.
-  const isLoading =
-    isLoadingChannels ||
-    isResolvingChannel ||
-    isLoadingFeed ||
-    isLoadingMessages;
+    useChannelFeedMessages(channelId);
+  const isLoading = isLoadingChannels || isLoadingFeed || isLoadingMessages;
   // The Slack-style "joined" opener, derived from the channel row so it renders
   // (and sorts first) even where the feed endpoint isn't deployed.
   const systemMessages = useMemo(() => {
-    const creation = channelCreationMessage(backendChannel);
+    const creation = channelCreationMessage(channel);
     return creation ? [creation, ...feedMessages] : feedMessages;
-  }, [backendChannel, feedMessages]);
+  }, [channel, feedMessages]);
 
   useSetHeaderContent(
     useMemo(
@@ -157,12 +140,12 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
 
   const invalidateFeed = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: channelFeedQueryKey(backendChannel?.id),
+      queryKey: channelFeedQueryKey(channelId),
     });
-  }, [queryClient, backendChannel?.id]);
+  }, [queryClient, channelId]);
 
   // Slack behavior: submitting keeps you in the channel; the new card appears
-  // in the feed and updates live. Filing into the folder keeps the Artifacts /
+  // in the feed and updates live. Filing into the channel keeps the Artifacts /
   // Recents tabs working.
   const onTaskCreated = useCallback(
     (task: Task) => {
@@ -171,12 +154,11 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
       // than after the invalidate refetch (or the next 5s poll) lands. Seed a
       // fresh list when the feed cache hasn't populated yet — insertTaskDedup
       // no-ops on an undefined cache, which would otherwise drop the card.
-      queryClient.setQueryData<Task[]>(
-        channelFeedQueryKey(backendChannel?.id),
-        (old) => (old ? insertTaskDedup(old, task) : [task]),
+      queryClient.setQueryData<Task[]>(channelFeedQueryKey(channelId), (old) =>
+        old ? insertTaskDedup(old, task) : [task],
       );
       invalidateFeed();
-      void fileTask(channelId, task.id, task.title)
+      void fileTask(channelId, task.id)
         .then(() =>
           track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
             action_type: "file_task",
@@ -203,14 +185,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           );
         });
     },
-    [
-      backendChannel?.id,
-      channelId,
-      fileTask,
-      invalidateFeed,
-      queryClient,
-      spacesLayout,
-    ],
+    [channelId, fileTask, invalidateFeed, queryClient, spacesLayout],
   );
 
   const handleOpenFull = useCallback(
@@ -238,7 +213,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
 
   // The Slack-style intro pinned at the feed's start — public channels only;
   // the personal channel keeps the welcome empty state below.
-  const isPersonal = channelName === PERSONAL_CHANNEL_NAME;
+  const isPersonal = channel?.channel_type === "personal";
   const hasContextMd = (channelContext ?? "").trim().length > 0;
   // An in-flight build is spotted by its plan task in this channel's feed (by
   // title prefix — the only task↔context.md tie until the backend links them),
@@ -259,9 +234,9 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
         ? "building"
         : "none";
   const intro =
-    !isPersonal && channelName && backendChannel ? (
+    !isPersonal && channelName && channel ? (
       <ChannelIntro
-        channel={backendChannel}
+        channel={channel}
         channelName={channelName}
         contextMdState={contextMdState}
         onCreateContextMd={() => setContextMdDialogOpen(true)}
@@ -272,7 +247,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     <div className="mx-auto flex min-h-full w-full max-w-[680px] flex-col justify-center gap-6 px-4 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
         <Heading className="font-bold text-2xl">
-          {channelName === PERSONAL_CHANNEL_NAME
+          {isPersonal
             ? "Welcome to your own personal context"
             : channelName
               ? `Welcome to ${channelName}`
@@ -322,7 +297,6 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
             channelId={channelId}
             channelName={channelName}
             channelContext={channelContext}
-            backendChannelId={backendChannel?.id}
             onTaskCreated={onTaskCreated}
             onPendingStart={addPending}
             onPendingEnd={removePending}

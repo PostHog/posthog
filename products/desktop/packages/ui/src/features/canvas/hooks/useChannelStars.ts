@@ -1,124 +1,74 @@
-import type { Schemas } from "@posthog/api-client";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
-
-const STARS_POLL_INTERVAL_MS = 60_000;
-const STARS_QUERY_KEY = ["canvas-channel-stars"] as const;
-
-// Channels are folders, so their stars are folder-typed shortcuts. Anything
-// else on the desktop surface (a starred insight, say) is ignored here.
-const FOLDER_SHORTCUT_TYPE = "folder";
+import { useCallback, useMemo } from "react";
 
 /**
- * The current user's starred channels, persisted in the PostHog backend as
- * per-user desktop file-system shortcuts. Returns a map from a channel's raw
- * path (the shortcut `ref`) to the shortcut id, so callers can both check
- * whether a channel is starred and delete the right shortcut when unstarring.
+ * The current user's starred channels, from the per-user `starred` flag on the
+ * channel list. Returns the set of starred channel ids so callers can check
+ * whether a channel is starred without re-deriving it from the list.
  */
 export function useChannelStars(options?: { enabled?: boolean }): {
-  starredRefToShortcutId: Map<string, string>;
+  starredChannelIds: ReadonlySet<string>;
   isLoading: boolean;
 } {
-  const query = useAuthenticatedQuery<Schemas.FileSystemShortcut[]>(
-    STARS_QUERY_KEY,
-    (client) => client.getDesktopFileSystemShortcuts(),
-    {
-      enabled: options?.enabled ?? true,
-      refetchInterval: STARS_POLL_INTERVAL_MS,
-    },
+  const { channels, isLoading } = useChannels(options);
+  const starredChannelIds = useMemo(
+    () => new Set(channels.filter((c) => c.starred).map((c) => c.id)),
+    [channels],
   );
-
-  const starredRefToShortcutId = new Map<string, string>();
-  for (const shortcut of query.data ?? []) {
-    if (shortcut.type === FOLDER_SHORTCUT_TYPE && shortcut.ref) {
-      starredRefToShortcutId.set(shortcut.ref, shortcut.id);
-    }
-  }
-
-  return { starredRefToShortcutId, isLoading: query.isLoading };
+  return { starredChannelIds, isLoading };
 }
 
 /**
- * Star/unstar a channel by creating or deleting its desktop shortcut. Both
- * paths update the shared shortcuts cache immediately so the sidebar re-sorts
- * the instant the request resolves, rather than waiting on the poll.
+ * Star/unstar a channel. Flips the flag in the shared channels cache
+ * immediately so the sidebar re-sorts the instant the request resolves,
+ * rather than waiting on the poll.
  */
 export function useChannelStarMutations() {
   const client = useOptionalAuthenticatedClient();
   const queryClient = useQueryClient();
 
-  const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: STARS_QUERY_KEY });
-  }, [queryClient]);
-
-  const starMutation = useMutation({
-    mutationFn: async (channel: Channel) => {
+  const setStarredMutation = useMutation({
+    mutationFn: async (input: { channelId: string; starred: boolean }) => {
       if (!client) throw new Error("Not authenticated");
-      return client.createDesktopFileSystemShortcut({
-        path: channel.name,
-        type: FOLDER_SHORTCUT_TYPE,
-        ref: channel.path,
-      });
+      await client.starTaskChannel(input.channelId, input.starred);
+      return input;
     },
-    onSuccess: (created) => {
-      queryClient.setQueryData<Schemas.FileSystemShortcut[]>(
-        STARS_QUERY_KEY,
-        (old) => {
-          if (!old) return [created];
-          if (old.some((s) => s.id === created.id)) return old;
-          return [...old, created];
-        },
+    onSuccess: ({ channelId, starred }) => {
+      queryClient.setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, (old) =>
+        old?.map((c) => (c.id === channelId ? { ...c, starred } : c)),
       );
-      invalidate();
-    },
-  });
-
-  const unstarMutation = useMutation({
-    mutationFn: async (shortcutId: string) => {
-      if (!client) throw new Error("Not authenticated");
-      await client.deleteDesktopFileSystemShortcut(shortcutId);
-      return shortcutId;
-    },
-    onSuccess: (shortcutId) => {
-      queryClient.setQueryData<Schemas.FileSystemShortcut[]>(
-        STARS_QUERY_KEY,
-        (old) => (old ?? []).filter((s) => s.id !== shortcutId),
-      );
-      invalidate();
+      void queryClient.invalidateQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
     },
   });
 
   return {
-    star: (channel: Channel) => starMutation.mutateAsync(channel),
-    unstar: (shortcutId: string) => unstarMutation.mutateAsync(shortcutId),
-    isStarring: starMutation.isPending,
-    isUnstarring: unstarMutation.isPending,
+    star: (channelId: string) =>
+      setStarredMutation.mutateAsync({ channelId, starred: true }),
+    unstar: (channelId: string) =>
+      setStarredMutation.mutateAsync({ channelId, starred: false }),
+    isUpdating: setStarredMutation.isPending,
   };
 }
 
 /**
- * Per-channel star state plus the actions a channel row needs. Wraps the shared
- * stars query and mutations so the row components stay declarative. Multiple
- * rows calling this share one underlying query (React Query dedupes by key).
+ * Per-channel star state plus the toggle a channel row needs. Wraps the shared
+ * channels query and mutations so the row components stay declarative.
  */
 export function useChannelStarToggle(channel: Channel): {
   isStarred: boolean;
   toggleStar: () => void;
-  /** Remove the star if present — used when the channel itself is deleted so
-   *  a same-named channel created later doesn't inherit a stale star. */
-  removeStar: () => void;
 } {
-  const { starredRefToShortcutId } = useChannelStars();
   const { star, unstar } = useChannelStarMutations();
-  const shortcutId = starredRefToShortcutId.get(channel.path);
-  const isStarred = shortcutId !== undefined;
+  const isStarred = channel.starred;
 
   const toggleStar = useCallback(() => {
-    const run = shortcutId ? unstar(shortcutId) : star(channel);
+    const run = isStarred ? unstar(channel.id) : star(channel.id);
     run.catch((error: unknown) => {
       toast.error(
         isStarred ? "Couldn't unstar channel" : "Couldn't star channel",
@@ -127,13 +77,7 @@ export function useChannelStarToggle(channel: Channel): {
         },
       );
     });
-  }, [channel, shortcutId, isStarred, star, unstar]);
+  }, [channel.id, isStarred, star, unstar]);
 
-  const removeStar = useCallback(() => {
-    if (shortcutId) {
-      void unstar(shortcutId);
-    }
-  }, [shortcutId, unstar]);
-
-  return { isStarred, toggleStar, removeStar };
+  return { isStarred, toggleStar };
 }

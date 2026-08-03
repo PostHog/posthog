@@ -4,8 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  channels: [] as { id: string; name: string; path: string }[],
-  starredPaths: [] as string[],
+  channels: [] as {
+    id: string;
+    name: string;
+    channelType: "public" | "personal";
+    starred: boolean;
+  }[],
+  starredIds: [] as string[],
   channelsLayout: true,
   navigate: vi.fn(),
 }));
@@ -16,16 +21,16 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: mocks.channels, isLoading: false }),
-  useChannelMutations: () => ({ createChannel: vi.fn(), isDeleting: false }),
+  useChannelMutations: () => ({ deleteChannel: vi.fn(), isDeleting: false }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStars: () => ({
-    starredRefToShortcutId: new Map(mocks.starredPaths.map((p) => [p, p])),
+    starredChannelIds: new Set(mocks.starredIds),
+    isLoading: false,
   }),
   useChannelStarToggle: () => ({
     isStarred: false,
     toggleStar: vi.fn(),
-    removeStar: vi.fn(),
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
@@ -34,12 +39,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
   useIsChannelUnread: () => () => false,
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", async () => {
-  const actual = await vi.importActual<
-    typeof import("@posthog/ui/features/canvas/hooks/useTaskChannels")
-  >("@posthog/ui/features/canvas/hooks/useTaskChannels");
-  return { ...actual, useTaskChannels: () => ({ channels: [] }) };
-});
 vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
   RenameChannelModal: () => null,
 }));
@@ -56,9 +55,24 @@ import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/curre
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
-const ME = { id: "me-id", name: "me", path: "/me" };
-const ENG = { id: "eng-id", name: "engineering", path: "/engineering" };
-const DESIGN = { id: "design-id", name: "design", path: "/design" };
+const ME = {
+  id: "me-id",
+  name: "me",
+  channelType: "personal" as const,
+  starred: false,
+};
+const ENG = {
+  id: "eng-id",
+  name: "engineering",
+  channelType: "public" as const,
+  starred: false,
+};
+const DESIGN = {
+  id: "design-id",
+  name: "design",
+  channelType: "public" as const,
+  starred: false,
+};
 
 function renderList() {
   return render(
@@ -72,7 +86,7 @@ describe("ChannelsList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.channels = [ME, ENG, DESIGN];
-    mocks.starredPaths = [];
+    mocks.starredIds = [];
     mocks.channelsLayout = true;
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
@@ -108,7 +122,7 @@ describe("ChannelsList", () => {
   // Slack-style inset; the alpha keeps its deeper tree indentation.
   describe("group headings", () => {
     beforeEach(() => {
-      mocks.starredPaths = [ENG.path];
+      mocks.starredIds = [ENG.id];
     });
 
     it("slightly indents rows under the layout", () => {
@@ -156,7 +170,7 @@ describe("ChannelsList", () => {
     // "Channels" headings only stand between you and the one row that matches.
     it("drops the group headings while filtering", async () => {
       const user = userEvent.setup();
-      mocks.starredPaths = [ENG.path];
+      mocks.starredIds = [ENG.id];
       renderList();
       expect(screen.getByText("Starred")).toBeTruthy();
 

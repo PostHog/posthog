@@ -1,13 +1,12 @@
-import type { Schemas } from "@posthog/api-client";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = vi.hoisted(() => ({
-  getDesktopFileSystemShortcuts: vi.fn(),
-  createDesktopFileSystemShortcut: vi.fn(),
-  deleteDesktopFileSystemShortcut: vi.fn(),
+  getTaskChannels: vi.fn(),
+  starTaskChannel: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -19,22 +18,18 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
 import { useChannelStars, useChannelStarToggle } from "./useChannelStars";
 import type { Channel } from "./useChannels";
 
-function shortcut(
-  id: string,
-  type: string,
-  ref: string | null,
-): Schemas.FileSystemShortcut {
+function taskChannel(id: string, name: string, starred = false): TaskChannel {
   return {
     id,
-    path: ref?.replace(/^\/+/, "") ?? "x",
-    type,
-    ref,
+    name,
+    channel_type: "public",
+    starred,
     created_at: "2026-01-01T00:00:00Z",
   };
 }
 
-function channel(id: string, name: string, path: string): Channel {
-  return { id, name, path };
+function channel(id: string, name: string, starred = false): Channel {
+  return { id, name, channelType: "public", starred };
 }
 
 let queryClient: QueryClient;
@@ -52,37 +47,34 @@ describe("useChannelStars", () => {
     });
   });
 
-  it("maps folder shortcuts by ref, ignoring other types and ref-less rows", async () => {
-    mockClient.getDesktopFileSystemShortcuts.mockResolvedValue([
-      shortcut("s1", "folder", "/alpha"),
-      shortcut("s2", "insight", "abc"), // not a channel
-      shortcut("s3", "folder", null), // no ref to link
+  it("collects the ids of channels the user starred", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([
+      taskChannel("1", "alpha", true),
+      taskChannel("2", "beta", false),
     ]);
 
     const { result } = renderHook(() => useChannelStars(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect([...result.current.starredRefToShortcutId.entries()]).toEqual([
-      ["/alpha", "s1"],
-    ]);
+    expect([...result.current.starredChannelIds]).toEqual(["1"]);
   });
 
-  it("stars an unstarred channel via its raw path, updating the cache immediately", async () => {
-    mockClient.getDesktopFileSystemShortcuts.mockResolvedValue([]);
+  it("stars an unstarred channel, updating the cache immediately", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([taskChannel("1", "alpha")]);
 
     const stars = renderHook(() => useChannelStars(), { wrapper });
     await waitFor(() => expect(stars.result.current.isLoading).toBe(false));
+    expect(stars.result.current.starredChannelIds.size).toBe(0);
 
-    const created = shortcut("s1", "folder", "/alpha");
-    mockClient.createDesktopFileSystemShortcut.mockResolvedValue(created);
+    mockClient.starTaskChannel.mockResolvedValue(undefined);
     // Hang the refetch so only the optimistic cache write is exercised.
-    mockClient.getDesktopFileSystemShortcuts.mockReturnValue(
-      new Promise(() => {}),
-    );
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
 
     const toggle = renderHook(
-      () => useChannelStarToggle(channel("1", "alpha", "/alpha")),
-      { wrapper },
+      () => useChannelStarToggle(channel("1", "alpha")),
+      {
+        wrapper,
+      },
     );
     expect(toggle.result.current.isStarred).toBe(false);
 
@@ -90,33 +82,26 @@ describe("useChannelStars", () => {
       toggle.result.current.toggleStar();
     });
 
-    expect(mockClient.createDesktopFileSystemShortcut).toHaveBeenCalledWith({
-      path: "alpha",
-      type: "folder",
-      ref: "/alpha",
-    });
+    expect(mockClient.starTaskChannel).toHaveBeenCalledWith("1", true);
     await waitFor(() =>
-      expect(stars.result.current.starredRefToShortcutId.get("/alpha")).toBe(
-        "s1",
-      ),
+      expect(stars.result.current.starredChannelIds.has("1")).toBe(true),
     );
   });
 
-  it("unstars a starred channel by deleting its shortcut id", async () => {
-    mockClient.getDesktopFileSystemShortcuts.mockResolvedValue([
-      shortcut("s1", "folder", "/alpha"),
+  it("unstars a starred channel by clearing its flag", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([
+      taskChannel("1", "alpha", true),
     ]);
 
     const stars = renderHook(() => useChannelStars(), { wrapper });
     await waitFor(() => expect(stars.result.current.isLoading).toBe(false));
+    expect(stars.result.current.starredChannelIds.has("1")).toBe(true);
 
-    mockClient.deleteDesktopFileSystemShortcut.mockResolvedValue(undefined);
-    mockClient.getDesktopFileSystemShortcuts.mockReturnValue(
-      new Promise(() => {}),
-    );
+    mockClient.starTaskChannel.mockResolvedValue(undefined);
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
 
     const toggle = renderHook(
-      () => useChannelStarToggle(channel("1", "alpha", "/alpha")),
+      () => useChannelStarToggle(channel("1", "alpha", true)),
       { wrapper },
     );
     expect(toggle.result.current.isStarred).toBe(true);
@@ -125,13 +110,9 @@ describe("useChannelStars", () => {
       toggle.result.current.toggleStar();
     });
 
-    expect(mockClient.deleteDesktopFileSystemShortcut).toHaveBeenCalledWith(
-      "s1",
-    );
+    expect(mockClient.starTaskChannel).toHaveBeenCalledWith("1", false);
     await waitFor(() =>
-      expect(stars.result.current.starredRefToShortcutId.has("/alpha")).toBe(
-        false,
-      ),
+      expect(stars.result.current.starredChannelIds.has("1")).toBe(false),
     );
   });
 });

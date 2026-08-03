@@ -1,6 +1,6 @@
+import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { assertCanvasCapability } from "./freeformDataBridge";
 
 const capabilities: CanvasCapabilities = {
   posthog: {

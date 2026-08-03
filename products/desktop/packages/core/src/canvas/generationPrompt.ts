@@ -57,8 +57,8 @@ Target canvas — already created, do NOT create another:
 - channel: "${channelName}"
 ${templateLine}${starterLine}
 Read the canvas's current source and \`current_version_id\` with the
-\`desktop-file-system-canvas-source-retrieve\` tool before editing, and publish the COMPLETE
-source project with \`desktop-file-system-canvas-publish-create\`, passing that version id as
+\`canvas-source-retrieve\` tool before editing, and publish the COMPLETE
+source project with \`canvas-publish-create\`, passing that version id as
 \`expected_current_version_id\`. The canvas lives in PostHog, not on disk — publishing through
 that tool is what saves it. Do not write local files and do not reply with the code.
 

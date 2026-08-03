@@ -138,9 +138,9 @@ export function CreateChannelModal({
   const canDescribe = !busy && !!trimmedDescription;
 
   // `busy` only disables the buttons a render after the mutation starts, so a
-  // double-click lands two creates before it applies — and folder creation is
-  // not idempotent by path, so that is two channels of the same name. Latch
-  // synchronously; the buttons stay the user-visible half of this.
+  // double-click lands two submits before it applies. Create is resolve-or-
+  // create (idempotent), but a double submit would still double-launch the
+  // plan session. Latch synchronously; the buttons stay the user-visible half.
   const submittingRef = useRef(false);
   const submitOnce = async (submit: () => Promise<void>) => {
     if (submittingRef.current) return;
