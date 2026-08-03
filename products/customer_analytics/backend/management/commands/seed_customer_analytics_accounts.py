@@ -29,7 +29,9 @@ from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
 
 from products.customer_analytics.backend.facade.api import create_account
-from products.customer_analytics.backend.models.account import Account, AccountAssignment, AccountProperties
+from products.customer_analytics.backend.logic import relationships as relationships_logic
+from products.customer_analytics.backend.models.account import Account, AccountProperties
+from products.customer_analytics.backend.models.relationship import AccountRelationshipDefinition
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.facade import api as notebooks
 
@@ -153,10 +155,10 @@ class Command(BaseCommand):
     def _create_accounts(
         self, team: Team, groups: list[tuple[str, dict[str, Any]]], user_pool: list[User]
     ) -> list[Account]:
-        assignments = [AccountAssignment(id=user.id, email=user.email) for user in user_pool]
         creator = team.organization.members.first()
         created = 0
         accounts: list[Account] = []
+        definitions = self._ensure_role_definitions(team, creator)
         with team_scope(team.pk):
             existing = {
                 account.external_id: account
@@ -170,22 +172,42 @@ class Command(BaseCommand):
                         name=props.get("name") or group_key,
                         external_id=group_key,
                         created_by=creator,
-                        properties=self._account_roles(assignments, index, group_key),
+                        properties=AccountProperties(stripe_customer_id=f"cus_{group_key[:14]}"),
                     )
+                    self._assign_roles(team, account, definitions, user_pool, index, creator)
                     created += 1
                 accounts.append(account)
         self.stdout.write(f"Created {created} account(s) ({len(groups) - created} already existed).")
         return accounts
 
     @staticmethod
-    def _account_roles(assignments: list[AccountAssignment], index: int, group_key: str) -> AccountProperties:
-        count = len(assignments)
-        return AccountProperties(
-            csm=assignments[index % count] if count else None,
-            account_executive=assignments[(index + 1) % count] if count else None,
-            account_owner=assignments[(index + 2) % count] if count else None,
-            stripe_customer_id=f"cus_{group_key[:14]}",
-        )
+    def _ensure_role_definitions(team: Team, creator: User | None) -> list[AccountRelationshipDefinition]:
+        return [
+            AccountRelationshipDefinition.objects.for_team(team.pk).get_or_create(
+                team_id=team.pk, name=name, defaults={"created_by": creator}
+            )[0]
+            for name in ("CSM", "Account executive", "Account owner")
+        ]
+
+    @staticmethod
+    def _assign_roles(
+        team: Team,
+        account: Account,
+        definitions: list[AccountRelationshipDefinition],
+        user_pool: list[User],
+        index: int,
+        creator: User | None,
+    ) -> None:
+        if not user_pool:
+            return
+        for offset, definition in enumerate(definitions):
+            relationships_logic.assign(
+                team_id=team.pk,
+                account=account,
+                definition=definition,
+                user=user_pool[(index + offset) % len(user_pool)],
+                created_by=creator,
+            )
 
     @transaction.atomic
     def _create_notes(
