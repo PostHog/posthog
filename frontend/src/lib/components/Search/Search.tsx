@@ -1065,7 +1065,7 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut enter /> to activate
                     </span>
-                    {filteredItems.length > 0 && (
+                    {filteredItems.some(canOpenInNewTab) && (
                         <span>
                             <KeyboardShortcut command enter /> to open in new tab
                         </span>
