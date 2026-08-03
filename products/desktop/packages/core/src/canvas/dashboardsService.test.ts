@@ -1,7 +1,7 @@
 import { transform } from "esbuild";
 import { describe, expect, it, vi } from "vitest";
 import { DashboardsService } from "./dashboardsService";
-import type { ProjectApiClient } from "./projectApiClient";
+import { type ProjectApiClient, ProjectApiError } from "./projectApiClient";
 
 // A canvas as the PostHog canvases API returns it.
 function apiCanvas(overrides: Record<string, unknown> = {}) {
@@ -169,6 +169,80 @@ describe("DashboardsService.ensureHomeCanvas", () => {
     await expect(
       transform(body.project.files["src/canvas.tsx"], { loader: "tsx" }),
     ).resolves.toBeDefined();
+  });
+});
+
+describe("DashboardsService.ensureHomeCanvas races", () => {
+  it("reuses the winner's canvas when create loses the is_home uniqueness race (409)", async () => {
+    let lookups = 0;
+    const { api } = fakeApi({
+      // First lookup: none. After the 409, the winner's home canvas exists.
+      "canvases/?channel=chan-1&is_home=true": () => {
+        lookups += 1;
+        return lookups === 1
+          ? []
+          : [
+              apiCanvas({
+                id: "home-winner",
+                is_home: true,
+                current_version_id: "v1",
+              }),
+            ];
+      },
+      "canvases/": () => {
+        throw new ProjectApiError("Failed to create canvas (409)", 409);
+      },
+    });
+    const service = new DashboardsService(api);
+
+    const record = await service.ensureHomeCanvas("chan-1");
+
+    expect(record.id).toBe("home-winner");
+  });
+
+  it("rethrows a non-409 create failure instead of masking it as a race", async () => {
+    const { api } = fakeApi({
+      "canvases/?channel=chan-1&is_home=true": [],
+      "canvases/": () => {
+        throw new ProjectApiError("Failed to create canvas (403)", 403);
+      },
+    });
+    const service = new DashboardsService(api);
+
+    await expect(service.ensureHomeCanvas("chan-1")).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  it("retries the seed publish once on a 409 version conflict", async () => {
+    const home = apiCanvas({
+      id: "home-1",
+      is_home: true,
+      current_version_id: null,
+    });
+    let publishCalls = 0;
+    const { api } = fakeApi({
+      "canvases/?channel=chan-1&is_home=true": [home],
+      "canvases/home-1/publish/": (init?: RequestInit) => {
+        publishCalls += 1;
+        if (publishCalls === 1) {
+          throw new ProjectApiError("Failed to seed home canvas (409)", 409);
+        }
+        const body = JSON.parse(String(init?.body));
+        return { current_version_id: body.expected_current_version_id ?? "v1" };
+      },
+      "canvases/home-1/": apiCanvas({
+        id: "home-1",
+        is_home: true,
+        current_version_id: "v-fresh",
+      }),
+    });
+    const service = new DashboardsService(api);
+
+    const record = await service.ensureHomeCanvas("chan-1");
+
+    expect(publishCalls).toBe(2);
+    expect(record.id).toBe("home-1");
   });
 });
 

@@ -9,6 +9,7 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import {
+  currentHeadBuildFailure,
   hasActiveCanvasBuild,
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
@@ -89,6 +90,10 @@ interface PinnedArtifact {
   url: string;
   /** Epoch ms the pinned URL was minted (the builds fetch that produced it). */
   mintedAt: number;
+  /** The refresh nonce the pin was adopted under, so a remount also re-stamps
+   * the pin's mint time (otherwise the expiry timer would keep firing on a URL
+   * that's already been recovered). */
+  refreshKey: number;
 }
 
 // A freeform (React-in-iframe) canvas. The rendered output is, in priority
@@ -110,6 +115,16 @@ export function FreeformCanvasView({
   const { runtimeError, browseVersionId } = useFreeformThread(threadId);
   const setBrowseVersion = useFreeformChatStore((s) => s.setBrowseVersion);
   const setRuntimeError = useFreeformChatStore((s) => s.setRuntimeError);
+
+  // Protect this thread from LRU eviction while the view is open — a burst of
+  // background patches must never drop the canvas the user is looking at.
+  useEffect(() => {
+    const store = useFreeformChatStore.getState();
+    store.setThreadMounted(threadId, true);
+    return () => {
+      useFreeformChatStore.getState().setThreadMounted(threadId, false);
+    };
+  }, [threadId]);
 
   // Right-hand panel state (persisted minimize + width). `startedTaskId` is a
   // local bridge so the composer floats to the side immediately on submit,
@@ -237,25 +252,28 @@ export function FreeformCanvasView({
   // Pin the artifact to one signed URL per build: every lifecycle refetch mints
   // a fresh URL for the same artifact, and adopting each one would reload the
   // iframe on every 2s poll while a build runs. Adopt only when the published
-  // build itself changes — or when a refresh was explicitly requested because
-  // the pinned URL expired. Adjusted during render (not an effect) so the swap
+  // build itself changes. Adjusted during render (not an effect) so the swap
   // can't flash a stale frame.
   const [pinnedArtifact, setPinnedArtifact] = useState<PinnedArtifact | null>(
     null,
   );
-  const wantFreshArtifactUrlRef = useRef(false);
+  // A nonce that, when bumped, remounts the artifact frame so it revalidates
+  // against the live token endpoint (ETag/304 makes this cheap) — the recovery
+  // path when the pinned URL expired. Remounting, not URL-string compare, is
+  // what guarantees a wedged iframe actually retries: the token endpoint is the
+  // authority, and a new URL for the same bucket would be byte-identical.
+  const [artifactRefreshKey, setArtifactRefreshKey] = useState(0);
   if (publishedBuild?.artifactUrl) {
-    const shouldAdopt =
+    const adoptFresh =
       !pinnedArtifact ||
       pinnedArtifact.buildId !== publishedBuild.id ||
-      (wantFreshArtifactUrlRef.current &&
-        pinnedArtifact.url !== publishedBuild.artifactUrl);
-    if (shouldAdopt) {
-      wantFreshArtifactUrlRef.current = false;
+      pinnedArtifact.refreshKey !== artifactRefreshKey;
+    if (adoptFresh) {
       setPinnedArtifact({
         buildId: publishedBuild.id,
         url: publishedBuild.artifactUrl,
         mintedAt: buildsUpdatedAt || Date.now(),
+        refreshKey: artifactRefreshKey,
       });
     }
   } else if (lifecycle && pinnedArtifact) {
@@ -280,10 +298,15 @@ export function FreeformCanvasView({
       if (Date.now() - renderedArtifact.mintedAt < ARTIFACT_URL_FRESH_MS) {
         return;
       }
-      wantFreshArtifactUrlRef.current = true;
-      void queryClient.invalidateQueries({
-        queryKey: trpc.dashboards.builds.queryKey({ id: dashboardId }),
-      });
+      // Refetch mints the current bucket's URL (re-checking the token server-
+      // side even when the browser would reframe from cache), then remount the
+      // frame so it revalidates against those endpoints. The remount, not a URL
+      // string change, is what un-wedges a frame whose module fetches hung.
+      void queryClient
+        .invalidateQueries({
+          queryKey: trpc.dashboards.builds.queryKey({ id: dashboardId }),
+        })
+        .then(() => setArtifactRefreshKey((k) => k + 1));
     }, ARTIFACT_READY_GRACE_MS);
     return () => clearTimeout(timer);
   }, [renderedArtifact, dashboardId, queryClient, trpc]);
@@ -480,6 +503,7 @@ export function FreeformCanvasView({
     !!lifecycle &&
     lifecycle.builds.length > 0 &&
     (hasActiveCanvasBuild(lifecycle) ||
+      !!currentHeadBuildFailure(lifecycle) ||
       latestFinishedCanvasBuild(lifecycle)?.buildStatus === "failed");
   const showToolbar = interactive || hasBuildSignal;
 
@@ -707,6 +731,7 @@ export function FreeformCanvasView({
           ) : pinnedArtifact ? (
             <Box className="h-full w-full">
               <BuiltCanvas
+                key={`${pinnedArtifact.buildId}:${artifactRefreshKey}`}
                 artifactUrl={pinnedArtifact.url}
                 onDataRequest={onDataRequest}
                 onError={onError}

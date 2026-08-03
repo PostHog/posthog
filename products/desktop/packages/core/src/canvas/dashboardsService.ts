@@ -18,7 +18,11 @@ import type {
   DashboardRecord,
 } from "./dashboardSchemas";
 import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
-import { PROJECT_API_CLIENT, type ProjectApiClient } from "./projectApiClient";
+import {
+  apiErrorStatus,
+  PROJECT_API_CLIENT,
+  type ProjectApiClient,
+} from "./projectApiClient";
 
 // Display name (canvas h1) of a channel's auto-created home canvas.
 const HOME_CANVAS_NAME = "Home";
@@ -308,8 +312,11 @@ export class DashboardsService {
           templateId: FREEFORM_TEMPLATE_ID,
           isHome: true,
         });
-      } catch {
-        // Lost the uniqueness race — another client created it; reuse theirs.
+      } catch (error) {
+        // Only the is_home uniqueness race (409) means another client created
+        // it; reuse theirs. Any other failure (auth, capacity, network) must
+        // surface, not be masked as a race.
+        if (apiErrorStatus(error) !== 409) throw error;
         record = await this.findHomeCanvas(channelId);
         if (!record) throw new Error("Failed to create home canvas");
       }
@@ -360,19 +367,30 @@ export class DashboardsService {
         network: { origins: [] },
       },
     };
-    await this.api.json<unknown>(
-      `canvases/${encodeURIComponent(record.id)}/publish/`,
-      "seed home canvas",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project,
-          prompt: "Default home board",
-          expected_current_version_id: record.currentVersionId ?? null,
-        }),
-      },
-    );
+    const publish = (expectedVersionId: string | null) =>
+      this.api.json<unknown>(
+        `canvases/${encodeURIComponent(record.id)}/publish/`,
+        "seed home canvas",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project,
+            prompt: "Default home board",
+            expected_current_version_id: expectedVersionId,
+          }),
+        },
+      );
+    try {
+      await publish(record.currentVersionId ?? null);
+    } catch (error) {
+      // A concurrent seed can win the guarded publish between our read and
+      // POST. On the 409 version conflict, re-read the head and retry once
+      // against the fresh version id rather than failing the channel open.
+      if (apiErrorStatus(error) !== 409) throw error;
+      const conflicted = await this.get(record.id);
+      await publish(conflicted?.currentVersionId ?? null);
+    }
     const fresh = await this.get(record.id);
     return fresh ?? record;
   }

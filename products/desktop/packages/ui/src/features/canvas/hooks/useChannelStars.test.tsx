@@ -17,6 +17,7 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
 
 import { useChannelStars, useChannelStarToggle } from "./useChannelStars";
 import type { Channel } from "./useChannels";
+import { TASK_CHANNELS_QUERY_KEY } from "./useTaskChannels";
 
 function taskChannel(id: string, name: string, starred = false): TaskChannel {
   return {
@@ -114,5 +115,75 @@ describe("useChannelStars", () => {
     await waitFor(() =>
       expect(stars.result.current.starredChannelIds.has("1")).toBe(false),
     );
+  });
+
+  it("settles to the user's LAST click when star/unstar resolve out of order", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([taskChannel("1", "alpha")]);
+    // Keep the post-mutation refetch from overwriting the optimistic write
+    // with a stale snapshot, which is exactly what hides the race.
+    let resolveStar!: () => void;
+    let resolveUnstar!: () => void;
+    mockClient.starTaskChannel
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((res) => {
+            resolveStar = res;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((res) => {
+            resolveUnstar = res;
+          }),
+      );
+
+    // Seed the shared channels cache via the list hook, then hang any refetch
+    // so only the mutation writes (not a refetched snapshot) decide the cache.
+    const stars = renderHook(() => useChannelStars(), { wrapper });
+    await waitFor(() => expect(stars.result.current.isLoading).toBe(false));
+    await waitFor(() =>
+      expect(queryClient.getQueryData(TASK_CHANNELS_QUERY_KEY)).toBeTruthy(),
+    );
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
+
+    // Two rapid toggles: star then unstar, modelled with explicit isStarred so
+    // both mutations fire (a single component's stale closure is a separate UI
+    // quirk; this isolates the resolve-order race).
+    const first = renderHook(
+      () => useChannelStarToggle(channel("1", "alpha", false)),
+      { wrapper },
+    );
+    const second = renderHook(
+      () => useChannelStarToggle(channel("1", "alpha", true)),
+      { wrapper },
+    );
+
+    act(() => {
+      first.result.current.toggleStar(); // star
+      second.result.current.toggleStar(); // unstar
+    });
+    // Optimistic write applies immediately from the last click.
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueryData<{ id: string; starred: boolean }[]>(
+            TASK_CHANNELS_QUERY_KEY,
+          )
+          ?.find((c) => c.id === "1")?.starred,
+      ).toBe(false),
+    );
+
+    // Resolve in REVERSE order: unstar first, star last. With the last-resolved
+    // wins bug, the star (wrong, older intent) would overwrite the cache.
+    await act(async () => {
+      resolveUnstar();
+      resolveStar();
+    });
+
+    const cached = queryClient
+      .getQueryData<{ id: string; starred: boolean }[]>(TASK_CHANNELS_QUERY_KEY)
+      ?.find((c) => c.id === "1");
+    // The cache must reflect the last click (unstar), not the late star.
+    expect(cached?.starred).toBe(false);
   });
 });

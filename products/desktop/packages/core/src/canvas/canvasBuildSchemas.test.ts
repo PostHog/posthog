@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type CanvasBuildLifecycle,
   type CanvasBuildRecord,
+  currentHeadBuildFailure,
   hasActiveCanvasBuild,
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
@@ -71,6 +72,32 @@ describe("canvas build lifecycle", () => {
     value.publishedBuildId = "b0";
 
     expect(publishedCanvasBuild(value)).toBe(ready);
+  });
+
+  it("surfaces a failed build of the current head even when an older published build is also ready", () => {
+    // b_old (sv-old) is the pinned/published live build; a newer publish (b_new,
+    // sv-new = current head) failed. latestFinishedCanvasBuild returns the first
+    // finished build in array order, which here is the ready b_old — position,
+    // not version identity — so it would hide the failure. currentHeadBuildFailure
+    // keys off the current version's own build.
+    const value = lifecycle([
+      build("b_old", "ready"),
+      build("b_new", "failed"),
+    ]);
+    value.builds[0].sourceVersionId = "sv-old";
+    value.builds[1].sourceVersionId = "sv-new";
+    value.publishedBuildId = "b_old";
+    value.currentVersionId = "sv-new";
+
+    expect(latestFinishedCanvasBuild(value)?.id).toBe("b_old");
+    expect(currentHeadBuildFailure(value)?.id).toBe("b_new");
+  });
+
+  it("returns null when the current head built fine or is still in flight", () => {
+    const value = lifecycle([build("b1", "building")]);
+    value.currentVersionId = "sv-1";
+
+    expect(currentHeadBuildFailure(value)).toBeNull();
   });
 
   it("maps the builds endpoint's snake_case body to the client shape", async () => {

@@ -8,6 +8,22 @@ export const PROJECT_API_CLIENT = Symbol.for(
 
 const MAX_PAGES = 50;
 
+/** An API call that failed with an HTTP status (so callers can branch on it). */
+export class ProjectApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ProjectApiError";
+  }
+}
+
+/** The status code of a ProjectApiError, or null for a non-API error. */
+export function apiErrorStatus(error: unknown): number | null {
+  return error instanceof ProjectApiError ? error.status : null;
+}
+
 /**
  * Thin shared client for the current PostHog project's REST API. Resolves the
  * project + auth, then forwards to authenticated fetch. Owners of typed
@@ -36,7 +52,11 @@ export class ProjectApiClient {
     init?: RequestInit,
   ): Promise<T> {
     const res = await this.fetch(path, init);
-    if (!res.ok) throw new Error(`Failed to ${errorLabel} (${res.status})`);
+    if (!res.ok)
+      throw new ProjectApiError(
+        `Failed to ${errorLabel} (${res.status})`,
+        res.status,
+      );
     return (await res.json()) as T;
   }
 

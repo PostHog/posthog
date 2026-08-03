@@ -71,3 +71,23 @@ export function latestFinishedCanvasBuild(
     ) ?? null
   );
 }
+
+/**
+ * The failed build of the canvas's CURRENT head, if it failed. This is the
+ * build whose outcome the author actually cares about — a failed newest
+ * publish must surface even when an older (e.g. pinned/published) build is the
+ * first finished row in the list, because `latestFinishedCanvasBuild` picks by
+ * array position, not version identity.
+ */
+export function currentHeadBuildFailure(
+  lifecycle: CanvasBuildLifecycle,
+): CanvasBuildRecord | null {
+  if (!lifecycle.currentVersionId) return null;
+  return (
+    lifecycle.builds.find(
+      (build) =>
+        build.sourceVersionId === lifecycle.currentVersionId &&
+        build.buildStatus === "failed",
+    ) ?? null
+  );
+}

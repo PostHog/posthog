@@ -29,10 +29,15 @@ interface FreeformChatStore {
   /** MRU access order for eviction, oldest first. Store state (not a module
    * closure) so devtools/tests see it and HMR can't desync it from `threads`. */
   threadOrder: string[];
+  /** Threads with a live view. Eviction skips these even past the cap, so an
+   * open canvas can never lose its browse/runtimeError to a patch burst. */
+  mountedThreadIds: string[];
 
   /** Browse a historical source version (null = back to the head). */
   setBrowseVersion: (threadId: string, versionId: string | null) => void;
   setRuntimeError: (threadId: string, message: string | null) => void;
+  /** Register/unregister a mounted canvas view against its thread. */
+  setThreadMounted: (threadId: string, mounted: boolean) => void;
 }
 
 /** The dashboardId a thread is keyed on ("dashboard:<id>" → "<id>"). */
@@ -43,7 +48,9 @@ export function dashboardIdOf(threadId: string): string {
 export const useFreeformChatStore = create<FreeformChatStore>()((set) => {
   // Every patch refreshes the thread's recency and evicts the least recently
   // used threads beyond the cap. The thread just patched is always the most
-  // recent, so it can never evict itself out from under a mounted view.
+  // recent, so it can never evict itself; mounted threads are never evicted at
+  // all, so a burst of patches to background threads can't blow away a view the
+  // user has open.
   const patch = (
     threadId: string,
     fn: (prev: FreeformThreadState) => FreeformThreadState,
@@ -57,9 +64,18 @@ export const useFreeformChatStore = create<FreeformChatStore>()((set) => {
         ...s.threads,
         [threadId]: fn(s.threads[threadId] ?? EMPTY_FREEFORM_THREAD),
       };
-      while (threadOrder.length > MAX_THREADS) {
-        const oldest = threadOrder.shift();
-        if (oldest !== undefined) delete threads[oldest];
+      const mounted = new Set(s.mountedThreadIds);
+      let evictable = threadOrder.filter((id) => !mounted.has(id)).length;
+      let index = 0;
+      while (evictable > MAX_THREADS && index < threadOrder.length) {
+        const candidate = threadOrder[index];
+        if (mounted.has(candidate)) {
+          index++;
+          continue;
+        }
+        threadOrder.splice(index, 1);
+        delete threads[candidate];
+        evictable--;
       }
       return { threads, threadOrder };
     });
@@ -68,6 +84,7 @@ export const useFreeformChatStore = create<FreeformChatStore>()((set) => {
   return {
     threads: {},
     threadOrder: [],
+    mountedThreadIds: [],
 
     setBrowseVersion: (threadId, versionId) => {
       patch(threadId, (prev) => ({ ...prev, browseVersionId: versionId }));
@@ -75,6 +92,16 @@ export const useFreeformChatStore = create<FreeformChatStore>()((set) => {
 
     setRuntimeError: (threadId, message) => {
       patch(threadId, (prev) => ({ ...prev, runtimeError: message }));
+    },
+
+    setThreadMounted: (threadId, mounted) => {
+      set((s) => ({
+        mountedThreadIds: mounted
+          ? s.mountedThreadIds.includes(threadId)
+            ? s.mountedThreadIds
+            : [...s.mountedThreadIds, threadId]
+          : s.mountedThreadIds.filter((id) => id !== threadId),
+      }));
     },
   };
 });

@@ -6,7 +6,10 @@ import {
   WarningCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { latestFinishedCanvasBuild } from "@posthog/core/canvas/canvasBuildSchemas";
+import {
+  currentHeadBuildFailure,
+  latestFinishedCanvasBuild,
+} from "@posthog/core/canvas/canvasBuildSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
 import type { CanvasDiagnostic } from "@posthog/shared";
@@ -114,7 +117,11 @@ export function CanvasBuildStatus({
     );
   }
 
-  const latest = latestFinishedCanvasBuild(lifecycle);
+  // Surface a failed build of the CURRENT head even when an older (pinned /
+  // published) finished build appears first in the list — array position must
+  // not hide a failed newest publish.
+  const failedHead = currentHeadBuildFailure(lifecycle);
+  const latest = failedHead ?? latestFinishedCanvasBuild(lifecycle);
   if (!latest) return null;
 
   if (latest.buildStatus === "failed") {

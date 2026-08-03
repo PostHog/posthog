@@ -39,10 +39,24 @@ export function useChannelStarMutations() {
       await client.starTaskChannel(input.channelId, input.starred);
       return input;
     },
-    onSuccess: ({ channelId, starred }) => {
+    // Optimistic update: apply the click the moment it's made and roll back on
+    // error. Writing here (not onSuccess) means the last CLICK wins, not the
+    // last request to resolve — two rapid toggles resolving out of order can't
+    // revert the sidebar to the earlier intent.
+    onMutate: async ({ channelId, starred }) => {
+      await queryClient.cancelQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
+      const previous = queryClient.getQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+      );
       queryClient.setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, (old) =>
         old?.map((c) => (c.id === channelId ? { ...c, starred } : c)),
       );
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, context?.previous);
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
     },
   });
