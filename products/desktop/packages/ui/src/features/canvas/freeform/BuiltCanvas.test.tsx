@@ -11,10 +11,12 @@ describe("BuiltCanvas", () => {
       />,
     );
 
-    expect(screen.getByTitle("Canvas")).toHaveAttribute(
-      "src",
-      "https://usercontent.example/build/index.html",
+    const hostDocument = screen.getByTitle("Canvas").getAttribute("srcdoc");
+    expect(hostDocument).toContain("frame-src https://usercontent.example");
+    expect(hostDocument).toContain(
+      'artifactFrame.src = "https://usercontent.example/build/index.html"',
     );
+    expect(hostDocument).not.toContain("frame-src *");
     expect(screen.getByTitle("Canvas")).toHaveAttribute(
       "sandbox",
       "allow-scripts",
@@ -35,7 +37,9 @@ describe("BuiltCanvas", () => {
     );
     const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
     if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
-    const postMessage = vi.spyOn(iframe.contentWindow, "postMessage");
+    const postMessage = vi
+      .spyOn(iframe.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
 
     fireEvent.load(iframe);
     const calls = postMessage.mock.calls as unknown as [
@@ -43,10 +47,18 @@ describe("BuiltCanvas", () => {
       string,
       Transferable[],
     ][];
-    const transferredPort = calls[0]?.[2]?.[0];
+    const transferredPort = calls.at(-1)?.[2]?.[0];
     expect(transferredPort).toBeInstanceOf(MessagePort);
 
-    fireEvent.load(iframe);
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: iframe.contentWindow,
+        data: {
+          channel: "posthog-canvas-host",
+          type: "artifact-navigation",
+        },
+      }),
+    );
     (transferredPort as MessagePort).postMessage({
       channel: "posthog-canvas",
       type: "data-request",
@@ -72,7 +84,9 @@ describe("BuiltCanvas", () => {
     );
     const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
     if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
-    const postMessage = vi.spyOn(iframe.contentWindow, "postMessage");
+    const postMessage = vi
+      .spyOn(iframe.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
 
     fireEvent.load(iframe);
     const calls = postMessage.mock.calls as unknown as [
@@ -80,7 +94,7 @@ describe("BuiltCanvas", () => {
       string,
       Transferable[],
     ][];
-    const canvasPort = calls[0]?.[2]?.[0] as MessagePort;
+    const canvasPort = calls.at(-1)?.[2]?.[0] as MessagePort;
     const responses: unknown[] = [];
     canvasPort.addEventListener("message", (event) =>
       responses.push((event as MessageEvent).data),
