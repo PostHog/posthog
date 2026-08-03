@@ -120,6 +120,22 @@ class TestPushIdentityTokens(SimpleTestCase):
         team = self._team(secret=None)
         assert verify_push_identity_token(token, team, DISTINCT_ID, APP_ID, public_keys=[registered_public]) is False
 
+    def test_returns_false_without_crashing_for_a_mismatched_curve_public_key(self):
+        # A registered key on the wrong curve makes jwt.decode raise InvalidKeyError, which is not an
+        # InvalidTokenError. verify must treat it as unverified rather than let it crash the endpoint.
+        private_pem, _ = _es256_keypair()
+        token = sign_push_identity_token_es256(private_pem, DISTINCT_ID, APP_ID)
+        p384_public = (
+            ec.generate_private_key(ec.SECP384R1())
+            .public_key()
+            .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+            .decode()
+        )
+        assert (
+            verify_push_identity_token(token, self._team(secret=None), DISTINCT_ID, APP_ID, public_keys=[p384_public])
+            is False
+        )
+
     def test_falls_back_to_the_shared_secret_when_public_keys_are_also_registered(self):
         # A project mid-migration can carry both a legacy secret and registered public keys; a token
         # signed with the secret must still verify so existing integrations keep working.

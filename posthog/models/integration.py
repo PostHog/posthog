@@ -162,8 +162,10 @@ def _validate_push_identity_public_keys(public_keys: list[str]) -> None:
             loaded = serialization.load_pem_public_key(key.encode())
         except Exception:
             raise ValidationError("Each push_identity_public_key must be a valid PEM-encoded public key")
-        if not isinstance(loaded, ec.EllipticCurvePublicKey):
-            raise ValidationError("push_identity_public_keys must be EC public keys (P-256) for ES256")
+        # ES256 is defined over P-256 specifically. Accepting another curve (P-384/P-521) would store a
+        # key the verifier can't use — jwt.decode raises InvalidKeyError against it — so reject it here.
+        if not isinstance(loaded, ec.EllipticCurvePublicKey) or not isinstance(loaded.curve, ec.SECP256R1):
+            raise ValidationError("push_identity_public_keys must be P-256 (secp256r1) EC public keys for ES256")
 
 
 def preserved_push_config(

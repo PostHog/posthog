@@ -12,9 +12,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import FirebaseIntegration, Integration
 
 
-def _ec_public_pem() -> str:
+def _ec_public_pem(curve: ec.EllipticCurve | None = None) -> str:
     return (
-        ec.generate_private_key(ec.SECP256R1())
+        ec.generate_private_key(curve or ec.SECP256R1())
         .public_key()
         .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
         .decode()
@@ -97,6 +97,12 @@ class TestFirebaseIntegration(BaseTest):
     def test_rejects_an_invalid_public_key(self):
         with self.assertRaises(ValidationError):
             self._create_firebase_integration(push_identity_public_keys=["not-a-pem"])
+
+    def test_rejects_a_non_p256_public_key(self):
+        # ES256 is defined over P-256 only; a valid PEM on another curve would be stored but unusable
+        # by the verifier, so it must be rejected at registration.
+        with self.assertRaises(ValidationError):
+            self._create_firebase_integration(push_identity_public_keys=[_ec_public_pem(ec.SECP384R1())])
 
     def test_separate_integrations_for_different_projects(self):
         first = self._create_firebase_integration()

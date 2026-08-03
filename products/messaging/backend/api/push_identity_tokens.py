@@ -122,6 +122,9 @@ def _decode_matches(token: str, key: str, algorithm: str, distinct_id: str, app_
             # this a token minted (by an external signer) with no exp would never expire.
             options={"require": ["exp"]},
         )
-    except jwt.InvalidTokenError:
+    except jwt.PyJWTError:
+        # PyJWTError covers both InvalidTokenError (bad/expired/wrong-signature token) and InvalidKeyError
+        # (the key can't be used with this algorithm, e.g. a non-P-256 EC key against ES256). Treat every
+        # such case as "not verified" and fail closed, rather than letting InvalidKeyError 500 the endpoint.
         return False
     return payload.get("sub") == distinct_id and payload.get("app_id") == app_id
