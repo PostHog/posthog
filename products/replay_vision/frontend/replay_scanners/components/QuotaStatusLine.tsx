@@ -19,6 +19,11 @@ function statusMessage(projection: QuotaProjection, onFreePlan: boolean): JSX.El
     if (projection.status !== 'danger') {
         return null
     }
+    // Over the displayed limit but not backend-exhausted (the startup cap before billing clamps):
+    // "exceeded" states the spend fact without claiming scanning is paused.
+    if (projection.usedPct >= 100) {
+        return onFreePlan ? 'Free credits used up' : 'Monthly spend limit exceeded'
+    }
     if (projection.capReachDate) {
         const date = <strong>{projection.capReachDate.format('MMMM D')}</strong>
         return onFreePlan ? (

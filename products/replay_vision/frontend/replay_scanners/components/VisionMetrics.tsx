@@ -15,6 +15,7 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
 import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
@@ -27,7 +28,17 @@ const COLLECTION_ID = 'replay-vision-list-observations'
 export function VisionMetrics(): JSX.Element {
     const { scannerStats, chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
     const { setChartDateRange } = useActions(replayScannersLogic)
-    const { quota, quotaLoading, showUsd, onFreePlan, billedCredits, billedLimitCredits } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        quotaLoading,
+        showUsd,
+        onFreePlan,
+        billedCredits,
+        billedLimitCredits,
+        startupCapCredits,
+        showStartupCap,
+        showStartupCapLine,
+    } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection

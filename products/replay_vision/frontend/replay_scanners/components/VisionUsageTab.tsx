@@ -13,6 +13,7 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -52,7 +53,14 @@ const SPEND_CHART_CREDITS_FORMULA = SPEND_CHART_MODEL_PRICES.map(
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
     const { setSpendChartInterval } = useActions(visionUsageLogic)
-    const { quota, quotaLoading, showUsd, billedCredits, billedLimitCredits } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        quotaLoading,
+        showUsd,
+        billedCredits,
+        billedLimitCredits,
+        showStartupCap,
+    } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -62,7 +70,9 @@ export function VisionUsageTab(): JSX.Element {
 
     const spendTooltip =
         quota && showUsd
-            ? `≈ ${creditsToUsd(billedCredits)} billed${hasCap ? ` of ${creditsToUsd(billedLimitCredits)}` : ''}.`
+            ? `≈ ${creditsToUsd(billedCredits)} billed${hasCap ? ` of ${creditsToUsd(billedLimitCredits)}` : ''}.${
+                  showStartupCap ? ` ${STARTUP_CAP_EXPLANATION}` : ''
+              }`
             : undefined
 
     const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
