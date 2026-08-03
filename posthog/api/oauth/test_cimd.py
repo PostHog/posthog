@@ -1007,7 +1007,9 @@ class TestCIMDVerificationRejectedCaptureEvent(APIBaseTest):
         mock_capture = MagicMock()
 
         _update_cimd_application(
-            app, _make_metadata(posthog_verification_token=plaintext), capture_ph_event=mock_capture
+            app,
+            cast(CIMDMetadataDocument, _make_metadata(posthog_verification_token=plaintext)),
+            capture_ph_event=mock_capture,
         )
 
         rejected = [

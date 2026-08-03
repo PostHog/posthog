@@ -1,3 +1,4 @@
+from datetime import datetime
 from urllib.parse import urlparse
 
 from django.db import migrations
@@ -44,8 +45,9 @@ def backfill_cimd_url(apps, schema_editor):
     another URL. Every row backfilled here has to be corroborated instead of merely
     plausible, so a candidate is written only when ALL of the following hold:
 
-    - the organization has exactly one verified CIMD URL across all its apps (two
-      apps at the same URL count once; two different URLs are ambiguous);
+    - the organization's verified CIMD apps all normalize to one URL (cimd_metadata_url
+      is unique, so two apps can only name one document by spelling it differently;
+      two genuinely different URLs are ambiguous);
     - that URL normalizes to a real value;
     - the organization has exactly one token that isn't already bound;
     - that token has actually verified something before (last_used_at is set);
@@ -78,14 +80,14 @@ def backfill_cimd_url(apps, schema_editor):
         .iterator()
     )
 
-    app_rows_by_org: dict[str, list[tuple[str, object]]] = {}
+    app_rows_by_org: dict[str, list[tuple[str, datetime]]] = {}
     for org_id, url, created in verified_apps:
         app_rows_by_org.setdefault(str(org_id), []).append((url, created))
 
     skipped_ambiguous_url = 0
     skipped_unnormalizable_url = 0
     candidate_urls_by_org: dict[str, str] = {}
-    earliest_app_created_by_org: dict[str, object] = {}
+    earliest_app_created_by_org: dict[str, datetime] = {}
     for org_id, rows in app_rows_by_org.items():
         # Compared after normalizing, not on the raw strings: cimd_metadata_url is unique,
         # so two apps can only ever "share" a document by spelling it differently (host
