@@ -1769,6 +1769,22 @@ def _route_assistant_event(
     )
 
 
+def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str, *, proxied: bool, other_domain: str) -> str:
+    """Drop the workspace's cached Slack profiles so a reinstall resolves users from
+    fresh ``users.info`` data instead of emails cached under the previous install.
+
+    Fanned out once to the other region (loop-guarded) since a dual-owned workspace
+    caches profiles on both sides.
+    """
+    deleted, _ = SlackUserProfileCache.objects.filter(
+        integration__kind=SLACK_INTEGRATION_KIND, integration__integration_id=slack_team_id
+    ).delete()
+    logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
+    if not proxied and cross_region_routing_enabled():
+        _proxy_event_to_region(request, other_domain)
+    return ROUTE_HANDLED_LOCALLY
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1801,18 +1817,8 @@ def route_posthog_code_event_to_relevant_region(
         eu_domain=_eu_region_domain(),
     )
 
-    # Slack-side removal of the app: drop the workspace's cached Slack profiles so a
-    # reinstall resolves users from fresh ``users.info`` data instead of emails cached
-    # under the previous install. Fanned out once to the other region (loop-guarded)
-    # since a dual-owned workspace caches profiles on both sides.
     if event_type == "app_uninstalled":
-        deleted, _ = SlackUserProfileCache.objects.filter(
-            integration__kind=SLACK_INTEGRATION_KIND, integration__integration_id=slack_team_id
-        ).delete()
-        logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
-        if not proxied and cross_region_routing_enabled():
-            _proxy_event_to_region(request, other_domain)
-        return ROUTE_HANDLED_LOCALLY
+        return _handle_app_uninstalled(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
     # App Home tab: published per-user when they open the Home tab. Always
     # handled locally — `views.publish` just renders a snapshot of the user's
