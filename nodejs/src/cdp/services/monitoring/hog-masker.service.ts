@@ -10,9 +10,7 @@ import {
 } from '../../types'
 import { execHog } from '../../utils/hog-exec'
 import { mirrorCompare } from '../../utils/mirror-call'
-import { BASE_REDIS_KEY } from './hog-masker.constants'
-
-export { BASE_REDIS_KEY } from './hog-masker.constants'
+export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
 
 // NOTE: These are controlled via the api so are more of a sanity fallback
