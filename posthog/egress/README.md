@@ -55,6 +55,13 @@ logo.dev publishes no rate-limit numbers, so the budgets are static operator cei
 Every logo.dev call runs on a sheddable lane — the icon id is user-controlled, so nothing in this domain runs `CRITICAL`.
 Icon bytes are never stored server-side (logo.dev licenses that separately), so steady-state traffic is deduped only by browser caching (`posthog/cdp/services/icons.py` sets `Cache-Control`) and tracks unique (user, icon) first views per day — raise the settings if that outgrows the defaults.
 
+Composio (`composio/`) is the one domain that registers a budget which is _not_ an external meter.
+One PostHog-owned Composio account serves every customer, so `composio` is a single instance-wide budget keyed on a fingerprint of `COMPOSIO_API_KEY` — that is what Composio actually meters.
+`composio_team`, keyed by team id, is a fairness guard on top: agents call Composio tools autonomously, so without it one team's runaway loop spends the shared account budget and every other team's tool calls start failing.
+The transport draws from both on every call, account budget first, so a team's burst can't consume instance headroom it was never going to be admitted for.
+Composio publishes no rate-limit numbers, so both are static operator ceilings read from settings at acquire time (`COMPOSIO_EGRESS_*` and `COMPOSIO_TEAM_EGRESS_*`).
+The response parser reads the conventional `x-ratelimit-*` headers when Composio sends them and leaves the gauges unset when it doesn't.
+
 ### Priority lanes
 
 Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when the budget gets tight.

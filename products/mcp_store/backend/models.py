@@ -36,6 +36,21 @@ SCOPE_CHOICES = [
     ("shared", "Shared"),
 ]
 
+# Who serves a template's tools. "direct" is a hosted MCP server we talk to ourselves; "composio"
+# is a toolkit reached through Composio's managed auth, for the long tail of apps that have no
+# hosted MCP server or would need a per-vendor OAuth app registered per region.
+PROVIDER_CHOICES = [
+    ("direct", "Direct"),
+    ("composio", "Composio"),
+]
+
+COMPOSIO_CONNECTION_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("active", "Active"),
+    ("failed", "Failed"),
+    ("expired", "Expired"),
+]
+
 SERVICE_ACCOUNT_STATUS_CHOICES = [
     ("active", "Active"),
     ("paused", "Paused"),
@@ -132,6 +147,13 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     docs_url = models.URLField(max_length=2048, blank=True, default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
+    # db_default keeps a real Postgres DEFAULT so catalog-sync inserts from old pods mid-deploy
+    # don't hit the NOT NULL.
+    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, default="direct", db_default="direct")
+    # Set only when provider="composio". Composio's own toolkit id (e.g. "hubspot"), which is what
+    # its session config and tool slugs key on. The row's `url` is then a marketplace identity
+    # rather than an endpoint we call, since every Composio toolkit is served by one session.
+    composio_toolkit_slug = models.CharField(max_length=100, blank=True, default="", db_default="")
     # Deprecated: icons resolve from icon_domain via logo.dev; the column drop is a follow-up.
     icon_key = models.CharField(max_length=100, blank=True, default="")
     # The vendor's brand domain (e.g. "linear.app") — resolved to an icon at render time via
@@ -499,3 +521,72 @@ class MCPAuditEvent(TeamScopedRootMixin, UUIDModel):
             models.Index(fields=["team", "decision", "-created_at"]),
             models.Index(fields=["team", "actor_service_account", "-created_at"]),
         ]
+
+
+class MCPComposioConnection(TeamScopedRootMixin, UUIDModel):
+    """One user's authorization of one Composio toolkit (HubSpot, Jira, Zendesk, ...).
+
+    Composio holds the actual third-party tokens; we hold the reference. That makes every Composio
+    toolkit a connection under a single `MCPServerInstallation` (the user's Composio connection)
+    rather than an installation of its own, because one Composio session serves all of them
+    through one endpoint.
+
+    The consequence for the gateway: enablement is per-Composio, not per-toolkit, since there is
+    one `MCPGatewayServer` row behind them all. Per-toolkit control is expressed as tool policy
+    instead — Composio tool slugs are toolkit-prefixed (`HUBSPOT_CREATE_CONTACT`), so an
+    `MCPOrgRule` with `tool_pattern="HUBSPOT_*"` gates a toolkit and the destructive-tool presets
+    keep working unchanged.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    installation = models.ForeignKey(
+        MCPServerInstallation, on_delete=models.CASCADE, related_name="composio_connections"
+    )
+    # The marketplace entry this was connected from, for the toolkit's name and icon. Nullable so a
+    # connection outlives a template being dropped from the catalog.
+    template = models.ForeignKey(
+        MCPServerTemplate, on_delete=models.SET_NULL, related_name="composio_connections", null=True, blank=True
+    )
+    toolkit_slug = models.CharField(max_length=100)
+    # Composio's connected-account nano-id (`ca_...`). A reference, not a credential: it is only
+    # usable alongside our server-side API key, so it is stored plain like any external row id.
+    connected_account_id = models.CharField(max_length=100, blank=True, default="")
+    status = models.CharField(max_length=20, choices=COMPOSIO_CONNECTION_STATUS_CHOICES, default="pending")
+    connected_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "mcp_store_mcpcomposioconnection"
+        constraints = [
+            models.UniqueConstraint(fields=["installation", "toolkit_slug"], name="uniq_composio_connection_toolkit"),
+        ]
+        indexes = [models.Index(fields=["team", "status"])]
+
+
+class MCPComposioSession(TeamScopedRootMixin, UUIDModel):
+    """The Composio tool-router session backing one user's Composio connection.
+
+    Sessions persist on Composio's side and are reused across runs rather than minted per call.
+    `config_fingerprint` records the connection set the session was last configured for, so a
+    newly connected or removed toolkit reconfigures the session instead of silently serving a
+    stale toolkit list. `config_version` is Composio's own monotonic version, used for optimistic
+    concurrency when two requests reconfigure at once.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    installation = models.OneToOneField(
+        MCPServerInstallation, on_delete=models.CASCADE, related_name="composio_session"
+    )
+    session_id = models.CharField(max_length=200)
+    mcp_url = models.URLField(max_length=2048)
+    config_version = models.IntegerField(default=0)
+    config_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "mcp_store_mcpcomposiosession"

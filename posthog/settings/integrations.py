@@ -143,6 +143,13 @@ PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
 UNLAYER_API_KEY = get_from_env("UNLAYER_API_KEY", "")
 UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer.com")
 
+# Composio — managed auth and tools for the long tail of third-party apps the MCP store can't reach
+# directly (no hosted MCP server, or an OAuth app we'd have to register per vendor per region).
+# One PostHog-owned Composio account serves every customer, so the key is instance-wide. Unset on
+# self-hosted and in dev, where the MCP store simply offers no Composio-backed servers.
+COMPOSIO_API_KEY = get_from_env("COMPOSIO_API_KEY", "")
+COMPOSIO_API_BASE_URL = get_from_env("COMPOSIO_API_BASE_URL", "https://backend.composio.dev")
+
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
