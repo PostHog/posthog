@@ -10,6 +10,7 @@ import stripe as stripe_lib
 from parameterized import parameterized
 from stripe import ListObject
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -61,17 +62,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+    DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
+    StripeTransientError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
     _is_non_list_stripe_response,
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
     _scrub_client_secrets,
+    check_endpoint_permissions,
     get_rows,
+    validate_credentials as validate_stripe_credentials,
 )
 
 _COMPLETE_LIST_BODY = b'{\n  "object": "list",\n  "data": [],\n  "has_more": false\n}'
@@ -220,11 +225,43 @@ class TestStripeSource:
             "HTTPSConnectionPool(host='api.stripe.com', port=443): Read timed out.",
             "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/charges",
             "Connection reset by peer",
+            # Rate limits are transient (Retry-After-bounded) — must never disable the source.
+            "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here https://stripe.com/docs/rate-limits.",
         ],
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            (
+                # A RateLimitError that survives _RateLimitRetryingRequestsClient's in-process backoff
+                # still gets retried by Temporal at the activity level.
+                "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here "
+                "https://stripe.com/docs/rate-limits.",
+            ),
+            (
+                # A generic backend APIError that survives the SDK's own in-process 5xx retries — one
+                # of at least two known server-generated phrasings for the same "our fault, try again"
+                # condition.
+                "Request req_abc123: Error while communicating with one of our backends.  Sorry about "
+                "that!  We have been notified of the problem.  If you have any questions, we can help "
+                "at https://support.stripe.com/.",
+            ),
+            (
+                "Request req_abc123: Sorry, something went wrong. We've already been notified of the "
+                "problem, but if you need any help, you can reach us at https://support.stripe.com/contact.",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_self_recovering_errors(self, observed_error):
+        # These must be classified as retryable so they're logged as a warning rather than tracked
+        # as an exception, since they're retried by Temporal at the activity level regardless. Match
+        # via the same case-insensitive helper the production path uses (`_handle_import_error`),
+        # not a case-sensitive substring check.
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
 
     @pytest.mark.parametrize(
         "config,expected_message",
@@ -266,6 +303,25 @@ class TestStripeSource:
         assert message is not None
         assert pasted_secret not in message
         assert message.startswith("Stripe rejected the API key.")
+
+    def test_validate_credentials_transient_error_returns_retry_message(self):
+        # A Stripe-side 5xx during the probe is transient and unrelated to the key. The user must
+        # get a retry hint, not Stripe's internal text reported as a permanent validation failure.
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+            side_effect=StripeTransientError("Error while communicating with one of our backends. Sorry about that!"),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert "try again" in message.lower()
+        assert "one of our backends" not in message
+        assert "validation failed" not in message.lower()
 
     @pytest.mark.parametrize(
         "body,expected",
@@ -384,6 +440,39 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
     return rows
 
 
+class TestValidateCredentialsTransientClassification:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            stripe_lib.APIError("Error while communicating with one of our backends. Sorry about that!"),
+            stripe_lib.APIConnectionError("Unexpected error communicating with Stripe."),
+            stripe_lib.RateLimitError("Too many requests."),
+        ],
+    )
+    def test_probe_backend_failure_raises_transient_not_validation(self, error):
+        # These are Stripe-unavailable failures, not credential problems: the probe must raise
+        # StripeTransientError so the caller offers a retry rather than a validation failure.
+        def boom(params=None):
+            raise error
+
+        resource = StripeResource(method=boom)
+        with patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
+            with pytest.raises(StripeTransientError):
+                validate_stripe_credentials("rk_live_x", endpoints=None)
+
+    def test_check_endpoint_permissions_records_transient_without_raising(self):
+        # The schema-selection permissions map must stay whole during a Stripe outage: a transient
+        # error is recorded as the endpoint's reason, not raised out of check_endpoint_permissions.
+        def boom(params=None):
+            raise stripe_lib.APIError("Error while communicating with one of our backends. Sorry about that!")
+
+        resource = StripeResource(method=boom)
+        with patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
+            results = check_endpoint_permissions("rk_live_x", [CUSTOMER_RESOURCE_NAME])
+
+        assert results[CUSTOMER_RESOURCE_NAME] is not None
+
+
 class TestStripeNestedResourceGetRows:
     def test_skips_parent_deleted_mid_sync(self):
         def nested_method(customer=None, params=None):
@@ -425,6 +514,21 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+    def test_query_param_service_receives_parent_in_params(self):
+        # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
+        # expose the parent only inside `params`, not as a method keyword — passing it as a kwarg
+        # raised TypeError: unexpected keyword argument.
+        seen_customers: list[str] = []
+
+        def nested_method(params=None):
+            seen_customers.append(params["customer"])
+            return _list_object([{"id": f"ent_{params['customer']}"}])
+
+        rows = _run_nested_get_rows(nested_method, parent_objects=[{"id": "cus_a"}, {"id": "cus_b"}])
+
+        assert seen_customers == ["cus_a", "cus_b"]
+        assert {row["customer"] for row in rows} == {"cus_a", "cus_b"}
 
 
 class TestInvoiceListWithAllLines:
@@ -951,6 +1055,67 @@ class TestCreditBalanceSummaryFanout:
         )
 
         assert [params["filter"]["credit_grant"] for params in retrieved] == ["credgr_cus"]
+        assert [row["credit_grant"] for row in rows] == ["credgr_cus"]
+
+
+class TestCreditBalanceTransactionFanout:
+    def _run(self, grants: list[dict[str, Any]]) -> tuple[list[dict], list[dict]]:
+        listed: list[dict] = []
+
+        def list_transactions(params):
+            listed.append(params)
+            return _list_object([{"id": f"cbtxn_{params['credit_grant']}", "credit_grant": params["credit_grant"]}])
+
+        client = MagicMock()
+        client.billing.credit_balance_transactions.list.side_effect = list_transactions
+        client.billing.credit_grants.list.return_value = _list_object(grants)
+
+        resource = stripe_module._build_resources(client, logger=None)[BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME]
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(
+                stripe_module,
+                "_build_resources",
+                return_value={BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: resource},
+            ),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint=BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            ):
+                rows.extend(table.to_pylist())
+        return rows, listed
+
+    def test_scopes_each_list_call_to_its_grant_and_customer(self):
+        # Stripe rejects `/v1/billing/credit_balance_transactions` outright without a `customer`
+        # filter ("Must provide customer or customer_account") — calling it as an unscoped list, the
+        # way every other top-level resource is called, 400s on every single sync.
+        rows, listed = self._run([{"id": "credgr_1", "customer": "cus_1"}])
+
+        assert listed == [{"customer": "cus_1", "limit": DEFAULT_LIMIT, "credit_grant": "credgr_1"}]
+        assert [row["credit_grant"] for row in rows] == ["credgr_1"]
+
+    def test_skips_grants_issued_to_an_account(self):
+        # Grants made to an Account carry `customer_account` instead of `customer`; scoping the
+        # request on a missing customer would make Stripe reject it the same way.
+        rows, listed = self._run(
+            [
+                {"id": "credgr_acct", "customer": None, "customer_account": "acct_1"},
+                {"id": "credgr_cus", "customer": "cus_1"},
+            ]
+        )
+
+        assert [params["credit_grant"] for params in listed] == ["credgr_cus"]
         assert [row["credit_grant"] for row in rows] == ["credgr_cus"]
 
 

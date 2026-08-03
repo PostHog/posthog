@@ -8,25 +8,27 @@ Applies to any change under `frontend/src`. This is a **discovery + cadence** gu
 
 Where to look, in order:
 
-1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first.
-2. `@posthog/quill` (`packages/quill/`) — preferred for menus, comboboxes, autocompletes, and new charts. Read `packages/quill/packages/primitives/AGENTS.md` for component choice **before** importing.
-3. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
+1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first, and in most cases stop here.
+2. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
+
+`@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy.
 
 Common reinventions and what to use instead:
 
-| You're about to build…               | Use instead                                                                               |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| a `<table>`                          | `LemonTable` (`lib/lemon-ui/LemonTable`) — has sorting, pagination, loading, empty states |
-| a colored status pill / count badge  | `LemonBadge`                                                                              |
-| a small removable chip               | `LemonSnack` or `LemonTag`                                                                |
-| a form field label                   | `LemonLabel`                                                                              |
-| a dropdown / combobox / autocomplete | quill `DropdownMenu` / `Combobox` / `Autocomplete` (not a new `LemonMenu`)                |
-| a card / panel                       | `LemonCard`                                                                               |
-| a modal / confirm dialog             | `LemonModal` / `LemonDialog`                                                              |
+| You're about to build…              | Use instead                                                                               |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| a `<table>`                         | `LemonTable` (`lib/lemon-ui/LemonTable`) — has sorting, pagination, loading, empty states |
+| a colored status pill / count badge | `LemonBadge`                                                                              |
+| a small removable chip              | `LemonSnack` or `LemonTag`                                                                |
+| a form field label                  | `LemonLabel`                                                                              |
+| a dropdown menu of actions          | `LemonMenu` with a `LemonButton` trigger (not a new `lib/ui/DropdownMenu`)                |
+| a select / combobox / autocomplete  | `LemonSelect`, `LemonInputSelect`                                                         |
+| a card / panel                      | `LemonCard`                                                                               |
+| a modal / confirm dialog            | `LemonModal` / `LemonDialog`                                                              |
 
 If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork.
 
-> LemonUI vs quill, and the quill spacing/composition rules, live in the root `AGENTS.md` ("Code Style → Frontend (quill …)") and `packages/quill/packages/primitives/AGENTS.md`. Follow those — don't mix quill and Lemon inside one component's internals.
+> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
 ## Rule 2 — Don't handwrite API types; use the generated ones
 

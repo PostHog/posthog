@@ -20,7 +20,9 @@ The replay reconstructs each page from DOM snapshots, so states the user never s
 You have a tool, `get_events_around`: pass a footer `REC_T` and it returns the events within a few seconds of that moment, each tagged with its own `rec_t`. Fields include `event`, `$current_url`, `$event_type`, `elements_chain_*` (what was interacted with), and `$exception_types`/`$exception_values`.
 
 Use it liberally — call it for any moment that looks interesting, and always before you judge whether the user succeeded, failed, or hit friction, which are easy to misread from the video alone. `$rageclick` (the same element clicked again and again) and `$dead_click` (a click that changed nothing) are the highest-signal friction events: treat them as ground truth, concluding one only when `get_events_around` confirms it at that `REC_T`, not from interaction bursts on tabs, dropdowns, or other re-clickable controls.
-</events_tool>
+{% if events_truncated %}
+This session produced more events than the tool can hold, so only the earliest portion is available. Later moments may return nothing even though something happened there — treat a missing result near the end of the session as "unknown", not as "nothing happened".
+{% endif %}</events_tool>
 
 <gestures>
 Touch and browser gestures often leave no click events: a back-swipe navigates without any click, and scroll flicks can register as taps. On touch devices a single `$dead_click` is often a scroll gesture rather than frustration, so weigh it lower than on desktop unless it repeats on the same element. A burst of rapid, aimless taps and swipes with no coherent goal is more likely accidental input (an unlocked phone in a pocket) than a frustrated user.

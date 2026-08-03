@@ -1,3 +1,4 @@
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,7 @@ from products.signals.backend.auto_start import (
     ReviewerContent,
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
+    _generate_self_driving_head_branch,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
@@ -246,6 +248,23 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
         assert resolved is None
 
 
+@pytest.mark.parametrize(
+    "title,expected_slug",
+    [
+        ("Fix date filtering in weekly digests", "fix-date-filtering-in-weekly-digests"),
+        # slugify strips everything, so the fallback keeps the branch a valid git ref instead of
+        # producing "posthog-self-driving/-<hex>".
+        ("🎉🎉", "implementation"),
+        # A slug over 40 chars truncates at a word boundary, never mid-word or on a trailing hyphen.
+        ("date filtering breaks week over week comparisons badly", "date-filtering-breaks-week-over-week"),
+    ],
+)
+def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected_slug):
+    branch = _generate_self_driving_head_branch(title)
+
+    assert re.fullmatch(rf"posthog-self-driving/{re.escape(expected_slug)}-[0-9a-f]{{6}}", branch)
+
+
 @pytest.mark.django_db
 def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
@@ -293,6 +312,11 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
     assert call_kwargs["internal"] is True
+    # The server-generated head branch is the unforgeable end of the run->PR link the review
+    # carve-out matches on; dropping the stamp or the description instruction silently kills
+    # self-driving reviews (the agent pushes to a name the server never stamped).
+    assert call_kwargs["self_driving_head_branch"].startswith("posthog-self-driving/")
+    assert call_kwargs["self_driving_head_branch"] in call_kwargs["description"]
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.

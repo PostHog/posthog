@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from django.core.cache import cache
 
+import requests
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -317,6 +318,13 @@ class GoogleAdsSource(
             raise IntegrationAccountListingError(
                 "Google rejected the credentials for this integration. Please reconnect your Google Ads "
                 "integration and make sure the connected account can access your Google Ads accounts."
+            ) from e
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            # The walk retries a transient blip internally; this means every attempt on some request
+            # timed out or failed to connect. Actionable and retryable from the user's side, so surface
+            # a clean message instead of the raw connection error.
+            raise IntegrationAccountListingError(
+                "Google Ads did not respond in time while listing your accounts. Please try again."
             ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}

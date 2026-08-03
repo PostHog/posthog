@@ -1,5 +1,6 @@
 import gzip
 import json
+import threading
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
+from products.web_analytics.dags import cache_warming
 from products.web_analytics.dags.cache_warming import (
     WarmQueriesConfig,
     build_replay_runner,
@@ -607,6 +609,71 @@ class TestWarmQueriesOp(BaseTest):
 
         self.assertEqual(runner.run.call_count, expected_runs)
 
+    @parameterized.expand(
+        [
+            # A dead ClickHouse node can block every pool thread in a socket
+            # read forever: nothing completes, the run wedges, and mutual
+            # exclusion starves every later scheduled tick (observed in prod as
+            # a silent pod needing manual termination). With queued work beyond
+            # the in-flight set the pass must hard-exit so Dagster records a
+            # failure and the next tick recovers. A quiet tail with only the
+            # in-flight remainder pending is a legitimate slow straggler and
+            # must NOT exit.
+            # One silent window with queued work is definitive; a quiet tail
+            # gets WARMING_TAIL_STALL_WINDOWS before the same verdict — a
+            # single slow straggler survives, a fully wedged tail cannot spin
+            # forever (greptile P1: the old tail branch looped indefinitely).
+            ("stall_with_queued_work_exits", 10, 1, True),
+            ("slow_tail_one_window_keeps_waiting", 3, 1, False),
+            ("wedged_tail_exits_after_windows", 3, cache_warming.WARMING_TAIL_STALL_WINDOWS, True),
+        ]
+    )
+    def test_stalled_pass_fails_fast_instead_of_wedging(
+        self, _name: str, n_shapes: int, empty_windows: int, expect_exit: bool
+    ) -> None:
+        class _Exited(BaseException):
+            pass
+
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        real_wait = cache_warming.wait
+        calls = {"n": 0}
+
+        def fake_wait(
+            pending: set, timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set, set]:
+            calls["n"] += 1
+            if calls["n"] <= empty_windows:
+                return set(), pending
+            return real_wait(pending, timeout=5, return_when=return_when)
+
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.wait", side_effect=fake_wait),
+            patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
+        ):
+            mock_cm.return_value.lookup.return_value.entry = None
+            shapes = [
+                {
+                    "team_id": self.team.pk,
+                    "query_json": {"kind": "WebOverviewQuery", "properties": [], "n": i},
+                    "query_count": 5,
+                    "representative_query_count": 5,
+                    "normalized_query_hash": f"h{i}",
+                }
+                for i in range(n_shapes)
+            ]
+            if expect_exit:
+                with self.assertRaises(_Exited):
+                    warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
+            else:
+                warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
+
+        self.assertEqual(mock_exit.called, expect_exit)
+        if not expect_exit:
+            self.assertEqual(runner.run.call_count, n_shapes)
+
     def test_staleness_evaluated_on_jitter_aged_entry(self) -> None:
         # Shapes warmed together go stale together (fixed threshold), so a bulk
         # pass turns into a synchronized expiry storm hours later. The warmer
@@ -647,6 +714,59 @@ class TestWarmQueriesOp(BaseTest):
         # true last_refresh and would return the fresh cached response, turning
         # the early warm into a silent no-op.
         self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+    def test_cancellation_drains_or_exits_within_grace(self) -> None:
+        # Cancellation mid-pass must not hand the executor a queue to drain nor
+        # hang joining a wedged thread (codex/greptile P1: the with-block exit
+        # called shutdown(wait=True) after cancel_futures). Healthy in-flight
+        # shapes finish within the grace and the interrupt propagates; wedged
+        # ones trigger the hard exit.
+        class _Exited(BaseException):
+            pass
+
+        release = threading.Event()
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        runner.run.side_effect = lambda **kwargs: release.wait(10)
+
+        real_wait = cache_warming.wait
+        calls = {"n": 0}
+
+        def interrupting_wait(pending: set, timeout: float | None = None, return_when: str = "") -> tuple[set, set]:
+            calls["n"] += 1
+            if calls["n"] == 1 and return_when:
+                raise KeyboardInterrupt()
+            # The grace-period wait (no return_when) runs for real, shortened.
+            return real_wait(pending, timeout=0.2)
+
+        try:
+            with (
+                patch(
+                    "products.web_analytics.dags.cache_warming.build_replay_runner",
+                    return_value=(runner, {}, True),
+                ),
+                patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+                patch("products.web_analytics.dags.cache_warming.wait", side_effect=interrupting_wait),
+                patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
+            ):
+                mock_cm.return_value.lookup.return_value.entry = None
+                with self.assertRaises(_Exited):
+                    warm_queries_op(
+                        dagster.build_op_context(),
+                        WarmQueriesConfig(),
+                        [
+                            {
+                                "team_id": self.team.pk,
+                                "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                                "query_count": 5,
+                                "representative_query_count": 5,
+                                "normalized_query_hash": "h",
+                            }
+                        ],
+                    )
+                assert mock_exit.called
+        finally:
+            release.set()
 
     def test_team_ids_and_limit_scope_the_run(self) -> None:
         # A Launchpad run scoped to one team must not warm the fleet: launches

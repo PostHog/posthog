@@ -48,6 +48,76 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
+ * @summary Post an inline review comment on a report's implementation PR
+ */
+export const signalsReportPrReviewCommentsCreateBodyBodyMax = 65536
+
+export const signalsReportPrReviewCommentsCreateBodyInReplyToRegExp = new RegExp('^[0-9]+$')
+
+export const SignalsReportPrReviewCommentsCreateBody = /* @__PURE__ */ zod
+    .object({
+        body: zod
+            .string()
+            .max(signalsReportPrReviewCommentsCreateBodyBodyMax)
+            .describe('Comment body (GitHub-flavored markdown).'),
+        in_reply_to: zod
+            .string()
+            .regex(signalsReportPrReviewCommentsCreateBodyInReplyToRegExp)
+            .nullish()
+            .describe('Numeric id of the thread root comment to reply to. When set, path\/line\/side are ignored.'),
+        path: zod
+            .string()
+            .nullish()
+            .describe('File path to anchor a new comment thread to (required when starting a new thread).'),
+        line: zod
+            .number()
+            .min(1)
+            .nullish()
+            .describe('Diff line to anchor a new comment thread to (required when starting a new thread).'),
+        side: zod
+            .union([zod.enum(['LEFT', 'RIGHT']).describe('\* `LEFT` - LEFT\n\* `RIGHT` - RIGHT'), zod.null()])
+            .optional()
+            .describe(
+                "Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.\n\n\* `LEFT` - LEFT\n\* `RIGHT` - RIGHT"
+            ),
+    })
+    .describe(
+        'Request body for posting an inline PR review comment as the requesting user.\n\nTwo shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new\nthread on a diff line (`body` + `path` + `line`, optionally `side`).'
+    )
+
+/**
+ * @summary Edit one of the requesting user's own review comments
+ */
+export const signalsReportPrReviewCommentUpdateBodyBodyMax = 65536
+
+export const SignalsReportPrReviewCommentUpdateBody = /* @__PURE__ */ zod
+    .object({
+        body: zod
+            .string()
+            .max(signalsReportPrReviewCommentUpdateBodyBodyMax)
+            .optional()
+            .describe('New comment body (GitHub-flavored markdown).'),
+    })
+    .describe("Request body for editing a review comment's markdown body.")
+
+/**
+ * @summary React to a review comment as the requesting user
+ */
+export const SignalsReportPrReviewCommentReactionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .enum(['+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'])
+            .describe(
+                '\* `+1` - +1\n\* `-1` - -1\n\* `laugh` - laugh\n\* `hooray` - hooray\n\* `confused` - confused\n\* `heart` - heart\n\* `rocket` - rocket\n\* `eyes` - eyes'
+            )
+            .describe(
+                "Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.\n\n\* `+1` - +1\n\* `-1` - -1\n\* `laugh` - laugh\n\* `hooray` - hooray\n\* `confused` - confused\n\* `heart` - heart\n\* `rocket` - rocket\n\* `eyes` - eyes"
+            ),
+    })
+    .describe('Request body for adding an emoji reaction to a review comment.')
+
+/**
  * Refund the flat charge for this report's implementation PR and archive the report. Refunds auto-approve: the charge is either excluded from usage before it is ever reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe customer-balance credit on the next invoice. A refunded PR does not count toward the free monthly PR allowance. One refund per report, ever — repeat calls return the existing refund with already_refunded=true. The report is archived as part of the refund (a resolved report stays resolved) and can't be restored afterwards.
  * @summary Refund a report's implementation PR
  */
@@ -226,7 +296,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
 export const signalsScoutCreateBodyNameMax = 64
@@ -327,6 +397,19 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+                network_access: zod
+                    .enum(['trusted', 'full'])
+                    .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+                    .optional()
+                    .describe(
+                        "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                    ),
+                auto_pause_exempt: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.'
+                    ),
                 run_cron_schedule: zod
                     .string()
                     .max(signalsScoutCreateBodyConfigOneRunCronScheduleMax)
@@ -344,7 +427,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
@@ -399,6 +482,19 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+        network_access: zod
+            .enum(['trusted', 'full'])
+            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .optional()
+            .describe(
+                "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+            ),
+        auto_pause_exempt: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.'
+            ),
         run_cron_schedule: zod
             .string()
             .max(signalsScoutConfigCreateBodyRunCronScheduleMax)
@@ -418,7 +514,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
@@ -433,7 +529,9 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
         enabled: zod
             .boolean()
             .optional()
-            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+            .describe(
+                'Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched.'
+            ),
         emit: zod
             .boolean()
             .optional()
@@ -482,6 +580,19 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
+            ),
+        network_access: zod
+            .enum(['trusted', 'full'])
+            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .optional()
+            .describe(
+                "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+            ),
+        auto_pause_exempt: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
