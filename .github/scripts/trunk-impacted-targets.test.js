@@ -57,6 +57,15 @@ test('every tripwire forces ALL', () => {
         'products/alpha/manifest.tsx',
         'bin/start',
         '.test_durations',
+        // Trees that steer what every suite runs or what it runs against: the
+        // Depot copies of the workflows, the toolchain, the service configs the
+        // stack mounts, and the lint rules that run repo-wide.
+        '.depot/workflows/ci-backend.yml',
+        '.flox/env/manifest.toml',
+        'docker/clickhouse/config.d/default.xml',
+        'devenv/duckgres.yaml',
+        '.semgrep/rules/security/prefer-codegen-api.yaml',
+        '.config/.markdownlint-cli2.jsonc',
     ]
     for (const file of tripwireFiles) {
         assert.equal(isTripwire(file), true, `${file} should be a tripwire`)
@@ -72,9 +81,75 @@ test('a tripwire anywhere in the change set forces ALL even alongside narrow fil
 // target set reads to Trunk as "overlaps nothing", so the PR merges in parallel
 // with everything. A new top-level directory must widen, never narrow.
 test('an unmapped path forces ALL rather than an empty target set', () => {
-    for (const file of ['terraform/main.tf', 'some-new-toplevel/thing.go', 'common/unrecognized/x.ts']) {
+    for (const file of [
+        'some-new-toplevel/thing.go',
+        'common/unrecognized/x.ts',
+        // agent-os/ and share/ hold nothing but markdown today, so a file that
+        // is not prose there is as unclassified as a brand new tree.
+        'share/geoip.py',
+        'agent-os/generate.py',
+    ]) {
         assert.equal(computeTargets([file], CONTEXT), ALL, `${file} should force ALL`)
     }
+})
+
+// Each of these went to ALL only because no rule named the directory, which
+// serialized the PR against the whole repo for a change no suite outside its
+// own tree can see.
+test('standalone top-level trees hold a lane instead of widening', () => {
+    assert.deepEqual(computeTargets(['terraform/us/project-2/dashboards.tf'], CONTEXT), ['terraform'])
+    assert.deepEqual(computeTargets(['livestream/auth/jwt.go'], CONTEXT), ['livestream'])
+    assert.deepEqual(computeTargets(['funnel-udf/src/codec.rs'], CONTEXT), ['funnel-udf'])
+})
+
+// funnel-udf and cli are cargo workspaces of their own, outside rust/ and
+// outside its lockfile, so the crate graph must not be consulted for them.
+test('standalone cargo workspaces stay out of the rust crate lanes', () => {
+    const udf = computeTargets(['funnel-udf/src/codec.rs'], CONTEXT)
+    const rust = computeTargets(['rust/shared/src/lib.rs'], CONTEXT)
+    assert.deepEqual(
+        udf.filter((target) => rust.includes(target)),
+        []
+    )
+})
+
+// ci-cli.yml builds the CLI from services/mcp sources, so a lane of its own
+// would let an mcp change and the cli change that consumes it merge in
+// parallel.
+test('cli changes share a lane with the mcp service', () => {
+    const cli = computeTargets(['cli/src/main.rs'], CONTEXT)
+    const mcp = computeTargets(['services/mcp/src/index.ts'], CONTEXT)
+    assert.deepEqual(cli, ['cli', 'svc:mcp'])
+    assert.equal(
+        cli.some((target) => mcp.includes(target)),
+        true
+    )
+})
+
+// The pr-approval-agent suite reads both, and the policy files are markdown
+// that the prose rule would otherwise treat as inert.
+test('stamphog policy files claim the suite that validates them', () => {
+    assert.deepEqual(computeTargets(['.stamphog/policy.yml'], CONTEXT), ['tools:pr-approval-agent'])
+    assert.deepEqual(computeTargets(['.stamphog/review-guidance.md'], CONTEXT), ['tools:pr-approval-agent'])
+    // Wherever it sits, the file belongs to the suite rather than to the
+    // product tree holding it.
+    assert.deepEqual(computeTargets(['products/alpha/AGENT_APPROVALS.md'], CONTEXT), ['tools:pr-approval-agent'])
+    assert.deepEqual(
+        computeTargets(['.stamphog/policy.yml'], CONTEXT),
+        computeTargets(['tools/pr-approval-agent/policy.py'], CONTEXT)
+    )
+})
+
+// Editor and agent configuration no suite reads. One shared lane is enough:
+// these PRs are rare, and the alternative is a lane per tree for files that
+// cannot change any test's outcome.
+test('editor and agent configuration shares one lane', () => {
+    for (const file of ['.vscode/launch.json', '.zed/debug.json', '.husky/pre-commit', '.claude/settings.json']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['repo-config'], file)
+    }
+    // Markdown in those trees is still prose, so a PR that only reorganizes an
+    // agent doc claims no lane at all.
+    assert.deepEqual(computeTargets(['.claude/agents/code-reviewer.md'], CONTEXT), ['prose'])
 })
 
 test('globs match across directories only through **', () => {
@@ -398,8 +473,11 @@ test('independent trees stay disjoint so they can share no lane', () => {
     const node = computeTargets(['nodejs/src/worker.ts'], CONTEXT)
     const service = computeTargets(['services/mcp/src/index.ts'], CONTEXT)
     const agents = computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT)
+    const infra = computeTargets(['terraform/us/project-2/dashboards.tf'], CONTEXT)
+    const live = computeTargets(['livestream/auth/jwt.go'], CONTEXT)
+    const config = computeTargets(['.zed/debug.json'], CONTEXT)
 
-    const sets = [rust, node, service, agents]
+    const sets = [rust, node, service, agents, infra, live, config]
     for (let i = 0; i < sets.length; i++) {
         for (let j = i + 1; j < sets.length; j++) {
             const overlap = sets[i].filter((target) => sets[j].includes(target))
