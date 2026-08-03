@@ -27,6 +27,10 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/PostHog/posthog/tree/master/common/hogql_parser"
 
+# Dependency cooldown does not apply here: this member declares no registry
+# dependencies, and uv resolves the workspace against the root pyproject.toml,
+# whose [tool.uv] already sets exclude-newer = "7 days".
+# nosemgrep: package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
 [tool.uv]
 # uv only rebuilds a path dependency when pyproject.toml/setup.py change; these
 # keys make edits to the C++ sources and stubs invalidate the cached build too.

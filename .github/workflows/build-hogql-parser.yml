@@ -48,6 +48,15 @@ jobs:
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
+                  # The uv workspace flip removes the registry pin; on flipped branches
+                  # this pre-merge publish flow is fully disabled (a post-merge release
+                  # workflow supersedes it) so the bot can never re-pin the package.
+                  if ! grep -q 'hogql-parser==' pyproject.toml; then
+                    echo "hogql-parser is a workspace member; pre-merge publishing is disabled."
+                    echo "version-release-needed=false" >> $GITHUB_OUTPUT
+                    echo "parser-release-needed=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
                   parser_release_needed='false'
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                     local=$(cd common/hogql_parser && python setup.py --version)
@@ -215,6 +224,12 @@ jobs:
               env:
                   RETRIES: 20
               run: |
+                  # Same workspace-member guard as check-version: never rewrite the
+                  # manifest of a branch that has no registry pin.
+                  if ! grep -q 'hogql-parser==' pyproject.toml; then
+                    echo "hogql-parser is a workspace member; no pin to update."
+                    exit 0
+                  fi
                   # setuptools isn't installed by default after actions/setup-python, but
                   # `python setup.py --version` needs it. Mirrors the sdist step above.
                   pip install setuptools==80.9.0
