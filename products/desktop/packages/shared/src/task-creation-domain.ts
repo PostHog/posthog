@@ -84,6 +84,12 @@ export interface TaskCreationInput {
    */
   customInstructions?: string;
   /**
+   * Always-on skills (by name+source ref) the user excluded from this one
+   * task via the composer chip. Subtracted when the saga resolves the
+   * always-on set; the global toggles are untouched.
+   */
+  excludedAlwaysOnSkills?: { name: string; source: string }[];
+  /**
    * Local (~/.claude.json) MCP servers classified as importable, forwarded to
    * the cloud sandbox in the run-creation payload. Cloud-only; local sessions
    * already read the user's config directly.

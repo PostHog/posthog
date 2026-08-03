@@ -273,11 +273,13 @@ describe("TaskCreationSaga", () => {
       content: "Ship the fix",
       repository: "posthog/posthog",
       workspaceMode: "cloud",
+      excludedAlwaysOnSkills: [{ name: "skipped", source: "user" }],
     });
 
     expect(result.success).toBe(true);
     expect(mockHost.resolveAlwaysOnSkills).toHaveBeenCalledWith({
       includeBodies: false,
+      exclude: [{ name: "skipped", source: "user" }],
     });
     // The bundle rides the existing attachment pipeline to the real run.
     expect(mockHost.uploadRunAttachments).toHaveBeenCalledWith(

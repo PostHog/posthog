@@ -106,6 +106,24 @@ export function resolveAlwaysOnSkills(
   return resolved;
 }
 
+/**
+ * Removes entries matching the given {name, source} refs — used for the
+ * composer's per-task "skip for this task" exclusions. Generic so it filters
+ * both persisted refs and resolved skills.
+ */
+export function excludeAlwaysOnSkillRefs<T extends AlwaysOnSkillRef>(
+  refs: T[],
+  excluded: { name: string; source: string }[] | undefined,
+): T[] {
+  if (!excluded?.length) return refs;
+  return refs.filter(
+    (ref) =>
+      !excluded.some(
+        (entry) => entry.name === ref.name && entry.source === ref.source,
+      ),
+  );
+}
+
 /** Returns the same array when nothing was pruned, so callers can compare by identity. */
 export function pruneAlwaysOnSkillRefs(
   refs: AlwaysOnSkillRef[],

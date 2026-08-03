@@ -35,6 +35,7 @@ export interface PrepareTaskInputOptions {
   channelId?: string;
   channelContextId?: string;
   customInstructions?: string;
+  excludedAlwaysOnSkills?: { name: string; source: string }[];
   autoPublishCloudRuns?: boolean;
   rtkEnabledCloud?: boolean;
   allowNoRepo?: boolean;
@@ -85,6 +86,7 @@ export function prepareTaskInput(
     channelId: options.channelId,
     channelContextId: options.channelContextId,
     customInstructions: isCloud ? options.customInstructions : undefined,
+    excludedAlwaysOnSkills: options.excludedAlwaysOnSkills,
     allowNoRepo: options.allowNoRepo,
     importedMcpServers: isCloud ? options.importedMcpServers : undefined,
     relayedMcpServers: isCloud ? options.relayedMcpServers : undefined,

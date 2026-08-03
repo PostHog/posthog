@@ -1,4 +1,7 @@
-import { resolveAlwaysOnSkills } from "@posthog/core/skills/alwaysOnSkills";
+import {
+  excludeAlwaysOnSkillRefs,
+  resolveAlwaysOnSkills,
+} from "@posthog/core/skills/alwaysOnSkills";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
@@ -146,9 +149,26 @@ export const ChannelHomeComposer = forwardRef<
 
   const { data: skillsList } = useSkills();
   const alwaysOnSkillRefs = useSettingsStore((s) => s.alwaysOnSkills);
+  // Chip-X exclusions apply to exactly one task: they ride the creation input
+  // and reset after a successful submit (the composer stays mounted here).
+  const [excludedAlwaysOnSkills, setExcludedAlwaysOnSkills] = useState<
+    { name: string; source: string }[]
+  >([]);
   const alwaysOnSkills = useMemo(
-    () => resolveAlwaysOnSkills(alwaysOnSkillRefs, skillsList ?? []),
-    [alwaysOnSkillRefs, skillsList],
+    () =>
+      excludeAlwaysOnSkillRefs(
+        resolveAlwaysOnSkills(alwaysOnSkillRefs, skillsList ?? []),
+        excludedAlwaysOnSkills,
+      ),
+    [alwaysOnSkillRefs, skillsList, excludedAlwaysOnSkills],
+  );
+  const handleExcludeAlwaysOnSkill = useCallback(
+    (skill: { name: string; source: string }) =>
+      setExcludedAlwaysOnSkills((prev) => [
+        ...prev,
+        { name: skill.name, source: skill.source },
+      ]),
+    [],
   );
 
   // Repo-less channel tasks only run local or cloud (worktree needs a repo), so
@@ -321,6 +341,7 @@ export const ChannelHomeComposer = forwardRef<
     channelName,
     channelId: backendChannelId,
     channelContextId: channelId,
+    excludedAlwaysOnSkills,
     onTaskCreated: handleTaskCreated,
   });
 
@@ -343,7 +364,9 @@ export const ChannelHomeComposer = forwardRef<
     onPendingStart({ id, prompt });
 
     const created = await handleSubmit(content);
-    if (!created) {
+    if (created) {
+      setExcludedAlwaysOnSkills([]);
+    } else {
       // Creation failed — onTaskCreated never fired, so this id is still
       // queued. Pull its row and give the full structured prompt (chips and
       // attachments, not just flattened text) back so the user can retry.
@@ -416,7 +439,10 @@ export const ChannelHomeComposer = forwardRef<
             size="1"
             disabled={isBusy}
           />
-          <AlwaysOnSkillChips skills={alwaysOnSkills} />
+          <AlwaysOnSkillChips
+            skills={alwaysOnSkills}
+            onExclude={handleExcludeAlwaysOnSkill}
+          />
         </div>
       )}
 

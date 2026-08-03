@@ -9,7 +9,10 @@ import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
-import { resolveAlwaysOnSkills } from "@posthog/core/skills/alwaysOnSkills";
+import {
+  excludeAlwaysOnSkillRefs,
+  resolveAlwaysOnSkills,
+} from "@posthog/core/skills/alwaysOnSkills";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
@@ -228,11 +231,28 @@ export function TaskInput({
   } = useSettingsStore();
   const { data: skills } = useSkills();
   const alwaysOnSkillRefs = useSettingsStore((s) => s.alwaysOnSkills);
+  // Skills the user skipped for this one task via the chip X. Global toggles
+  // stay on; the exclusions ride the creation input so the saga honors them.
+  const [excludedAlwaysOnSkills, setExcludedAlwaysOnSkills] = useState<
+    { name: string; source: string }[]
+  >([]);
   // Resolved the same way the saga will at creation, so the "Using:" row
   // previews exactly what the next task carries (stale refs drop out).
   const alwaysOnSkills = useMemo(
-    () => resolveAlwaysOnSkills(alwaysOnSkillRefs, skills ?? []),
-    [alwaysOnSkillRefs, skills],
+    () =>
+      excludeAlwaysOnSkillRefs(
+        resolveAlwaysOnSkills(alwaysOnSkillRefs, skills ?? []),
+        excludedAlwaysOnSkills,
+      ),
+    [alwaysOnSkillRefs, skills, excludedAlwaysOnSkills],
+  );
+  const handleExcludeAlwaysOnSkill = useCallback(
+    (skill: { name: string; source: string }) =>
+      setExcludedAlwaysOnSkills((prev) => [
+        ...prev,
+        { name: skill.name, source: skill.source },
+      ]),
+    [],
   );
 
   const editorRef = useRef<EditorHandle>(null);
@@ -962,6 +982,7 @@ export function TaskInput({
     channelName,
     channelId,
     channelContextId,
+    excludedAlwaysOnSkills,
     allowNoRepo,
   });
 
@@ -1525,7 +1546,10 @@ export function TaskInput({
                         </Tooltip>
                       </span>
                     )}
-                    <AlwaysOnSkillChips skills={alwaysOnSkills} />
+                    <AlwaysOnSkillChips
+                      skills={alwaysOnSkills}
+                      onExclude={handleExcludeAlwaysOnSkill}
+                    />
                   </div>
                 )}
                 {effectiveWorkspaceMode === "cloud" &&

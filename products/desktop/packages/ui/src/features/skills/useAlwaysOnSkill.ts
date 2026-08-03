@@ -8,8 +8,7 @@ import { useCallback } from "react";
 import { track } from "../../shell/analytics";
 import { useSettingsStore } from "../settings/settingsStore";
 
-/** Store write + analytics in one place, callable outside React (chips). */
-export function setSkillAlwaysOnTracked(
+function setSkillAlwaysOnTracked(
   skill: Pick<SkillInfo, "name" | "source">,
   enabled: boolean,
 ): void {

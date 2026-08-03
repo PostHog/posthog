@@ -2,6 +2,7 @@ import type { SkillInfo } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   type AlwaysOnSkillRef,
+  excludeAlwaysOnSkillRefs,
   isAlwaysOnSkill,
   pruneAlwaysOnSkillRefs,
   resolveAlwaysOnSkills,
@@ -99,6 +100,30 @@ describe("resolveAlwaysOnSkills", () => {
     );
     expect(resolved).toHaveLength(1);
     expect(resolved[0].name).toBe("i-have-adhd");
+  });
+});
+
+describe("excludeAlwaysOnSkillRefs", () => {
+  const refs: AlwaysOnSkillRef[] = [
+    { name: "i-have-adhd", source: "user" },
+    { name: "review", source: "codex" },
+  ];
+
+  it.each([[undefined], [[]]])(
+    "returns the list unchanged for no exclusions (%s)",
+    (excluded) => {
+      expect(excludeAlwaysOnSkillRefs(refs, excluded)).toBe(refs);
+    },
+  );
+
+  it("drops entries matching an excluded name+source only", () => {
+    expect(
+      excludeAlwaysOnSkillRefs(refs, [
+        { name: "i-have-adhd", source: "user" },
+        // Same name under a different source must not match.
+        { name: "review", source: "user" },
+      ]),
+    ).toEqual([{ name: "review", source: "codex" }]);
   });
 });
 

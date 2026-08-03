@@ -127,6 +127,7 @@ export class TaskCreationSaga extends Saga<
         : await this.readOnlyStep("resolve_always_on_skills", () =>
             this.deps.host.resolveAlwaysOnSkills({
               includeBodies: input.workspaceMode !== "cloud",
+              exclude: input.excludedAlwaysOnSkills,
             }),
           );
 

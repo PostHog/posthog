@@ -96,6 +96,8 @@ interface UseTaskCreationOptions {
    * injected context address CONTEXT.md upkeep writes by a stable id.
    */
   channelContextId?: string;
+  /** Always-on skills the composer excluded from this one task (chip X). */
+  excludedAlwaysOnSkills?: { name: string; source: string }[];
   /**
    * Channels "generic chat box" mode: drop the repo/branch requirement so a
    * task can be submitted without picking a repo. The agent decides at runtime
@@ -194,6 +196,7 @@ export function useTaskCreation({
   channelName,
   channelId,
   channelContextId,
+  excludedAlwaysOnSkills,
   allowNoRepo,
   onTaskCreated,
   onTaskCreatedEffect,
@@ -391,6 +394,7 @@ export function useTaskCreation({
           channelId: channelId ?? defaultedChannelId,
           channelContextId,
           customInstructions: getEffectiveCustomInstructions(settings),
+          excludedAlwaysOnSkills,
           autoPublishCloudRuns: settings.autoPublishCloudRuns,
           rtkEnabledCloud: settings.rtkEnabledCloud,
           allowNoRepo,

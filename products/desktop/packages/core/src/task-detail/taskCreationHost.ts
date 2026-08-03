@@ -107,11 +107,14 @@ export interface ITaskCreationHost {
   /**
    * Resolve the user's always-on skill toggles into live skills for injection
    * into a new task's first message. `includeBodies` reads each SKILL.md for
-   * local runs (cloud delivers bodies via uploaded bundles). Must never throw:
-   * a failed resolution must not block task creation — return [] instead.
+   * local runs (cloud delivers bodies via uploaded bundles); `exclude` drops
+   * the composer's per-task "skip for this task" refs before resolution. Must
+   * never throw: a failed resolution must not block task creation — return []
+   * instead.
    */
   resolveAlwaysOnSkills(args: {
     includeBodies: boolean;
+    exclude?: { name: string; source: string }[];
   }): Promise<ResolvedAlwaysOnSkill[]>;
   /**
    * Return-and-clear the pre-warmed sandbox lease matching the composer

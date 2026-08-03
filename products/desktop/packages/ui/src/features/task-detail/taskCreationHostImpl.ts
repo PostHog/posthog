@@ -8,6 +8,7 @@ import {
 import type { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
 import { getCloudPromptTransport } from "@posthog/core/sessions/cloudPrompt";
 import {
+  excludeAlwaysOnSkillRefs,
   type ResolvedAlwaysOnSkill,
   resolveAlwaysOnSkills,
 } from "@posthog/core/skills/alwaysOnSkills";
@@ -171,9 +172,13 @@ export class TrpcTaskCreationHost implements ITaskCreationHost {
 
   async resolveAlwaysOnSkills(args: {
     includeBodies: boolean;
+    exclude?: { name: string; source: string }[];
   }): Promise<ResolvedAlwaysOnSkill[]> {
     try {
-      const refs = useSettingsStore.getState().alwaysOnSkills;
+      const refs = excludeAlwaysOnSkillRefs(
+        useSettingsStore.getState().alwaysOnSkills,
+        args.exclude,
+      );
       if (refs.length === 0) return [];
       const skills = await hostClient().skills.list.query();
       const resolved = resolveAlwaysOnSkills(refs, skills);
