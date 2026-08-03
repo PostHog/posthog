@@ -3964,7 +3964,13 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toContain(
         "PostHog/posthog-js: /tmp/workspace/repos/posthog/posthog-js",
       );
-      expect(prompt).toContain("Treat every repository as an equal part");
+      expect(prompt).toContain(
+        "Apply the repository workflow below separately in every repository you change",
+      );
+      expect(prompt).toContain("stop with local changes ready for review");
+      expect(prompt).toContain(
+        "If the user explicitly asks you to open a pull request",
+      );
       expect(prompt).not.toContain("No Repository Mode");
     });
 

@@ -3647,6 +3647,13 @@ When you create a non-code file the user should be able to download (such as a r
       : inboxReportUrl
         ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
         : `*${createdWith}*`;
+    const repositoryWorkspaceInstructions =
+      this.taskRepositories.length > 1
+        ? `The task workspace contains these repositories:
+${this.taskRepositories.map((repository) => `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`).join("\n")}
+
+Apply the repository workflow below separately in every repository you change. Keep branches, commits, diffs, and pull requests repository-specific.`
+        : "";
 
     if (prUrl) {
       if (!shouldAutoCreatePr) {
@@ -3685,36 +3692,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 `;
     }
 
-    if (this.taskRepositories.length > 1) {
-      const repositoryList = this.taskRepositories
-        .map(
-          (repository) =>
-            `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`,
-        )
-        .join("\n");
-      const publishing =
-        this.config.createPr === false
-          ? "Do not create branches, commits, push changes, or open pull requests in this run."
-          : shouldAutoCreatePr
-            ? "After completing code changes, create a verified commit and draft pull request in every repository you changed."
-            : "Do not create branches, commits, push changes, or open pull requests unless the user explicitly asks.";
-      return `${identityInstructions}
-# Cloud task execution
-
-The task workspace contains these repositories:
-${repositoryList}
-
-- Start from /tmp/workspace and run repository-specific commands from the matching path.
-- Treat every repository as an equal part of the task. Do not infer priority from list order.
-- Keep branches, commits, diffs, and pull requests separate for each repository.
-- ${publishing}
-${publicRepoSafetyInstruction}
-${prMentionSafetyInstruction}
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
-`;
-    }
-
-    if (!this.config.repositoryPath) {
+    if (!this.config.repositoryPath && this.taskRepositories.length === 0) {
       const publishInstructions =
         this.config.createPr === false
           ? `
@@ -3770,6 +3748,8 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
       return `${identityInstructions}
 # Cloud Task Execution
 
+${repositoryWorkspaceInstructions}
+
 Do the requested work, but stop with local changes ready for review.
 
 Important:
@@ -3786,6 +3766,8 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 
     return `${identityInstructions}
 # Cloud Task Execution
+
+${repositoryWorkspaceInstructions}
 
 If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
 
