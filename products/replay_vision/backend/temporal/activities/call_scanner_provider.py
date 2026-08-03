@@ -14,7 +14,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.utils import timezone
 
@@ -144,10 +144,20 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         preamble_text=preamble_text,
         team_id=inputs.team_id,
         llm_inputs=llm_inputs,
+        trace_id=_scan_trace_id(inputs),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(finalized, scanner, duration_ms)
     return ScannerCallOutput(model_output=finalized, signals=signals)
+
+
+def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
+    """LLM analytics trace id for one scan: the observation id, so every step, tool round-trip, and retry of
+    a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
+    re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
+    if inputs.snapshot_override is not None:
+        return str(uuid4())
+    return str(inputs.observation_id)
 
 
 def _resolve_citations(
@@ -297,6 +307,7 @@ async def _run_mission(
     preamble_text: str,
     team_id: int,
     llm_inputs: ScannerLlmInputs,
+    trace_id: str,
 ) -> tuple[BaseScannerOutput, list[SignalFinding]]:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
@@ -337,6 +348,7 @@ async def _run_mission(
         dispatch=dispatch,
         team_id=team_id,
         metric_labels=metric_labels,
+        trace_id=trace_id,
     )
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
@@ -405,6 +417,7 @@ async def _run_steps(
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
+    trace_id: str,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -422,6 +435,7 @@ async def _run_steps(
             dispatch=dispatch,
             team_id=team_id,
             metric_labels=metric_labels,
+            trace_id=trace_id,
         )
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
@@ -459,6 +473,7 @@ async def _run_step(
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
+    trace_id: str,
 ) -> "_StepResult":
     """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
@@ -474,6 +489,8 @@ async def _run_step(
             contents=c,
             config=cfg,
             posthog_distinct_id=replay_vision_distinct_id(team_id),
+            posthog_trace_id=trace_id,
+            posthog_properties={"$ai_span_name": step.name},
             posthog_groups={"project": str(team_id)},
         )
 
@@ -589,6 +606,9 @@ def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool
     kwargs: dict[str, Any] = {
         "response_mime_type": "application/json",
         "response_json_schema": step.response_model.model_json_schema(),
+        # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
+        # unaffected (`response.text` skips thought parts); models with thinking off just return none.
+        "thinking_config": types.ThinkingConfig(include_thoughts=True),
     }
     if cache_name:
         kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
