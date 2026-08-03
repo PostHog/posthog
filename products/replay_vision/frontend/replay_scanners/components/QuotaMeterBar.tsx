@@ -37,6 +37,13 @@ export function clampSegmentWidths(pcts: number[]): number[] {
     })
 }
 
+/** Widths for `[free, billed, ...projected]`, with the free slice clamped inside the used slice. The bar and its
+ * legends both derive widths from this, so a legend chip can never outlive its segment. */
+export function quotaMeterWidths(usedPct: number, usedFreePct: number, projectedPcts: number[]): number[] {
+    const freePct = Math.max(Math.min(usedFreePct, usedPct), 0)
+    return clampSegmentWidths([freePct, usedPct - freePct, ...projectedPcts])
+}
+
 /** Quota meter: solid used segment plus projection segments; later segments absorb overflow past 100%. */
 export function QuotaMeterBar({
     usedPct,
@@ -46,8 +53,11 @@ export function QuotaMeterBar({
     label,
     className,
 }: QuotaMeterBarProps): JSX.Element {
-    const freePct = Math.max(Math.min(usedFreePct, usedPct), 0)
-    const widths = clampSegmentWidths([freePct, usedPct - freePct, ...projected.map((segment) => segment.pct)])
+    const widths = quotaMeterWidths(
+        usedPct,
+        usedFreePct,
+        projected.map((segment) => segment.pct)
+    )
     return (
         <div
             className={clsx('flex h-3 rounded overflow-hidden bg-fill-tertiary', className)}

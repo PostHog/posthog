@@ -16,7 +16,7 @@ import {
     splitProjectedPct,
 } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, clampSegmentWidths } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
 interface Props {
@@ -55,10 +55,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
 
     const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)
-    // Same input the bar clamps, so a legend chip can never outlive its segment.
-    const [freeWidth, billedWidth, othersWidth, thisWidth] = clampSegmentWidths([
-        usedFreePct,
-        usedPct - usedFreePct,
+    const [freeWidth, billedWidth, othersWidth, thisWidth] = quotaMeterWidths(usedPct, usedFreePct, [
         othersPct,
         thisScannerPct,
     ])

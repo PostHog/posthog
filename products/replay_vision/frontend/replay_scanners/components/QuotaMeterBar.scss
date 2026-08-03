@@ -39,7 +39,7 @@
     background-color: var(--color-neutral-cool-300);
 
     // The light-mode neutral disappears against a dark track.
-    @media (prefers-color-scheme: dark) {
+    [theme='dark'] & {
         background-color: var(--color-neutral-cool-600);
     }
 }

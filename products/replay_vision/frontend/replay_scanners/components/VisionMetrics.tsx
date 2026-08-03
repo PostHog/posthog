@@ -17,7 +17,7 @@ import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, clampSegmentWidths } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -32,12 +32,7 @@ export function VisionMetrics(): JSX.Element {
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection
     const hasCap = hasCreditLimit(quota)
-    // Same input the bar clamps, so a legend chip can never outlive its segment.
-    const [freeWidth, billedWidth, projectedWidth] = clampSegmentWidths([
-        usedFreePct,
-        usedPct - usedFreePct,
-        projectedPct,
-    ])
+    const [freeWidth, billedWidth, projectedWidth] = quotaMeterWidths(usedPct, usedFreePct, [projectedPct])
     const styles = QUOTA_STATUS_STYLES[status]
 
     // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.

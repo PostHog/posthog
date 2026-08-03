@@ -14,25 +14,16 @@ interface Props {
  * Replaces `QuotaStatusLine` in that state rather than sitting under it.
  */
 export function QuotaExhaustedNote({ onFreePlan }: Props): JSX.Element {
-    const billing = urls.organizationBilling([ProductKey.REPLAY_VISION])
+    const [status, linkText, suffix] = onFreePlan
+        ? ['Free credits used up.', 'Add billing', 'to keep scanning.']
+        : ['Spend limit reached.', 'Raise your billing limit', 'to resume scanning.']
     return (
         <div className="text-xs text-danger">
-            {onFreePlan ? 'Free credits used up.' : 'Spend limit reached.'}{' '}
-            {onFreePlan ? (
-                <>
-                    <Link className="text-danger underline" to={billing}>
-                        Add billing
-                    </Link>{' '}
-                    to keep scanning.
-                </>
-            ) : (
-                <>
-                    <Link className="text-danger underline" to={billing}>
-                        Raise your billing limit
-                    </Link>{' '}
-                    to resume scanning.
-                </>
-            )}
+            {status}{' '}
+            <Link className="text-danger underline" to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
+                {linkText}
+            </Link>{' '}
+            {suffix}
         </div>
     )
 }

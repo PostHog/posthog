@@ -61,14 +61,10 @@ export function VisionUsageTab(): JSX.Element {
         ? exhaustionForecast(quota.credits_used, quota.credit_limit, quota.period_start, quota.period_end)
         : null
 
-    const spendTooltip: string[] = []
-    if (quota) {
-        if (showUsd) {
-            spendTooltip.push(
-                `≈ ${creditsToUsd(billedCredits)} billed${hasCap ? ` of ${creditsToUsd(billedLimitCredits)}` : ''}.`
-            )
-        }
-    }
+    const spendTooltip =
+        quota && showUsd
+            ? `≈ ${creditsToUsd(billedCredits)} billed${hasCap ? ` of ${creditsToUsd(billedLimitCredits)}` : ''}.`
+            : undefined
 
     const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
     const zeroSpendCount = usageScanners.length - spenders.length
@@ -186,7 +182,7 @@ export function VisionUsageTab(): JSX.Element {
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
                     <div className="flex items-center gap-3">
                         {quota && (
-                            <Tooltip title={spendTooltip.join(' ') || undefined}>
+                            <Tooltip title={spendTooltip}>
                                 <span className="text-xs text-muted tabular-nums">
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
