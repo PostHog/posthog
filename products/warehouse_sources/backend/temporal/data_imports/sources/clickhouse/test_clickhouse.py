@@ -1448,8 +1448,8 @@ class TestBypassEnvProxy:
     @pytest.mark.parametrize(
         "bypass,expected_pool_mgr_factory",
         [
-            (True, lambda: ch_module._no_env_proxy_pool_manager(True)),
-            (False, lambda: None),
+            ("internal_team", lambda: ch_module._no_env_proxy_pool_manager(True)),
+            (None, lambda: None),
         ],
     )
     def test_get_client_forwards_pool_manager_only_when_bypassing(self, bypass, expected_pool_mgr_factory):
@@ -1519,7 +1519,7 @@ def _recording_server(response: bytes = _FORBIDDEN_RESPONSE) -> Iterator[tuple[i
         server.close()
 
 
-def _connect_to(*, port: int, bypass_env_proxy: bool) -> None:
+def _connect_to(*, port: int, bypass_env_proxy: "ch_module.BypassEnvProxy") -> None:
     _get_client(
         host="127.0.0.1",
         port=port,
@@ -1543,8 +1543,8 @@ class TestGetClientEgressProxyRouting:
     first attempt instead of entering its transient-retry backoff.
     """
 
-    @parameterized.expand([("bypassing", True), ("proxied", False)])
-    def test_only_a_proxied_connection_goes_through_the_egress_proxy(self, _name: str, bypass: bool) -> None:
+    @parameterized.expand([("tunneled", "tunnel_loopback"), ("internal", "internal_team"), ("proxied", None)])
+    def test_only_a_proxied_connection_goes_through_the_egress_proxy(self, _name: str, reason) -> None:
         with _recording_server() as (proxy_port, proxy_requests):
             with _recording_server() as (bound_port, bound_requests):
                 proxy_url = f"http://127.0.0.1:{proxy_port}"
@@ -1554,10 +1554,11 @@ class TestGetClientEgressProxyRouting:
                     os.environ.pop("no_proxy", None)
 
                     with pytest.raises(ClickHouseConnectionError):
-                        _connect_to(port=bound_port, bypass_env_proxy=bypass)
+                        _connect_to(port=bound_port, bypass_env_proxy=reason)
 
-        assert bool(bound_requests) == bypass
-        assert bool(proxy_requests) == (not bypass)
+        bypassed = reason is not None
+        assert bool(bound_requests) == bypassed
+        assert bool(proxy_requests) == (not bypassed)
 
     def test_redirect_away_from_the_target_is_not_followed(self) -> None:
         # A bypassing connection skips the egress proxy, so following a redirect would let the
@@ -1569,10 +1570,28 @@ class TestGetClientEgressProxyRouting:
             ).encode()
             with _recording_server(response=redirect) as (bound_port, bound_requests):
                 with pytest.raises(ClickHouseConnectionError):
-                    _connect_to(port=bound_port, bypass_env_proxy=True)
+                    _connect_to(port=bound_port, bypass_env_proxy="tunnel_loopback")
 
         assert bound_requests
         assert elsewhere_requests == []
+
+    def test_tunnel_claim_with_non_loopback_host_is_refused(self) -> None:
+        # The flag and the host reach `_get_client` independently; a caller pairing the
+        # tunnel claim with a host that didn't come from a tunnel must fail loudly, before
+        # any connection is attempted with the proxy-bypassing manager.
+        with patch.object(ch_module, "get_client") as mock_get_client:
+            with pytest.raises(Exception, match="non-loopback"):
+                _get_client(
+                    host="ch.example.com",
+                    port=8443,
+                    database="default",
+                    user="default",
+                    password=None,
+                    secure=True,
+                    verify=True,
+                    bypass_env_proxy="tunnel_loopback",
+                )
+        mock_get_client.assert_not_called()
 
 
 class TestDirectQueryClientBypassEnvProxy:
@@ -1588,9 +1607,9 @@ class TestDirectQueryClientBypassEnvProxy:
     @pytest.mark.parametrize(
         "region,team_id,tunneled,expected_bypass",
         [
-            ("US", 2, False, True),
-            ("US", 12345, False, False),
-            ("US", 12345, True, True),
+            ("US", 2, False, "internal_team"),
+            ("US", 12345, False, None),
+            ("US", 12345, True, "tunnel_loopback"),
         ],
     )
     def test_forwards_bypass_env_proxy_from_team_allowlist(self, region, team_id, tunneled, expected_bypass):
@@ -1613,4 +1632,4 @@ class TestDirectQueryClientBypassEnvProxy:
                     with source.direct_query_client(config, team_id, query_timeout=60):
                         pass
 
-        assert mock_get_client.call_args.kwargs["bypass_env_proxy"] is expected_bypass
+        assert mock_get_client.call_args.kwargs["bypass_env_proxy"] == expected_bypass

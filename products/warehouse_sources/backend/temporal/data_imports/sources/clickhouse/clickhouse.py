@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _require_loopback
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -45,6 +46,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+
+# Why a connection is allowed to skip the egress proxy, or None to stay proxied. A reason
+# rather than a bool so `_get_client` — where every call site converges — can check the
+# claim against the address it was given instead of trusting the caller's pairing.
+BypassEnvProxy = Literal["tunnel_loopback", "internal_team"] | None
 
 # ClickHouse default ports
 CLICKHOUSE_HTTP_PORT = 8123
@@ -249,7 +255,7 @@ def _get_client(
     verify: bool,
     query_timeout: int = DATA_QUERY_TIMEOUT_SECONDS,
     settings: Optional[dict[str, Any]] = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
 ) -> ClickHouseClient:
     """Create a ClickHouse HTTP client.
 
@@ -258,15 +264,18 @@ def _get_client(
     reader that we use to read very large tables without buffering them in
     memory.
 
-    `bypass_env_proxy` connects directly instead of honouring the
-    HTTP(S)_PROXY env vars. Only ever set for PostHog-internal teams
-    (`is_team_allowlisted_for_internal_hosts`) or for an address that came out
-    of our own SSH tunnel — the proxy blocks the tunnel's loopback bind, and no
-    request would reach the forwarded port. For a customer-supplied host the
-    egress proxy is the SSRF backstop and must stay in the path, so callers
-    derive the tunnel case from the same predicate the tunnel branch itself
-    uses rather than inferring it from the host looking like loopback.
+    `bypass_env_proxy` names why the connection may skip the HTTP(S)_PROXY env
+    vars: "internal_team" for PostHog-internal teams
+    (`is_team_allowlisted_for_internal_hosts`), "tunnel_loopback" for an
+    address that came out of our own SSH tunnel — the proxy blocks the tunnel's
+    loopback bind, and no request would reach the forwarded port. For a
+    customer-supplied host the egress proxy is the SSRF backstop and must stay
+    in the path, so the tunnel claim is checked against the address here: the
+    flag and the host travel to this point independently, and a caller pairing
+    "tunnel_loopback" with a non-loopback host has lost that pairing.
     """
+    if bypass_env_proxy == "tunnel_loopback":
+        _require_loopback(host)
     attempt = 0
     while True:
         try:
@@ -388,7 +397,7 @@ def get_schemas(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Discover columns for all tables in the given database.
 
@@ -504,7 +513,7 @@ def get_clickhouse_row_count(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
 ) -> dict[str, int]:
     """Return total_rows per table from `system.tables`.
 
@@ -630,7 +639,7 @@ def get_connection_metadata(
     password: str | None,
     secure: bool,
     verify: bool,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
 ) -> dict[str, Any]:
     """Probe the server for version metadata.
 
@@ -882,7 +891,7 @@ def get_primary_keys_for_schemas(
     secure: bool,
     verify: bool,
     table_names: list[str],
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys (sorting key columns) for multiple tables.
 
@@ -1307,7 +1316,7 @@ def clickhouse_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 

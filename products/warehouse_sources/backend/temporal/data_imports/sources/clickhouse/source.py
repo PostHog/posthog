@@ -22,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
+    BypassEnvProxy,
     ClickHouseConnectionError,
     _get_client,
     clickhouse_source,
@@ -125,20 +126,25 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE
 
-    def _bypass_env_proxy(self, config: ClickHouseSourceConfig, team_id: int) -> bool:
-        """Whether this connection must skip the egress proxy.
+    def _bypass_env_proxy(self, config: ClickHouseSourceConfig, team_id: int) -> BypassEnvProxy:
+        """Why this connection may skip the egress proxy, or None to stay proxied.
 
         Two cases, both of which the proxy would refuse. Internal teams may point a source at a
         PostHog-internal host. And a tunneled connection is made to the tunnel's own loopback
-        bind address (enforced by `_require_loopback` in the tunnel helpers), which the proxy
-        blocks by design — clickhouse-connect honours HTTP_PROXY for every host including
-        loopback, so the request would never reach the forwarded port and the tunnel would
-        open no channel to the customer's ClickHouse.
+        bind address, which the proxy blocks by design — clickhouse-connect honours HTTP_PROXY
+        for every host including loopback, so the request would never reach the forwarded port
+        and the tunnel would open no channel to the customer's ClickHouse. The tunnel claim is
+        checked twice downstream: the tunnel helpers refuse to yield a non-loopback bind, and
+        `_get_client` refuses a non-loopback host claiming "tunnel_loopback".
 
         ClickHouse is the only tunnel-capable source this bites: the other database drivers use
         raw TCP sockets and ignore the proxy env vars entirely.
         """
-        return self.ssh_tunnel_enabled(config) or is_team_allowlisted_for_internal_hosts(team_id)
+        if self.ssh_tunnel_enabled(config):
+            return "tunnel_loopback"
+        if is_team_allowlisted_for_internal_hosts(team_id):
+            return "internal_team"
+        return None
 
     @property
     def get_source_config(self) -> SourceConfig:
