@@ -76,7 +76,7 @@ def _delta_storage_options() -> dict[str, str]:
 
     Prod: empty — deltalake's object_store resolves the pod's ambient AWS
     credential chain (IRSA/env) itself. Local dev: MinIO endpoint + keys.
-    (posthog.ducklake.storage.get_deltalake_storage_options is NOT usable
+    (products.managed_warehouse.backend.storage.get_deltalake_storage_options is NOT usable
     here: it requires DuckLake RDS env that consumer pods do not carry.)
     """
     if settings.USE_LOCAL_SETUP:

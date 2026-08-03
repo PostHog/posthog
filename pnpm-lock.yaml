@@ -3493,6 +3493,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/managed_warehouse: {}
+
   products/marketing_analytics: {}
 
   products/mcp_analytics:
