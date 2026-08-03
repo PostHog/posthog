@@ -41,6 +41,14 @@ env:
     # between the merge-base (PR) and HEAD (push) key computations below.
     # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v1
+    # Only the Trunk merge queue can push to master (branch ruleset), and it merges a
+    # commit only after the full matrices passed on its trunk-merge/** branch — so
+    # queue pushes skip the heavy matrices and keep just the master-only work
+    # (schema cache seeding + from-scratch migrations in check-migrations). Timing
+    # data collection moves to the trunk-merge runs. Any other pusher (break-glass
+    # direct push) still gets the full matrices. Kill switch: set the
+    # MASTER_FULL_MATRICES repo variable to 'true' to restore full runs on every push.
+    QUEUE_MERGED_PUSH: ${{ github.event_name == 'push' && github.actor == 'trunk-io[bot]' && vars.MASTER_FULL_MATRICES != 'true' }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -739,6 +747,12 @@ jobs:
                   # re-enable master + PR coverage together when that starts.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') || github.event_name == 'workflow_dispatch' }}
               run: |
+                  if [[ "$QUEUE_MERGED_PUSH" == "true" ]]; then
+                      echo "include=[]" >> "$GITHUB_OUTPUT"
+                      echo "Product test matrix size: 0 (queue-merged push — the trunk-merge branch already ran the full matrix)"
+                      exit 0
+                  fi
+
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
                       schema_modes='[false, true]'
                   else
@@ -965,13 +979,14 @@ jobs:
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
                   # --junitxml: written relative to each product's dir (turbo's cwd), so every
                   # product in the group gets its own products/<name>/junit-product.xml.
-                  # On master, also collect timing data for pytest-split sharding.
+                  # On master and trunk-merge runs (the full-matrix runs now that queue
+                  # pushes skip the matrices), also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
                       --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
-                      ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                      ${{ (github.ref == 'refs/heads/master' || startsWith(github.head_ref, 'trunk-merge/')) && '--store-durations' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
                   # scopes coverage to that product and writes products/<name>/coverage.xml — works for
@@ -1046,7 +1061,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only the legacy-schema variant uploads durations — both schema variants run the
               # same test IDs, and two artifacts for the same tests would race in the merge.
-              if: ${{ github.ref == 'refs/heads/master' && !matrix.new-events-schema }}
+              if: ${{ (github.ref == 'refs/heads/master' || startsWith(github.head_ref, 'trunk-merge/')) && !matrix.new-events-schema }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
@@ -2209,6 +2224,12 @@ jobs:
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
 
+                  if [[ "$QUEUE_MERGED_PUSH" == "true" ]]; then
+                      echo "include=[]" >> "$GITHUB_OUTPUT"
+                      echo "Django matrix size: 0 (queue-merged push — the trunk-merge branch already ran the full matrix)"
+                      exit 0
+                  fi
+
                   # A draft PR must never fall back to the full matrix. select-tests only
                   # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
                   # draft means it was cancelled or failed (typically ready_for_review
@@ -3037,8 +3058,8 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              # Upload on master, or on PRs that change timing/sharding scripts (for validation)
-              if: ${{ (github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+              # Upload on master and trunk-merge runs, or on PRs that change timing/sharding scripts (for validation)
+              if: ${{ (github.ref == 'refs/heads/master' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -3649,17 +3670,20 @@ jobs:
 
     report-test-timings:
         name: Report per-test traces
-        needs: [django_tests]
+        needs: [django_tests, django, turbo-tests]
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
         # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
         # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
         # attempt-suffixed artifact names so only they are emitted for the new attempt.
-        # Master pushes and all in-repo PRs. Skip forks (no secrets access).
+        # Master pushes and all in-repo PRs, when at least one shard ran (queue-merged
+        # pushes and path-filtered PRs skip both matrices — no JUnit to report).
+        # Skip forks (no secrets access).
         if: >-
             !cancelled() &&
             github.repository == 'PostHog/posthog' &&
+            (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
             (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&

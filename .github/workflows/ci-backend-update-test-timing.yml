@@ -90,10 +90,19 @@ jobs:
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
                   # Newest first: runs that ran tests (>5 min) and uploaded a full set of timing
                   # artifacts (>=38), up to N. Scan a wider candidate window since most runs skip.
-                  run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
-                      --jq '.workflow_runs[] | select(
-                          (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                      ) | .id' | head -25 | \
+                  # Full-matrix runs live on trunk-merge/** branches (queue-merged master pushes
+                  # skip the heavy matrices); master stays a fallback for break-glass direct pushes.
+                  candidates=$({
+                      gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                          --jq '.workflow_runs[] | select(
+                              (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                          ) | "\(.run_started_at) \(.id)"'
+                      gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&event=pull_request&per_page=100&created=>=$cutoff_date" \
+                          --jq '.workflow_runs[] | select(.head_repository.full_name == "PostHog/posthog") | select(.head_branch | startswith("trunk-merge/")) | select(
+                              (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                          ) | "\(.run_started_at) \(.id)"'
+                  } | sort -r | awk '{print $2}')
+                  run_ids=$(echo "$candidates" | head -25 | \
                       while read id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
                               --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
