@@ -58,16 +58,18 @@ from products.batch_exports.backend.temporal.spmc import (
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.common import get_s3_function_call
+from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS,
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+)
+from products.batch_exports.backend.temporal.sql.persons import (
     EXPORT_TO_S3_FROM_PERSONS,
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
-    get_s3_function_call,
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
