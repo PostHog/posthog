@@ -5734,8 +5734,8 @@ const api = {
     },
 
     dataWarehouseSavedQueries: {
-        async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
-            return await new ApiRequest().dataWarehouseSavedQueries().get()
+        async list(signal?: AbortSignal): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
+            return await new ApiRequest().dataWarehouseSavedQueries().get({ signal })
         },
         async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()

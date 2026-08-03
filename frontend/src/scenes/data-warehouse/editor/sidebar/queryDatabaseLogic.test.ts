@@ -1,4 +1,5 @@
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -241,6 +242,48 @@ describe('queryDatabaseLogic', () => {
 
             expect(logic.values.databaseLoadError).toEqual(null)
             expect(childNames('sources')).not.toContain("Couldn't load your schema")
+        })
+    })
+
+    describe('failed saved-queries load', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+
+        const childNames = (sectionType: string): (string | undefined)[] =>
+            logic.values.treeData
+                .find((item) => item.record?.type === sectionType)
+                ?.children?.map((child) => child.name) ?? []
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = queryDatabaseLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('shows the failure and a retry in views instead of an empty or stuck-loading tree', () => {
+            dataWarehouseViewsLogic
+                .findMounted()
+                ?.actions.loadDataWarehouseSavedQueriesFailure('A server error occurred.')
+
+            expect(childNames('views')).toEqual(["Couldn't load your schema", 'Try again'])
+        })
+
+        it('retries the saved-queries load when the retry node is clicked', () => {
+            dataWarehouseViewsLogic
+                .findMounted()
+                ?.actions.loadDataWarehouseSavedQueriesFailure('A server error occurred.')
+
+            const retryNode = logic.values.treeData
+                .find((item) => item.record?.type === 'views')
+                ?.children?.find((child) => child.record?.type === 'schema-load-retry')
+
+            retryNode?.onClick?.()
+
+            expect(logic.values.dataWarehouseSavedQueriesLoadError).toEqual(null)
+            expect(childNames('views')).not.toContain("Couldn't load your schema")
         })
     })
 })

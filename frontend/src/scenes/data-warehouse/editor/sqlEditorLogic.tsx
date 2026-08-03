@@ -484,6 +484,7 @@ export interface sqlEditorLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
+    dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
@@ -597,6 +598,7 @@ export interface sqlEditorLogicActions {
         payload?: any
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     materializeDataWarehouseSavedQuery: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
@@ -1133,7 +1135,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryFolders', 'dataWarehouseSavedQueryMapById'],
+            [
+                'dataWarehouseSavedQueries',
+                'dataWarehouseSavedQueryFolders',
+                'dataWarehouseSavedQueryMapById',
+                'dataWarehouseSavedQueriesLoading',
+            ],
             userLogic,
             ['user'],
             draftsLogic,
@@ -1154,6 +1161,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         actions: [
             dataWarehouseViewsLogic,
             [
+                'loadDataWarehouseSavedQueries',
                 'loadDataWarehouseSavedQueriesSuccess',
                 'loadDataWarehouseSavedQueryFolders',
                 'deleteDataWarehouseSavedQuerySuccess',
@@ -3493,6 +3501,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         claimConnectionScope(props.tabId, values.selectedConnectionId)
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
+
+        // `dataWarehouseViewsLogic` is a shared singleton whose saved-queries load only ever runs
+        // once, in its own `afterMount` — reopening the editor after that load failed (or hung) would
+        // otherwise leave the Views/Managed views sidebar sections stuck with no way to recover.
+        if (!values.dataWarehouseSavedQueriesLoading) {
+            actions.loadDataWarehouseSavedQueries()
+            actions.loadDataWarehouseSavedQueryFolders()
+        }
 
         // Debounce the active-query decoration. It parses the HogQL AST (WASM, main thread) and
         // can fire a HogQLMetadata request, so running it on every keystroke or arrow key stalls

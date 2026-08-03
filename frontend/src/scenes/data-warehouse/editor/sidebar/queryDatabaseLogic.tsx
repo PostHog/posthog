@@ -1369,6 +1369,7 @@ const getFolderIdFromDropTarget = (items: TreeDataItem[], dropTargetId: string |
 export interface queryDatabaseLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
+    dataWarehouseSavedQueriesLoadError: string | null // dataWarehouseViewsLogic
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
     materializingViewIds: string[] // dataWarehouseViewsLogic
@@ -1510,6 +1511,7 @@ export interface queryDatabaseLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     refreshDatabaseSchema: () => {
         value: true
     } // databaseTableListLogic
@@ -1753,6 +1755,7 @@ export interface queryDatabaseLogicMeta {
             databaseLoading: boolean,
             databaseLoadError: string | null,
             dataWarehouseSavedQueriesLoading: boolean,
+            dataWarehouseSavedQueriesLoadError: string | null,
             drafts: DataWarehouseSavedQueryDraft[],
             draftsResponseLoading: boolean,
             hasMoreDrafts: boolean,
@@ -1862,6 +1865,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'dataWarehouseSavedQueryFolders',
                 'dataWarehouseSavedQueryMapById',
                 'dataWarehouseSavedQueriesLoading',
+                'dataWarehouseSavedQueriesLoadError',
                 'materializingViewIds',
             ],
             draftsLogic,
@@ -1884,6 +1888,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
                 'updateDataWarehouseSavedQuery',
+                'loadDataWarehouseSavedQueries',
             ],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
@@ -2518,6 +2523,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.databaseLoading,
                 s.databaseLoadError,
                 s.dataWarehouseSavedQueriesLoading,
+                s.dataWarehouseSavedQueriesLoadError,
                 s.drafts,
                 s.draftsResponseLoading,
                 s.hasMoreDrafts,
@@ -2531,6 +2537,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 databaseLoading: boolean,
                 databaseLoadError: string | null,
                 dataWarehouseSavedQueriesLoading: boolean,
+                dataWarehouseSavedQueriesLoadError: string | null,
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
                 hasMoreDrafts: boolean,
@@ -2616,8 +2623,24 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const viewsChildren: TreeDataItem[] = []
                 const managedViewsChildren: TreeDataItem[] = []
 
-                // Add loading indicator for views if still loading
-                if (
+                const savedQueriesFailedWithNoViews =
+                    !!dataWarehouseSavedQueriesLoadError &&
+                    !dataWarehouseSavedQueriesLoading &&
+                    dataWarehouseSavedQueries.length === 0
+
+                if (savedQueriesFailedWithNoViews) {
+                    viewsChildren.push(
+                        ...createSchemaErrorNodes('views', () => actions.loadDataWarehouseSavedQueries())
+                    )
+                    // Managed views come from a separate request (databaseTableListLogic) that may
+                    // have succeeded even though the saved-queries request failed — render them
+                    // normally rather than folding them into the views error above.
+                    managedViews.forEach((view) => {
+                        managedViewsChildren.push(
+                            createManagedViewNode(view, null, false, tableLookup, tableNodeOptions)
+                        )
+                    })
+                } else if (
                     dataWarehouseSavedQueriesLoading &&
                     dataWarehouseSavedQueries.length === 0 &&
                     managedViews.length === 0

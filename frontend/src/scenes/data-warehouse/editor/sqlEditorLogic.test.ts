@@ -2307,5 +2307,25 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions([logic.actionCreators.loadDatabase({ force: true })])
         })
+
+        it('reloads saved queries on mount instead of relying on the logic-mount-only load', async () => {
+            // dataWarehouseViewsLogic is also a shared singleton whose saved-queries load runs once
+            // in its own afterMount. Mount it first (as an unrelated consumer would) and let that
+            // load settle, then remount the editor: it must issue its own load rather than leave a
+            // stale/previously-failed list sitting there with no way to recover.
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+            await expectLogic(viewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.loadDataWarehouseSavedQueries()])
+        })
     })
 })
