@@ -4,6 +4,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog.models.scoping import team_scope
@@ -122,6 +123,30 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert failing.status == CanvasBuild.STATUS_FAILED
         assert failing.diagnostics[0]["code"] == "bundle_error"
         assert self.canvas.published_build_id == build.id
+
+    def test_builder_crash_fails_with_generic_unavailable(self):
+        build = self._publish()
+        with patch.object(build_service, "run_cloud_builder", side_effect=RuntimeError("node exploded: secret path")):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+        build.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert build.diagnostics[0]["code"] == "build_unavailable"
+        # Outside DEBUG the diagnostic stays generic: builder stderr is internal.
+        assert build.diagnostics[0]["message"] == "The canvas build service is unavailable."
+
+    @override_settings(DEBUG=True)
+    def test_builder_crash_names_the_cause_in_debug(self):
+        build = self._publish()
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            side_effect=RuntimeError("canvas builder dependencies are not installed — run `npm ci`"),
+        ):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+        build.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert build.diagnostics[0]["code"] == "build_unavailable"
+        assert "npm ci" in build.diagnostics[0]["message"]
 
     def test_finished_build_is_a_noop(self):
         build = self._publish()

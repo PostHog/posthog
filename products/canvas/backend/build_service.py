@@ -94,6 +94,13 @@ def node_executable() -> str:
 
 
 def _run_local_builder(project: dict[str, Any]) -> dict[str, Any]:
+    # node_modules is git-ignored (production bakes it into the sandbox image),
+    # so a fresh checkout fails module resolution on the first import. Catch it
+    # before spawning to name the fix instead of surfacing esbuild's stderr.
+    if not (CANVAS_BUILDER_DIR / "node_modules").is_dir():
+        raise RuntimeError(
+            "canvas builder dependencies are not installed — run `npm ci` in products/canvas/packages/canvas_builder"
+        )
     process = subprocess.run(
         [node_executable(), "--max-old-space-size=256", str(CANVAS_BUILDER_DIR / "build.mjs")],
         input=json.dumps({"project": project}, separators=(",", ":")),
@@ -530,9 +537,16 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             error_type=type(error).__name__,
             error=str(error)[:500],
         )
+        message = "The canvas build service is unavailable."
+        if settings.DEBUG:
+            # Local dev: keep the cause in the diagnostic the toolbar/agent
+            # surfaces — the worker-log warning above is easy to miss, and the
+            # usual causes (node off PATH, builder deps not installed) are
+            # actionable. Production stays generic: sandbox stderr is internal.
+            message = f"{message} {type(error).__name__}: {str(error)[:300]}"
         _finish_failed(
             build,
-            [{"severity": "error", "code": "build_unavailable", "message": "The canvas build service is unavailable."}],
+            [{"severity": "error", "code": "build_unavailable", "message": message}],
         )
         return
 
