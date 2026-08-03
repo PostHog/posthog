@@ -219,25 +219,42 @@ const MAX_LINK_URL_LENGTH = 200
  * anchors that genuinely point at the same path stay distinguishable through the link index, which
  * is carried alongside this value.
  */
-// Path segments that look like a per-recipient identifier rather than part of the page's identity:
-// UUIDs, long hex digests, long opaque base64url tokens, and bare numeric ids. Templates routinely
-// build hrefs like `/unsubscribe/{{token}}` or `/users/12345`, where the segment varies per
-// recipient. Collapsing them is what keeps the metrics sort key bounded by pages rather than by
-// audience size, and keeps recipient tokens out of a store the whole team can read.
-const OPAQUE_PATH_SEGMENT_REGEXES = [
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    /^[0-9a-f]{12,}$/i,
-    /^[0-9]{6,}$/,
-    /^[A-Za-z0-9_-]{24,}$/,
-]
+// Templates routinely build hrefs like `/unsubscribe/{{token}}` or `/users/12345`, so a path segment
+// is often a per-recipient identifier rather than part of the page's identity. Collapsing those is
+// what keeps the metrics sort key bounded by pages rather than by audience size, and keeps recipient
+// tokens out of a store the whole team can read.
+//
+// A token is recognized by its runs of unbroken alphanumerics rather than by the segment as a whole,
+// because tokens arrive glued together with punctuation: a JWT is dot-separated, and base64url
+// tokens carry `-` and `_`. Testing runs also stops long slugs from being mistaken for tokens, since
+// `how-to-set-up-feature-flags` is only ever short words once split.
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const TOKEN_RUN_SEPARATORS = /[.\-_~]/
+const HEX_RUN = /^[0-9a-f]{12,}$/i
+const NUMERIC_RUN = /^[0-9]{6,}$/
+const SINGLE_CASE_WORD = /^([a-z]+|[A-Z]+)$/
+// Below this, mixed-case runs are still plausibly words (`Introduction`, `CHANGELOG`).
+const MIN_RANDOM_RUN_LENGTH = 16
 const OPAQUE_PATH_SEGMENT_PLACEHOLDER = '*'
+
+const isOpaqueRun = (run: string): boolean =>
+    HEX_RUN.test(run) || NUMERIC_RUN.test(run) || (run.length >= MIN_RANDOM_RUN_LENGTH && !SINGLE_CASE_WORD.test(run))
+
+const isOpaquePathSegment = (segment: string): boolean => {
+    // Percent-encoding would otherwise hide a token's shape behind `%`, which none of the runs match.
+    let decoded = segment
+    try {
+        decoded = decodeURIComponent(segment)
+    } catch {
+        // Malformed escapes are left as-is; the raw segment is still worth testing.
+    }
+    return UUID_SEGMENT.test(decoded) || decoded.split(TOKEN_RUN_SEPARATORS).some(isOpaqueRun)
+}
 
 const redactOpaquePathSegments = (pathname: string): string =>
     pathname
         .split('/')
-        .map((segment) =>
-            OPAQUE_PATH_SEGMENT_REGEXES.some((re) => re.test(segment)) ? OPAQUE_PATH_SEGMENT_PLACEHOLDER : segment
-        )
+        .map((segment) => (isOpaquePathSegment(segment) ? OPAQUE_PATH_SEGMENT_PLACEHOLDER : segment))
         .join('/')
 
 export const normalizeClickUrl = (link: string): string => {

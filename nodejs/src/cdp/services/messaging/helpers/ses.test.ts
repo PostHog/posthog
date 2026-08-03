@@ -199,14 +199,36 @@ describe('SesWebhookHandler', () => {
                 'https://example.com/magic/AbCdEfGhIjKlMnOpQrStUvWx',
                 'https://example.com/magic/*',
             ],
+            [
+                'a dot-separated jwt',
+                'https://example.com/reset/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CV',
+                'https://example.com/reset/*',
+            ],
+            [
+                'a percent-encoded token',
+                'https://example.com/verify/%31%32%33e4567-e89b-12d3-a456-426614174000',
+                'https://example.com/verify/*',
+            ],
+            ['a mixed-case token', 'https://example.com/m/aB3xK9mZq2LpW7fT', 'https://example.com/m/*'],
+            [
+                'a token carrying base64url separators',
+                'https://example.com/m/aB3-xK9_mZq2LpW7fT5vN8cR1jH4gY6s',
+                'https://example.com/m/*',
+            ],
         ])('redacts %s from the path', (_name, link, expected) => {
             expect(normalizeClickUrl(link)).toBe(expected)
         })
 
-        it('keeps ordinary path words that merely look long', () => {
-            expect(normalizeClickUrl('https://example.com/pricing/enterprise-plan')).toBe(
-                'https://example.com/pricing/enterprise-plan'
-            )
+        // Over-redacting empties the breakdown of the very thing it exists to show, so slugs long
+        // enough to resemble a token have to survive.
+        it.each([
+            ['a hyphenated slug', 'https://example.com/blog/how-to-set-up-feature-flags'],
+            ['a title-cased slug', 'https://example.com/blog/Getting-Started-With-PostHog'],
+            ['an unbroken lowercase word', 'https://example.com/docs/gettingstartedguide'],
+            ['a dated filename', 'https://example.com/files/annual-report-2026.pdf'],
+            ['a short path word', 'https://example.com/pricing/enterprise-plan'],
+        ])('keeps %s', (_name, link) => {
+            expect(normalizeClickUrl(link)).toBe(link)
         })
 
         it('caps the length so a long url cannot bloat the metrics sort key', () => {
