@@ -229,6 +229,7 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'billable_invocation'
         | 'dropped'
+        | 'budget_skipped'
         | 'email_queued'
         | 'email_sent'
         | 'email_delivered'
@@ -244,6 +245,7 @@ export type MinimalAppMetric = {
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
+        | 'email_untracked'
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
@@ -460,6 +462,7 @@ export type HogFunctionInputSchemaType = {
 export type HogFunctionTypeType =
     | 'destination'
     | 'transformation'
+    | 'transformation_log'
     | 'internal_destination'
     | 'source_webhook'
     | 'warehouse_source_webhook'
@@ -571,11 +574,17 @@ export type MessageAssetRow = {
     parent_run_id: string
     invocation_id: string
     action_id: string
-    kind: 'email'
+    kind: 'email' | 'push'
     distinct_id: string
     person_id: string
+    // Where the message went: the address for email. Push has no address, so this carries the
+    // recipient's distinct_id instead. The delivering channels are deliberately not stored here,
+    // because the captured preview is a snapshot of what the recipient saw and they never saw those.
     recipient: string
+    // The message's headline: an email subject line, or a push notification title.
     subject: string
+    // Only delivered messages are captured, so this is 'sent' today. It stays a union because open
+    // tracking will write a higher-version row with its own status and collapse onto this one.
     status: 'sent'
     sent_at: string // ISO microsecond DateTime64
     version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap

@@ -225,3 +225,26 @@ class TestDispatchLoopEventChannelIsolation(LoopNotificationsTestCase):
         fake_slack_client.chat_postMessage.assert_called_once()
         # Only the original event's in-app notification: slack succeeded so no disable notice fired.
         mock_create_notification.assert_called_once()
+
+
+class TestDispatchLoopEventEmailReport(LoopNotificationsTestCase):
+    @parameterized.expand(
+        [
+            ("report_present", {"report": "Weekly summary: all green."}, "Weekly summary: all green."),
+            ("report_absent", {}, ""),
+            ("report_none", {"report": None}, ""),
+        ]
+    )
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.is_email_available", return_value=True)
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.EmailMessage")
+    def test_email_template_context_report(
+        self, _name, payload, expected_report, mock_email_message_cls, _mock_email_available, _mock_create_notification
+    ):
+        loop = self.create_loop(notifications={"email": {"enabled": True, "events": ["run_completed"]}})
+
+        dispatch_loop_event(loop, "run_completed", payload)
+
+        mock_email_message_cls.assert_called_once()
+        template_context = mock_email_message_cls.call_args.kwargs["template_context"]
+        self.assertEqual(template_context["report"], expected_report)

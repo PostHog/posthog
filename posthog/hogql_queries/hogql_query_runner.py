@@ -178,6 +178,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 self.query.filters.dateRange = DateRange()
             self.query.filters.dateRange.date_to = dashboard_filter.date_to
             self.query.filters.dateRange.date_from = dashboard_filter.date_from
+            # The date range is one unit, so never pair the dashboard's bounds with the insight's own
+            # explicitDate (matching apply_dashboard_filters.py; the base QueryRunner still keeps the
+            # insight's flag when the dashboard's is None). Coerced to bool to keep the serialized
+            # value at false rather than null.
+            self.query.filters.dateRange.explicitDate = bool(dashboard_filter.explicitDate)
 
         if dashboard_filter.properties:
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties

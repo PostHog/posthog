@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
     ModelInfo,
@@ -147,6 +148,7 @@ def create_mock_settings(
     settings.cloudflare_account_id = "acct-test" if cloudflare else None
     # Modal needs all three; same MagicMock-truthiness hazard as CF above.
     settings.modal_api_base = "https://modal.test/v1" if modal else None
+    settings.modal_kimi_api_base = "https://kimi.modal.test/v1" if modal else None
     settings.modal_key = "wk-test" if modal else None
     settings.modal_secret = "ws-test" if modal else None
     return settings
@@ -247,6 +249,16 @@ class TestGetAvailableModels:
     def test_returns_model_info_objects(self):
         models = get_available_models("llm_gateway")
         assert all(isinstance(m, ModelInfo) for m in models)
+
+    @pytest.mark.parametrize("alias", COST_ALIASES)
+    def test_excludes_internal_cost_aliases(self, alias: str) -> None:
+        with patch.dict(
+            MOCK_COST_DATA,
+            {alias: {"litellm_provider": "openai", "max_input_tokens": 128000, "mode": "chat"}},
+        ):
+            model_ids = {model.id for model in get_available_models("llm_gateway")}
+
+        assert alias not in model_ids
 
 
 class TestProviderFiltering:

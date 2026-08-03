@@ -139,6 +139,9 @@ jobs:
                       "cyclotron-janitor": 139,
                       "cyclotron-node": 31,
                       "cymbal": 168,
+                      # Compile-heavy (deltalake dependency tree), light tests.
+                      "deltalite-core": 180,
+                      "deltalite-python": 60,
                       "embedding-worker": 25,
                       "feature-flags": 181,
                       "health": 27,
@@ -360,11 +363,21 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -750,9 +763,9 @@ jobs:
         steps:
             - name: Check all Rust jobs
               run: |
-                  # Fail if change detection or affected computation failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed, affected computation failed, or either was cancelled (outputs are empty on cancel, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -762,8 +775,8 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.affected.result }}" == "failure" ]]; then
-                    echo "Affected crate computation failed."
+                  if [[ "${{ needs.affected.result }}" != "success" && "${{ needs.affected.result }}" != "skipped" ]]; then
+                    echo "Affected crate computation did not succeed (result: ${{ needs.affected.result }})."
                     exit 1
                   fi
 

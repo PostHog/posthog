@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
-from django.utils import timezone
 
 import psycopg
 import structlog
@@ -14,9 +13,10 @@ from asgiref.sync import sync_to_async
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import DuckgresSinkSchemaState
 from posthog.sync import database_sync_to_async_pool
 
+from products.managed_warehouse.backend.facade import sink_state
+from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DuckgresBatchQueue,
+    is_eligibility_query_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     LEASE_TTL_SECONDS,
@@ -66,7 +67,7 @@ def _record_live_batch_applied(schema_id: str) -> None:
     query the warehouse-sources queue DB (which it has no credentials for).
     """
     close_old_connections()
-    DuckgresSinkSchemaState.objects.filter(schema_id=schema_id).update(queue_last_applied_at=timezone.now())
+    sink_state.record_live_batch_applied(schema_id)
 
 
 # How often the fetch path refreshes the enabled-team set and runs the
@@ -97,7 +98,7 @@ SINK_BLOCKED_OLDEST_AGE_SECONDS = Gauge(
     multiprocess_mode="livemax",
 )
 # Visibility-only, deliberately unalerted: hard-blocked schemas are an operator
-# remediation queue (durably tracked on DuckgresSinkSchemaState), not a page.
+# remediation queue (durably tracked on the sink state), not a page.
 SINK_FAILING_BLOCKED_BACKLOG = Gauge(
     "duckgres_sink_failing_blocked_backlog",
     "Delta-succeeded batches held back behind a hard-blocked schema (backfill failure streak / needs_resync)",
@@ -176,13 +177,24 @@ class DuckgresBatchConsumerAdapter:
                     team_count=None if self._team_ids is None else len(self._team_ids),
                     org_count=len({org_id for _, org_id, _ in self._team_org_budgets}),
                 )
+        except CPUnavailableError:
+            # A brief control-plane blip is expected and self-healing: we keep the
+            # previously cached team set so the sink keeps serving. Log-only — this
+            # is not an error-tracking-worthy failure. Advance the refresh clock on
+            # the way out (below) so we don't re-poll the struggling control plane
+            # every ~2s cycle across the fleet during an outage.
+            logger.warning("duckgres_sink_enablement_control_plane_unreachable")
+            if self._team_ids_fetched_at is None:
+                # Never had a set: claim nothing rather than everything.
+                self._team_ids = []
+            self._team_ids_fetched_at = now
         except Exception as e:
             logger.exception("duckgres_sink_enablement_refresh_failed")
             capture_exception(e)
             if self._team_ids_fetched_at is None:
                 # Never had a set: claim nothing rather than everything.
                 self._team_ids = []
-                self._team_ids_fetched_at = now
+            self._team_ids_fetched_at = now
         return self._team_ids
 
     async def _run_maintenance(self, conn: psycopg.AsyncConnection[Any], team_ids: list[int] | None) -> None:
@@ -219,8 +231,14 @@ class DuckgresBatchConsumerAdapter:
             )
             SINK_ORGS_AT_BUDGET.set(orgs_at_budget)
         except Exception as e:
-            logger.exception("duckgres_sink_maintenance_query_failed")
-            capture_exception(e)
+            if is_eligibility_query_timeout(e):
+                # Expected under a slow/loaded queue DB — the eligibility-CTE
+                # queries are timeout-bounded specifically so this fails fast
+                # and the next tick just retries; not worth an error-tracking report.
+                logger.warning("duckgres_sink_maintenance_query_timed_out")
+            else:
+                logger.exception("duckgres_sink_maintenance_query_failed")
+                capture_exception(e)
             return
 
         block_list_was_unset = self._blocked_schema_ids is None

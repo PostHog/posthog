@@ -169,7 +169,7 @@ jobs:
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 15
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -266,6 +266,17 @@ jobs:
                   build-args: |
                       BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
 
+            - name: Build and push container image (streamlit)
+              id: build-streamlit
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: . # use local checkout (includes downloaded artifact)
+                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-streamlit:master,ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.
     # NOT registered as required yet: the trigger-level pull_request paths
@@ -282,9 +293,9 @@ jobs:
         steps:
             - name: Check all sandbox image jobs
               run: |
-                  # Fail if change detection itself failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed or was cancelled (both build jobs skip then, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 

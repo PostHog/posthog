@@ -515,6 +515,24 @@ class TestDuckgresTeamFilterAndBacklog:
         assert (count, blocked, failing) == (0, 0, 0)
         assert oldest_age is None and blocked_age is None
 
+    @pytest.mark.asyncio
+    async def test_backlog_stats_reflects_latest_delta_status_not_first(self, conn):
+        """Eligibility now reads the denormalized ``latest_state`` column instead
+        of a per-row LATERAL join to the delta status table. Pin the exact case
+        that denormalization must still get right: a batch with a multi-row
+        status history (e.g. executing -> succeeded) is eligible because its
+        LATEST row is 'succeeded', while a batch stuck on its first ('executing')
+        row is not — the same answer the old latest-status LATERAL gave."""
+        multi_history_id = await _insert_batch(conn, run_uuid="run-latest-succeeded", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=multi_history_id, job_state="executing", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=multi_history_id, job_state="succeeded", attempt=1)
+
+        still_executing_id = await _insert_batch(conn, run_uuid="run-still-executing", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=still_executing_id, job_state="executing", attempt=1)
+
+        count, _, blocked, _, failing = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=[1])
+        assert (count, blocked, failing) == (1, 0, 0)
+
 
 class TestTeamScopeSargable:
     """The team filter must become a plain, sargable ``= ANY(...)`` when

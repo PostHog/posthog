@@ -11,28 +11,31 @@ use sqlx::types::Json;
 use sqlx::{FromRow, PgPool};
 
 use crate::domain::{
-    BehavioralShapeHash, BehavioralShapeHashError, PinnedError, PinnedParticipation,
-    PinnedParticipationState, PinnedRun, PinnedRunSnapshot, ReconcileTile, RunId, TriggerKind,
-    UtcMillis, ValidatedPinnedRun,
+    BehavioralShapeHash, BehavioralShapeHashError, PersonPinnedSnapshot, PersonRunValidation,
+    PinnedError, PinnedParticipation, PinnedParticipationState, PinnedPersonRun, PinnedRun,
+    PinnedRunSnapshot, ReconcileTile, RunId, TriggerKind, UtcMillis, ValidatedPinnedRun,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
 
 /// The one run-column list the three run SELECTs share. A macro (not a `const`) so it can feed
 /// `concat!`, which only accepts literals and macro expansions — the composed SQL text stays a
-/// compile-time constant, byte-identical to the former inline lists and pinned by the pg test.
+/// compile-time constant, pinned by the pg test.
 macro_rules! run_columns {
     () => {
-        "id, team_id, cohort_id, trigger_kind, scope, status, timezone, boundary_at, pinned"
+        "id, team_id, cohort_id, trigger_kind, scope, status, timezone, boundary_at, pinned, \
+         backfill_kind, person_scan_since"
     };
 }
 
+// The kind predicate binds the caller's allowed-kind set: with the person gate off, discovery
+// binds `['behavioral']`, which keeps the person path inert without a second query text.
 const DISCOVER_ALL: &str = concat!(
     "\n    SELECT ",
     run_columns!(),
     "\n    FROM cohort_backfill_runs",
     "\n    WHERE status IN ('awaiting_boundary', 'seeding')",
-    "\n      AND backfill_kind = 'behavioral'",
+    "\n      AND backfill_kind = ANY($1)",
     "\n    ORDER BY created_at\n"
 );
 
@@ -41,7 +44,7 @@ const DISCOVER_ONLY: &str = concat!(
     run_columns!(),
     "\n    FROM cohort_backfill_runs",
     "\n    WHERE status IN ('awaiting_boundary', 'seeding')",
-    "\n      AND backfill_kind = 'behavioral'",
+    "\n      AND backfill_kind = ANY($2)",
     "\n      AND team_id = ANY($1)",
     "\n    ORDER BY created_at\n"
 );
@@ -50,7 +53,7 @@ const READ_RUN: &str = concat!(
     "\n    SELECT ",
     run_columns!(),
     "\n    FROM cohort_backfill_runs",
-    "\n    WHERE id = $1 AND backfill_kind = 'behavioral'\n"
+    "\n    WHERE id = $1 AND backfill_kind = $2\n"
 );
 
 const READ_ACTIVE_RECONCILE_PARTICIPATIONS: &str = r#"
@@ -149,16 +152,50 @@ impl FromStr for RunScope {
     }
 }
 
+/// The `cohort_backfill_runs.backfill_kind` vocabulary. Fail-closed: an unknown kind never decodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RunKind {
+    Behavioral,
+    PersonProperty,
+}
+
+impl RunKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Behavioral => "behavioral",
+            Self::PersonProperty => "person_property",
+        }
+    }
+}
+
+impl FromStr for RunKind {
+    type Err = UnknownRunKind;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "behavioral" => Ok(Self::Behavioral),
+            "person_property" => Ok(Self::PersonProperty),
+            other => Err(UnknownRunKind(other.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown backfill kind {0:?}")]
+pub struct UnknownRunKind(pub String);
+
 #[derive(Debug, Clone)]
 pub struct DiscoveredRun {
     pub run_id: RunId,
     pub team_id: TeamId,
     pub cohort_id: Option<CohortId>,
+    pub kind: RunKind,
     pub trigger: TriggerKind,
     pub scope: RunScope,
     pub status: RunStatus,
     pub timezone: String,
     pub boundary_at: Option<DateTime<Utc>>,
+    pub person_scan_since: Option<UtcMillis>,
     pub pinned: Value,
 }
 
@@ -169,9 +206,11 @@ pub struct DiscoveredRun {
 pub struct SeedableRun {
     pub run_id: RunId,
     pub team_id: TeamId,
+    pub kind: RunKind,
     pub trigger: TriggerKind,
     pub timezone: String,
     pub boundary_at: UtcMillis,
+    pub person_scan_since: Option<UtcMillis>,
     pub pinned: Value,
 }
 
@@ -180,14 +219,46 @@ impl SeedableRun {
         Self {
             run_id: run.run_id,
             team_id: run.team_id,
+            kind: run.kind,
             trigger: run.trigger,
             timezone: run.timezone,
             boundary_at: UtcMillis::new(boundary_at.timestamp_millis()),
+            person_scan_since: run.person_scan_since,
             pinned: run.pinned,
         }
     }
 
     pub async fn load_pinned(&self, pool: &PgPool) -> Result<ValidatedPinnedRun, RunError> {
+        let participations = self.fetch_participations(pool).await?;
+        let snapshot = PinnedRunSnapshot {
+            run_id: self.run_id,
+            team_id: self.team_id,
+            trigger: self.trigger,
+            timezone: self.timezone.clone(),
+            boundary_at_ms: self.boundary_at.as_i64(),
+            pinned: self.pinned.clone(),
+            participations,
+        };
+        Ok(PinnedRun::validate(snapshot)?)
+    }
+
+    pub async fn load_person_pinned(&self, pool: &PgPool) -> Result<PersonRunValidation, RunError> {
+        let participations = self.fetch_participations(pool).await?;
+        let snapshot = PersonPinnedSnapshot {
+            run_id: self.run_id,
+            team_id: self.team_id,
+            timezone: self.timezone.clone(),
+            person_scan_since: self.person_scan_since,
+            pinned: self.pinned.clone(),
+            participations,
+        };
+        Ok(PinnedPersonRun::validate(snapshot)?)
+    }
+
+    async fn fetch_participations(
+        &self,
+        pool: &PgPool,
+    ) -> Result<Vec<PinnedParticipation>, RunError> {
         let rows = sqlx::query_as::<_, PinnedParticipationRow>(
             r#"
             SELECT team_id, cohort_id, pinned_filters, superseded_at
@@ -220,16 +291,7 @@ impl SeedableRun {
                 },
             });
         }
-        let snapshot = PinnedRunSnapshot {
-            run_id: self.run_id,
-            team_id: self.team_id,
-            trigger: self.trigger,
-            timezone: self.timezone.clone(),
-            boundary_at_ms: self.boundary_at.as_i64(),
-            pinned: self.pinned.clone(),
-            participations,
-        };
-        Ok(PinnedRun::validate(snapshot)?)
+        Ok(participations)
     }
 }
 
@@ -319,6 +381,8 @@ pub enum RunError {
     UnknownStatus(String),
     #[error("unknown backfill scope {0:?}")]
     UnknownScope(String),
+    #[error("run {run_id:?} has unknown backfill kind {value:?}")]
+    InvalidKind { run_id: RunId, value: String },
     #[error("run {run_id:?} has unknown backfill trigger {value:?}")]
     InvalidTrigger { run_id: RunId, value: String },
     #[error("run {run_id:?} has unknown backfill scope {value:?}")]
@@ -347,7 +411,8 @@ pub enum RunError {
 impl RunError {
     pub const fn run_id(&self) -> Option<RunId> {
         match self {
-            Self::InvalidTrigger { run_id, .. }
+            Self::InvalidKind { run_id, .. }
+            | Self::InvalidTrigger { run_id, .. }
             | Self::InvalidScope { run_id, .. }
             | Self::InvalidStatus { run_id, .. }
             | Self::NotFound(run_id)
@@ -365,11 +430,13 @@ struct RunRow {
     id: RunId,
     team_id: i32,
     cohort_id: Option<i32>,
+    backfill_kind: String,
     trigger_kind: String,
     scope: String,
     status: String,
     timezone: String,
     boundary_at: Option<DateTime<Utc>>,
+    person_scan_since: Option<DateTime<Utc>>,
     pinned: Json<Value>,
 }
 
@@ -377,6 +444,13 @@ impl TryFrom<RunRow> for DiscoveredRun {
     type Error = RunError;
 
     fn try_from(row: RunRow) -> Result<Self, Self::Error> {
+        let kind = row
+            .backfill_kind
+            .parse::<RunKind>()
+            .map_err(|_| RunError::InvalidKind {
+                run_id: row.id,
+                value: row.backfill_kind.clone(),
+            })?;
         let trigger =
             row.trigger_kind
                 .parse::<TriggerKind>()
@@ -396,11 +470,15 @@ impl TryFrom<RunRow> for DiscoveredRun {
             run_id: row.id,
             team_id: TeamId(row.team_id),
             cohort_id: row.cohort_id.map(CohortId),
+            kind,
             trigger,
             scope,
             status,
             timezone: row.timezone,
             boundary_at: row.boundary_at,
+            person_scan_since: row
+                .person_scan_since
+                .map(|at| UtcMillis::new(at.timestamp_millis())),
             pinned: row.pinned.0,
         })
     }
@@ -411,17 +489,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn run_kind_round_trips_and_fails_closed() {
+        for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
+            assert_eq!(kind.as_str().parse::<RunKind>().unwrap(), kind);
+        }
+        assert!("person".parse::<RunKind>().is_err());
+        assert!("".parse::<RunKind>().is_err());
+    }
+
+    #[test]
     fn malformed_discovered_rows_keep_the_run_capability_for_q8() {
         let run_id = RunId(uuid::Uuid::from_u128(1));
         let error = DiscoveredRun::try_from(RunRow {
             id: run_id,
             team_id: 2,
             cohort_id: None,
+            backfill_kind: "behavioral".to_string(),
             trigger_kind: "invalid".to_string(),
             scope: "team".to_string(),
             status: "seeding".to_string(),
             timezone: "UTC".to_string(),
             boundary_at: Some(Utc::now()),
+            person_scan_since: None,
             pinned: Json(serde_json::json!({})),
         })
         .unwrap_err();
@@ -460,10 +549,16 @@ struct BoundaryRow {
 pub async fn discover_runs(
     pool: &PgPool,
     allowlist: &TeamAllowlist,
+    kinds: &[RunKind],
 ) -> Result<Vec<DiscoveredRun>, RunError> {
+    let kinds = kinds
+        .iter()
+        .map(|kind| kind.as_str().to_string())
+        .collect::<Vec<_>>();
     let rows = match allowlist {
         TeamAllowlist::All => {
             sqlx::query_as::<_, RunRow>(DISCOVER_ALL)
+                .bind(kinds)
                 .fetch_all(pool)
                 .await?
         }
@@ -472,6 +567,7 @@ pub async fn discover_runs(
             team_ids.sort_unstable();
             sqlx::query_as::<_, RunRow>(DISCOVER_ONLY)
                 .bind(team_ids)
+                .bind(kinds)
                 .fetch_all(pool)
                 .await?
         }
@@ -483,7 +579,8 @@ pub async fn load_reconcile_run(
     pool: &PgPool,
     run_id: RunId,
 ) -> Result<ReconcileRun, ReconcileRunError> {
-    let run = read_run(pool, run_id).await?;
+    // Reconcile stays behavioral-only: a person run id can never enter this protocol.
+    let run = read_run(pool, run_id, RunKind::Behavioral).await?;
     if !matches!(run.status, RunStatus::Seeding | RunStatus::Reconciling) {
         return Err(ReconcileRunError::Status {
             run_id,
@@ -537,6 +634,7 @@ pub async fn establish_boundary(
     pool: &PgPool,
     run: DiscoveredRun,
 ) -> Result<BoundaryOutcome, RunError> {
+    let kind = run.kind;
     if run.status == RunStatus::Seeding {
         return match run.boundary_at {
             Some(boundary_at) => Ok(BoundaryOutcome::AlreadyEstablished(SeedableRun::promote(
@@ -589,7 +687,7 @@ pub async fn establish_boundary(
         )));
     }
 
-    let current = read_run(pool, run.run_id).await?;
+    let current = read_run(pool, run.run_id, kind).await?;
     if current.status == RunStatus::Seeding {
         match current.boundary_at {
             Some(boundary_at) => Ok(BoundaryOutcome::AlreadyEstablished(SeedableRun::promote(
@@ -648,9 +746,10 @@ pub async fn record_run_warning(
     Ok(updated.is_some())
 }
 
-async fn read_run(pool: &PgPool, run_id: RunId) -> Result<DiscoveredRun, RunError> {
+async fn read_run(pool: &PgPool, run_id: RunId, kind: RunKind) -> Result<DiscoveredRun, RunError> {
     let row = sqlx::query_as::<_, RunRow>(READ_RUN)
         .bind(run_id)
+        .bind(kind.as_str())
         .fetch_optional(pool)
         .await?
         .ok_or(RunError::NotFound(run_id))?;

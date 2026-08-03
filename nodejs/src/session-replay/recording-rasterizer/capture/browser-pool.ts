@@ -45,12 +45,14 @@ function resolveProxyArgs(): string[] {
 interface BrowserSlot {
     browser: Browser
     usageCount: number
+    closing?: boolean
 }
 
 export class BrowserPool {
     private slots = new Map<Page, BrowserSlot>()
     private idle: BrowserSlot[] = []
     private proxyArgs = resolveProxyArgs()
+    private shuttingDown = false
 
     constructor(private recycleAfter: number = config.browserRecycleAfter) {}
 
@@ -74,10 +76,34 @@ export class BrowserPool {
             args: this.launchArgs(),
         })
         RasterizationMetrics.browserLaunched()
-        return { browser, usageCount: 0 }
+        const slot: BrowserSlot = { browser, usageCount: 0 }
+        browser.on('disconnected', () => this.handleDisconnect(slot))
+        return slot
+    }
+
+    // A crashed browser must not be handed out again: evict it from the idle pool
+    // and drop any page entries still pointing at it.
+    private handleDisconnect(slot: BrowserSlot): void {
+        // During pod shutdown Chrome can die before closeBrowser marks the slot; don't count that as a crash.
+        if (slot.closing || this.shuttingDown) {
+            return
+        }
+        const idleIdx = this.idle.indexOf(slot)
+        if (idleIdx !== -1) {
+            this.idle.splice(idleIdx, 1)
+        }
+        for (const [page, s] of this.slots) {
+            if (s === slot) {
+                this.slots.delete(page)
+            }
+        }
+        RasterizationMetrics.browserCrashed()
+        log.warn({ usage_count: slot.usageCount }, 'browser disconnected unexpectedly, evicted from pool')
+        RasterizationMetrics.setBrowserCounts(this.slots.size, this.idle.length)
     }
 
     private async closeBrowser(slot: BrowserSlot): Promise<void> {
+        slot.closing = true
         try {
             await slot.browser.close()
         } catch (err) {
@@ -135,6 +161,7 @@ export class BrowserPool {
     }
 
     async shutdown(): Promise<void> {
+        this.shuttingDown = true
         await this.releaseAllPages()
         await Promise.all(this.idle.map((slot) => this.closeBrowser(slot)))
         this.idle = []

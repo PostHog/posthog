@@ -16,9 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce import (
     DEFAULT_PER_PAGE,
+    WOOCOMMERCE_USER_AGENT,
+    WooCommerceAuth,
     WooCommercePaginator,
     WooCommerceResumeConfig,
     _HostGuardedAdapter,
+    _make_guarded_session,
     _to_woocommerce_datetime,
     get_resource,
     normalize_store_url,
@@ -277,6 +280,35 @@ class TestWooCommerceSourceResumeBehavior:
         assert first["dates_are_gmt"] == "true"
         assert first["page"] == 1
         assert first["per_page"] == DEFAULT_PER_PAGE
+
+
+class TestGuardedSessionUserAgent:
+    def test_sets_non_default_user_agent(self) -> None:
+        # Managed WordPress hosts/WAFs block the default `python-requests` agent with a 403,
+        # so every request must go out under our identifiable agent instead.
+        session = _make_guarded_session(team_id=123)
+        assert session.headers["User-Agent"] == WOOCOMMERCE_USER_AGENT
+        assert "python-requests" not in session.headers["User-Agent"]
+
+
+class TestWooCommerceAuth:
+    def test_sends_query_string_credentials_and_no_authorization_header(self) -> None:
+        # Auth must go in the query string with no Authorization header. A Basic header trips
+        # hosts running a JWT/security plugin, which reject it with a 403 before WooCommerce
+        # sees the key; reintroducing the header would break those stores again.
+        prepared = Request(method="GET", url="https://example.com/wp-json/wc/v3/products", params={"page": 1}).prepare()
+
+        WooCommerceAuth("ck_test", "cs_test")(prepared)
+
+        assert "Authorization" not in prepared.headers
+        assert prepared.url is not None
+        assert "consumer_key=ck_test" in prepared.url
+        assert "consumer_secret=cs_test" in prepared.url
+        # Existing query params are preserved, not clobbered.
+        assert "page=1" in prepared.url
+
+    def test_secret_values_redacts_both_credentials(self) -> None:
+        assert set(WooCommerceAuth("ck_test", "cs_test").secret_values()) == {"ck_test", "cs_test"}
 
 
 class TestValidateCredentials:

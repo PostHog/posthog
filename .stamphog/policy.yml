@@ -186,7 +186,10 @@ dismiss:
         - 'readme'
         - 'changelog'
     test_regex: '(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\.py$|_test\.(py|go)$|\.test\.(ts|tsx|js|jsx)$|\.spec\.(ts|tsx|js|jsx)$|(?:^|/)conftest\.py$'
-    generated_regex: '(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\.gen\.(ts|tsx|js|jsx)$|\.generated\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/'
+    # The bare-filename alternative is pinned to the one path ci-backend.yml regenerates and
+    # diffs. A general `(?:^|/)generated\.ts$` would retain an approval for any file a
+    # contributor chose to name that, and only this path has the drift check behind it.
+    generated_regex: '(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|^services/mcp/src/api/generated\.ts$|\.gen\.(ts|tsx|js|jsx)$|\.generated\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/'
 overrides:
     'size_gate.max_files':
         ceiling: 50

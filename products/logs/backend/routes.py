@@ -10,6 +10,9 @@ def register_routes(routers: RouterRegistry) -> None:
         r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "project_logs_sampling_rules", ["team_id"]
     )
     routers.projects.register(
+        r"logs/retention_rules", logs.LogsRetentionRuleViewSet, "project_logs_retention_rules", ["team_id"]
+    )
+    routers.projects.register(
         r"logs/metric_rules", logs.LogsMetricRuleViewSet, "project_logs_metric_rules", ["team_id"]
     )
     routers.projects.register(r"logs/views", logs.LogsViewViewSet, "project_logs_views", ["team_id"])

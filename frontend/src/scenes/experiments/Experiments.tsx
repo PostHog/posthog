@@ -17,6 +17,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -254,7 +255,14 @@ const ExperimentsTable = ({
                                 )}
                             </>
                         }
-                        description={experiment.description}
+                        description={
+                            experiment.description ? (
+                                // Hypotheses can run many paragraphs, so clamp to keep list rows compact
+                                <LemonMarkdown className="max-w-[30rem] line-clamp-2" lowKeyHeadings disableImages>
+                                    {experiment.description}
+                                </LemonMarkdown>
+                            ) : undefined
+                        }
                     />
                 )
             },

@@ -76,6 +76,10 @@ export class StateManager {
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {
             await this._cache.set('clientName', sanitizedClientName)
+            // Introspection is the first point the OAuth app name is known, and the client was
+            // already built for this request — stamp it on so the rest of the request forwards
+            // `x-posthog-mcp-oauth-client-name` instead of waiting for the next cache hit.
+            this._api.config.oauthClientName = sanitizedClientName
         }
 
         return {

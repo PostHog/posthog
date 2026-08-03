@@ -1,53 +1,31 @@
-import {
-    IconCheckCircle,
-    IconCloud,
-    IconDashboard,
-    IconExpand45,
-    IconLaptop,
-    IconPullRequest,
-    IconWarning,
-    IconX,
-} from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconCloud, IconDocument, IconExpand45, IconLaptop, IconPullRequest, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import {
     currentTaskLabel,
+    elapsedLabel,
     formatElapsed,
-    pipClass,
+    pendingQuestionLabel,
     prNameLabel,
     stepCounts,
     syncHeadline,
     toneTextClass,
+    localModeLabel,
 } from './helpers'
 import { InstallationProgress } from './installationProgressLogic'
-import { DetectedDashboard } from './wizardDashboardLogic'
+import { PipStrip } from './PipStrip'
+import { StatusGlyph } from './StatusGlyph'
 
 export type WizardSyncMode = 'cloud' | 'local'
 
-// Leading glyph for the prominent task line: it carries the run's tone (accent while working, green on
-// success, red on failure). Shared with the launcher and dialog.
-export function StatusGlyph({ progress }: { progress: InstallationProgress }): JSX.Element {
-    if (progress.phase === 'completed') {
-        return <IconCheckCircle className="text-success text-xl shrink-0" />
-    }
-    if (progress.phase === 'error') {
-        return <IconWarning className="text-danger text-xl shrink-0" />
-    }
-    if (progress.prMerged) {
-        return <IconPullRequest className="text-purple text-xl shrink-0" />
-    }
-    return <Spinner className="text-xl shrink-0 text-accent" textColored />
-}
-
 // Tiny chip naming where the run is happening, so cloud and local runs read distinctly.
-function ModeChip({ mode }: { mode: WizardSyncMode }): JSX.Element {
+function ModeChip({ mode, startedByLabel }: { mode: WizardSyncMode; startedByLabel?: string | null }): JSX.Element {
     return (
         <span className="inline-flex items-center gap-1 text-xs text-muted">
             {mode === 'cloud' ? <IconCloud className="text-sm" /> : <IconLaptop className="text-sm" />}
-            {mode === 'cloud' ? 'Cloud run' : 'On your machine'}
+            {mode === 'cloud' ? 'Cloud run' : localModeLabel(startedByLabel)}
         </span>
     )
 }
@@ -62,19 +40,23 @@ export function WizardSyncCard({
     progress,
     elapsedSeconds,
     mode,
-    dashboard,
-    onDashboardClick,
+    stale = false,
+    onViewReport,
     onExpand,
     onDismiss,
     dismissTooltip = 'Dismiss',
+    startedByLabel,
 }: {
     progress: InstallationProgress
     elapsedSeconds: number
     mode: WizardSyncMode
-    /** Dashboard the wizard built, when detected — the completed card's payoff for runs with no PR. */
-    dashboard?: DetectedDashboard | null
-    /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
-    onDashboardClick?: () => void
+    /** The run has gone quiet: the clock is replaced by the reason it stopped meaning anything. */
+    stale?: boolean
+    /** A teammate's name for a local run they started (null when it's the viewer's own run or unknown). */
+    startedByLabel?: string | null
+    /** Opens the run's handoff doc (the setup report) — the completed card's payoff for runs with
+     * no PR. Only rendered when the progress actually carries a doc. */
+    onViewReport?: () => void
     onExpand: () => void
     onDismiss?: () => void
     /** What the X actually does here — "Minimize" while the run is live, "Dismiss" once terminal. */
@@ -82,6 +64,7 @@ export function WizardSyncCard({
 }): JSX.Element {
     const { completed, total } = stepCounts(progress.steps)
     const task = currentTaskLabel(progress)
+    const question = pendingQuestionLabel(progress)
     const isRunning = progress.phase !== 'completed' && progress.phase !== 'error'
 
     return (
@@ -107,17 +90,22 @@ export function WizardSyncCard({
                             {task}
                         </p>
                         <p className="m-0 text-xs text-muted truncate">{syncHeadline(progress)}</p>
+                        {question && (
+                            // ph-no-capture: the prompt is whatever the wizard asked, so it can
+                            // carry project detail that must not reach autocapture.
+                            <p className="m-0 text-xs text-tertiary truncate ph-no-capture" title={question}>
+                                {question}
+                            </p>
+                        )}
                     </div>
-                    <span className="text-xs text-muted tabular-nums shrink-0">{formatElapsed(elapsedSeconds)}</span>
+                    <span className="text-xs text-muted tabular-nums shrink-0" title={formatElapsed(elapsedSeconds)}>
+                        {elapsedLabel(elapsedSeconds, stale)}
+                    </span>
                 </div>
 
                 {total > 0 ? (
                     <div className="flex items-center gap-2">
-                        <div className="flex flex-1 items-center gap-1">
-                            {progress.steps.map((step) => (
-                                <span key={step.id} className={cn('h-1 flex-1 rounded-full', pipClass(step.status))} />
-                            ))}
-                        </div>
+                        <PipStrip steps={progress.steps} className="flex-1" />
                         <span className="text-xs text-muted tabular-nums shrink-0">
                             {completed}/{total}
                         </span>
@@ -138,7 +126,7 @@ export function WizardSyncCard({
             </button>
 
             <div className="flex items-center justify-between gap-2 px-3.5 py-2 border-t border-primary">
-                <ModeChip mode={mode} />
+                <ModeChip mode={mode} startedByLabel={startedByLabel} />
                 <div className="flex items-center gap-1">
                     {progress.prUrl && (
                         // ph-no-capture: the label carries the customer's repo name and the href
@@ -159,19 +147,19 @@ export function WizardSyncCard({
                             <span className="truncate max-w-32">{prNameLabel(progress.prUrl)}</span>
                         </LemonButton>
                     )}
-                    {progress.phase === 'completed' && !progress.prUrl && dashboard && (
+                    {progress.phase === 'completed' && !progress.prUrl && progress.handoffText && onViewReport && (
                         <LemonButton
                             size="xsmall"
                             type="primary"
-                            to={urls.dashboard(dashboard.id)}
-                            icon={<IconDashboard />}
+                            icon={<IconDocument />}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                onDashboardClick?.()
+                                onViewReport()
                             }}
-                            tooltip="The wizard set this up for you. It fills up as your events arrive"
+                            tooltip="What the agent set up, and what to check before you commit"
+                            data-attr="wizard-sync-card-view-report"
                         >
-                            Preview dashboard
+                            Setup report
                         </LemonButton>
                     )}
                     <LemonButton

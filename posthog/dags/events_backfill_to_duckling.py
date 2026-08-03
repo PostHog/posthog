@@ -25,7 +25,8 @@ IAM Access:
 
 Partition Strategy:
     DynamicPartitionsDefinition with composite keys: {team_id}_{date}
-    - team_id maps to a duckling via DuckgresServerTeam (membership + enablement) + DuckgresServer (connection)
+    - team_id maps to a duckling via its duckgres control-plane team row (membership +
+      enablement) + DuckgresServer (connection)
     - date is the partition date (YYYY-MM-DD)
 """
 
@@ -38,8 +39,9 @@ import calendar
 import dataclasses
 from collections.abc import Callable
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime, timedelta
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from django.db import DatabaseError
 from django.utils import timezone
@@ -72,16 +74,6 @@ from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
-from posthog.ducklake import team_state
-from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import (
-    DUCKGRES_BUCKET_REGION,
-    NO_HISTORY_SENTINEL,
-    _get_org_id_for_team,
-    get_duckgres_server_for_organization,
-    resolve_team_earliest_event_date,
-)
-from posthog.ducklake.models import DuckgresServerTeam
 
 from products.data_warehouse.backend.facade.backfill_status import (
     BackfillOutcome,
@@ -92,6 +84,20 @@ from products.data_warehouse.backend.facade.backfill_status import (
     stale_running_partitions,
 )
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.facade.api import (
+    DUCKGRES_BUCKET_REGION,
+    NO_HISTORY_SENTINEL,
+    get_catalog_connection_config,
+    get_org_id_for_team,
+    get_stored_bucket_config,
+    resolve_team_earliest_event_date,
+)
+from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
+from products.managed_warehouse.backend.facade.team_state import (
+    list_enabled_backfill_team_memberships,
+    resolve_events_persons_tables,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -213,15 +219,12 @@ class DucklingTarget:
 def _resolve_table_names(team_id: int) -> tuple[str, str]:
     """Resolve this team's per-environment events/persons table names.
 
-    A team's `DuckgresServerTeam.table_suffix` (when set) isolates its data into
-    dedicated `events_<suffix>` / `persons_<suffix>` tables so multiple teams sharing one
+    A team's duckgres control-plane row isolates its data into dedicated
+    `events_<suffix>` / `persons_<suffix>` tables so multiple teams sharing one
     org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
-    An unset suffix (legacy single-team ducklings) keeps the shared table names.
-
-    Routed through the team-state accessor so the read source (Django rows vs. the
-    duckgres control plane) follows DUCKGRES_TEAM_STATE_SOURCE.
+    A team without a row (legacy single-team ducklings) keeps the shared table names.
     """
-    events_table, persons_table = team_state.resolve_events_persons_tables(team_id)
+    events_table, persons_table = resolve_events_persons_tables(team_id)
     _validate_identifier(events_table)
     _validate_identifier(persons_table)
     return events_table, persons_table
@@ -248,13 +251,13 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     Crossplane composition and produced buckets that don't exist. Fail loudly if nothing
     can name it rather than export to a guessed bucket.
     """
-    from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import get_control_plane_bucket  # noqa: PLC0415
 
-    org_id = _get_org_id_for_team(team_id)
+    org_id = get_org_id_for_team(team_id)
     events_table, persons_table = _resolve_table_names(team_id)
 
     # Control plane first — authoritative, and rejects an org_id-mismatched status body.
-    cp_bucket = managed_warehouse.cp_bucket_for(org_id)
+    cp_bucket = get_control_plane_bucket(org_id)
     if cp_bucket:
         logger.info(
             "duckling_bucket_resolved_from_control_plane",
@@ -272,9 +275,9 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         )
 
     # CP couldn't answer — fall back to the stored row if it knows a bucket.
-    server = get_duckgres_server_for_organization(org_id)
-    if server is not None and server.bucket:
-        bucket, bucket_region = server.bucket, server.bucket_region or DUCKGRES_BUCKET_REGION
+    stored_bucket = get_stored_bucket_config(org_id)
+    if stored_bucket is not None:
+        bucket, bucket_region = stored_bucket.bucket, stored_bucket.region or DUCKGRES_BUCKET_REGION
         logger.warning(
             "duckling_bucket_from_stored_server_control_plane_unavailable",
             team_id=team_id,
@@ -648,6 +651,7 @@ TARGET_ROWS_PER_FILE = 5_000_000
 MAX_S3_FILE_FANOUT = 256
 
 DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES = 128 * 1024 * 1024
+DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES = 512 * 1024 * 1024
 EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES = 32 * ONE_GB_IN_BYTES
 
 # Parquet writer defaults shared by every export. The byte target sets the nominal size
@@ -831,7 +835,7 @@ class DucklingBackfillConfig(Config):
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
-        default=DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES,
+        default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
         description="Uncompressed byte target for each Parquet row group written by the events export.",
     )
@@ -1680,19 +1684,19 @@ def _ducklake_file_partition_value_fixup_enabled() -> bool:
 
 
 def _open_catalog_conn(target: DucklingTarget) -> psycopg.Connection[Any]:
-    server = get_duckgres_server_for_organization(target.organization_id)
-    if server is None or not server.catalog_host:
+    catalog = get_catalog_connection_config(target.organization_id)
+    if catalog is None:
         raise RuntimeError(
             f"DuckgresServer with catalog_* fields not found for organization_id={target.organization_id}; "
             f"set {_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR}=false to skip the "
             f"ducklake_file_partition_value fix-up (loses bug coverage)."
         )
     return psycopg.connect(
-        host=server.catalog_host,
-        port=server.catalog_port,
-        dbname=server.catalog_database,
-        user=server.catalog_username,
-        password=server.catalog_password,
+        host=catalog.host,
+        port=catalog.port,
+        dbname=catalog.database,
+        user=catalog.username,
+        password=catalog.password,
         autocommit=False,
         connect_timeout=_DUCKLAKE_FILE_PARTITION_VALUE_CATALOG_CONNECT_TIMEOUT,
     )
@@ -1790,7 +1794,7 @@ def _fixup_partition_values_for_added_files(
     # table_kind is the logical kind ("events" or "persons") used to look up the
     # spec + path regex; table_name is the actual catalog table the files were
     # registered into and may carry a per-team suffix (events_<suffix> /
-    # persons_<suffix>) per DuckgresServerTeam.table_suffix. The dagster
+    # persons_<suffix>) per the team's duckgres control-plane row. The dagster
     # registration path writes files for the suffixed table while keeping the
     # S3 prefix (backfill/events/.../) tied to the kind, not the suffix.
     # Raises RuntimeError on any inconsistency; see module-level block for the
@@ -2858,7 +2862,7 @@ DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK = 1000
 def duckling_events_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckgresServerTeam) and keep the current month's
+    """Discover teams with backfills enabled (via the duckgres control plane) and keep the current month's
     daily backfill partitions filled.
 
     This sensor owns the CURRENT month; the full-backfill sensor owns every complete prior
@@ -2898,7 +2902,7 @@ def duckling_events_daily_backfill_sensor(
     run_requests: list[RunRequest] = []
     catchup_emitted = 0  # older-than-yesterday days created this tick, bounded below
 
-    for backfill in team_state.list_enabled_backfill_rows("events_daily_backfill_sensor"):
+    for backfill in list_enabled_backfill_team_memberships("events_daily_backfill_sensor"):
         for partition_date in current_month_dates:
             date_str = partition_date.strftime("%Y-%m-%d")
             partition_key = f"{backfill.team_id}_{date_str}"
@@ -3001,7 +3005,7 @@ EVENTS_BACKFILL_TARGET_QUEUE_DEPTH = 100
 # budget) even when filling the queue from empty.
 EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK = 100
 # Cap on per-team earliest-event ClickHouse lookups per tick. This is the only expensive
-# sensor op; it runs once per team ever, then the result is cached on the model row.
+# sensor op; it runs once per team ever, then the result is cached on the control-plane team row.
 EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
 # Existing installations predate the durable UI projection. Reconcile a bounded
 # number of historical partitions per tick so the sensor stays within its budget.
@@ -3012,70 +3016,21 @@ EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
-def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam | team_state.CPBackfillRow) -> bool:
-    """Mirror a freshly resolved earliest_event_date onto the team's duckgres control-plane row.
+def _push_earliest_event_date_to_cp(bf: ManagedWarehouseTeamMembership) -> bool:
+    """Persist a freshly resolved earliest_event_date onto the team's duckgres control-plane row.
 
-    Dual-write while per-team backfill state moves into the control plane. Best-effort —
+    This push IS the persistence (the CP row is the sensor's read source). Best-effort —
     any failure (resolving the org, the CP call itself) is logged and swallowed so it can
-    never fail the sensor tick — but the outcome is returned so cp mode (where this push
-    IS the persistence) can surface a failed write instead of silently retrying forever.
+    never fail the sensor tick — but the outcome is returned so the sensor can surface a
+    failed write (the row stays unresolved and is retried on a later tick).
     """
     try:
-        # Deferred like the other control-plane touchpoints: keeps the DRF-importing
-        # adapter off this module's import path.
-        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.facade.api import update_team_earliest_event_date  # noqa: PLC0415
 
-        return managed_warehouse.push_team_earliest_event_date(
-            bf.server.organization_id, bf.team_id, bf.earliest_event_date
-        )
+        return update_team_earliest_event_date(bf.organization_id, bf.team_id, bf.earliest_event_date)
     except Exception:
         logger.exception("duckling_earliest_event_date_cp_push_failed", team_id=bf.team_id)
         return False
-
-
-def _reconcile_earliest_event_dates_with_cp(backfills: list[DuckgresServerTeam | team_state.CPBackfillRow]) -> None:
-    """Re-push resolved earliest_event_dates whose control-plane mirror is missing or stale.
-
-    The per-row pushes (the provisioning Celery task, the sensor's resolve loop) are
-    best-effort one-shots: a transient control-plane failure would otherwise diverge the
-    two stores forever, because a row with a resolved date is never revisited. One
-    list-teams call per org per tick keeps this bounded; only teams the control plane
-    already knows are pushed (a missing row is the lazy grandfather's job, not this one's).
-    Best-effort in every direction — nothing here may fail the sensor tick.
-    """
-    try:
-        # Deferred like the other control-plane touchpoints: keeps the DRF-importing
-        # adapter off this module's import path.
-        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
-    except Exception:
-        logger.exception("duckling_earliest_event_date_cp_reconcile_import_failed")
-        return
-
-    by_org: dict = {}
-    for bf in backfills:
-        if bf.earliest_event_date is not None:
-            by_org.setdefault(bf.server.organization_id, []).append(bf)
-
-    for org_id, rows in by_org.items():
-        try:
-            teams = managed_warehouse._teams_from_response(managed_warehouse.list_teams(org_id, require_enabled=False))
-            if teams is None:
-                continue
-            # Coerce team ids to int: a control plane serializing them as JSON strings
-            # would otherwise make every team look unknown and silently skip the repair.
-            cp_dates = {}
-            for row in teams:
-                try:
-                    cp_dates[int(row["team_id"])] = row.get("earliest_event_date")
-                except (KeyError, TypeError, ValueError):
-                    continue
-            for bf in rows:
-                if bf.team_id not in cp_dates:
-                    continue
-                if cp_dates[bf.team_id] != bf.earliest_event_date.isoformat():
-                    _push_earliest_event_date_to_cp(bf)
-        except Exception:
-            logger.exception("duckling_earliest_event_date_cp_reconcile_failed", organization_id=str(org_id))
 
 
 def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partition_keys: list[str]) -> None:
@@ -3160,7 +3115,7 @@ def duckling_events_full_backfill_sensor(
     limit throttles to a handful of concurrent runs to protect ClickHouse):
 
       * ``earliest_event_date`` is resolved from ClickHouse ONCE per team and cached on the
-        ``DuckgresServerTeam`` row (bounded to EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK
+        team's duckgres control-plane row (bounded to EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK
         lookups per tick), so the hot path issues no ClickHouse queries and an org's whole
         history can be enqueued in a few quick ticks instead of dripping 3 months / 10 min.
       * Candidate months are interleaved ROUND-ROBIN across all enabled teams (each team
@@ -3183,39 +3138,31 @@ def duckling_events_full_backfill_sensor(
     today = timezone.now().date()
     last_month_end = today.replace(day=1) - timedelta(days=1)
 
-    backfills = team_state.list_enabled_backfill_rows("events_full_backfill_sensor")
+    backfills = list_enabled_backfill_team_memberships("events_full_backfill_sensor")
     if not backfills:
-        context.log.info("No enabled DuckgresServerTeam entries found")
+        context.log.info("No enabled duckling backfill teams found")
         return SensorResult(run_requests=[])
 
-    cp_is_read_source = team_state.get_team_state_source() == team_state.SOURCE_CP
-
-    # 1. Resolve + cache earliest_event_date for teams that don't have it yet. This is the
+    # 1. Resolve + persist earliest_event_date for teams that don't have it yet. This is the
     #    only expensive op (one ClickHouse query/team), bounded per tick and cached forever.
-    #    Shuffled so rows whose cp-mode persist keeps failing (they stay unresolved next
-    #    tick) can't deterministically occupy the bounded budget and starve later teams.
+    #    Shuffled so rows whose control-plane persist keeps failing (they stay unresolved
+    #    next tick) can't deterministically occupy the bounded budget and starve later teams.
     unresolved = [bf for bf in backfills if bf.earliest_event_date is None]
     random.shuffle(unresolved)
+    updated_backfills: dict[int, ManagedWarehouseTeamMembership] = {}
     for bf in unresolved[:EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK]:
-        bf.earliest_event_date = resolve_team_earliest_event_date(bf.team_id)
+        bf = replace(bf, earliest_event_date=resolve_team_earliest_event_date(bf.team_id))
+        updated_backfills[bf.team_id] = bf
         if bf.earliest_event_date == NO_HISTORY_SENTINEL:
             context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
-        if not cp_is_read_source:
-            # In django/dual mode the enumeration yields model rows, never CPBackfillRow.
-            cast(DuckgresServerTeam, bf).save(update_fields=["earliest_event_date"])
-        # In cp mode this push IS the persistence (the CP row is the read source);
-        # otherwise it stays the best-effort dual-write mirror.
-        pushed = _push_earliest_event_date_to_cp(bf)
-        if cp_is_read_source and not pushed:
+        # This push IS the persistence: the control-plane row is the read source.
+        if not _push_earliest_event_date_to_cp(bf):
             context.log.warning(
                 f"Control plane rejected earliest_event_date persist for team_id={bf.team_id}; retrying next tick"
             )
 
-    if not cp_is_read_source:
-        # Heal one-shot pushes that failed: re-mirror any resolved date the control plane
-        # is missing or has stale. Never fails the tick. Pointless in cp mode, where the
-        # control plane is already the read source being enumerated.
-        _reconcile_earliest_event_dates_with_cp(backfills)
+    # Continue scheduling with the freshly resolved values in this same sensor tick.
+    backfills = [updated_backfills.get(backfill.team_id, backfill) for backfill in backfills]
 
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
@@ -3318,7 +3265,7 @@ duckling_events_backfill_job = define_asset_job(
 def duckling_persons_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily persons partitions.
+    """Discover teams with backfills enabled (via the duckgres control plane) and create daily persons partitions.
 
     Similar to duckling_events_daily_backfill_sensor but for persons data.
     Uses _timestamp (Kafka ingestion time) for date filtering.
@@ -3330,7 +3277,7 @@ def duckling_persons_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in team_state.list_enabled_backfill_rows("persons_daily_backfill_sensor"):
+    for backfill in list_enabled_backfill_team_memberships("persons_daily_backfill_sensor"):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -3420,9 +3367,9 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = team_state.list_enabled_backfill_rows("persons_full_backfill_sensor")
+    backfills = list_enabled_backfill_team_memberships("persons_full_backfill_sensor")
     if not backfills:
-        context.log.info("No enabled DuckgresServerTeam entries found")
+        context.log.info("No enabled duckling backfill teams found")
         return SensorResult(run_requests=[])
 
     # Check existing partitions

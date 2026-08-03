@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use tokio::sync::mpsc;
@@ -89,7 +89,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        let metrics_router = setup_metrics_routes(health_router);
+        // E2E latency is a lag detector: healthy produce-to-commit lag is
+        // seconds (the flush cadence), and the interesting tail is minutes
+        // of writer lag. The default buckets cap at 10s, which would
+        // collapse every lag excursion into +Inf.
+        let metrics_router = setup_metrics_routes_with_overrides(
+            health_router,
+            &[(
+                Matcher::Full("personhog_writer_e2e_latency_ms".into()),
+                &[
+                    250.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
+                    600000.0,
+                ],
+            )],
+        );
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)

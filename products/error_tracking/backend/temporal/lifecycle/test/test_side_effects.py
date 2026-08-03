@@ -123,6 +123,7 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
             inputs,
             event="$error_tracking_issue_reopened",
             exception_timestamp="2026-07-21T12:05:00",
+            extra_properties={"attempt": 2},
         )
 
     assert produce_internal_event.call_count == 2
@@ -140,6 +141,7 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
         "exception_props": event_properties,
         "status": "Pending Release",
         "assignee": inputs.assignee,
+        "attempt": 2,
     }
     assert sent_events[1].properties == {
         key: value for key, value in sent_events[0].properties.items() if key != "exception_props"
@@ -176,11 +178,13 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
     ):
         produce_issue_lifecycle_internal_event(
             _inputs(),
-            event="$error_tracking_issue_reopened",
+            event="$error_tracking_issue_spiking",
             exception_timestamp="invalid",
+            include_status=False,
         )
 
     assert len(sent_events) == 1
+    assert "status" not in sent_events[0].properties
 
 
 @pytest.mark.asyncio
