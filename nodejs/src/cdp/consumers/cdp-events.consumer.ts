@@ -15,6 +15,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
+import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
@@ -99,6 +100,10 @@ export class CdpEventsConsumer<
             this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
         }
 
+        // Turn any $push_notification_opened events in this batch into `push_opened` app-metrics. Queued
+        // here (synchronously) so the monitoring flush in the background task below picks them up.
+        await this.trackPushNotificationOpens(invocationGlobals)
+
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
@@ -121,6 +126,26 @@ export class CdpEventsConsumer<
                 ),
             ]),
             invocations: [...hogInvocations, ...hogflowInvocations],
+        }
+    }
+
+    // Resolve each $push_notification_opened event's workflow and queue its push_opened app-metric.
+    // The attribution + spoof guard live in buildPushOpenedMetric (pure + unit-tested).
+    private async trackPushNotificationOpens(globals: HogFunctionInvocationGlobals[]): Promise<void> {
+        const opens = globals.filter((g) => g.event.event === PUSH_NOTIFICATION_OPENED_EVENT)
+        if (!opens.length) {
+            return
+        }
+        for (const g of opens) {
+            const workflowId = g.event.properties['$notification_workflow_id']
+            if (typeof workflowId !== 'string') {
+                continue
+            }
+            const hogFlow = await this.hogFlowManager.getHogFlow(workflowId)
+            const metric = buildPushOpenedMetric(g.event.properties, g.project.id, hogFlow)
+            if (metric) {
+                this.hogFunctionMonitoringService.queueAppMetric(metric, 'hog_flow')
+            }
         }
     }
 
