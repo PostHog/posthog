@@ -24,6 +24,13 @@ from posthog.caching.organization_serializer_cache import (
 )
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
+from posthog.data_freshness import (
+    LOOKBACK_DAYS,
+    QUIET_AFTER_DAYS,
+    DataSource,
+    Freshness,
+    get_organization_data_freshness,
+)
 from posthog.event_usage import (
     groups,
     report_organization_action,
@@ -369,6 +376,43 @@ class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
     )
 
 
+class DataFreshnessSourceSerializer(serializers.Serializer):
+    data_source = serializers.ChoiceField(
+        choices=[(source.value, source.value) for source in DataSource],
+        help_text="The kind of data this timestamp is about, e.g. `session_replay` or `logs`.",
+    )
+    last_data_at = serializers.DateTimeField(
+        help_text="When data of this kind last reached the project. Only sources with data inside the lookback window are listed."
+    )
+
+
+class DataFreshnessProjectSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="ID of the project this freshness verdict is for.")
+    freshness = serializers.ChoiceField(
+        choices=[(freshness.value, freshness.value) for freshness in Freshness],
+        help_text=(
+            "`never` if the project has never ingested anything, `live` if every source that delivered "
+            "recently is still delivering, `partial` if some sources have gone quiet while others keep "
+            "arriving, `quiet` if nothing arrived within `quiet_after_days`."
+        ),
+    )
+    last_data_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When data of any kind last reached the project, or null if nothing arrived within the lookback window.",
+    )
+    sources = DataFreshnessSourceSerializer(many=True, help_text="Per-source breakdown, most recently active first.")
+
+
+class OrganizationDataFreshnessSerializer(serializers.Serializer):
+    results = DataFreshnessProjectSerializer(many=True, help_text="One entry per project the requesting user can see.")
+    lookback_days = serializers.IntegerField(
+        help_text="How many days back the check looks. Data older than this is not visible to the check."
+    )
+    quiet_after_days = serializers.IntegerField(
+        help_text="How many days without data make a project or source count as quiet."
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
@@ -605,3 +649,24 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             requesting_user_id=user.id,
         )
         return Response({"success": True})
+
+    @extend_schema(request=None, responses={200: OrganizationDataFreshnessSerializer})
+    @action(detail=True, methods=["GET"], url_path="data_freshness", pagination_class=None)
+    def data_freshness(self, request: Request, **kwargs) -> Response:
+        """When each project in the organization last received data, broken down by kind of data."""
+        organization = self.organization
+        visible_teams = list(
+            organization.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).only(
+                "id", "project_id", "ingested_event"
+            )
+        )
+        results = get_organization_data_freshness(str(organization.id), visible_teams)
+        return Response(
+            OrganizationDataFreshnessSerializer(
+                {
+                    "results": results,
+                    "lookback_days": LOOKBACK_DAYS,
+                    "quiet_after_days": QUIET_AFTER_DAYS,
+                }
+            ).data
+        )

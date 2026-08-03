@@ -16914,6 +16914,90 @@ export namespace Schemas {
     }
 
     /**
+     * * `never` - never
+     * * `live` - live
+     * * `partial` - partial
+     * * `quiet` - quiet
+     */
+    export type FreshnessEnum = typeof FreshnessEnum[keyof typeof FreshnessEnum];
+
+
+    export const FreshnessEnum = {
+      Never: 'never',
+      Live: 'live',
+      Partial: 'partial',
+      Quiet: 'quiet',
+    } as const;
+
+    /**
+     * * `product_analytics` - product_analytics
+     * * `session_replay` - session_replay
+     * * `error_tracking` - error_tracking
+     * * `llm_analytics` - llm_analytics
+     * * `surveys` - surveys
+     * * `feature_flags` - feature_flags
+     * * `logs` - logs
+     * * `apm` - apm
+     * * `destinations` - destinations
+     * * `messaging` - messaging
+     * * `data_warehouse` - data_warehouse
+     */
+    export type DataSourceEnum = typeof DataSourceEnum[keyof typeof DataSourceEnum];
+
+
+    export const DataSourceEnum = {
+      ProductAnalytics: 'product_analytics',
+      SessionReplay: 'session_replay',
+      ErrorTracking: 'error_tracking',
+      LlmAnalytics: 'llm_analytics',
+      Surveys: 'surveys',
+      FeatureFlags: 'feature_flags',
+      Logs: 'logs',
+      Apm: 'apm',
+      Destinations: 'destinations',
+      Messaging: 'messaging',
+      DataWarehouse: 'data_warehouse',
+    } as const;
+
+    export interface DataFreshnessSource {
+      /** The kind of data this timestamp is about, e.g. `session_replay` or `logs`.
+       *
+       * * `product_analytics` - product_analytics
+       * * `session_replay` - session_replay
+       * * `error_tracking` - error_tracking
+       * * `llm_analytics` - llm_analytics
+       * * `surveys` - surveys
+       * * `feature_flags` - feature_flags
+       * * `logs` - logs
+       * * `apm` - apm
+       * * `destinations` - destinations
+       * * `messaging` - messaging
+       * * `data_warehouse` - data_warehouse */
+      data_source: DataSourceEnum;
+      /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+      last_data_at: string;
+    }
+
+    export interface DataFreshnessProject {
+      /** ID of the project this freshness verdict is for. */
+      team_id: number;
+      /** `never` if the project has never ingested anything, `live` if every source that delivered recently is still delivering, `partial` if some sources have gone quiet while others keep arriving, `quiet` if nothing arrived within `quiet_after_days`.
+       *
+       * * `never` - never
+       * * `live` - live
+       * * `partial` - partial
+       * * `quiet` - quiet */
+      freshness: FreshnessEnum;
+      /**
+         * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+         * @nullable
+         */
+      last_data_at: string | null;
+      /** Per-source breakdown, most recently active first. */
+      sources: DataFreshnessSource[];
+    }
+
+    /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed
      * * `Failed` - Failed
@@ -43240,6 +43324,15 @@ export namespace Schemas {
          * @nullable
          */
       is_pending_deletion?: boolean | null;
+    }
+
+    export interface OrganizationDataFreshness {
+      /** One entry per project the requesting user can see. */
+      results: DataFreshnessProject[];
+      /** How many days back the check looks. Data older than this is not visible to the check. */
+      lookback_days: number;
+      /** How many days without data make a project or source count as quiet. */
+      quiet_after_days: number;
     }
 
     export interface OrganizationDomain {

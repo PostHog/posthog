@@ -22,6 +22,8 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { pendingInvitesLogic, PendingInviteForCurrentUser } from './pendingInvitesLogic'
+import { projectDataFreshnessLogic } from './projectDataFreshnessLogic'
+import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
 import { ProjectName } from './ProjectMenu'
 
 interface ProjectListItem {
@@ -52,6 +54,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
+    const { freshnessByTeamId, quietAfterDays, lookbackDays } = useValues(projectDataFreshnessLogic)
     const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
@@ -256,6 +259,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                 <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
                                                     <IconCheck className="text-tertiary" />
                                                     <ProjectName team={item.team} />
+                                                    <ProjectFreshnessIndicator
+                                                        freshness={freshnessByTeamId[item.team.id]}
+                                                        quietAfterDays={quietAfterDays}
+                                                        lookbackDays={lookbackDays}
+                                                    />
                                                 </ButtonPrimitive>
                                             )}
                                         />
@@ -283,6 +291,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                 >
                                                     <IconBlank />
                                                     <ProjectName team={item.team} />
+                                                    <ProjectFreshnessIndicator
+                                                        freshness={freshnessByTeamId[item.team.id]}
+                                                        quietAfterDays={quietAfterDays}
+                                                        lookbackDays={lookbackDays}
+                                                    />
                                                 </ButtonPrimitive>
                                             )}
                                         />

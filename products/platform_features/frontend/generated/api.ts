@@ -26,6 +26,7 @@ import type {
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
+    OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
     PaginatedActivityLogListApi,
@@ -159,6 +160,23 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     return apiMutator<void>(getDestroyUrl(id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDataFreshnessRetrieveUrl = (id: string) => {
+    return `/api/organizations/${id}/data_freshness/`
+}
+
+/**
+ * When each project in the organization last received data, broken down by kind of data.
+ */
+export const dataFreshnessRetrieve = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationDataFreshnessApi> => {
+    return apiMutator<OrganizationDataFreshnessApi>(getDataFreshnessRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
     })
 }
 

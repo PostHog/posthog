@@ -236,6 +236,97 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+/**
+ * * `never` - never
+ * * `live` - live
+ * * `partial` - partial
+ * * `quiet` - quiet
+ */
+export type FreshnessEnumApi = (typeof FreshnessEnumApi)[keyof typeof FreshnessEnumApi]
+
+export const FreshnessEnumApi = {
+    Never: 'never',
+    Live: 'live',
+    Partial: 'partial',
+    Quiet: 'quiet',
+} as const
+
+/**
+ * * `product_analytics` - product_analytics
+ * * `session_replay` - session_replay
+ * * `error_tracking` - error_tracking
+ * * `llm_analytics` - llm_analytics
+ * * `surveys` - surveys
+ * * `feature_flags` - feature_flags
+ * * `logs` - logs
+ * * `apm` - apm
+ * * `destinations` - destinations
+ * * `messaging` - messaging
+ * * `data_warehouse` - data_warehouse
+ */
+export type DataSourceEnumApi = (typeof DataSourceEnumApi)[keyof typeof DataSourceEnumApi]
+
+export const DataSourceEnumApi = {
+    ProductAnalytics: 'product_analytics',
+    SessionReplay: 'session_replay',
+    ErrorTracking: 'error_tracking',
+    LlmAnalytics: 'llm_analytics',
+    Surveys: 'surveys',
+    FeatureFlags: 'feature_flags',
+    Logs: 'logs',
+    Apm: 'apm',
+    Destinations: 'destinations',
+    Messaging: 'messaging',
+    DataWarehouse: 'data_warehouse',
+} as const
+
+export interface DataFreshnessSourceApi {
+    /** The kind of data this timestamp is about, e.g. `session_replay` or `logs`.
+     *
+     * * `product_analytics` - product_analytics
+     * * `session_replay` - session_replay
+     * * `error_tracking` - error_tracking
+     * * `llm_analytics` - llm_analytics
+     * * `surveys` - surveys
+     * * `feature_flags` - feature_flags
+     * * `logs` - logs
+     * * `apm` - apm
+     * * `destinations` - destinations
+     * * `messaging` - messaging
+     * * `data_warehouse` - data_warehouse */
+    data_source: DataSourceEnumApi
+    /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+    last_data_at: string
+}
+
+export interface DataFreshnessProjectApi {
+    /** ID of the project this freshness verdict is for. */
+    team_id: number
+    /** `never` if the project has never ingested anything, `live` if every source that delivered recently is still delivering, `partial` if some sources have gone quiet while others keep arriving, `quiet` if nothing arrived within `quiet_after_days`.
+     *
+     * * `never` - never
+     * * `live` - live
+     * * `partial` - partial
+     * * `quiet` - quiet */
+    freshness: FreshnessEnumApi
+    /**
+     * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+     * @nullable
+     */
+    last_data_at: string | null
+    /** Per-source breakdown, most recently active first. */
+    sources: DataFreshnessSourceApi[]
+}
+
+export interface OrganizationDataFreshnessApi {
+    /** One entry per project the requesting user can see. */
+    results: DataFreshnessProjectApi[]
+    /** How many days back the check looks. Data older than this is not visible to the check. */
+    lookback_days: number
+    /** How many days without data make a project or source count as quiet. */
+    quiet_after_days: number
+}
+
 export interface OrganizationAIAccessRequestResponseApi {
     /** Whether the access request was accepted and the organization admins were notified. */
     success: boolean

@@ -19,7 +19,8 @@ import { ProjectCombobox } from './ProjectCombobox'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <div className="flex items-center max-w-full">
+        // min-w-0 lets the name truncate rather than push a sibling (the freshness indicator) out of the row
+        <div className="flex items-center max-w-full min-w-0">
             <span className="truncate">{team.name}</span>
             {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
         </div>
