@@ -170,11 +170,9 @@ function QuotaBanner(): JSX.Element | null {
                 ? `${
                       onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
                   }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
-                : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}${
-                      onFreePlan ? ' of your free credits' : ''
-                  } this month. New observations will pause once ${
-                      onFreePlan ? 'they run out' : 'you hit the limit'
-                  }. Resets ${state.resetsOn}.`}
+                : onFreePlan
+                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
+                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
         </LemonBanner>
     )
 }
