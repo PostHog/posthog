@@ -168,10 +168,8 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
         return handleIngest(c, redis, config, publicKeys)
     })
 
-    // -- Authenticated task-run port previews --
-    app.get('/v1/ports/:forwardId/auth/', async (c) => {
+    const handlePortForwardAuth = async (c: HonoCtx, forwardId: string, mode: PortForwardMode): Promise<Response> => {
         const ticket = c.req.query('ticket') ?? ''
-        const { forwardId } = c.req.param() as { forwardId: string }
         const token = await exchangePortForwardTicket(config, ticket)
         if (token === null) {
             return c.json({ error: 'Invalid port forward ticket' }, 401)
@@ -188,16 +186,30 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return c.json({ error: 'Token does not match port forward' }, 403)
         }
 
+        const cookiePath = mode === 'host' ? '/' : `/v1/ports/${forwardId}`
+        const redirectPath = mode === 'host' ? '/' : `/v1/ports/${forwardId}/`
         c.header(
             'Set-Cookie',
-            `ph_task_port_forward=${encodeURIComponent(token)}; Path=/v1/ports/${forwardId}; HttpOnly; SameSite=Lax; Max-Age=3600; Secure`
+            `ph_task_port_forward=${encodeURIComponent(token)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=3600; Secure`
         )
-        return c.redirect(`/v1/ports/${forwardId}/`, 302)
+        return c.redirect(redirectPath, 302)
+    }
+
+    // -- Authenticated task-run port previews --
+    app.get('/auth/', async (c) => {
+        const forwardId = previewForwardIdFromHost(c, config)
+        if (forwardId === null) {
+            return c.json({ error: 'Not found' }, 404)
+        }
+        return handlePortForwardAuth(c, forwardId, 'host')
     })
 
-    const handlePortForward = async (c: HonoCtx): Promise<Response> => {
-        const { forwardId } = c.req.param() as { forwardId: string }
-        const token = extractPortForwardToken(c)
+    app.get('/v1/ports/:forwardId/auth/', (c) => {
+        return c.json({ error: 'Port preview auth requires an isolated preview host' }, 410)
+    })
+
+    const handlePortForward = async (c: HonoCtx, forwardId: string, mode: PortForwardMode): Promise<Response> => {
+        const token = extractPortForwardToken(c, { allowCookie: mode === 'host' })
         if (token === null) {
             return c.json({ error: 'Missing port forward token' }, 401)
         }
@@ -221,7 +233,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return c.json({ error: 'Resolved port forward does not match token' }, 403)
         }
 
-        const upstreamUrl = buildSandboxPortUrl(c.req.url, forwardId, resolved, config)
+        const upstreamUrl = buildSandboxPortUrl(c.req.url, forwardId, resolved, config, mode)
         if (upstreamUrl === null) {
             return c.json({ error: 'Port forward target is not available' }, 502)
         }
@@ -239,7 +251,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return new Response(upstream.body, {
                 status: upstream.status,
                 statusText: upstream.statusText,
-                headers: filteredResponseHeaders(upstream.headers, forwardId, resolved),
+                headers: filteredResponseHeaders(upstream.headers, forwardId, resolved, mode),
             })
         } catch (err) {
             logger.warn('port_forward:upstream_unreachable', {
@@ -251,11 +263,23 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
         }
     }
 
-    app.all('/v1/ports/:forwardId', handlePortForward)
-    app.all('/v1/ports/:forwardId/*', handlePortForward)
+    app.all('/v1/ports/:forwardId', (c) => {
+        const { forwardId } = c.req.param() as { forwardId: string }
+        return handlePortForward(c, forwardId, 'path')
+    })
+    app.all('/v1/ports/:forwardId/*', (c) => {
+        const { forwardId } = c.req.param() as { forwardId: string }
+        return handlePortForward(c, forwardId, 'path')
+    })
 
     // -- Catch-all 404 --
-    app.all('*', (c) => c.json({ error: 'Not found' }, 404))
+    app.all('*', (c) => {
+        const forwardId = previewForwardIdFromHost(c, config)
+        if (forwardId !== null) {
+            return handlePortForward(c, forwardId, 'host')
+        }
+        return c.json({ error: 'Not found' }, 404)
+    })
 
     return { app, lifecycle }
 }
@@ -285,10 +309,16 @@ function extractStreamReadToken(c: { req: { header: (name: string) => string | u
     return token || null
 }
 
-function extractPortForwardToken(c: { req: { header: (name: string) => string | undefined } }): string | null {
+function extractPortForwardToken(
+    c: { req: { header: (name: string) => string | undefined } },
+    { allowCookie }: { allowCookie: boolean }
+): string | null {
     const bearer = extractStreamReadToken(c)
     if (bearer) {
         return bearer
+    }
+    if (!allowCookie) {
+        return null
     }
     const cookie = c.req.header('Cookie') ?? c.req.header('cookie') ?? ''
     const pathCookie = cookie
@@ -311,6 +341,43 @@ interface ResolvedPortForward {
     sandbox_url: string
     connection_token: string
     sandbox_connect_token?: string | null
+}
+
+type PortForwardMode = 'host' | 'path'
+
+function previewForwardIdFromHost(c: HonoCtx, config: Config): string | null {
+    if (!config.tasksAgentProxyPublicUrl) {
+        return null
+    }
+    let publicUrl: URL
+    try {
+        publicUrl = new URL(config.tasksAgentProxyPublicUrl)
+    } catch {
+        return null
+    }
+
+    const hostHeader = c.req.header('Host') ?? c.req.header('host') ?? new URL(c.req.url).host
+    let requestUrl: URL
+    try {
+        requestUrl = new URL(`http://${hostHeader}`)
+    } catch {
+        return null
+    }
+    const previewHostname = requestUrl.hostname.toLowerCase()
+    const publicHostname = publicUrl.hostname.toLowerCase()
+    const suffix = `.${publicHostname}`
+    if (!previewHostname.endsWith(suffix) || previewHostname === publicHostname) {
+        return null
+    }
+    if (publicUrl.port && requestUrl.port && publicUrl.port !== requestUrl.port) {
+        return null
+    }
+
+    const forwardId = previewHostname.slice(0, -suffix.length)
+    if (!forwardId || forwardId.includes('.')) {
+        return null
+    }
+    return forwardId
 }
 
 async function exchangePortForwardTicket(config: Config, ticket: string): Promise<string | null> {
@@ -358,7 +425,8 @@ function buildSandboxPortUrl(
     requestUrl: string,
     forwardId: string,
     resolved: ResolvedPortForward,
-    config: Config
+    config: Config,
+    mode: PortForwardMode
 ): string | null {
     const sandboxBaseUrl = parseAllowedSandboxUrl(resolved.sandbox_url, config)
     if (sandboxBaseUrl === null) {
@@ -367,7 +435,12 @@ function buildSandboxPortUrl(
     }
     const incoming = new URL(requestUrl)
     const prefix = `/v1/ports/${forwardId}`
-    const suffix = incoming.pathname.startsWith(prefix) ? incoming.pathname.slice(prefix.length) || '/' : '/'
+    const suffix =
+        mode === 'host'
+            ? incoming.pathname || '/'
+            : incoming.pathname.startsWith(prefix)
+              ? incoming.pathname.slice(prefix.length) || '/'
+              : '/'
     const target = new URL(`/ports/${resolved.port}${suffix}`, sandboxBaseUrl)
     incoming.searchParams.forEach((value, key) => {
         target.searchParams.append(key, value)
@@ -435,7 +508,12 @@ function filteredProxyHeaders(input: Headers): Headers {
     return headers
 }
 
-function filteredResponseHeaders(input: Headers, forwardId: string, resolved: ResolvedPortForward): Headers {
+function filteredResponseHeaders(
+    input: Headers,
+    forwardId: string,
+    resolved: ResolvedPortForward,
+    mode: PortForwardMode
+): Headers {
     const headers = new Headers()
     input.forEach((value, key) => {
         const normalized = key.toLowerCase()
@@ -443,7 +521,7 @@ function filteredResponseHeaders(input: Headers, forwardId: string, resolved: Re
             return
         }
         if (normalized === 'location') {
-            headers.set(key, rewritePortForwardLocation(value, forwardId, resolved))
+            headers.set(key, rewritePortForwardLocation(value, forwardId, resolved, mode))
             return
         }
         headers.set(key, value)
@@ -451,10 +529,15 @@ function filteredResponseHeaders(input: Headers, forwardId: string, resolved: Re
     return headers
 }
 
-function rewritePortForwardLocation(value: string, forwardId: string, resolved: ResolvedPortForward): string {
+function rewritePortForwardLocation(
+    value: string,
+    forwardId: string,
+    resolved: ResolvedPortForward,
+    mode: PortForwardMode
+): string {
     const prefix = `/v1/ports/${forwardId}`
     if (value.startsWith('/') && !value.startsWith('//')) {
-        return `${prefix}${value}`
+        return mode === 'host' ? value : `${prefix}${value}`
     }
     let location: URL
     try {
@@ -466,5 +549,6 @@ function rewritePortForwardLocation(value: string, forwardId: string, resolved: 
     if (!isLoopback || (location.port && Number(location.port) !== resolved.port)) {
         return value
     }
-    return `${prefix}${location.pathname}${location.search}${location.hash}`
+    const locationPath = `${location.pathname}${location.search}${location.hash}`
+    return mode === 'host' ? locationPath : `${prefix}${locationPath}`
 }

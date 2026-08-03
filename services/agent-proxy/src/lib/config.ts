@@ -8,6 +8,7 @@
 // Optional with defaults:
 //   SANDBOX_JWT_PUBLIC_KEY_SECONDARY    — extra public key trusted during key rotation
 //   TASKS_AGENT_PROXY_CORS_ORIGINS      — comma-separated origins; '' disables CORS
+//   TASKS_AGENT_PROXY_PUBLIC_URL        — public base URL; preview hosts are <forward-id>.<host>
 //   AGENT_PROXY_MAX_CONCURRENT_STREAMS  — default 1000; per-pod cap on open SSE streams
 //   AGENT_PROXY_MAX_STREAMS_PER_RUN     — default 25; per-run cap on open SSE streams
 //   AGENT_PROXY_METRICS_TOKEN           — default ''; bearer token gating /_metrics when set
@@ -26,6 +27,8 @@ export interface Config {
     sandboxJwtPublicKeysPem: string[]
     // Parsed from comma-separated TASKS_AGENT_PROXY_CORS_ORIGINS; '*' = all origins
     corsOrigins: Set<string>
+    // Public base URL used to identify per-forward preview subdomains.
+    tasksAgentProxyPublicUrl: string
     // Base URL of the internal Django service (no trailing slash)
     djangoCallbackBaseUrl: string
     // Shared secret sent as X-Agent-Proxy-Secret on the Django callback so Django can prove the call
@@ -111,6 +114,7 @@ export function loadConfig(): Config {
     const metricsToken = getEnv('AGENT_PROXY_METRICS_TOKEN') ?? ''
 
     const corsOrigins = parseCorsOrigins(getEnv('TASKS_AGENT_PROXY_CORS_ORIGINS') ?? '')
+    const tasksAgentProxyPublicUrl = getEnv('TASKS_AGENT_PROXY_PUBLIC_URL') ?? ''
 
     const portRaw = getEnv('PORT')
     const port = portRaw !== undefined ? parseInt(portRaw, 10) : 8003
@@ -130,6 +134,7 @@ export function loadConfig(): Config {
         redisUrl,
         sandboxJwtPublicKeysPem,
         corsOrigins,
+        tasksAgentProxyPublicUrl,
         djangoCallbackBaseUrl,
         agentProxyCallbackSecret,
         maxConcurrentStreams,

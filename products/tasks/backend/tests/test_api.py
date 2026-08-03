@@ -4604,7 +4604,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(data["port"], 8000)
         self.assertEqual(data["name"], "PostHog web")
         self.assertEqual(data["status"], "active")
-        self.assertEqual(data["preview_url"], f"https://agent-proxy.example.com/v1/ports/{data['id']}/")
+        self.assertEqual(data["preview_url"], f"https://{data['id']}.agent-proxy.example.com/")
 
     def test_create_port_forward_rejects_run_without_active_sandbox(self):
         task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
@@ -4641,7 +4641,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("token", data)
-        self.assertIn(f"https://agent-proxy.example.com/v1/ports/{port_forward.id}/auth/?ticket=", data["preview_url"])
+        self.assertIn(f"https://{port_forward.id}.agent-proxy.example.com/auth/?ticket=", data["preview_url"])
         self.assertNotIn(data["token"], data["preview_url"])
 
         ticket = data["preview_url"].split("ticket=", 1)[1]
@@ -8457,6 +8457,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", False),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
+            ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", False),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/", True),
             (
                 "task:read",
@@ -8492,6 +8494,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", True),
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
+            ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
+            ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
             (
                 "task:write",
                 "GET",
@@ -8530,6 +8534,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
+            ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/ports/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/", True),
             (
                 "*",
@@ -8573,7 +8579,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         self.client.force_authenticate(None)
 
-        data = {}
+        data: dict[str, Any] = {}
         if method == "POST" and url == "/api/projects/@current/tasks/":
             data = {
                 "title": "New Task",
@@ -8594,6 +8600,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             data = {"title": "Updated Task"}
         elif method == "POST" and "/living_artifacts/" in url and url.endswith("/edit/"):
             data = {"content": "# Updated report"}
+        elif method == "POST" and url.endswith("/ports/"):
+            data = {"port": 8000}
 
         if method == "GET":
             response = self.client.get(url, headers={"authorization": f"Bearer {api_key_value}"})

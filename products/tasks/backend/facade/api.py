@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -316,10 +316,15 @@ def _task_run_port_forward_preview_url(port_forward: TaskRunPortForward, *, tick
     base_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
     if not base_url:
         return None
-    path = f"{base_url.rstrip('/')}/v1/ports/{port_forward.id}/"
+    parsed = urlsplit(base_url)
+    if not parsed.scheme or not parsed.hostname or parsed.username or parsed.password:
+        return None
+    netloc = f"{port_forward.id}.{parsed.hostname}"
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
     if ticket:
-        return f"{base_url.rstrip('/')}/v1/ports/{port_forward.id}/auth/?ticket={ticket}"
-    return path
+        return urlunsplit((parsed.scheme, netloc, "/auth/", urlencode({"ticket": ticket}), ""))
+    return urlunsplit((parsed.scheme, netloc, "/", "", ""))
 
 
 def _task_run_port_forward_to_dto(

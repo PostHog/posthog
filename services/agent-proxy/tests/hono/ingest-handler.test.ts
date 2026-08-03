@@ -284,6 +284,7 @@ function makeConfig(overrides?: Partial<Config>): Config {
         redisUrl: 'redis://localhost:6379',
         sandboxJwtPublicKeysPem: [],
         corsOrigins: new Set(),
+        tasksAgentProxyPublicUrl: '',
         djangoCallbackBaseUrl: '',
         agentProxyCallbackSecret: '',
         maxConcurrentStreams: 1000,

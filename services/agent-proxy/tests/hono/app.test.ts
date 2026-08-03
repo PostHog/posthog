@@ -22,6 +22,7 @@ function makeConfig(overrides?: Partial<Config>): Config {
         redisUrl: 'redis://localhost:6379',
         sandboxJwtPublicKeysPem: [],
         corsOrigins: new Set(),
+        tasksAgentProxyPublicUrl: '',
         djangoCallbackBaseUrl: '',
         agentProxyCallbackSecret: '',
         maxConcurrentStreams: 1000,
@@ -68,20 +69,27 @@ describe('app onError', () => {
         expect(logged.requestId).toBeTruthy()
     })
 
-    it('sets an HttpOnly cookie for a valid port-forward auth URL', async () => {
+    it('sets an HttpOnly cookie for a valid isolated-host port-forward auth URL', async () => {
         const redis = {} as unknown as Redis
         const { app } = createApp(
             redis,
-            makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
             []
         )
         const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ token: 'tok' }))
 
-        const res = await app.request('/v1/ports/forward-123/auth/?ticket=ticket-123')
+        const res = await app.request('/auth/?ticket=ticket-123', {
+            headers: { Host: 'forward-123.agent-proxy.example.com' },
+        })
 
         expect(res.status).toBe(302)
-        expect(res.headers.get('Location')).toBe('/v1/ports/forward-123/')
+        expect(res.headers.get('Location')).toBe('/')
         expect(res.headers.get('Set-Cookie')).toContain('ph_task_port_forward=tok')
+        expect(res.headers.get('Set-Cookie')).toContain('Path=/')
         expect(res.headers.get('Set-Cookie')).toContain('HttpOnly')
         expect(fetchMock).toHaveBeenCalledWith(
             'http://django/internal/tasks/port-forward/exchange-ticket/',
@@ -96,11 +104,33 @@ describe('app onError', () => {
         fetchMock.mockRestore()
     })
 
-    it('resolves and proxies an authenticated port-forward request to the sandbox agent server', async () => {
+    it('rejects path-based browser auth for port-forward previews', async () => {
         const redis = {} as unknown as Redis
         const { app } = createApp(
             redis,
-            makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+
+        const res = await app.request('/v1/ports/forward-123/auth/?ticket=ticket-123')
+
+        expect(res.status).toBe(410)
+        expect(await res.json()).toEqual({ error: 'Port preview auth requires an isolated preview host' })
+    })
+
+    it('resolves and proxies an authenticated host-mode port-forward request to the sandbox agent server', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
             []
         )
         const fetchMock = vi
@@ -133,13 +163,13 @@ describe('app onError', () => {
                 })
             })
 
-        const res = await app.request('/v1/ports/forward-123/some/path?x=1', {
-            headers: { Authorization: 'Bearer tok' },
+        const res = await app.request('/some/path?x=1', {
+            headers: { Host: 'forward-123.agent-proxy.example.com', Cookie: 'ph_task_port_forward=tok' },
         })
 
         expect(res.status).toBe(201)
         expect(await res.text()).toBe('ok')
-        expect(res.headers.get('Location')).toBe('/v1/ports/forward-123/login')
+        expect(res.headers.get('Location')).toBe('/login')
         expect(res.headers.get('Service-Worker-Allowed')).toBeNull()
         expect(res.headers.get('X-Test')).toBe('yes')
         expect(fetchMock).toHaveBeenNthCalledWith(
@@ -152,6 +182,43 @@ describe('app onError', () => {
                 },
             })
         )
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        fetchMock.mockRestore()
+    })
+
+    it('keeps path-mode port-forward proxying bearer-token only', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
+            []
+        )
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                Response.json({
+                    run_id: 'run-123',
+                    task_id: 'task-abc',
+                    team_id: 42,
+                    forward_id: 'forward-123',
+                    port: 8000,
+                    sandbox_url: 'https://sandbox.modal.run',
+                    connection_token: 'sandbox-jwt',
+                })
+            )
+            .mockResolvedValueOnce(new Response('ok', { status: 200, headers: { Location: '/login' } }))
+
+        const cookieOnly = await app.request('/v1/ports/forward-123/some/path', {
+            headers: { Cookie: 'ph_task_port_forward=tok' },
+        })
+        expect(cookieOnly.status).toBe(401)
+
+        const bearer = await app.request('/v1/ports/forward-123/some/path', {
+            headers: { Authorization: 'Bearer tok' },
+        })
+
+        expect(bearer.status).toBe(200)
+        expect(bearer.headers.get('Location')).toBe('/v1/ports/forward-123/login')
         expect(fetchMock).toHaveBeenCalledTimes(2)
         fetchMock.mockRestore()
     })

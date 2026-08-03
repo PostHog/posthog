@@ -25,6 +25,7 @@ from rest_framework.exceptions import NotAuthenticated, NotFound, ParseError, Pe
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import QuerySchemaRoot
@@ -952,6 +953,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
 
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        super_method = getattr(super(), "dangerously_get_required_scopes", None)
+        if callable(super_method):
+            mixin_result = super_method(request, view)
+            if mixin_result is not None:
+                return mixin_result
+
+        if view.action in ["port_forwards", "create_port_forward"]:
+            return ["task:write"] if request.method == "POST" else ["task:read"]
+        return None
+
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
@@ -1737,7 +1749,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List task run port forwards",
         description="List forwarded ports configured for this task run.",
     )
-    @action(detail=True, methods=["get"], url_path="ports", required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], url_path="ports")
     def port_forwards(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         forwards = tasks_facade.list_task_run_port_forwards(pk, task_id, self.team_id)
