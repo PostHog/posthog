@@ -1194,3 +1194,7 @@ environment:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true
+    start:desktop:
+        bin_script: start-desktop
+        description: 'Install the nested products/desktop workspace and run its dev stack (Electron app plus package watchers via turbo); used by the desktop intent on hogli start'
+        hidden: true
