@@ -33,6 +33,43 @@ jest.mock('./providers', () => {
                 },
             },
         },
+        'anthropic/claude-bedrock-profile-test': {
+            model: 'anthropic/claude-bedrock-profile-test',
+            cost: {
+                default: { prompt_token: 0.000001, completion_token: 0.000002 },
+                'amazon-bedrock-claude-on-aws': {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000004,
+                },
+                'amazon-bedrock-global': {
+                    prompt_token: 0.000005,
+                    completion_token: 0.000006,
+                },
+                'amazon-bedrock-us-east-1': {
+                    prompt_token: 0.000007,
+                    completion_token: 0.000008,
+                },
+                anthropic: { prompt_token: 0.000009, completion_token: 0.00001 },
+            },
+        },
+        'anthropic/claude-bedrock-arn-test': {
+            model: 'anthropic/claude-bedrock-arn-test',
+            cost: {
+                default: { prompt_token: 0.000011, completion_token: 0.000012 },
+                'amazon-bedrock-claude-on-aws': {
+                    prompt_token: 0.000013,
+                    completion_token: 0.000014,
+                },
+                'amazon-bedrock-us-east-1': {
+                    prompt_token: 0.000015,
+                    completion_token: 0.000016,
+                },
+                'amazon-bedrock-us-west-2': {
+                    prompt_token: 0.000017,
+                    completion_token: 0.000018,
+                },
+            },
+        },
         'google/gemini-2.5-pro-preview': {
             model: 'google/gemini-2.5-pro-preview',
             cost: {
@@ -256,6 +293,64 @@ describe('findCostFromModel()', () => {
             expect(resultOpenAI!.cost.model).toBe('openai/gpt-4')
             expect(resultAnthropic!.source).toBe(CostModelSource.Manual)
             expect(resultAnthropic!.cost.provider).toBe('default')
+        })
+    })
+
+    describe('Bedrock inference profiles', () => {
+        test.each([
+            ['us', 'bedrock', 'amazon-bedrock-us-east-1'],
+            ['us', 'amazon_bedrock', 'amazon-bedrock-us-east-1'],
+            ['global', 'bedrock', 'amazon-bedrock-global'],
+            ['global', 'amazon_bedrock', 'amazon-bedrock-global'],
+        ])('uses the %s profile and %s provider alias to select %s pricing', (profile, provider, expectedProvider) => {
+            const result = findCostFromModel(`${profile}.anthropic.claude-bedrock-profile-test`, {
+                $ai_provider: provider,
+            })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('anthropic/claude-bedrock-profile-test')
+            expect(result!.cost.provider).toBe(expectedProvider)
+        })
+
+        it('keeps an explicit Bedrock provider authoritative over the model profile', () => {
+            const result = findCostFromModel('us.anthropic.claude-bedrock-profile-test', {
+                $ai_provider: 'amazon-bedrock-global',
+            })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.provider).toBe('amazon-bedrock-global')
+        })
+
+        it('uses the ARN region to select pricing when a US profile spans multiple regions', () => {
+            const result = findCostFromModel(
+                'arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.claude-bedrock-arn-test',
+                { $ai_provider: 'bedrock' }
+            )
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('anthropic/claude-bedrock-arn-test')
+            expect(result!.cost.provider).toBe('amazon-bedrock-us-west-2')
+        })
+
+        test.each(['au', 'unknown'])(
+            'preserves generic Bedrock fallback when the %s profile has no catalog provider',
+            (profile) => {
+                const result = findCostFromModel(`${profile}.anthropic.claude-bedrock-profile-test`, {
+                    $ai_provider: 'amazon_bedrock',
+                })
+
+                expect(result).toBeDefined()
+                expect(result!.cost.provider).toBe('amazon-bedrock-claude-on-aws')
+            }
+        )
+
+        it('does not infer a Bedrock provider for another provider', () => {
+            const result = findCostFromModel('us.anthropic.claude-bedrock-profile-test', {
+                $ai_provider: 'anthropic',
+            })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.provider).toBe('anthropic')
         })
     })
 

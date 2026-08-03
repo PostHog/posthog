@@ -17,15 +17,17 @@ on:
         # turbo-tests (product tests) still skip drafts. Ready PRs run the full
         # matrices — that full run is the merge gate, and ready_for_review re-triggers
         # it when a PR leaves draft. To force the full matrices on a draft, add the
-        # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
-        # start without needing a new push. Cheap checks still run on drafts.
+        # `run-ci-backend` label. Cheap checks still run on drafts.
         # The `no-ci` label does the opposite: it silences this workflow on a draft
-        # entirely (prototypes/spikes), until the label is removed or the PR is
-        # marked ready for review.
+        # entirely (prototypes/spikes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
+        # so every unrelated label re-ran these matrices against a commit CI had
+        # already covered. A label here takes effect from the next push, or from
+        # ready_for_review.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
         # PRs run legacy-schema only (master runs always cover both).
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -37,7 +39,7 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
-    # ci-e2e-playwright.yml restores by the same key — keep its copy in sync when bumping.
+    # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -87,6 +89,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -149,6 +152,9 @@ jobs:
                         # (skills/, scripts/). Catch any .py change so the
                         # backend job triggers when only those files move.
                         - 'products/**/*.py'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
@@ -435,6 +441,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
@@ -509,6 +516,7 @@ jobs:
     # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
     # a selector full-run signal), the draft skips the heavy matrices entirely —
     # the pre-selection draft behavior — and defers to the ready full run.
+    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
@@ -516,9 +524,12 @@ jobs:
         # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == true &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
@@ -662,7 +673,8 @@ jobs:
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
+                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
+                  # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
@@ -753,6 +765,7 @@ jobs:
         if: >-
             !cancelled() &&
             (github.event.pull_request.draft != true ||
+             startsWith(github.head_ref, 'trunk-merge/') ||
              contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
             needs.build-product-test-matrix.result == 'success' &&
@@ -798,26 +811,36 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
 
+            # Dedicated app: this product matrix alone is ~half the offloadable
+            # setup-action volume, enough to threaten any shared 15k/hr bucket.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+            - parallel:
+                  - name: Install pnpm dependencies
+                    uses: ./.github/actions/pnpm-install
+                    with:
+                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.13.13
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  - name: Set up Python
+                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    with:
+                        python-version: 3.13.13
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+                  - name: Install Rust
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+                        components: cargo
 
             - name: Install uv
               id: setup-uv
@@ -831,12 +854,6 @@ jobs:
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -1165,26 +1182,27 @@ jobs:
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
             # the fork-gated validate-product-yamls job instead).
-            - name: Lint owners.yaml files
-              run: ./bin/hogli owners:lint
+            - parallel:
+                  - name: Lint owners.yaml files
+                    run: ./bin/hogli owners:lint
 
-            - name: Check version specifiers
-              run: python .github/scripts/check-version-specifiers.py
+                  - name: Check version specifiers
+                    run: python .github/scripts/check-version-specifiers.py
 
-            - name: Check IDOR model coverage
-              run: python .github/scripts/check-idor-model-coverage.py
+                  - name: Check IDOR model coverage
+                    run: python .github/scripts/check-idor-model-coverage.py
 
-            - name: Check DWH presentation layer stays source-agnostic
-              run: python .github/scripts/check-dwh-source-agnostic.py
+                  - name: Check DWH presentation layer stays source-agnostic
+                    run: python .github/scripts/check-dwh-source-agnostic.py
 
-            - name: Check operator parity
-              run: python .github/scripts/check-operator-parity.py
+                  - name: Check operator parity
+                    run: python .github/scripts/check-operator-parity.py
 
-            - name: Check module boundaries (tach)
-              run: tach check --dependencies --interfaces
+                  - name: Check module boundaries (tach)
+                    run: tach check --dependencies --interfaces
 
-            - name: Check product facade enforcement (import-linter)
-              run: lint-imports
+                  - name: Check product facade enforcement (import-linter)
+                    run: lint-imports
 
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
@@ -1798,7 +1816,7 @@ jobs:
                   retention-days: 90
 
             - name: Save schema to Actions cache for PR shards
-              # Kept for fallback and for other workflows that still restore by merge-base SHA.
+              # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -1918,7 +1936,9 @@ jobs:
             - name: Post CH migration SQL to CI report comment
               # Sticky section in the shared CI report comment so pushes don't spam the PR.
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
                   CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
@@ -2174,7 +2194,13 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  # A trunk-merge/** PR opens as a draft but is the merge gate, and
+                  # select-tests deliberately does not run for it. Reporting it as a
+                  # draft here would turn that empty MODE into "skip" and build an
+                  # empty matrix, so the queue would merge having run no Django tests
+                  # at all. Not-draft makes the empty MODE fall through to the full
+                  # matrix, which is what the queue has to run.
+                  IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # The new-events-schema variants double the matrix, so they only run on
                   # PRs opted in via the test-new-events-schema label and on manual dispatch.
@@ -2539,11 +2565,19 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: ${{ matrix.python-version }}
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - parallel:
+                  - name: Set up Python
+                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    with:
+                        python-version: ${{ matrix.python-version }}
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+                  - name: Install Rust
+                    if: needs.changes.outputs.backend == 'true'
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+                        components: cargo
 
             - name: Install uv
               id: setup-uv-tests
@@ -2559,13 +2593,6 @@ jobs:
               shell: bash
               run: |
                   sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Install Rust
-              if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -3410,44 +3437,22 @@ jobs:
                           print(f"::error {loc}title={title}::{body}")
                   PY
 
-                  deterministic_failure=false
-                  failed=false
-
                   if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
-                    deterministic_failure=true
                   fi
 
                   if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
-                    deterministic_failure=true
                   fi
 
-                  # cancel_ok tolerates a bare 'cancelled' result (the optional snapshot commit job);
-                  # required jobs treat an unexpected cancel as a failure.
                   check_required_result() {
                     local label="$1"
                     local result="$2"
-                    local cancel_ok="${3:-false}"
 
-                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-                      return
+                    if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+                      echo "::error::$label did not succeed (result: '$result')."
+                      exit 1
                     fi
-
-                    if [[ "$result" == "cancelled" ]]; then
-                      if [[ "$deterministic_failure" == "true" ]]; then
-                        echo "::notice::$label was cancelled after a deterministic failure."
-                        return
-                      fi
-                      if [[ "$cancel_ok" == "true" ]]; then
-                        return
-                      fi
-                      echo "::error::$label was cancelled or timed out."
-                    else
-                      echo "::error::$label failed with result '$result'."
-                    fi
-
-                    failed=true
                   }
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
@@ -3464,11 +3469,7 @@ jobs:
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
-                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}" true
-
-                  if [[ "$deterministic_failure" == "true" || "$failed" == "true" ]]; then
-                    exit 1
-                  fi
+                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
 

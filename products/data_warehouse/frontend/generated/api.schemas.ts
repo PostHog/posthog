@@ -707,6 +707,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -719,6 +720,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -892,6 +894,20 @@ export type DataWarehouseSavedQueryApiQuery = {
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
+
 /**
  * * `never` - never
  * * `15min` - 15min
@@ -1017,6 +1033,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryApiSuspended
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -1035,6 +1053,11 @@ export type PatchedDataWarehouseSavedQueryApiQuery = {
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -1135,6 +1158,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
 }
 
 export interface SavedQueryResumeApi {
@@ -2513,6 +2538,29 @@ export interface CredentialApi {
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
  * * `Easybill` - Easybill
+ * * `Bexio` - Bexio
+ * * `Umami` - Umami
+ * * `Manychat` - Manychat
+ * * `Kickstarter` - Kickstarter
+ * * `Typesense` - Typesense
+ * * `FirstPromoter` - FirstPromoter
+ * * `Zero` - Zero
+ * * `Inth` - Inth
+ * * `BCMS` - BCMS
+ * * `Convonite` - Convonite
+ * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3772,6 +3820,29 @@ export const ExternalDataSourceTypeEnumApi = {
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
     Easybill: 'Easybill',
+    Bexio: 'Bexio',
+    Umami: 'Umami',
+    Manychat: 'Manychat',
+    Kickstarter: 'Kickstarter',
+    Typesense: 'Typesense',
+    FirstPromoter: 'FirstPromoter',
+    Zero: 'Zero',
+    Inth: 'Inth',
+    Bcms: 'BCMS',
+    Convonite: 'Convonite',
+    Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -3910,20 +3981,39 @@ export interface FileUploadResponseApi {
 
 export interface ViewLinkApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
@@ -3938,32 +4028,116 @@ export interface PaginatedViewLinkListApi {
 
 export interface PatchedViewLinkApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name?: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
 export interface ViewLinkValidationApi {
-    /** @maxLength 255 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 255
+     */
     joining_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 255
+     */
     joining_table_key: string
-    /** @maxLength 255 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 255
+     */
     source_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 255
+     */
     source_table_key: string
+}
+
+export interface ViewLinkValidationResponseApi {
+    /** Whether the join compiled and returned rows when executed against a sample of the source table. */
+    is_valid: boolean
+    /**
+     * Warning about the validation result, for example when the sampled join returned no rows.
+     * @nullable
+     */
+    msg: string | null
+    /**
+     * The HogQL statement used to validate the join.
+     * @nullable
+     */
+    hogql: string | null
+    /** Column names for each row in results. */
+    columns: string[]
+    /** Distinct source and joining key pairs from the joined result, at most 5. */
+    results: unknown[][]
+    /**
+     * Number of sampled source rows checked for a join match, at most 10000. Null when the match-rate query failed.
+     * @nullable
+     */
+    total_rows: number | null
+    /**
+     * Number of sampled source rows with at least one match in the joining table. Null when the match-rate query failed.
+     * @nullable
+     */
+    matched_rows: number | null
+    /**
+     * matched_rows divided by total_rows, between 0 and 1. Null when the match-rate query failed or no rows were sampled.
+     * @nullable
+     */
+    match_rate: number | null
+}
+
+export interface ViewLinkValidationErrorApi {
+    /**
+     * Request field the error relates to, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Machine-readable error code, for example QueryError. */
+    code: string
+    /** Why the join failed to validate. */
+    detail: string
+    /** Error category; always query_error for validation failures. */
+    type: string
+    /**
+     * The HogQL statement that failed to validate.
+     * @nullable
+     */
+    hogql: string | null
 }
 
 export type DataModelingJobsListParams = {

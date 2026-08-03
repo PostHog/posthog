@@ -8,13 +8,16 @@ cd "$(dirname "$0")"
 AGENT_DIR=$(cd ../.. && pwd)
 PASS=0
 FAIL=0
+UPDATE=0
+[ "${1:-}" = "--update-golden" ] && UPDATE=1
 
 new_case_dir() {
     CASE_DIR=$(mktemp -d)
     cp "$AGENT_DIR/config/config.yaml.tmpl" "$CASE_DIR/"
 }
 
-# run_render <name> [VAR=value ...] — renders and diffs against golden/<name>.yaml
+# run_render <name> [VAR=value ...] — renders and diffs against golden/<name>.yaml.
+# Pass --update-golden as the first script arg to overwrite goldens instead.
 run_render() {
     name=$1
     shift
@@ -25,6 +28,11 @@ run_render() {
         echo "FAIL $name: entrypoint exited non-zero"
         cat "$err"
         FAIL=$((FAIL + 1))
+        return
+    fi
+    if [ "$UPDATE" = "1" ]; then
+        cp "$out" "golden/$name.yaml"
+        echo "updated golden/$name.yaml"
         return
     fi
     if diff -u "golden/$name.yaml" "$out"; then
@@ -61,6 +69,21 @@ expect_failure() {
 new_case_dir
 run_render minimal POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090
 
+# Every render exposes the collector's own metrics on :8888 for self-monitoring.
+if [ "$UPDATE" != "1" ]; then
+    new_case_dir
+    tele=$(env -i PATH="$PATH" CONFIG_DIR="$CASE_DIR" RENDER_ONLY=1 \
+        POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 \
+        sh "$AGENT_DIR/entrypoint.sh" 2>/dev/null | grep -c 'port: 8888')
+    if [ "$tele" -ge 1 ]; then
+        echo "PASS self-telemetry-port"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL self-telemetry-port: rendered config does not expose :8888"
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
 # Comma-separated targets with stray whitespace and an empty entry get trimmed.
 new_case_dir
 run_render multi POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091 ,,db-exporter:9187'
@@ -71,6 +94,27 @@ run_render debug POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 POSTHOG_DEBUG=
 # Single quotes in a target are doubled so the rendered YAML stays valid.
 new_case_dir
 run_render quoted-target POSTHOG_API_KEY=phc_test "SCRAPE_TARGETS=app's-host:9090"
+
+# PERSIST_QUEUE backs the export queue with disk so a restart during a
+# PostHog outage loses nothing.
+new_case_dir
+run_render persist-queue POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 PERSIST_QUEUE=1
+
+# Sharding: SHARD_COUNT/SHARD_INDEX partition targets via hashmod so N agents
+# split the target set with no coordination, no duplicates, and no gaps.
+new_case_dir
+run_render sharded POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091' SHARD_COUNT=4 SHARD_INDEX=2
+
+# The shard index falls back to the trailing ordinal of the hostname
+# (StatefulSet pods are named <name>-<ordinal>).
+new_case_dir
+run_render sharded-hostname POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091' SHARD_COUNT=4 HOSTNAME=posthog-metrics-agent-3
+
+new_case_dir
+expect_failure shard-index-out-of-range 'SHARD_INDEX must be less than SHARD_COUNT' POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 SHARD_COUNT=2 SHARD_INDEX=2
+
+new_case_dir
+expect_failure shard-index-underivable 'SHARD_INDEX' POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 SHARD_COUNT=2 HOSTNAME=nodigits
 
 # A mounted scrape_configs.yaml replaces the env-generated job verbatim
 # (re-indented under the receiver), and SCRAPE_TARGETS is not required.

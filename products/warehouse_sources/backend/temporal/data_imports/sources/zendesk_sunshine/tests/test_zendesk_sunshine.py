@@ -8,7 +8,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
     DEFAULT_QUERY_WINDOW_START,
     ZENDESK_SUNSHINE_ENDPOINTS,

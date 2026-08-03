@@ -18,7 +18,7 @@ The only signals are this warning and the symptom: one human, two person profile
 
 ## Diagnose
 
-1. List the warnings with `posthog:ingestion-warnings-list` (`type: cannot_merge_already_identified`). Each sample's details carry `sourcePersonDistinctId` and `targetPersonDistinctId` — the two sides of the refused merge — plus the `event_uuid` of the triggering call.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'cannot_merge_already_identified' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. In the `details` JSON, each entry carries `sourcePersonDistinctId` and `targetPersonDistinctId` — the two sides of the refused merge — plus the `event_uuid` of the triggering call.
 2. Resolve **both** distinct IDs to their persons (`posthog:persons-list`) and look at their properties and event history.
 3. Decide which situation you're in:
    - **Two different humans** → the code is trying to merge people it shouldn't. Find and fix the callsite (below). This is the common case.
@@ -46,7 +46,7 @@ If two persons genuinely are the same human and must be joined, that is a **manu
 ## Verify
 
 1. Re-run the login/logout/identify flow.
-2. Re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences for those distinct IDs.
+2. Re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'cannot_merge_already_identified'`, `timestamp` after your fix) — no new occurrences for those distinct IDs.
 3. Check new sessions: events land under a single person per human.
 
 ## Related

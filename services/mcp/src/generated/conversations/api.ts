@@ -20,6 +20,12 @@ export const ConversationsTicketsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
+    ai_triage_result: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.'
+        ),
     assignee: zod
         .string()
         .optional()
@@ -87,6 +93,10 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.'
         ),
+    snoozed: zod
+        .boolean()
+        .optional()
+        .describe('Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.'),
     status: zod
         .string()
         .optional()
@@ -110,6 +120,12 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `[\"escalated\"]`.'
+        ),
+    view: zod
+        .string()
+        .optional()
+        .describe(
+            "Apply a saved ticket view's filters by its `short_id` (list views via the `conversations\/views` endpoint). Any filter param passed explicitly overrides the view's saved value for that dimension. Returns 400 if no view matches."
         ),
 })
 
@@ -164,7 +180,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Return the message thread for a ticket, ordered chronologically (paginated).

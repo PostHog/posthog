@@ -263,7 +263,7 @@ function PublicBackgroundChoice(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
     const { type } = useValues(logic)
     const { setType } = useActions(logic)
-    const { isDisplayUrlAuthorized, authorizationDisabledReason } = useValues(heatmapCreationLogic)
+    const { isDisplayUrlAuthorized, authorizationDisabledReason, preflightMessage } = useValues(heatmapCreationLogic)
     const { authorizeDisplayUrl } = useActions(heatmapCreationLogic)
     const { currentTeamLoading } = useValues(teamLogic)
 
@@ -312,6 +312,15 @@ function PublicBackgroundChoice(): JSX.Element {
                             </LemonButton>
                         )}
                     </div>
+                </LemonBanner>
+            ) : null}
+
+            {type === 'iframe' && preflightMessage ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Switch to screenshot', onClick: () => setType('screenshot') }}
+                >
+                    {preflightMessage}
                 </LemonBanner>
             ) : null}
 

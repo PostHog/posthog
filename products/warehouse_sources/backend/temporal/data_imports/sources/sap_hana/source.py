@@ -25,6 +25,7 @@ class SapHanaSource(SimpleSource[SapHanaSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SAP_HANA,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="SAP HANA",
             iconPath="/static/services/sap_hana.png",
             fields=cast(list[FieldType], []),

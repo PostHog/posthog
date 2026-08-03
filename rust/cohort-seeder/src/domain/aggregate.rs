@@ -53,7 +53,7 @@ impl VmFailureCounts {
             .map(|class| (class, self.get(class)))
     }
 
-    fn increment(&mut self, class: VmErrorClass) -> Result<(), AggregateError> {
+    pub(super) fn increment(&mut self, class: VmErrorClass) -> Result<(), AggregateError> {
         let count = self
             .0
             .get_mut(class.index())

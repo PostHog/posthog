@@ -30,7 +30,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyBackfillActivityInputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_sync import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     record_completed_runs,
     record_failed_runs,
     run_person_property_backfill,
