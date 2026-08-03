@@ -862,23 +862,30 @@ class TestToolbox(unittest.TestCase):
         diagnostic = "aws: [ERROR]: ForbiddenException when calling GetRoleCredentials: No access\nUnable to connect"
         self.assertEqual(summarize_diagnostic(diagnostic), "AWS reports that this profile currently has no access")
 
+    @patch("builtins.input", return_value="y")
     @patch("toolbox.kubernetes.login_to_sso", return_value=True)
     @patch("toolbox.kubernetes.time.monotonic", return_value=10)
     @patch("subprocess.run")
-    def test_reset_sso_logs_out_before_logging_back_in(self, mock_run, mock_time, mock_login):
+    def test_reset_sso_logs_out_after_confirmation(self, mock_run, mock_time, mock_login, mock_input):
         mock_run.return_value = MagicMock(returncode=0)
         self.assertTrue(reset_sso("prod-eu-eks", deadline=610))
         mock_run.assert_called_once_with(["aws", "sso", "logout"], check=False, timeout=600)
         mock_login.assert_called_once_with("prod-eu-eks", timeout=600)
 
-    @patch("toolbox.kubernetes.reset_sso", return_value=True)
+    @patch("builtins.input", return_value="n")
+    @patch("subprocess.run")
+    def test_reset_sso_preserves_other_sessions_without_confirmation(self, mock_run, mock_input):
+        self.assertFalse(reset_sso("prod-eu-eks", deadline=610))
+        mock_run.assert_not_called()
+
+    @patch("toolbox.kubernetes.login_to_sso", return_value=True)
     @patch("toolbox.kubernetes.check_context_access", return_value=(True, ""))
     @patch("toolbox.kubernetes.get_context_profile", return_value="prod-eu-eks")
     @patch("toolbox.kubernetes.time.monotonic", side_effect=[0, 1, 2])
-    def test_wait_resets_rejected_cached_credentials(self, mock_time, mock_profile, mock_access, mock_reset):
+    def test_wait_refreshes_rejected_cached_credentials(self, mock_time, mock_profile, mock_access, mock_login):
         diagnostic = "the server has asked for the client to provide credentials"
         self.assertTrue(wait_for_context_access("prod-eu-eks", "posthog", initial_diagnostic=diagnostic))
-        mock_reset.assert_called_once_with("prod-eu-eks", deadline=600)
+        mock_login.assert_called_once_with("prod-eu-eks", timeout=599)
 
     @patch("subprocess.run")
     def test_claim_pod_wait_timeout(self, mock_run):

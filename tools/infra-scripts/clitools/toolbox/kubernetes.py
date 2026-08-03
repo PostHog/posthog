@@ -195,8 +195,20 @@ def login_to_sso(profile: str, *, timeout: float) -> bool:
 
 
 def reset_sso(profile: str, *, deadline: float) -> bool:
-    """Clear stale AWS SSO credentials and log back in with the selected profile."""
-    print("🔄 Kubernetes rejected the cached credentials. Refreshing AWS SSO...")  # noqa: T201
+    """With confirmation, clear all cached AWS SSO credentials and log back in."""
+    print(  # noqa: T201
+        "⚠️ Kubernetes still rejects the refreshed credentials. AWS can only clear this cache globally, "
+        "which signs other AWS SSO profiles out too."
+    )
+    try:
+        confirmed = input("Log out all AWS SSO profiles and continue? [y/N]: ").strip().lower() == "y"
+    except (EOFError, OSError):
+        confirmed = False
+    if not confirmed:
+        print("❌ AWS SSO reset cancelled. Other sessions were left unchanged.")  # noqa: T201
+        return False
+
+    print("🔄 Clearing cached AWS SSO credentials...")  # noqa: T201
     try:
         logout = subprocess.run(
             ["aws", "sso", "logout"],
@@ -225,9 +237,10 @@ def wait_for_context_access(context: str, namespace: str, *, initial_diagnostic:
         return False
 
     sso_login_attempted = False
+    sso_reset_attempted = False
     if _needs_sso_reset(initial_diagnostic):
         sso_login_attempted = True
-        if not reset_sso(profile, deadline=deadline):
+        if not login_to_sso(profile, timeout=deadline - time.monotonic()):
             return False
     elif _needs_sso_login(initial_diagnostic):
         sso_login_attempted = True
@@ -249,10 +262,15 @@ def wait_for_context_access(context: str, namespace: str, *, initial_diagnostic:
         if usable:
             print("✅ Access is active. Continuing...")  # noqa: T201
             return True
-        if _needs_sso_reset(diagnostic) and not sso_login_attempted:
-            sso_login_attempted = True
-            if not reset_sso(profile, deadline=deadline):
-                return False
+        if _needs_sso_reset(diagnostic):
+            if not sso_login_attempted:
+                sso_login_attempted = True
+                if not login_to_sso(profile, timeout=deadline - time.monotonic()):
+                    return False
+            elif not sso_reset_attempted:
+                sso_reset_attempted = True
+                if not reset_sso(profile, deadline=deadline):
+                    return False
         elif _needs_sso_login(diagnostic) and not sso_login_attempted:
             sso_login_attempted = True
             if not login_to_sso(profile, timeout=deadline - time.monotonic()):
