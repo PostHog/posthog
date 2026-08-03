@@ -29,9 +29,9 @@ export interface payGateMiniLogicValues {
     user: UserType | null // userLogic
     addonTrialModalOpen: boolean
     bypassPaywall: boolean
-    ctaLabel: 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans' | 'Ask an admin to upgrade'
-    ctaLink: string | undefined
     ctaDisabledReason: string | undefined
+    ctaLabel: 'Ask an admin to upgrade' | 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans'
+    ctaLink: string | undefined
     featureAvailableOnOrg: BillingFeatureType | null | undefined
     featureInfo: BillingFeatureType | undefined
     featureInfoOnNextPlan: BillingFeatureType | undefined
@@ -85,7 +85,7 @@ export interface payGateMiniLogicMeta {
         ) => BillingFeatureType | undefined
         gateVariant: (
             billingLoading: boolean,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
             minimumPlanWithFeature: BillingPlanType | undefined,
             arg: any,
             arg2: any
@@ -100,7 +100,7 @@ export interface payGateMiniLogicMeta {
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
             isPaymentEntryFlow: boolean,
             canAccessBilling: boolean
-        ) => 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans' | 'Ask an admin to upgrade'
+        ) => 'Ask an admin to upgrade' | 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans'
         ctaDisabledReason: (
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
             canAccessBilling: boolean,
