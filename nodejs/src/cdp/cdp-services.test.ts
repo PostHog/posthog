@@ -132,9 +132,9 @@ describe('createCdpValkeyShadowPools', () => {
     })
 
     it('requires a Valkey host', () => {
-        expect(() =>
-            createCdpValkeyShadowPools({ ...valkeyConfig, CDP_VALKEY_HOST: '' }, 'test-valkey')
-        ).toThrow('[test-valkey] CDP_VALKEY_HOST is required for CDP services')
+        expect(() => createCdpValkeyShadowPools({ ...valkeyConfig, CDP_VALKEY_HOST: '' }, 'test-valkey')).toThrow(
+            '[test-valkey] CDP_VALKEY_HOST is required for CDP services'
+        )
         expect(createRedisV2PoolFromConfig).not.toHaveBeenCalled()
     })
 })
