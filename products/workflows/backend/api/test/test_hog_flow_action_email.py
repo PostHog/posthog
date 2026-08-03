@@ -249,6 +249,36 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         assert email["html"] == "<p>Hello</p>"
         assert email["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["text"] == "<p>Hello</p>"
 
+    def test_design_moved_between_render_and_lock_rejected_with_409(self):
+        flow_id = self._create_flow()
+
+        def concurrent_edit_lands_during_render(design: dict) -> str:
+            # Stand in for another writer committing between the pre-lock render and the locked
+            # apply: the render call is the last thing that runs before the transaction opens.
+            flow = HogFlow.objects.get(pk=flow_id)
+            email = next(a for a in flow.actions if a["id"] == "email_1")
+            text_block = email["config"]["inputs"]["email"]["value"]["design"]["body"]["rows"][0]["columns"][0][
+                "contents"
+            ][0]
+            text_block["values"]["text"] = "<p>Concurrent copy</p>"
+            HogFlow.objects.filter(pk=flow_id).update(actions=flow.actions)
+            return RENDERED_HTML
+
+        with patch(RENDER_PATH, side_effect=concurrent_edit_lands_during_render):
+            response = self._patch_email(
+                flow_id,
+                {"operations": [{"op": "update_content", "id": "text_1", "patch": {"values": {"text": "<p>New</p>"}}}]},
+            )
+
+        assert response.status_code == 409, response.json()
+        email = _stored_email_value(HogFlow.objects.get(pk=flow_id))
+        # The concurrent edit survives, and the stale pre-rendered html never lands.
+        assert (
+            email["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["text"]
+            == "<p>Concurrent copy</p>"
+        )
+        assert email["html"] == "<p>Hello</p>"
+
     # ── Draft routing (mirrors the /graph endpoint's contract) ────────
 
     @patch(FLAG_PATH, return_value=True)
@@ -293,6 +323,23 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         draft_action = next(a for a in flow.draft["actions"] if a["id"] == "email_1")
         assert draft_action["name"] == "Renamed step"
         assert draft_action["config"]["inputs"]["email"]["value"]["subject"] == "Draft subject"
+
+    @patch(FLAG_PATH, return_value=True)
+    @patch(RENDER_PATH, return_value=RENDERED_HTML)
+    def test_design_ops_compose_on_a_drafted_design(self, _mock_render, _flag):
+        # Two consecutive draft design edits: the second must render against the draft's design,
+        # not the live one, or the apply reads it as a concurrent edit and conflicts.
+        flow_id = self._create_flow(status="active")
+        ops = [{"op": "update_content", "id": "text_1", "patch": {"values": {"text": "<p>First</p>"}}}]
+        first = self._patch_email(flow_id, {"operations": ops})
+        assert first.status_code == 200, first.json()
+
+        ops[0]["patch"] = {"values": {"text": "<p>Second</p>"}}
+        second = self._patch_email(flow_id, {"operations": ops})
+        assert second.status_code == 200, second.json()
+
+        email = _stored_email_value(HogFlow.objects.get(pk=flow_id), from_draft=True)
+        assert email["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["text"] == "<p>Second</p>"
 
     @patch(FLAG_PATH, return_value=True)
     @patch(RENDER_PATH, return_value=RENDERED_HTML)

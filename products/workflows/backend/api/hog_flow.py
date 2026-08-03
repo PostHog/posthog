@@ -2057,14 +2057,8 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         return data
 
 
-def _apply_action_email_edit(
-    actions: list[dict], action_id: str, operations: list[dict], email_patch: dict
-) -> list[dict]:
-    # Twin of apply_graph_operations for one email step: returns a new actions list with the step's
-    # email value patched (design ops applied + html re-rendered, then the field merge). Rendering
-    # happens here, inside the caller's row lock, mirroring the template design-patch path.
-    new_actions = deepcopy(actions)
-    target = next((a for a in new_actions if isinstance(a, dict) and a.get("id") == action_id), None)
+def _locate_action_email_value(actions: list[dict], action_id: str) -> dict:
+    target = next((a for a in actions if isinstance(a, dict) and a.get("id") == action_id), None)
     if target is None:
         raise exceptions.ValidationError({"action_id": f"Action '{action_id}' not found in this workflow."})
     if target.get("type") != "function_email":
@@ -2084,32 +2078,66 @@ def _apply_action_email_edit(
                 "config.inputs.email.value with a graph update_action first."
             }
         )
+    return value
 
-    if operations:
-        design = value.get("design")
-        if not isinstance(design, dict):
-            raise exceptions.ValidationError(
-                {
-                    "operations": "This step's email has no editable design JSON to patch. Set the full "
-                    "config.inputs.email.value.design with a graph update_action first, then use surgical "
-                    "operations."
-                }
-            )
-        new_design = apply_design_operations(design, operations)
-        for warning in validate_design(new_design):
-            logger.info("hog_flow_action_email_design_warning", warning=warning, action_id=action_id)
-        value["design"] = new_design
-        try:
-            value["html"] = render_design_html(new_design)
-        except UnlayerNotConfiguredError:
-            raise exceptions.ValidationError(
-                {
-                    "operations": "Design rendering is not configured on this instance - an administrator "
-                    "must set UNLAYER_API_KEY to enable design editing."
-                }
-            )
-        except UnlayerRenderError as e:
-            raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _RenderedActionEmailDesign:
+    # The design the ops were applied to, kept so the in-lock apply can detect a concurrent edit.
+    base_design: dict
+    design: dict
+    html: str
+
+
+def _render_action_email_operations(
+    actions: list[dict], action_id: str, operations: list[dict]
+) -> _RenderedActionEmailDesign:
+    # The design half of an email edit: ops applied to the step's design and the result rendered to
+    # HTML. Split from _apply_action_email_edit because rendering is a synchronous Unlayer HTTP call
+    # (up to 30s) that must run before the caller takes the row lock, never under it.
+    value = _locate_action_email_value(actions, action_id)
+    design = value.get("design")
+    if not isinstance(design, dict):
+        raise exceptions.ValidationError(
+            {
+                "operations": "This step's email has no editable design JSON to patch. Set the full "
+                "config.inputs.email.value.design with a graph update_action first, then use surgical "
+                "operations."
+            }
+        )
+    new_design = apply_design_operations(design, operations)
+    for warning in validate_design(new_design):
+        logger.info("hog_flow_action_email_design_warning", warning=warning, action_id=action_id)
+    try:
+        html = render_design_html(new_design)
+    except UnlayerNotConfiguredError:
+        raise exceptions.ValidationError(
+            {
+                "operations": "Design rendering is not configured on this instance - an administrator "
+                "must set UNLAYER_API_KEY to enable design editing."
+            }
+        )
+    except UnlayerRenderError as e:
+        raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
+    return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
+
+
+def _apply_action_email_edit(
+    actions: list[dict], action_id: str, email_patch: dict, rendered: Optional[_RenderedActionEmailDesign]
+) -> list[dict]:
+    # Twin of apply_graph_operations for one email step: returns a new actions list with the step's
+    # email value patched (the pre-rendered design installed, then the field merge).
+    new_actions = deepcopy(actions)
+    value = _locate_action_email_value(new_actions, action_id)
+
+    if rendered is not None:
+        # The render ran before the caller took the row lock, against the state read back then. A
+        # design that moved in between means the ops were applied to a stale tree, so conflict and
+        # let the caller re-read rather than silently overwrite the concurrent edit.
+        if value.get("design") != rendered.base_design:
+            raise StaleWorkflowUpdateError()
+        value["design"] = rendered.design
+        value["html"] = rendered.html
 
     if email_patch:
         _deep_merge(value, email_patch)
@@ -2954,6 +2982,18 @@ class HogFlowViewSet(
         # extend the select_for_update row-lock hold.
         revisions_enabled = use_workflows_revisions(self.team)
 
+        # Rendering is a synchronous Unlayer HTTP call, so it also runs before the transaction,
+        # against the unlocked row. Draft routing is predicted the same way the locked section
+        # decides it; if the routing or the design moves before the lock, the apply conflicts.
+        rendered: Optional[_RenderedActionEmailDesign] = None
+        if operations:
+            predicts_draft = self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE
+            if predicts_draft and instance.draft:
+                render_base = list(instance.draft.get("actions") or [])
+            else:
+                render_base = list(instance.actions or [])
+            rendered = _render_action_email_operations(render_base, action_id, operations)
+
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
@@ -2982,7 +3022,7 @@ class HogFlowViewSet(
             else:
                 base_actions = list(locked.actions or [])
 
-            new_actions = _apply_action_email_edit(base_actions, action_id, operations, email_patch)
+            new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
 
             serializer = self.get_serializer(locked, data={"actions": new_actions}, partial=True)
             serializer.context["enforce_graph_structure"] = True
