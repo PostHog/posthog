@@ -7840,34 +7840,6 @@ export enum OnboardingStepKey {
     ALERTS = 'alerts',
 }
 
-export interface Dataset {
-    id: string
-    name: string
-    description: string | null
-    metadata: Record<string, any> | null
-    team: number
-    created_at: string
-    updated_at: string
-    created_by: UserBasicType
-    deleted: boolean
-}
-
-export interface DatasetItem {
-    id: string
-    dataset: string
-    team: number
-    input: Record<string, any> | null
-    output: Record<string, any> | null
-    metadata: Record<string, any> | null
-    ref_trace_id: string | null
-    ref_timestamp: string | null
-    ref_source_id: string | null
-    created_by: UserBasicType
-    updated_at: string
-    created_at: string
-    deleted: boolean
-}
-
 // Managed viewset
 export interface DataWarehouseManagedViewsetSavedQuery {
     id: string
