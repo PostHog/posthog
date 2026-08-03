@@ -43,6 +43,7 @@ Check enrollment first, whatever the roster shows — config rows outlive enroll
 - **Enrolled, rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
   Also check `emit_eligibility` on `posthog:scout-project-profile-get`: when `can_emit` is false (the org hasn't approved AI processing, or the `signals_scout` source is disabled), every scout write is silently dropped even on an enabled `emit: true` scout — surface its `remediation` line before promising coverage.
+  (For read callers the profile is a cached snapshot built by scout runs, so a 404 means no fresh profile exists — not ineligibility; fall back to checking the `signals_scout` source config via `inbox-source-configs-list` and treat eligibility as unknown rather than blocking on the profile.)
 
 The `description` on each row says what that scout watches — scan it to answer "which scout covers X?" without loading any skill bodies.
 (A row with an empty description is usually an orphan whose skill was since deleted — it can't run, so don't count it as coverage.)
