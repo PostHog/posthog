@@ -12,25 +12,24 @@ interface ShellTerminalProps {
 export function ShellTerminal({ cwd, stateKey, taskId }: ShellTerminalProps) {
   const persistenceKey = stateKey || cwd || "default";
 
-  const savedState = useTerminalStore(
-    (state) => state.terminalStates[persistenceKey],
+  const savedSessionId = useTerminalStore(
+    (state) => state.terminalStates[persistenceKey]?.sessionId,
   );
 
   const sessionId = useMemo(() => {
-    if (savedState?.sessionId) {
-      return savedState.sessionId;
+    if (savedSessionId) {
+      return savedSessionId;
     }
     const newId = `shell-${Date.now()}-${secureRandomString(7)}`;
     useTerminalStore.getState().setSessionId(persistenceKey, newId);
     return newId;
-  }, [savedState?.sessionId, persistenceKey]);
+  }, [savedSessionId, persistenceKey]);
 
   return (
     <Terminal
       sessionId={sessionId}
       persistenceKey={persistenceKey}
       cwd={cwd}
-      initialState={savedState?.serializedState ?? undefined}
       taskId={taskId}
     />
   );

@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => {
   const logInfo = vi.fn();
   const logError = vi.fn();
   const logWarn = vi.fn();
+  const serialize = vi.fn(() => "serialized-terminal-state");
+  const getScrollback = vi.fn(() => undefined as string | undefined);
+  const setScrollback = vi.fn();
+  const isScrollbackReady = vi.fn(() => true);
+  const whenScrollbackReady = vi.fn(() => Promise.resolve());
 
   class MockTerminal {
     cols = 80;
@@ -58,6 +63,11 @@ const mocks = vi.hoisted(() => {
     logInfo,
     logError,
     logWarn,
+    serialize,
+    getScrollback,
+    setScrollback,
+    isScrollbackReady,
+    whenScrollbackReady,
     MockTerminal,
     terminalInstances,
   };
@@ -96,8 +106,17 @@ vi.mock("@xterm/addon-fit", () => ({
 
 vi.mock("@xterm/addon-serialize", () => ({
   SerializeAddon: class {
-    serialize = vi.fn(() => "serialized-terminal-state");
+    serialize = mocks.serialize;
   },
+}));
+
+vi.mock("@posthog/ui/features/terminal/terminalScrollback", () => ({
+  getScrollback: mocks.getScrollback,
+  setScrollback: mocks.setScrollback,
+  isScrollbackReady: mocks.isScrollbackReady,
+  whenScrollbackReady: mocks.whenScrollbackReady,
+  SERIALIZE_SCROLLBACK_LINES: 400,
+  TERMINAL_SCROLLBACK_LINES: 1000,
 }));
 
 vi.mock("@xterm/addon-web-links", () => ({
@@ -129,6 +148,11 @@ describe("TerminalManager shell recovery", () => {
     mocks.openExternal.mockReset();
     mocks.logInfo.mockReset();
     mocks.logError.mockReset();
+    mocks.isScrollbackReady.mockReset().mockReturnValue(true);
+    mocks.whenScrollbackReady.mockReset().mockResolvedValue(undefined);
+    mocks.serialize.mockReset().mockReturnValue("serialized-terminal-state");
+    mocks.getScrollback.mockReset().mockReturnValue(undefined);
+    mocks.setScrollback.mockReset();
     mocks.terminalInstances.length = 0;
 
     mocks.check.mockResolvedValue(true);
@@ -186,6 +210,11 @@ describe("TerminalManager.destroyForTask", () => {
     mocks.create.mockReset().mockResolvedValue(undefined);
     mocks.write.mockReset().mockResolvedValue(undefined);
     mocks.resize.mockReset().mockResolvedValue(undefined);
+    mocks.isScrollbackReady.mockReset().mockReturnValue(true);
+    mocks.whenScrollbackReady.mockReset().mockResolvedValue(undefined);
+    mocks.serialize.mockReset().mockReturnValue("serialized-terminal-state");
+    mocks.getScrollback.mockReset().mockReturnValue(undefined);
+    mocks.setScrollback.mockReset();
     mocks.terminalInstances.length = 0;
     vi.stubGlobal(
       "ResizeObserver",
@@ -275,6 +304,11 @@ describe("TerminalManager custom key handling", () => {
     mocks.create.mockReset().mockResolvedValue(undefined);
     mocks.write.mockReset().mockResolvedValue(undefined);
     mocks.resize.mockReset().mockResolvedValue(undefined);
+    mocks.isScrollbackReady.mockReset().mockReturnValue(true);
+    mocks.whenScrollbackReady.mockReset().mockResolvedValue(undefined);
+    mocks.serialize.mockReset().mockReturnValue("serialized-terminal-state");
+    mocks.getScrollback.mockReset().mockReturnValue(undefined);
+    mocks.setScrollback.mockReset();
     mocks.terminalInstances.length = 0;
   });
 
@@ -326,5 +360,147 @@ describe("TerminalManager custom key handling", () => {
     expect(result).toBe(false);
     expect(event.stopPropagation).not.toHaveBeenCalled();
     expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalManager scrollback persistence", () => {
+  const sessionId = "shell-scrollback-test";
+  const persistenceKey = "task-1-shell";
+
+  beforeEach(() => {
+    mocks.check.mockReset().mockResolvedValue(true);
+    mocks.create.mockReset().mockResolvedValue(undefined);
+    mocks.createCommand.mockReset().mockResolvedValue(undefined);
+    mocks.write.mockReset().mockResolvedValue(undefined);
+    mocks.resize.mockReset().mockResolvedValue(undefined);
+    mocks.setScrollback.mockReset();
+    mocks.getScrollback.mockReset().mockReturnValue(undefined);
+    mocks.serialize.mockReset().mockReturnValue("serialized-terminal-state");
+    mocks.isScrollbackReady.mockReset().mockReturnValue(true);
+    mocks.whenScrollbackReady.mockReset().mockResolvedValue(undefined);
+    mocks.terminalInstances.length = 0;
+  });
+
+  afterEach(() => {
+    terminalManager.destroy(sessionId);
+    vi.useRealTimers();
+  });
+
+  it("bounds the xterm scrollback buffer", () => {
+    terminalManager.create({ sessionId, persistenceKey, cwd: "/repo" });
+
+    expect(mocks.terminalInstances[0].options.scrollback).toBe(1000);
+  });
+
+  it("restores saved scrollback on create", () => {
+    mocks.getScrollback.mockReturnValue("restored-scrollback");
+
+    terminalManager.create({ sessionId, persistenceKey, cwd: "/repo" });
+
+    expect(mocks.getScrollback).toHaveBeenCalledWith(persistenceKey);
+    expect(mocks.terminalInstances[0].write).toHaveBeenCalledWith(
+      "restored-scrollback",
+    );
+  });
+
+  it("writes restored scrollback before live output when hydration is still pending", async () => {
+    let releaseHydration!: () => void;
+    mocks.isScrollbackReady.mockReturnValue(false);
+    mocks.whenScrollbackReady.mockReturnValue(
+      new Promise<void>((resolve) => {
+        releaseHydration = resolve;
+      }),
+    );
+    mocks.getScrollback.mockReturnValue("restored-scrollback");
+
+    terminalManager.create({ sessionId, persistenceKey, cwd: "/repo" });
+    const term = mocks.terminalInstances[0];
+
+    terminalManager.writeData(sessionId, "live-output");
+    await vi.waitFor(() => {
+      expect(term.write).not.toHaveBeenCalled();
+    });
+
+    releaseHydration();
+    await vi.waitFor(() => {
+      expect(term.write).toHaveBeenCalledTimes(2);
+    });
+
+    expect(term.write.mock.calls.map((call) => call[0])).toEqual([
+      "restored-scrollback",
+      "live-output",
+    ]);
+  });
+
+  it("persists a bounded serialization after the debounce", () => {
+    vi.useFakeTimers();
+    terminalManager.create({ sessionId, persistenceKey, cwd: "/repo" });
+
+    mocks.terminalInstances[0].emitData("a");
+    expect(mocks.setScrollback).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1000);
+
+    expect(mocks.serialize).toHaveBeenCalledWith({ scrollback: 400 });
+    expect(mocks.setScrollback).toHaveBeenCalledWith(
+      persistenceKey,
+      "serialized-terminal-state",
+    );
+  });
+
+  it("skips the serialize walk when nothing changed since the last save", () => {
+    vi.useFakeTimers();
+    terminalManager.create({ sessionId, persistenceKey, cwd: "/repo" });
+
+    mocks.terminalInstances[0].emitData("a");
+    vi.advanceTimersByTime(1000);
+    expect(mocks.serialize).toHaveBeenCalledTimes(1);
+
+    terminalManager.detach(sessionId);
+    vi.advanceTimersByTime(1000);
+
+    expect(mocks.serialize).toHaveBeenCalledTimes(1);
+  });
+
+  it("never persists scrollback for a command session", () => {
+    vi.useFakeTimers();
+    terminalManager.create({
+      sessionId,
+      persistenceKey,
+      cwd: "/repo",
+      command: "pnpm test",
+    });
+
+    mocks.terminalInstances[0].emitData("a");
+    vi.advanceTimersByTime(5000);
+
+    expect(mocks.getScrollback).not.toHaveBeenCalled();
+    expect(mocks.setScrollback).not.toHaveBeenCalled();
+  });
+
+  it("persists on detach", () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    terminalManager.create({ sessionId, persistenceKey, cwd: "/repo" });
+    terminalManager.attach(sessionId, element);
+
+    mocks.terminalInstances[0].emitData("a");
+    mocks.setScrollback.mockClear();
+
+    terminalManager.detach(sessionId);
+
+    expect(mocks.setScrollback).toHaveBeenCalledWith(
+      persistenceKey,
+      "serialized-terminal-state",
+    );
+    element.remove();
+    vi.unstubAllGlobals();
   });
 });

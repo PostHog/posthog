@@ -5,6 +5,14 @@ import {
   SHELL_CLIENT,
   type ShellClient,
 } from "@posthog/ui/features/terminal/shellClient";
+import {
+  getScrollback,
+  isScrollbackReady,
+  SERIALIZE_SCROLLBACK_LINES,
+  setScrollback,
+  TERMINAL_SCROLLBACK_LINES,
+  whenScrollbackReady,
+} from "@posthog/ui/features/terminal/terminalScrollback";
 import { logger } from "@posthog/ui/shell/logger";
 import { isMac } from "@posthog/ui/utils/platform";
 import { FitAddon } from "@xterm/addon-fit";
@@ -49,6 +57,8 @@ export interface TerminalInstance {
   cleanups: Array<() => void>;
   resizeObserver: ResizeObserver | null;
   saveTimeout: number | null;
+  needsSave: boolean;
+  restorePending: boolean;
   persistenceKey: string;
   cwd?: string;
   taskId?: string;
@@ -60,7 +70,6 @@ export interface CreateOptions {
   sessionId: string;
   persistenceKey: string;
   cwd?: string;
-  initialState?: string;
   taskId?: string;
   command?: string;
 }
@@ -71,16 +80,10 @@ type ExitPayload = {
   persistenceKey: string;
   exitCode?: number;
 };
-type StateChangePayload = {
-  sessionId: string;
-  persistenceKey: string;
-  serializedState: string;
-};
 
 type EventPayloadMap = {
   ready: ReadyPayload;
   exit: ExitPayload;
-  stateChange: StateChangePayload;
 };
 
 type EventType = keyof EventPayloadMap;
@@ -184,8 +187,7 @@ class TerminalManagerImpl {
   }
 
   create(options: CreateOptions): TerminalInstance {
-    const { sessionId, persistenceKey, cwd, initialState, taskId, command } =
-      options;
+    const { sessionId, persistenceKey, cwd, taskId, command } = options;
 
     const existing = this.instances.get(sessionId);
     if (existing) {
@@ -200,6 +202,7 @@ class TerminalManagerImpl {
       cursorStyle: "block",
       cursorWidth: 8,
       allowProposedApi: true,
+      scrollback: TERMINAL_SCROLLBACK_LINES,
     });
 
     const { fit, serialize } = loadAddons(term);
@@ -219,6 +222,8 @@ class TerminalManagerImpl {
       cleanups: [],
       resizeObserver: null,
       saveTimeout: null,
+      needsSave: false,
+      restorePending: false,
       persistenceKey,
       cwd,
       taskId,
@@ -226,8 +231,19 @@ class TerminalManagerImpl {
       recoveryPromise: null,
     };
 
-    if (initialState) {
-      term.write(initialState);
+    if (!command) {
+      if (isScrollbackReady()) {
+        this.writeRestoredScrollback(instance);
+      } else {
+        // Hold buffered pty output back until the restored scrollback has been
+        // written, otherwise it would land after the live output.
+        instance.restorePending = true;
+        void whenScrollbackReady().then(() => {
+          instance.restorePending = false;
+          this.writeRestoredScrollback(instance);
+          this.flushWrite(instance);
+        });
+      }
     }
 
     // Setup user input handler
@@ -240,7 +256,8 @@ class TerminalManagerImpl {
             retryData: data,
           });
         });
-      this.scheduleSave(sessionId, instance);
+      instance.needsSave = true;
+      this.scheduleSave(instance);
     });
     instance.cleanups.push(() => disposable.dispose());
 
@@ -324,23 +341,31 @@ class TerminalManagerImpl {
     if (instance.flushHandle === null) {
       instance.flushHandle = requestAnimationFrame(() => {
         instance.flushHandle = null;
-        this.flushWrite(sessionId, instance);
+        this.flushWrite(instance);
       });
     }
   }
 
-  private flushWrite(sessionId: string, instance: TerminalInstance): void {
+  private writeRestoredScrollback(instance: TerminalInstance): void {
+    const restored = getScrollback(instance.persistenceKey);
+    if (restored) {
+      instance.term.write(restored);
+    }
+  }
+
+  private flushWrite(instance: TerminalInstance): void {
     if (instance.flushHandle !== null) {
       cancelAnimationFrame(instance.flushHandle);
       instance.flushHandle = null;
     }
-    if (instance.writeBuffer.length === 0) {
+    if (instance.restorePending || instance.writeBuffer.length === 0) {
       return;
     }
     const data = instance.writeBuffer;
     instance.writeBuffer = "";
     instance.term.write(data);
-    this.scheduleSave(sessionId, instance);
+    instance.needsSave = true;
+    this.scheduleSave(instance);
   }
 
   handleExit(sessionId: string, exitCode?: number): void {
@@ -426,19 +451,32 @@ class TerminalManagerImpl {
     return instance.recoveryPromise;
   }
 
-  private scheduleSave(sessionId: string, instance: TerminalInstance): void {
+  private scheduleSave(instance: TerminalInstance): void {
+    if (instance.command) {
+      return;
+    }
+
     if (instance.saveTimeout) {
       clearTimeout(instance.saveTimeout);
     }
 
     instance.saveTimeout = window.setTimeout(() => {
-      const serialized = instance.serializeAddon.serialize();
-      this.emit("stateChange", {
-        sessionId,
-        persistenceKey: instance.persistenceKey,
-        serializedState: serialized,
-      });
-    }, 500);
+      instance.saveTimeout = null;
+      this.saveScrollback(instance);
+    }, 1000);
+  }
+
+  private saveScrollback(instance: TerminalInstance): void {
+    if (instance.command || !instance.needsSave) {
+      return;
+    }
+    instance.needsSave = false;
+    setScrollback(
+      instance.persistenceKey,
+      instance.serializeAddon.serialize({
+        scrollback: SERIALIZE_SCROLLBACK_LINES,
+      }),
+    );
   }
 
   // The WebGL renderer must be loaded after term.open() — it needs the canvas
@@ -531,14 +569,13 @@ class TerminalManagerImpl {
     this.disconnectResizeObserver(instance);
 
     // Drain buffered output so the serialized snapshot reflects the latest data.
-    this.flushWrite(sessionId, instance);
+    this.flushWrite(instance);
 
-    const serialized = instance.serializeAddon.serialize();
-    this.emit("stateChange", {
-      sessionId,
-      persistenceKey: instance.persistenceKey,
-      serializedState: serialized,
-    });
+    if (instance.saveTimeout) {
+      clearTimeout(instance.saveTimeout);
+      instance.saveTimeout = null;
+    }
+    this.saveScrollback(instance);
 
     if (instance.terminalElement) {
       getParkingContainer().appendChild(instance.terminalElement);
@@ -624,7 +661,9 @@ class TerminalManagerImpl {
     if (!instance) {
       return null;
     }
-    return instance.serializeAddon.serialize();
+    return instance.serializeAddon.serialize({
+      scrollback: SERIALIZE_SCROLLBACK_LINES,
+    });
   }
 
   setTheme(isDarkMode: boolean): void {

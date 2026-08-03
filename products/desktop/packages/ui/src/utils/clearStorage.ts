@@ -3,6 +3,7 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
+import { clearScrollback } from "@posthog/ui/features/terminal/terminalScrollback";
 import { logger } from "@posthog/ui/shell/logger";
 
 const log = logger.scope("clear-storage");
@@ -19,6 +20,7 @@ export function clearApplicationStorage(): void {
   Promise.allSettled([
     client.folders.clearAllData.mutate(),
     client.secureStore.clear.query(),
+    clearScrollback(),
   ]).then((results) => {
     const rejected = results.filter(
       (result): result is PromiseRejectedResult => result.status === "rejected",

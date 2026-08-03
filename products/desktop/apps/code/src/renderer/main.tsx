@@ -21,6 +21,7 @@ import { preloadHighlighter } from "@pierre/diffs";
 import { boot } from "@posthog/di/contribution";
 import { assertHostCapabilities } from "@posthog/di/hostCapabilities";
 import { ServiceProvider } from "@posthog/di/react";
+import { hydrateTerminalScrollback } from "@posthog/ui/features/terminal/terminalScrollback";
 import App from "@posthog/ui/shell/App";
 import { logger } from "@posthog/ui/shell/logger";
 import { initializePostHog } from "@posthog/ui/shell/posthogAnalyticsImpl";
@@ -31,6 +32,8 @@ import "@renderer/desktop-services";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "@posthog/ui/styles/globals.css";
+
+void hydrateTerminalScrollback();
 
 void preloadHighlighter({
   themes: ["github-dark", "github-light"],
