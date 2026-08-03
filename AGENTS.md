@@ -97,6 +97,10 @@ Guarding it inside the workflow is worse: skipping the gate job cascades to the 
 
 #### Stacked PRs
 
+GitHub's native stacked PRs are enabled on this repo — use the `gh stack` CLI and the `/stacking-prs` skill instead of hand-managing branch chains.
+A stack lands bottom-first: merge the layer based on `master` the usual way (see "Merging PRs" below), then `gh stack sync --prune` and repeat.
+Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside that path.
+
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
 Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
 Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
@@ -234,6 +238,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Invoke when in the area:**
 
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
+- `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
