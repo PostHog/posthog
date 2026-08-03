@@ -45,6 +45,7 @@ import {
 import {
     describeCron,
     featureFlagLogic,
+    hasZeroRollout,
     PAIRED_PRESETS,
     validateFeatureFlagVariantKey,
     variantKeyToIndexFeatureFlagPayloads,
@@ -851,6 +852,18 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     variantErrors={variantErrors}
                                 />
                             </div>
+                        )}
+
+                    {/* Warning when updating variants won't actually change what anyone sees */}
+                    {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                        !!featureFlag.filters.multivariate &&
+                        (!featureFlag.active || hasZeroRollout(featureFlag.filters)) && (
+                            <LemonBanner type="warning">
+                                This flag is currently{' '}
+                                {!featureFlag.active ? 'disabled' : 'set to 0% rollout on all release conditions'}, so
+                                nobody will see any variant when this change runs. Updating variants alone won't make
+                                the rollout go live. Also schedule a status change or update the release conditions.
+                            </LemonBanner>
                         )}
 
                     {/* Warning for recurring variant updates */}
