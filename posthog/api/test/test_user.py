@@ -969,12 +969,12 @@ class TestUserAPI(APIBaseTest):
         mock_login.assert_not_called()
 
     @patch("posthog.api.user.login")
-    def test_email_verification_skips_auto_login_when_org_requires_verified_domain(self, mock_login):
-        # The user clicking a verification email holds no session — and a logged-in blocked member
-        # wouldn't reach the view anyway, since per-request enforcement rejects them at the auth layer.
+    def test_email_verification_logs_in_gated_member_when_org_requires_verified_domain(self, mock_login):
+        # Mirroring 2FA, a fully blocked member still gets the session — the per-request gate then
+        # denies everything except the whitelist and the enforcement escape hatch.
         self.client.logout()
-        # The class fixture joins the user to a second organization, which would admit them and turn
-        # this into a login-with-org-move; withholding login requires that no organization admits them.
+        # The class fixture joins the user to a second organization; drop it so no organization
+        # admits them and the blocked path is the one exercised.
         OrganizationMembership.objects.filter(user=self.user).exclude(organization=self.organization).delete()
         self.organization.enforce_verified_domains = True
         self.organization.save()
@@ -986,10 +986,10 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["requires_login"] is True
+        assert "requires_login" not in response.json()
         self.user.refresh_from_db()
         assert self.user.is_email_verified is True
-        mock_login.assert_not_called()
+        mock_login.assert_called_once()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")

@@ -51,16 +51,16 @@ def enforce_verified_domain(request: Request, user: User) -> None:
         raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
 
 
-def resolve_login_organization(user: User) -> bool:
+def resolve_login_organization(user: User) -> None:
     """
-    Settle which organization `user` lands in, and return whether they may log in at all.
-
-    Login is only refused when no organization admits their email domain, because otherwise one
-    organization enabling enforcement would lock a member out of the others. When the current
-    organization no longer admits them, they're moved to one that does.
+    Settle which organization `user` lands in at login. When their current organization no longer
+    admits their email, they're moved to one that does. When no organization admits them, login
+    still proceeds — mirroring 2FA enforcement — and the per-request gate denies everything except
+    the whitelist and the enforcement escape hatch, so a blocked admin can log back in to disable
+    the setting.
     """
     if not OrganizationDomain.objects.is_access_blocked_by_domain_enforcement(user):
-        return True
+        return
 
     permitted_organization = next(
         (
@@ -71,7 +71,7 @@ def resolve_login_organization(user: User) -> bool:
         None,
     )
     if permitted_organization is None:
-        return False
+        return
 
     logger.info(
         "domain_enforcement_moved_user_to_permitted_organization",
@@ -85,4 +85,3 @@ def resolve_login_organization(user: User) -> bool:
     # organization; drop the cached values so later code in this request sees the new one.
     user.__dict__.pop("organization", None)
     user.__dict__.pop("team", None)
-    return True

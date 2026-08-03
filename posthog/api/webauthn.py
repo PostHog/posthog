@@ -21,7 +21,7 @@ from posthog.api.authentication import axes_locked_out, is_email_verified_for_lo
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
-from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -354,9 +354,9 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             if sso_enforcement_response := self._check_sso_enforcement(verified_user):
                 return sso_enforcement_response
 
-            # Check verified-domain enforcement against the verified user
-            if domain_enforcement_response := self._check_domain_enforcement(verified_user):
-                return domain_enforcement_response
+            # Domain enforcement: settle the landing organization. The passkey login proceeds even
+            # for a fully blocked member — the per-request gate contains the session, mirroring 2FA.
+            resolve_login_organization(verified_user)
 
             if not is_email_verified_for_login(verified_user):
                 return Response(
@@ -405,15 +405,6 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         if sso_enforcement:
             return Response(
                 {"error": "You can only login with SSO for this account."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return None
-
-    def _check_domain_enforcement(self, user: User) -> Response | None:
-        """Passkeys are a full login path, so they get the same verified-domain gate as a password login."""
-        if not resolve_login_organization(user):
-            return Response(
-                {"error": VERIFIED_DOMAIN_REQUIRED_ERROR},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return None

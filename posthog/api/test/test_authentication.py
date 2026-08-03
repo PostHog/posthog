@@ -225,7 +225,10 @@ class TestLoginAPI(APIBaseTest):
             },
         )
 
-    def test_login_blocked_when_org_requires_verified_domain(self):
+    def test_login_succeeds_but_session_is_gated_when_org_requires_verified_domain(self):
+        # Like 2FA enforcement, a fully blocked member may still log in — so a blocked admin can
+        # reach the escape hatch after their session expires — but the session is denied everything
+        # except the whitelist until the org admits them again.
         self.user.is_email_verified = True
         self.user.save()
         self.organization.enforce_verified_domains = True
@@ -235,16 +238,17 @@ class TestLoginAPI(APIBaseTest):
         )
 
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "verified_domain_required")
-        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)  # whitelisted
+        gated = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(gated.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(gated.json()["code"], "verified_domain_required")
 
-        # Once the member's own domain is verified for the org, login works again.
+        # Once the member's own domain is verified for the org, the session is fully usable again.
         OrganizationDomain.objects.create(
             domain=self.user.email.split("@")[1], organization=self.organization, verified_at=timezone.now()
         )
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/").status_code, status.HTTP_200_OK)
 
     def test_login_moves_user_to_an_organization_that_admits_them(self):
         # A contractor in several orgs must not be locked out of all of them because one turned the

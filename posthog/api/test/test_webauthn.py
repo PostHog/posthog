@@ -429,7 +429,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
-    def test_login_blocked_when_org_requires_verified_domain(self, mock_verify):
+    def test_login_succeeds_but_session_is_gated_when_org_requires_verified_domain(self, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import user_uuid_to_handle
@@ -460,9 +460,13 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("verified email domain", response.json()["error"])
-        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+        # Mirroring 2FA, the passkey login completes — the per-request gate then denies everything
+        # except the whitelist until the org admits the member again.
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)  # whitelisted
+        gated = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(gated.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(gated.json()["code"], "verified_domain_required")
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_spoofed_user_handle_cannot_bypass_sso_enforcement(self, mock_verify):
