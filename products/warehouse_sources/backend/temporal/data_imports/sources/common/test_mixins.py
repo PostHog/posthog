@@ -317,6 +317,22 @@ class TestConnectionOpenLogging(SimpleTestCase):
         assert all(call.kwargs["team_id"] == 42 for call in mock_logger.info.call_args_list)
 
 
+class TestTunnelYieldsLoopbackOnly(SimpleTestCase):
+    # ClickHouse bypasses the egress proxy for tunneled connections on the strength of the
+    # tunnel branch only ever yielding its own loopback bind. A tunnel bound anywhere else
+    # must be refused, not silently handed to a proxy-bypassing client.
+    @parameterized.expand([("open_ssh_tunnel", None), ("factory", None)])
+    def test_non_loopback_bind_is_refused(self, entrypoint: str, _unused: None):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="0.tcp.ngrok.example"))
+        with patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh, patch(f"{_MIXINS_MODULE}.logger"):
+            tunnel = mock_ssh.from_config.return_value.get_tunnel.return_value.__enter__.return_value
+            tunnel.local_bind_host, tunnel.local_bind_port = "10.0.0.5", 55555
+            cm = open_ssh_tunnel(config) if entrypoint == "open_ssh_tunnel" else make_ssh_tunnel_factory(config)()
+            with pytest.raises(Exception, match="non-loopback"):
+                with cm:
+                    pass
+
+
 class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
     @parameterized.expand(
         [
