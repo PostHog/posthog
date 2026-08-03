@@ -171,11 +171,11 @@ export interface projectNoticeLogicValues {
     currentOrganizationId: string // organizationLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
     user: UserType | null // userLogic
-    effectiveBillingAlert: BillingAlertConfig | null
     billingNoticeInputs: {
         effectiveBillingAlert: BillingAlertConfig | null
         startupProgramLabelCurrent: StartupProgramLabel | null
     }
+    effectiveBillingAlert: BillingAlertConfig | null
     noticeDismissedThisSession: boolean
     projectNotice: ProjectNoticeBlueprint | null
     projectNoticeDismissKey: string | null
