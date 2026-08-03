@@ -1010,6 +1010,95 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class TestTaskSpawnAPI(BaseTaskAPITest):
+    url = "/api/projects/@current/tasks/spawn/"
+
+    def _parent_run(self, *, state=None, status=TaskRun.Status.IN_PROGRESS, channel=None):
+        task = self.create_task()
+        task.channel = channel
+        task.save(update_fields=["channel", "updated_at"])
+        run = task.create_run(mode="background", extra_state=state)
+        run.status = status
+        run.save(update_fields=["status", "updated_at"])
+        return run
+
+    def _payload(self, parent_run, **overrides):
+        return {
+            "parent_run_id": str(parent_run.id),
+            "title": "Implement child",
+            "description": "Make the focused change",
+            **overrides,
+        }
+
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_creates_and_starts_child_with_protected_state(self, _flag, _gate, trigger):
+        channel = Channel.objects.create(team=self.team, name="orchestration")
+        parent_run = self._parent_run(channel=channel)
+
+        response = self.client.post(self.url, self._payload(parent_run, wake_on=["pr_merged"]), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        child = Task.objects.get(id=response.json()["id"])
+        run = child.runs.get()
+        self.assertEqual(child.channel_id, channel.id)
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(
+            {key: run.state[key] for key in ("parent_task_id", "parent_run_id", "wake_on")},
+            {
+                "parent_task_id": str(parent_run.task_id),
+                "parent_run_id": str(parent_run.id),
+                "wake_on": ["pr_merged"],
+            },
+        )
+        trigger.assert_called_once()
+
+        patched = self.client.patch(
+            f"/api/projects/@current/tasks/{child.id}/runs/{run.id}/",
+            {"state": {"parent_task_id": "forged", "parent_run_id": "forged", "wake_on": []}},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(run.state["parent_task_id"], str(parent_run.task_id))
+        self.assertEqual(run.state["wake_on"], ["pr_merged"])
+
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_rejects_child_parent_run(self, _flag):
+        parent_run = self._parent_run(state={"parent_task_id": str(uuid.uuid4())})
+        response = self.client.post(self.url, self._payload(parent_run), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_rejects_terminal_parent_run(self, _flag):
+        parent_run = self._parent_run(status=TaskRun.Status.COMPLETED)
+        response = self.client.post(self.url, self._payload(parent_run), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_rejects_cross_team_parent_run(self, _flag):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_task = Task.objects.create(team=other_team, created_by=self.user, title="Other", description="Other")
+        parent_run = other_task.create_run(mode="background")
+        response = self.client.post(self.url, self._payload(parent_run), format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=False)
+    def test_spawn_rejects_when_flag_is_off(self, _flag):
+        response = self.client.post(self.url, self._payload(self._parent_run()), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", side_effect=RuntimeError("boom"))
+    def test_spawn_soft_deletes_partial_task_when_start_fails(self, _trigger, _flag, _gate):
+        with self.assertRaises(RuntimeError):
+            self.client.post(self.url, self._payload(self._parent_run()), format="json")
+        child = Task.objects.get(title="Implement child")
+        self.assertTrue(child.deleted)
+
+
 class TestTaskAPI(BaseTaskAPITest):
     def test_pin_state_is_persisted_per_user(self):
         task = self.create_task()

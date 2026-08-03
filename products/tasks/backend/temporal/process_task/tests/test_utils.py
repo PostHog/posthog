@@ -1,3 +1,5 @@
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -126,9 +128,14 @@ class TestRunStateSnapshotPaths(TestCase):
                 {},
             ),
             ("no_snapshot", {}, {}),
+            (
+                "orchestration_without_snapshot",
+                {"parent_task_id": "task-1", "parent_run_id": "run-1", "wake_on": ["pr_merged"]},
+                {"parent_task_id": "task-1", "parent_run_id": "run-1", "wake_on": ["pr_merged"]},
+            ),
         ]
     )
-    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, Any], expected: dict[str, Any]) -> None:
         assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 

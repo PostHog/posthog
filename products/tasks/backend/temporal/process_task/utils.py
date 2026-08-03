@@ -309,6 +309,9 @@ def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> boo
 
 
 class RunState(BaseModel, extra="allow"):
+    parent_task_id: str | None = None
+    parent_run_id: str | None = None
+    wake_on: list[str] | None = None
     pr_authorship_mode: PrAuthorshipMode | None = None
     auto_publish: bool | None = None
     github_credential_source: GitHubCredentialSource | None = None
@@ -355,12 +358,19 @@ class RunState(BaseModel, extra="allow"):
     def resume_snapshot_carry_state(self) -> dict[str, Any]:
         """State keys a successor run must copy (always the full set, never the external ID
         alone) to resume from this run's snapshot; ``{}`` when there is no usable snapshot."""
-        if not self.snapshot_external_id or not self.resume_snapshot_is_usable():
-            return {}
-        carried: dict[str, Any] = {
-            "snapshot_external_id": self.snapshot_external_id,
-            "snapshot_kind": self.resume_snapshot_kind(),
+        carried = {
+            key: value
+            for key in ("parent_task_id", "parent_run_id", "wake_on")
+            if (value := getattr(self, key, None)) is not None
         }
+        if not self.snapshot_external_id or not self.resume_snapshot_is_usable():
+            return carried
+        carried.update(
+            {
+                "snapshot_external_id": self.snapshot_external_id,
+                "snapshot_kind": self.resume_snapshot_kind(),
+            }
+        )
         mount_path = self.resume_snapshot_mount_path()
         if mount_path is not None:
             carried["snapshot_mount_path"] = mount_path

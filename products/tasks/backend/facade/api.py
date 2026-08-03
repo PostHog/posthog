@@ -1900,6 +1900,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        "parent_task_id",
+        "parent_run_id",
+        "wake_on",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         "ai_stage",
@@ -1921,6 +1924,16 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
 )
 
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+SPAWNED_TASK_RUN_TEAM_RATE_CAP_PER_DAY = 500
+
+
+def spawned_task_run_rate_capped(team_id: int) -> bool:
+    since = django_timezone.now() - timedelta(hours=24)
+    return (
+        TaskRun.objects.filter(team_id=team_id, state__has_key="parent_task_id", created_at__gte=since).count()
+        >= SPAWNED_TASK_RUN_TEAM_RATE_CAP_PER_DAY
+    )
+
 
 # `output.pr_merged` is GitHub's word, recorded by the PR webhook (`_record_run_pr_merged`) — never
 # the caller's. Signals reads it to decide refund finality (billing.report_pr_is_merged): a report
@@ -3364,7 +3377,12 @@ def _github_credential_source_extra_state(pr_authorship_mode, github_user_token:
 
 
 def bootstrap_task_run(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    trusted_extra_state: dict | None = None,
 ) -> contracts.TaskRunCreateResult | None:
     """Create a task run (without starting execution) from validated bootstrap data.
 
@@ -3407,6 +3425,8 @@ def bootstrap_task_run(
     extra_state: dict | None = None
     if initial_permission_mode is not None:
         extra_state = {"initial_permission_mode": initial_permission_mode}
+    if trusted_extra_state:
+        extra_state = {**(extra_state or {}), **trusted_extra_state}
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
     for key, value in {
@@ -4104,7 +4124,13 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> contracts.TaskDetailDTO:
+def create_task(
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    creation_event_properties: dict | None = None,
+) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
     Absorbs the cross-product ``SignalReportTask`` linkage, ``generate_task_title``, and
@@ -4282,7 +4308,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
-        task = Task.objects.create(**validated_data)
+        task = Task(**validated_data)
+        task._creation_event_properties = creation_event_properties or {}
+        task.save()
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship
             # (defaults to implementation, which also writes the auto-start spend gate row) so a

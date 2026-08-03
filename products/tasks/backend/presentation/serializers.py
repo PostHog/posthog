@@ -729,6 +729,59 @@ class TaskCreateSerializer(TaskWriteSerializer):
     )
 
 
+class TaskSpawnRequestSerializer(serializers.Serializer):
+    parent_run_id = serializers.UUIDField(help_text="Cloud run that is spawning this child task.")
+    title = serializers.CharField(max_length=255, help_text="Title for the child task.")
+    description = serializers.CharField(help_text="Prompt passed verbatim to the child task.")
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        help_text="Optional target repository in organization/repository format.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter], required=False, default=None
+    )
+    model = serializers.CharField(required=False, default=None, allow_blank=False)
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS], required=False, default=None
+    )
+    wake_on = serializers.ListField(child=serializers.ChoiceField(choices=["pr_merged"]), required=False, default=list)
+
+    def validate_repository(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+    def validate_wake_on(self, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Values must be unique")
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        runtime_fields = ("runtime_adapter", "model")
+        if any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort")):
+            errors = {
+                field: "This field is required when selecting a cloud runtime."
+                for field in runtime_fields
+                if attrs.get(field) is None
+            }
+            reasoning_error = get_reasoning_effort_error(
+                runtime_adapter=attrs.get("runtime_adapter"),
+                model=attrs.get("model"),
+                reasoning_effort=attrs.get("reasoning_effort"),
+            )
+            if reasoning_error is not None:
+                errors["reasoning_effort"] = reasoning_error
+            if errors:
+                raise serializers.ValidationError(errors)
+        return attrs
+
+
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     output = serializers.JSONField(
         help_text="Output data from the run. Validated against the task's json_schema if one is set."
