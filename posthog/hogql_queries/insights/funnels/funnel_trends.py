@@ -473,14 +473,19 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         )
         interval_func = get_interval_func(interval.value)
 
+        def entrance_period_start_expr() -> ast.Expr:
+            # A fresh node per call: the resolver annotates AST nodes in place, so one instance
+            # can't be shared between the select and the where
+            return ast.ArithmeticOperation(
+                left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
+                right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+
         fill_select: list[ast.Expr] = [
             ast.Alias(
                 alias="entrance_period_start",
-                expr=ast.ArithmeticOperation(
-                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
-                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
+                expr=entrance_period_start_expr(),
             ),
         ]
         fill_select_from = ast.JoinExpr(
@@ -506,6 +511,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             select_from=fill_select_from,
         )
 
+        fill_conditions: list[ast.Expr] = []
+
         if self.context.funnelsFilter.hideIncompleteConversionWindowPeriods:
             # Drop periods whose conversion window hasn't fully elapsed yet (relative to now), so the
             # recent tail of the trend isn't dragged down by entrants who still have time to convert.
@@ -517,19 +524,28 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 args=[ast.Call(name="toDateTime", args=[ast.Constant(value=cutoff.strftime("%Y-%m-%d %H:%M:%S"))])],
             )
             period_end = ast.ArithmeticOperation(
-                left=ast.ArithmeticOperation(
-                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
-                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
+                left=entrance_period_start_expr(),
                 right=ast.Call(name=interval_func, args=[ast.Constant(value=1)]),
                 op=ast.ArithmeticOperationOp.Add,
             )
-            fill_query.where = ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=period_end,
-                right=cutoff_as_hogql,
+            fill_conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=period_end,
+                    right=cutoff_as_hogql,
+                )
             )
+
+        # Events on deselected days are already filtered out, so leaving their buckets in the fill
+        # plots them as a 0% conversion point rather than a gap. Only sub-day intervals can be
+        # attributed to a weekday: a week or month bucket start says nothing about the days inside it.
+        if interval.value in ("day", "hour"):
+            day_of_week_filter = date_range.day_of_week_filter_expr(entrance_period_start_expr())
+            if day_of_week_filter is not None:
+                fill_conditions.append(day_of_week_filter)
+
+        if fill_conditions:
+            fill_query.where = fill_conditions[0] if len(fill_conditions) == 1 else ast.And(exprs=fill_conditions)
 
         return fill_query
 

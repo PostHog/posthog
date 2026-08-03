@@ -1,13 +1,15 @@
 import { DateRange } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { FunnelVizType } from '~/types'
 
 export type IsoDayOfWeek = NonNullable<DateRange['daysOfWeek']>[number]
 
-/** Mirrors backend support: trends, stickiness, lifecycle, and funnels in the trends viz only
- *  (dropping mid-sequence events from a step funnel has ambiguous semantics). */
+/** Trends, stickiness, and funnels in the trends viz only. Dropping days is ambiguous elsewhere:
+ *  mid-sequence events in a step funnel, and in lifecycle the new/returning/resurrecting/dormant
+ *  statuses are derived from adjacent intervals, so a sparse day axis both misclassifies statuses
+ *  and lands synthesized dormant buckets on deselected days. */
 export function querySupportsDaysOfWeek(querySource: Record<string, any> | null | undefined): boolean {
-    if (isTrendsQuery(querySource) || isStickinessQuery(querySource) || isLifecycleQuery(querySource)) {
+    if (isTrendsQuery(querySource) || isStickinessQuery(querySource)) {
         return true
     }
     return isFunnelsQuery(querySource) && querySource.funnelsFilter?.funnelVizType === FunnelVizType.Trends

@@ -3494,15 +3494,26 @@ class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # the filter applies to every funnel event, so user_cross's Tuesday step two is
-            # dropped (entered but not converted) and user_saturday's entrance doesn't count
-            ("mondays_only", [1], (2, 1), (0, 0)),
-            ("empty_means_unfiltered", [], (2, 2), (1, 1)),
+            # The filter applies to every funnel event, so user_cross's Tuesday step two is dropped
+            # (entered but not converted). Deselected days leave the response entirely rather than
+            # plotting as a 0% conversion point.
+            ("mondays_only", [1], [("2021-06-07", 2, 1)]),
+            (
+                "empty_means_unfiltered",
+                [],
+                [
+                    ("2021-06-07", 2, 2),
+                    ("2021-06-08", 0, 0),
+                    ("2021-06-09", 0, 0),
+                    ("2021-06-10", 0, 0),
+                    ("2021-06-11", 0, 0),
+                    ("2021-06-12", 1, 1),
+                    ("2021-06-13", 0, 0),
+                ],
+            ),
         ]
     )
-    def test_days_of_week_filters_entrances_and_conversions(
-        self, _name, days_of_week, expected_monday, expected_saturday
-    ):
+    def test_days_of_week_filters_entrances_and_conversions(self, _name, days_of_week, expected_buckets):
         self._create_days_of_week_journeys()
 
         results = (
@@ -3511,15 +3522,16 @@ class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
             .results
         )
 
-        self.assertEqual(len(results), 7)
-        monday, saturday = results[0], results[5]
         self.assertEqual(
-            (monday["reached_from_step_count"], monday["reached_to_step_count"]),
-            expected_monday,
-        )
-        self.assertEqual(
-            (saturday["reached_from_step_count"], saturday["reached_to_step_count"]),
-            expected_saturday,
+            [
+                (
+                    row["timestamp"].strftime("%Y-%m-%d"),
+                    row["reached_from_step_count"],
+                    row["reached_to_step_count"],
+                )
+                for row in results
+            ],
+            expected_buckets,
         )
 
     @parameterized.expand(
@@ -3687,11 +3699,10 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=self._build_query(days_of_week=[1]), team=self.team).calculate().results
 
         previous_series = next(r for r in results if r["compare_label"] == "previous")
-        # Monday 2021-05-31 converts; Saturday 2021-06-05 must be filtered out of the
-        # previous period as well (index 5, conversion rate would be 100.0 unfiltered)
-        self.assertEqual(previous_series["days"][0], "2021-05-31")
-        self.assertEqual(previous_series["data"][0], 100.0)
-        self.assertEqual(previous_series["data"][5], 0.0)
+        # Monday 2021-05-31 converts, and it's the only bucket left: Saturday 2021-06-05 is
+        # filtered out of the previous period too, so it never reaches the series at all
+        self.assertEqual(previous_series["days"], ["2021-05-31"])
+        self.assertEqual(previous_series["data"], [100.0])
 
     def test_compare_with_custom_offset_shifts_previous_window(self):
         # Custom offset `-30d` puts the previous window 30 days before the current window's start

@@ -69,7 +69,7 @@ describe('daysOfWeekFilterUtils', () => {
         [undefined, false],
         [{ kind: NodeKind.TrendsQuery }, true],
         [{ kind: NodeKind.StickinessQuery }, true],
-        [{ kind: NodeKind.LifecycleQuery }, true],
+        [{ kind: NodeKind.LifecycleQuery }, false],
         [{ kind: NodeKind.FunnelsQuery }, false],
         [{ kind: NodeKind.FunnelsQuery, funnelsFilter: { funnelVizType: FunnelVizType.Steps } }, false],
         [{ kind: NodeKind.FunnelsQuery, funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert } }, false],
