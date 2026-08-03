@@ -249,11 +249,18 @@ export function BranchSelector({
       ? BUSY_OPERATION_LABEL[busyState.operation]
       : null;
 
-  const displayText = effectiveLoading
-    ? "Loading..."
-    : busyOperationLabel && !displayedBranch
-      ? busyOperationLabel
-      : (displayedBranch ?? "No branch");
+  const isCheckoutPending = checkoutMutation.isPending;
+  const checkoutTargetBranch = isCheckoutPending
+    ? checkoutMutation.variables?.branchName
+    : null;
+
+  const displayText = isCheckoutPending
+    ? `Switching to ${checkoutTargetBranch}…`
+    : effectiveLoading
+      ? "Loading..."
+      : busyOperationLabel && !displayedBranch
+        ? busyOperationLabel
+        : (displayedBranch ?? "No branch");
 
   // Which checkout the branch applies to. With several checkouts of the same
   // repo registered (main clone + worktrees), a bare branch name is ambiguous
@@ -261,9 +268,9 @@ export function BranchSelector({
   const checkoutName = !isCloudMode && repoPath ? getFileName(repoPath) : null;
 
   const showSpinner =
-    effectiveLoading || (isCloudMode && open && cloudBranchesFetchingMore);
+    isCheckoutPending || effectiveLoading || (isCloudMode && open && cloudBranchesFetchingMore);
 
-  const isDisabled = !!(disabled || !repoPath || localBusy);
+  const isDisabled = !!(disabled || !repoPath || localBusy || isCheckoutPending);
   const disabledReason =
     localBusy && busyOperationLabel
       ? `${busyOperationLabel} in progress — finish or abort it to switch branches.`
