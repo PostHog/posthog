@@ -179,6 +179,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
             "Access denied for user": "Invalid user or password",
+            # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
+            # the server — it was renamed or dropped after the source was set up, or the connection
+            # was reconfigured to point at a different server. `validate_credentials` already
+            # catches this at create time via `_VALIDATE_CONNECTION_HINTS`, but that hint only fires
+            # on the create-time probe; a database dropped later only surfaces here, mid-sync. Every
+            # retry connects with the same database name and fails identically. Match the
+            # locale-independent error code (the database name is volatile and the message text is
+            # translated on non-English servers).
+            "(1049,": "The database configured for this source no longer exists (MySQL error 1049). It may have been renamed or dropped. Update the database name in your source settings, or restore it, then resync.",
             "sqlstate 42S02": None,  # Table not found error
             # MySQL/MariaDB error 1146 (ER_NO_SUCH_TABLE): a table the sync reads no longer exists
             # in the source — it was renamed or dropped after the schema was set up. The streaming
@@ -301,7 +310,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # exhausted; the streaming path's FORCE INDEX fallback does the same for a mid-query drop
         # (see `_is_bad_plan_error`). Either way, Temporal retries the whole activity next and the
         # failure is transient and self-recovering, so don't surface it as tracked exception noise.
-        return {"Lost connection to MySQL server during query"}
+        #
+        # "Too many connections" (MySQL error 1040) shares the same contract: `_connect_with_transient_retry`
+        # retries it in-process too (see `_is_transient_too_many_connections`) — a slot frees the moment
+        # another connection closes, mirroring the Postgres source's connection-limit handling.
+        return {"Lost connection to MySQL server during query", "Too many connections"}
 
     def reconcile_schema_metadata(
         self,

@@ -286,14 +286,13 @@ export function Exposures(): JSX.Element {
                 </span>
 
                 {!isExperimentDraft && (
+                    // Transitioning visibility delays the hidden flip until the fade-out finishes
                     <div
-                        className={`flex items-center gap-3 transition-opacity duration-300 ease-in-out ${
-                            isCollapsed ? 'opacity-100' : 'opacity-0'
+                        className={`flex items-center gap-3 transition-[opacity,visibility] duration-300 ease-in-out ${
+                            isCollapsed
+                                ? 'visible opacity-100 pointer-events-auto'
+                                : 'invisible opacity-0 pointer-events-none'
                         }`}
-                        style={{
-                            visibility: isCollapsed ? 'visible' : 'hidden',
-                            pointerEvents: isCollapsed ? 'auto' : 'none',
-                        }}
                     >
                         {exposuresLoading ? (
                             <Spinner className="text-lg" />

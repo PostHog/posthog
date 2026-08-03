@@ -6,7 +6,6 @@ import dataclasses
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.ducklake.common import duckgres_data_modeling_schema, get_duckgres_server_for_organization, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -22,6 +21,11 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.endpoints.backend.facade.temporal import prepare_executable_query
+from products.managed_warehouse.backend.facade.api import (
+    duckgres_data_modeling_schema,
+    has_provisioned_warehouse,
+    is_dev_mode,
+)
 
 from ..metrics import get_node_suspended_metric
 from .utils import CONSECUTIVE_FAILURES_TO_SUSPEND, clear_node_suspension_for_engine, maybe_suspend_node_for_engine
@@ -66,7 +70,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
 
         return os.environ.get("DUCKGRES_SHADOW_ENABLED", "").lower() in ("1", "true")
 
-    if get_duckgres_server_for_organization(str(team.organization_id)) is None:
+    if not has_provisioned_warehouse(str(team.organization_id)):
         return False
 
     try:
@@ -91,7 +95,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
 def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str, dict[str, object]]:
     from posthog.schema import HogQLQuery
 
-    from posthog.ducklake.client import compile_hogql_to_ducklake_sql
+    from products.managed_warehouse.backend.facade.client import compile_hogql_to_ducklake_sql
 
     postgres_sql, values, _ = compile_hogql_to_ducklake_sql(
         team_id,
@@ -180,7 +184,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             sql, values = await database_sync_to_async_pool(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
-        from posthog.ducklake.client import execute_ducklake_create_table
+        from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table
 
         result = await database_sync_to_async_pool(execute_ducklake_create_table)(
             team.pk, sql, schema_name, table_name, values
