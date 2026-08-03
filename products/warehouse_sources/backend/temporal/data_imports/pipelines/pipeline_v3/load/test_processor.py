@@ -8,6 +8,7 @@ import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
@@ -592,6 +593,58 @@ class TestPostImportTrigger:
         _trigger_post_import_workflow(signal)
 
         assert mock_capture.called is expect_captured
+
+    def _signal(self) -> MagicMock:
+        signal = MagicMock()
+        signal.sync_type = "incremental"
+        signal.cdc_write_mode = None
+        signal.team_id = 1
+        signal.job_id = "job-1"
+        signal.schema_id = "schema-1"
+        signal.source_id = "source-1"
+        return signal
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_transient_rpc_timeout_is_retried_and_recovers(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        # This start runs as a bare client RPC outside a Temporal workflow, so it gets
+        # none of the server-side retry a `workflow.start_child_workflow` command would
+        # have — a single transient timeout must not drop the trigger permanently.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(
+            side_effect=[RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""), None]
+        )
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert client.start_workflow.call_count == 2
+        mock_capture.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_persistent_rpc_timeout_is_captured_after_retries_exhausted(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""))
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert client.start_workflow.call_count == 3
+        mock_capture.assert_called_once()
+        # tenacity defaults to wrapping the last attempt in a RetryError once retries are
+        # exhausted; `reraise=True` must be set so the underlying RPCError reaches capture
+        # instead, keeping the error-tracking issue actionable.
+        captured_exception = mock_capture.call_args[0][0]
+        assert isinstance(captured_exception, RPCError)
 
 
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
