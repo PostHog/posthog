@@ -512,7 +512,7 @@ export interface UtmIssueApi {
      *
      * * `error` - error
      * * `warning` - warning */
-    severity: UtmIssueSeverityEnumApi
+    severity: DiagnosticSeverityEnumApi
     /** Which kind of UTM problem this campaign has
      *
      * * `not_linked` - not_linked

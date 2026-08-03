@@ -11,7 +11,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1270_untrack_provisioning_auth_columns"),
+        ("posthog", "1284_organization_enforce_verified_domains"),
         ("canvas", "0003_migrate_desktop_tree"),
     ]
 
