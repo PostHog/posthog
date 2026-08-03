@@ -115,7 +115,6 @@ export const canvasesPublishCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesPublishCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
-export const canvasesPublishCreateBodyProjectOneCanvasSdkVersionDefault = `0.1.0`
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -175,7 +174,7 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     ),
                 canvasSdkVersion: zod
                     .string()
-                    .default(canvasesPublishCreateBodyProjectOneCanvasSdkVersionDefault)
+                    .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
                 capabilities: zod
                     .object({
@@ -250,7 +249,6 @@ export const canvasesValidateCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesValidateCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
-export const canvasesValidateCreateBodyProjectOneCanvasSdkVersionDefault = `0.1.0`
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -308,7 +306,7 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     ),
                 canvasSdkVersion: zod
                     .string()
-                    .default(canvasesValidateCreateBodyProjectOneCanvasSdkVersionDefault)
+                    .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
                 capabilities: zod
                     .object({

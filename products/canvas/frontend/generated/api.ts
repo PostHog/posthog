@@ -22,7 +22,10 @@ import type {
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasesListParams,
+    CanvasesSourceRetrieveParams,
+    CanvasesVersionsRetrieveParams,
     PaginatedCanvasListApi,
+    PaginatedCanvasVersionListApi,
     PatchedCanvasUpdateApi,
 } from './api.schemas'
 
@@ -250,8 +253,20 @@ export const canvasesRevertCreate = async (
     })
 }
 
-export const getCanvasesSourceRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/canvases/${id}/source/`
+export const getCanvasesSourceRetrieveUrl = (projectId: string, id: string, params?: CanvasesSourceRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/source/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/source/`
 }
 
 /**
@@ -260,13 +275,15 @@ export const getCanvasesSourceRetrieveUrl = (projectId: string, id: string) => {
  * Always call this before editing: edit the returned files, then publish
  * the complete project passing the returned version id as
  * `expected_current_version_id` so concurrent edits are not overwritten.
+ * `?version_id=` reads a historical version instead of the head.
  */
 export const canvasesSourceRetrieve = async (
     projectId: string,
     id: string,
+    params?: CanvasesSourceRetrieveParams,
     options?: RequestInit
 ): Promise<CanvasSourceResponseApi> => {
-    return apiMutator<CanvasSourceResponseApi>(getCanvasesSourceRetrieveUrl(projectId, id), {
+    return apiMutator<CanvasSourceResponseApi>(getCanvasesSourceRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -290,5 +307,40 @@ export const canvasesValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasValidateRequestApi),
+    })
+}
+
+export const getCanvasesVersionsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: CanvasesVersionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/versions/`
+}
+
+/**
+ * The canvas's source-version history, newest first (metadata only).
+ */
+export const canvasesVersionsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesVersionsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedCanvasVersionListApi> => {
+    return apiMutator<PaginatedCanvasVersionListApi>(getCanvasesVersionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
