@@ -74,7 +74,7 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
     const maxValue = useMemo(() => {
         return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
-    const isWithinUsageLimit = (product.percentage_usage ?? 0) <= 1
+    const isWithinUsageLimit = (product.percentage_usage ?? 0) < 1
 
     const sortedItems = useMemo(() => {
         return [...items].sort((a, b) => a.value - b.value)

@@ -1129,7 +1129,7 @@ export const billingLogic = kea<billingLogicType>([
             (billing: BillingType | null): ((productKey: ProductKey) => boolean) =>
                 (productKey: ProductKey): boolean => {
                     const product = billing?.products?.find((p) => p.type === productKey)
-                    return (product?.percentage_usage ?? 0) > 1
+                    return (product?.percentage_usage ?? 0) >= 1
                 },
         ],
         billingPeriodUTC: [
