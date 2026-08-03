@@ -131,14 +131,18 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     # Artifacts are immutable and content-addressed, so the manifest hash is a
     # perfect validator: a revalidating client skips the object read entirely.
     etag = f'"{asset["contentHash"]}"'
+    content_type = asset.get("contentType", "application/octet-stream")
+    if not isinstance(content_type, str):
+        content_type = "application/octet-stream"
     if request.headers.get("If-None-Match") == etag:
         response: HttpResponse = HttpResponseNotModified()
+        response["Content-Type"] = content_type
         return _with_artifact_headers(response, etag)
 
     content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
     if content is None or len(content) != asset.get("sizeBytes"):
         raise Http404
-    response = HttpResponse(content, content_type=asset.get("contentType", "application/octet-stream"))
+    response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"
     return _with_artifact_headers(response, etag)
 

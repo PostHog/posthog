@@ -70,6 +70,8 @@ class TestCanvasArtifacts(APIBaseTest):
         url = self._url()
         response = self.client.get(url, HTTP_IF_NONE_MATCH=f'"{self.content_hash}"')
         assert response.status_code == 304
+        assert response["Content-Type"] == "text/html; charset=utf-8"
+        assert "script-src 'self'" in response["Content-Security-Policy"]
         self.read_bytes.assert_not_called()
 
     def test_url_is_stable_within_a_bucket(self):

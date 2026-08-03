@@ -28,6 +28,30 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("createRoot", javascript)
         self.assertIn("canvas-runtime", html)
 
+    def test_legacy_canvas_build_compiles_tailwind_and_quill_styles(self) -> None:
+        payload = synthetic_source_project(
+            'import { Button } from "@posthog/quill"; '
+            'export default function Canvas() { return <div className="grid gap-4 p-6 md:grid-cols-2">'
+            "<Button>Save</Button></div> }"
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
+        stylesheet = next(
+            file
+            for file in result["files"]
+            if file["path"].startswith("assets/canvas-platform-") and file["path"].endswith(".css")
+        )
+        self.assertIn(f"./{stylesheet['path']}", html)
+        self.assertIn(".grid", stylesheet["content"])
+        self.assertIn(".p-6", stylesheet["content"])
+        self.assertIn(".md\\:grid-cols-2", stylesheet["content"])
+        self.assertIn(".quill-button", stylesheet["content"])
+        self.assertIn("--background", stylesheet["content"])
+
     def test_publication_validation_allows_relative_worker_and_asset_imports(self) -> None:
         payload = synthetic_source_project(
             'import workerUrl from "./sum.worker.ts?worker"; import image from "../assets/pixel.png"; void workerUrl; void image'

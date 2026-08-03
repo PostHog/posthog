@@ -1,8 +1,11 @@
+import { Scanner } from '@tailwindcss/oxide'
 import { build } from 'esbuild'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { compile } from 'tailwindcss'
 
 // The platform contract (pinned dependencies, CSP, size limits) is shared with
 // the Python validator and the artifact origin via manifest.json — edit it
@@ -14,12 +17,22 @@ const admitted = Object.fromEntries(
 const runtimeImports = contract.runtimeImports
 const csp = contract.csp
 const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
+const builderRequire = createRequire(import.meta.url)
 const htmlTag = /<(script|link)\b[^>]*>/gi
 const htmlAttribute = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const forbiddenHtml = /(?:src|href)\s*=\s*["']\s*(javascript|data:text\/html|vbscript)/i
 const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.css', '.json', '.svg', '.txt']
 const runtimePath = 'assets/canvas-runtime.js'
 const runtime = `(()=>{const channel="posthog-canvas",pending=new Map;let sequence=0,port;const post=(message)=>port?.postMessage({channel,...message});const call=(method,payload)=>new Promise((resolve,reject)=>{const id=String(++sequence);pending.set(id,{resolve,reject});post({type:"data-request",id,method,payload});});const receive=(event)=>{if(event.data?.channel!==channel||event.data?.type!=="data-response")return;const request=pending.get(event.data.id);if(!request)return;pending.delete(event.data.id);event.data.ok?request.resolve(event.data.result):request.reject(new Error(event.data.error??"Canvas request failed"));};window.ph={loadInsight:(shortId,options)=>call("loadInsight",{shortId,dateRange:options?.dateRange}),query:(query,params)=>call("query",typeof query==="string"?{hogql:query,params:params??{}}:{query,params:params??{}}),capture:(event,properties,distinctId)=>call("capture",{event,properties:properties??{},distinctId}),openExternal:(url)=>post({type:"open-external",url})};addEventListener("message",(event)=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",receive);port.start();if(document.readyState!=="loading")post({type:"ready"});if(document.readyState==="complete")post({type:"rendered"});});addEventListener("error",(event)=>post({type:"error",message:event.message||"Canvas runtime error",stack:event.error?.stack}));addEventListener("unhandledrejection",(event)=>post({type:"error",message:event.reason instanceof Error?event.reason.message:String(event.reason),stack:event.reason instanceof Error?event.reason.stack:undefined}));addEventListener("DOMContentLoaded",()=>post({type:"ready"}));addEventListener("load",()=>post({type:"rendered"}));})();`
+const platformStylesheet = `
+@import "tailwindcss";
+@import "@posthog/quill/tokens.css";
+@import "@posthog/quill/color-system.css";
+@import "@posthog/quill/base.css";
+@import "@posthog/quill/primitives.css";
+@import "@posthog/quill/tailwind.css";
+@custom-variant dark (&:where(.dark, .dark *));
+`
 
 // Entry references (module scripts, stylesheets) parsed attribute-order-
 // insensitively: `<script src=... type="module">` is as valid as the reverse,
@@ -87,6 +100,36 @@ function loader(file) {
 
 function assetLoader(contentType) {
     return contentType === 'application/wasm' || contentType === 'application/octet-stream' ? 'binary' : 'dataurl'
+}
+
+function resolveStylesheet(id, base) {
+    const resolved = id.startsWith('.')
+        ? path.resolve(base, id)
+        : builderRequire.resolve(id === 'tailwindcss' ? 'tailwindcss/index.css' : id)
+    return {
+        path: resolved,
+        base: path.dirname(resolved),
+        content: readFileSync(resolved, 'utf8'),
+    }
+}
+
+async function buildPlatformStyles(project) {
+    const compiler = await compile(platformStylesheet, {
+        base: builderDirectory,
+        loadStylesheet: resolveStylesheet,
+    })
+    const scanner = new Scanner({ sources: compiler.sources })
+    const candidates = new Set(scanner.scan())
+    const sourceFiles = Object.entries(project.files)
+        .filter(([, content]) => typeof content === 'string')
+        .map(([filename, content]) => ({
+            content,
+            extension: path.posix.extname(filename).slice(1) || 'html',
+        }))
+    for (const candidate of scanner.scanFiles(sourceFiles)) {
+        candidates.add(candidate)
+    }
+    return compiler.build([...candidates])
 }
 
 function validate(project) {
@@ -242,6 +285,7 @@ async function buildCanvas(project) {
     }
     const files = []
     const externalImports = new Set()
+    let platformCss = ''
     try {
         for (const [reference, kind] of refs) {
             const entry = normalize(reference)
@@ -270,6 +314,7 @@ async function buildCanvas(project) {
                 html = html.replace('</head>', `<link rel="stylesheet" href="./${cssPath}" /></head>`)
             }
         }
+        platformCss = await buildPlatformStyles(project)
     } catch (error) {
         const errors = error?.errors ?? []
         return {
@@ -289,8 +334,10 @@ async function buildCanvas(project) {
                 : [diagnostic('bundle_error', error instanceof Error ? error.message : String(error))],
         }
     }
+    const cssPath = `assets/canvas-platform-${sha256(platformCss).slice(0, 10)}.css`
+    files.push(artifact(cssPath, platformCss))
     files.push(artifact(runtimePath, runtime))
-    const head = `<meta http-equiv="Content-Security-Policy" content="${csp}" /><script src="./${runtimePath}"></script>`
+    const head = `<meta http-equiv="Content-Security-Policy" content="${csp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
     html = html.includes('<head>') ? html.replace('<head>', `<head>${head}`) : `${head}${html}`
     files.unshift(artifact(project.entryHtml, html))
     const manifest = {
