@@ -513,7 +513,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         pa_schema: pa.Schema | None = None
 
         # write each batch as its own delta commit, imitating the data_imports pipeline
-        # (DeltaTableHelper.write_to_deltalake): the first batch overwrites — creating the
+        # (DeltaWriter.write): the first batch overwrites — creating the
         # table from the exact arrow schema, which pins column case like `personId` — and
         # later batches append with schema_mode="merge". this keeps peak memory at ~one
         # batch (hogql_table yields ~100MB combined batches) and, because each write is a

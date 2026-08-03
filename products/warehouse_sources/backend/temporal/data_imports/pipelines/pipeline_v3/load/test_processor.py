@@ -231,6 +231,7 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.Scd2DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableHelper")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
@@ -243,13 +244,13 @@ class TestProcessMessageOwnershipGate:
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_scd2_cls: MagicMock,
+        mock_writer_cls: MagicMock,
         _already: MagicMock,
         _read: MagicMock,
         _analytics: MagicMock,
     ) -> None:
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=None)
-        helper.write_to_deltalake = AsyncMock()
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         def verify_ownership() -> None:
@@ -258,7 +259,7 @@ class TestProcessMessageOwnershipGate:
         with pytest.raises(_LeaseLost):
             process_message(_message(), verify_ownership=verify_ownership)
 
-        helper.write_to_deltalake.assert_not_called()
+        mock_writer_cls.return_value.write.assert_not_called()
         mock_scd2_cls.return_value.write.assert_not_called()
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
@@ -479,6 +480,7 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableHelper")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
@@ -487,6 +489,7 @@ class TestPostImportTrigger:
         _s3fs: MagicMock,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
         _already: MagicMock,
         _read: MagicMock,
         _post_load: AsyncMock,
@@ -501,7 +504,7 @@ class TestPostImportTrigger:
         delta_table.file_uris.return_value = []
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=None)
-        helper.write_to_deltalake = AsyncMock(return_value=delta_table)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         process_message(_message(is_final_batch=True))
