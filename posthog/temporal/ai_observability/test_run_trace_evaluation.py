@@ -634,6 +634,7 @@ class TestEmitTraceEvaluationEventActivity:
                     await emit_trace_evaluation_event_activity(inputs)
 
 
+@freeze_time(FROZEN_NOW)
 class TestEmitSessionEvaluationEvent:
     @pytest.mark.parametrize(
         "target,ai_session_id,expected_target_type,expected_target_id",

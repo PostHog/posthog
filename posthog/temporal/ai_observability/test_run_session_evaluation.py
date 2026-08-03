@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import Mock, patch
 
 from asgiref.sync import async_to_sync
@@ -26,6 +27,8 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     format_session_for_judge,
     session_fetch_lookback,
 )
+
+FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _trace(
@@ -138,6 +141,7 @@ class TestFormatSessionForJudge:
         assert "t-beta" in rendered
 
 
+@freeze_time(FROZEN_NOW)
 class TestCountSessionEvents:
     def test_the_count_stays_an_ungrouped_aggregate(self):
         """An ungrouped aggregate always returns exactly one row, so `query_ai_events`'s
@@ -292,6 +296,7 @@ class TestFetchSessionForEvaluation:
         assert outcome.skip_reason == "session_truncated"
 
 
+@freeze_time(FROZEN_NOW)
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize(
         "skip_reason",
