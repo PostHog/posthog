@@ -455,11 +455,13 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         # Fail once the second event is mid-flight, after the first has already been written.
         mock_log_activity.side_effect = [None, RuntimeError("boom")]
 
-        with self.assertRaises(RuntimeError):
-            self.client.post(
-                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
-                {"ids": [str(first.id), str(second.id)], "verified": True},
-            )
+        # The unhandled error surfaces as a 500 rather than propagating: PostHog's DRF exception
+        # handler catches it before the test client can re-raise.
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+            {"ids": [str(first.id), str(second.id)], "verified": True},
+        )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
         first.refresh_from_db()
         second.refresh_from_db()
