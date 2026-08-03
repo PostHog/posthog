@@ -25,17 +25,32 @@
 // renames a facade function and updates every current caller, PR B adds a new
 // call to the old name, and master breaks on a combination neither run held.
 //
-//   1. Only a change to a product's declared contract surface seeds the
-//      dependent cascade. A file that no module outside the product can import
-//      cannot be the shared symbol two PRs disagree about, so a change confined
-//      to internals keeps its own product's lane. The surface is the product's
-//      own `backend:contract-check` inputs in products/<name>/turbo.json, the
-//      same declaration turbo-discover reads to decide whether dependent test
-//      suites run, so the two mechanisms cannot drift apart. A product that
-//      declares no narrowed inputs cascades on every backend file as before.
-//      This makes the declaration load-bearing for correctness: an input list
-//      that omits a file other products import puts those products in a
-//      parallel lane.
+//   1. A product change claims its own lane plus its direct importers, rather
+//      than every backend lane. tach.toml is the enforced Python module graph
+//      (`tach check` runs in CI), so for a product it declares, the modules
+//      that may import it are exactly the ones listing it in `depends_on`. A
+//      product absent from that graph is unconstrained and still widens.
+//
+//      This does NOT require the product to be isolated. Isolation is the
+//      stronger claim that a change inside the product can only break the
+//      product's own tests, which is what lets CI skip the full Django suite,
+//      and products/architecture.md is explicit that tach cannot prove it:
+//      cross-cutting tests reach a product's endpoints by URL, in process,
+//      with no import for any graph to see. A lane only has to answer whether
+//      another PR can reference the symbols this one changed, which is the
+//      import half that tach does enforce. So a product too unsealed to skip
+//      the suite still has a bounded importer set, and gets a lane from it.
+//
+//      Which of the product's own files seed that cascade is the narrower
+//      question isolation does govern. An isolated product declares a contract
+//      surface as its `backend:contract-check` inputs in
+//      products/<name>/turbo.json — the same declaration turbo-discover reads
+//      to decide whether dependent test suites run, so the two mechanisms
+//      cannot drift apart — and a change confined to its internals keeps its
+//      own lane without cascading. This makes the declaration load-bearing for
+//      correctness: an input list that omits a file other products import puts
+//      those products in a parallel lane. A product that declares no narrowed
+//      inputs, isolated or not, cascades on every backend file.
 //
 //   2. The cascade names direct importers rather than the transitive closure.
 //      Only a direct importer can reference the changed product's symbols.
@@ -636,14 +651,26 @@ function loadBackendDetachedProducts(repoRoot, products, tachGraph) {
     }
     const detached = new Set()
     for (const product of products) {
-        // tach spells its modules both ways across the file, so a product
-        // counts as declared under either spelling.
-        const declared = tachGraph.graph.has(product) || tachGraph.graph.has(product.replace(/_/g, '-'))
-        if (ignored.has(`products/${product}`) && !declared) {
+        if (ignored.has(`products/${product}`) && !isTachDeclared(product, tachGraph)) {
             detached.add(product)
         }
     }
     return detached
+}
+
+// tach spells its modules both ways across the file, so a product counts as
+// declared under either spelling. A product absent from the graph, or a graph
+// that could not be read at all, is not constrained by `tach check` and so has
+// no bounded importer set.
+function isTachDeclared(product, tachGraph) {
+    if (!tachGraph) {
+        return false
+    }
+    return tachGraph.graph.has(product) || tachGraph.graph.has(product.replace(/_/g, '-'))
+}
+
+function listTachDeclaredProducts(products, tachGraph) {
+    return new Set(products.filter((product) => isTachDeclared(product, tachGraph)))
 }
 
 // --- Contract surfaces ---
@@ -1079,6 +1106,7 @@ function computeTargets(changedFiles, context) {
         contractSurfaces = new Map(),
         productWorkspaces = new Map(),
         backendDetachedProducts = new Set(),
+        tachDeclaredProducts = listTachDeclaredProducts(products, tachGraph),
     } = context
     const targets = new Set()
 
@@ -1247,13 +1275,27 @@ function computeTargets(changedFiles, context) {
                     // case below: a product absent from the module graph has no
                     // importers for the cascade to name.
                     targets.add(pyProduct(product))
-                } else if (isContractDeclaration(product, file)) {
-                    // A non-isolated product's backend code has no declared
-                    // boundary, so it keeps widening below. Its declarations
-                    // are a different kind of file: they configure this
-                    // product's own tasks, including the backend:test command
-                    // most of them carry, and every importer that a change to
-                    // them can reach is named by the cascade instead.
+                } else if (isContractDeclaration(product, file) || tachDeclaredProducts.has(product)) {
+                    // A non-isolated product has declared no contract surface,
+                    // so every backend file in it counts as contract and seeds
+                    // the cascade. That names its direct importers, which is
+                    // what a lane needs.
+                    //
+                    // Isolation is a stronger claim than this one and is not
+                    // required here. It says a change inside the product can
+                    // only break the product's own tests, which lets CI skip
+                    // the full Django suite, and products/architecture.md is
+                    // explicit that tach cannot prove it: cross-cutting tests
+                    // reach a product's endpoints by URL, in process, with no
+                    // import to see. A lane only has to answer whether another
+                    // PR can reference the symbols this one changed, and that
+                    // is the import half, which `tach check` does enforce. So a
+                    // product can be too unsealed to skip the suite and still
+                    // have a bounded importer set.
+                    //
+                    // The bound only holds for a product tach declares. One
+                    // absent from the graph is unconstrained by `tach check`,
+                    // so anything may import it and it still widens below.
                     targets.add(pyProduct(product))
                     cascadeSeeds.add(product)
                 } else {
@@ -1385,6 +1427,7 @@ function buildContext(repoRoot) {
         contractSurfaces: loadContractSurfaces(repoRoot, products),
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
+        tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
         rustGraph: loadRustGraph(repoRoot),
         tachGraph,
