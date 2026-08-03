@@ -1,4 +1,3 @@
-import os
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -175,23 +174,25 @@ class TestStorageOptionsCommitSafety:
     # while editing the other is silent (S3 traffic quietly returns to the egress proxy, or commits
     # lose conflict detection).
     def test_proxy_bypass_options_merge_with_commit_safety(self) -> None:
-        from products.data_warehouse.backend import s3_proxy
-
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
-        s3_proxy._flag_enabled.cache_clear()
 
+        # Patch the facade seam get_storage_options calls, so this stays a merge-point test and does
+        # not reach into another product's internals. What the bypass dict itself contains is covered
+        # by products/data_warehouse/backend/tests/test_s3_proxy.py.
+        proxy_options = {
+            "proxy_url": "http://egress-proxy.test:4750",
+            "proxy_excludes": "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com",
+            "AWS_S3_ADDRESSING_STYLE": "virtual",
+            "virtual_hosted_style_request": "true",
+        }
         with (
-            override_settings(
-                USE_LOCAL_SETUP=False,
-                DATA_WAREHOUSE_S3_REGION="us-east-1",
-                BUCKET_URL="s3://posthog-s3-datawarehouse-us-east-1/dlt",
+            override_settings(USE_LOCAL_SETUP=False),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper.delta_proxy_storage_options",
+                return_value=proxy_options,
             ),
-            patch.object(s3_proxy.posthoganalytics, "feature_enabled", return_value=True),
-            patch.dict(os.environ, {"HTTPS_PROXY": "http://egress-proxy.test:4750"}),
         ):
             options = helper.get_storage_options()
-
-        s3_proxy._flag_enabled.cache_clear()
 
         assert options["conditional_put"] == "etag"
         assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"

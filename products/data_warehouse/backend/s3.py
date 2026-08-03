@@ -25,7 +25,7 @@ def get_s3_client():
             skip_instance_cache=True,
         )
 
-    # config_kwargs reaches botocore's Config — see s3_proxy for why these clients skip the proxy.
+    # config_kwargs reaches botocore's Config; see s3_proxy for why these clients skip the proxy.
     return s3fs.S3FileSystem(config_kwargs=boto_proxy_config_kwargs())
 
 

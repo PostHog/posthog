@@ -15,6 +15,7 @@ from products.data_warehouse.backend.s3_proxy import (
 
 PROXY = "http://pod-name:x@egress-proxy.svc.cluster.local:4750/"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
+NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
 
 BYPASS_ON = {
     "USE_LOCAL_SETUP": False,
@@ -23,10 +24,13 @@ BYPASS_ON = {
 }
 
 
-def proxy_env(url: str | None) -> dict[str, str]:
-    env = dict.fromkeys(PROXY_ENV_VARS, "")
+def proxy_env(url: str | None, no_proxy: str | None = None) -> dict[str, str]:
+    # Clear NO_PROXY too so the ambient env can't leak into proxy_excludes and make cases flaky.
+    env = {**dict.fromkeys(PROXY_ENV_VARS, ""), **dict.fromkeys(NO_PROXY_ENV_VARS, "")}
     if url is not None:
         env["HTTPS_PROXY"] = url
+    if no_proxy is not None:
+        env["NO_PROXY"] = no_proxy
     return env
 
 
@@ -47,10 +51,23 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
         assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
         assert options["proxy_url"] == PROXY
         # Without virtual-hosted addressing the bucket isn't in the hostname, so the exclusion above
-        # would have to name the shared regional endpoint — bypassing the proxy for all of S3. Both
+        # would have to name the shared regional endpoint, bypassing the proxy for all of S3. Both
         # spellings are set because delta-rs and object_store read different ones.
         assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
         assert options["virtual_hosted_style_request"] == "true"
+
+    @override_settings(**BYPASS_ON)
+    def test_folds_the_environments_no_proxy_into_the_exclusions(self) -> None:
+        # Setting proxy_url stops reqwest reading the env, dropping its NO_PROXY with it, so the
+        # cluster's existing exemptions (here IMDS and in-cluster services) have to be carried over
+        # or they would start transiting the proxy the moment the bypass turns on.
+        with flag(True), patch.dict(os.environ, proxy_env(PROXY, no_proxy="169.254.169.254,.svc.cluster.local")):
+            options = delta_proxy_storage_options()
+
+        assert (
+            options["proxy_excludes"]
+            == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com,169.254.169.254,.svc.cluster.local"
+        )
 
     @override_settings(**BYPASS_ON)
     def test_bucket_host_follows_the_bucket_the_delta_tables_live_in(self) -> None:

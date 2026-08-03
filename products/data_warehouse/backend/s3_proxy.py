@@ -8,8 +8,8 @@ A busy warehouse can therefore exhaust connection tracking on hosts it doesn't e
 network can already reach S3 directly, that hop buys nothing.
 
 The bypass is deliberately scoped to *this bucket's hostname*, not carved out of the process-wide
-NO_PROXY. Egress to customer-controlled destinations — source APIs, customer databases, and a
-customer-configured source that happens to point at S3 — has to keep going through the proxy.
+NO_PROXY. Egress to customer-controlled destinations (source APIs, customer databases, and a
+customer-configured source that happens to point at S3) has to keep going through the proxy.
 
 That scoping is why virtual-hosted addressing is forced: delta-rs addresses S3 path-style by default
 (``s3.<region>.amazonaws.com/<bucket>``), which leaves the bucket out of the hostname, so no
@@ -42,18 +42,19 @@ from django.conf import settings
 
 import posthoganalytics
 
-from posthog.utils import get_machine_id
+from posthog.utils import get_instance_region, get_machine_id
 
 # Read at call time rather than reconstructed: the URL can carry per-process auth that whatever
 # injected it has already expanded.
 _PROXY_ENV_VARS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
+_NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
 
 WAREHOUSE_S3_PROXY_BYPASS_FLAG = "data-warehouse-s3-proxy-bypass"
 
 # Evaluated per process, not per team: which route a pod's S3 packets take is a property of where the
 # pod runs. The flag is keyed on the machine id so a percentage rollout ramps whole pods at a time,
-# which is also what makes a canary meaningful — half a pod's requests taking each route would tell
-# us nothing. Re-read on this interval so the flag stays a live kill switch: storage options are
+# which is also what makes a canary meaningful, because half a pod's requests taking each route would
+# tell us nothing. Re-read on this interval so the flag stays a live kill switch: storage options are
 # rebuilt constantly, but warehouse activities can run for hours, so caching for the process lifetime
 # would mean a flip only lands on the next restart.
 _FLAG_CACHE_SECONDS = 60
@@ -61,6 +62,14 @@ _FLAG_CACHE_SECONDS = 60
 
 def _proxy_url() -> str | None:
     for var in _PROXY_ENV_VARS:
+        value = os.environ.get(var)
+        if value:
+            return value
+    return None
+
+
+def _no_proxy() -> str | None:
+    for var in _NO_PROXY_ENV_VARS:
         value = os.environ.get(var)
         if value:
             return value
@@ -92,6 +101,14 @@ def _flag_enabled(_interval: int) -> bool:
             posthoganalytics.feature_enabled(
                 WAREHOUSE_S3_PROXY_BYPASS_FLAG,
                 get_machine_id(),
+                # Surfaced so release conditions can scope the flag to the warehouse workers in a
+                # given cloud region, rather than every pod that shares this project token (web,
+                # celery, and self-hosted installs all evaluate the same flag). Both values are the
+                # ones posthog/apps.py already stamps onto super_properties.
+                person_properties={
+                    "region": get_instance_region() or "",
+                    "service": settings.OTEL_SERVICE_NAME or "",
+                },
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
@@ -121,9 +138,16 @@ def delta_proxy_storage_options() -> dict[str, str]:
     if not proxy_url or not host:
         return {}
 
+    # Setting proxy_url explicitly stops reqwest consulting the environment, which drops the
+    # environment's own NO_PROXY along with its proxy. Fold that list back in so hosts the cluster
+    # already exempts (IMDS/link-local, in-cluster services, VPC endpoints) keep going direct exactly
+    # as they do today, rather than being forced onto the proxy. NoProxy::from_string parses a
+    # comma-separated list, CIDRs included.
+    excludes = ",".join(filter(None, [host, _no_proxy()]))
+
     return {
         "proxy_url": proxy_url,
-        "proxy_excludes": host,
+        "proxy_excludes": excludes,
         # Two spellings of the same thing, because two libraries read these options. deltalake-aws
         # parses AWS_S3_ADDRESSING_STYLE; object_store's own S3 builder only knows
         # virtual_hosted_style_request. Which one applies depends on whether the AWS storage handler
