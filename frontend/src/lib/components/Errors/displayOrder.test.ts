@@ -25,6 +25,9 @@ describe('isStoredCrashFirst', () => {
     it.each([
         ['posthog-go', '2026-07-01T00:00:00Z', true],
         ['posthog-go', '2026-07-15T00:00:00Z', false],
+        // events after the deploy moment on rollout day are stored canonical
+        ['posthog-go', '2026-07-09T20:00:00Z', false],
+        ['posthog-go', '2026-07-09T12:00:00Z', true],
         ['posthog-python', '2026-07-01T00:00:00Z', false], // python frames were always bottom-up
         ['web', '2026-07-01T00:00:00Z', false],
         [undefined, '2026-07-01T00:00:00Z', false],

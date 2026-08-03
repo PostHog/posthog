@@ -7,7 +7,7 @@ import { ErrorTrackingStackFrame } from './types'
  * every platform: most recent call first, so the crash site leads.
  *
  * Exception: events ingested before the pipeline's wire-order normalization
- * (2026-07-09) from SDKs that emitted crash-first stacks are stored crash-first
+ * (deployed 2026-07-09 ~16:10 UTC) from SDKs that emitted crash-first stacks are stored crash-first
  * and must not be reversed — their stored order already matches the display
  * policy. That population is frozen and disappears as event retention expires,
  * at which point `isStoredCrashFirst` and this special case can be deleted.
@@ -39,7 +39,7 @@ const CRASH_FIRST_LIBS = new Set([
 // display order on those old events only, and the population shrinks to zero
 // with event retention. A precise answer would need a persisted storage-order
 // marker, which pre-dates this code; not worth adding for a transient case.
-const WIRE_ORDER_NORMALIZATION_DATE = '2026-07-10T00:00:00Z'
+const WIRE_ORDER_NORMALIZATION_DATE = '2026-07-09T16:10:00Z'
 
 export function isStoredCrashFirst(lib: string | undefined, timestamp: string | undefined): boolean {
     if (!lib || !timestamp || !CRASH_FIRST_LIBS.has(lib)) {
