@@ -39,6 +39,7 @@
         "migrate:cyclotron": "../rust/bin/migrate-cyclotron",
         "migrate:cyclotron-node": "../rust/bin/migrate-cyclotron-node",
         "migrate:behavioral-cohorts": "../rust/bin/migrate-behavioral-cohorts",
+        "migrate:cdp-masker-valkey": "ts-node src/cdp/scripts/migrate-hog-masker-to-valkey.ts",
         "migrate:rust": "../rust/bin/migrate-entry all",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",

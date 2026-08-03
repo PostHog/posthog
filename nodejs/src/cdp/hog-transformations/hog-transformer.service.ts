@@ -32,7 +32,7 @@ import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-w
 import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
-import { mirrorCall } from '../utils/mirror-call'
+import { mirrorCall, mirrorCompare } from '../utils/mirror-call'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
@@ -433,10 +433,11 @@ export class HogTransformerService implements HogTransformer {
 
     public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
         const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
-        const [states] = await Promise.all([
-            this.hogWatcher.getEffectiveStates(functionIds),
-            mirrorCall('hog-watcher.getEffectiveStates', () => this.hogWatcherMirror?.getEffectiveStates(functionIds)),
-        ])
+        const states = await mirrorCompare(
+            'hog-watcher.getEffectiveStates',
+            () => this.hogWatcher.getEffectiveStates(functionIds),
+            () => this.hogWatcherMirror?.getEffectiveStates(functionIds)
+        )
         timer()
 
         // Save only the state enum value to cache
