@@ -98,7 +98,9 @@ const canvasEditCreate = (): ToolBase<typeof CanvasEditCreateSchema, Schemas.Can
     },
 })
 
-const CanvasListSchema = CanvasesListQueryParams
+const CanvasListSchema = CanvasesListQueryParams.extend({
+    channel: z.string().uuid().optional().describe('Only return canvases in this channel (channel id).'),
+})
 
 const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvasList> => ({
     name: 'canvas-list',
@@ -111,6 +113,7 @@ const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvas
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                channel: params.channel,
             },
         })
         return result
