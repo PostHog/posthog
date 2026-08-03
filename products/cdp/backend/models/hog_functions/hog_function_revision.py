@@ -29,6 +29,9 @@ class HogFunctionRevision(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        # Fail loudly, not with an AttributeError, when the required FK was never set.
+        if not self.hog_function_id:
+            raise ValueError("hog_function must be set before saving a HogFunctionRevision")
         # A revision's tenant scope always mirrors its function's. A mismatched (team, hog_function)
         # pair would leak the revision into the wrong team's history — fail-closed reads filter on
         # this row's team_id, not the function's.
