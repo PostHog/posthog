@@ -33,6 +33,7 @@ The template's authoring rules already ask for mermaid, tables, alerts and perma
 
 The test: if three bullets in a row repeat the same shape, they are table rows. Convert them.
 A table cell is not a sentence and these rules do not apply inside it. Keep cells to a few words.
+Tables, diagrams and code carry about a quarter of a typical description here, and they are the fastest part to scan. Never dissolve one into prose.
 
 Splitting a sentence into bullets makes each fact checkable. It also adds words.
 If a rewrite made the section longer without making it clearer, the content wanted a table.
@@ -47,12 +48,6 @@ If a rewrite made the section longer without making it clearer, the content want
 6. **Keep the articles and prepositions.** "The job downloads the artifact", not "job downloads artifact". Unstack possessives: "the key from the subdirectory layout", not "the subdirectory layout's".
 7. **One word per thing, every time.** Pick `shard`, `job` or `run` and never vary it for style. Define an abbreviation on first use, then use it.
 8. **No idioms, no jokes, no understatement.** They cost a reader who does not share your context, and they are the first thing to fail in translation.
-
-## Prose only
-
-Do not touch tables, mermaid diagrams, fenced code, alerts (`> [!NOTE]`) or links.
-They carry roughly a quarter of a typical description here and they are already the fastest part to scan.
-Compressing evidence into a table is still the right move, and a table cell is not a sentence.
 
 ## Per section
 
