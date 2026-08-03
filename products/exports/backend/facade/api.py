@@ -38,6 +38,20 @@ def _validate_adhoc_export_context(export_context: dict) -> None:
         raise ValueError("export_context.source must be an InsightVizNode-wrapped query")
 
 
+def get_delivery_image_url(*, team_id: int, asset_id: int, expiry_delta: timedelta) -> str | None:
+    """Mint a delivery-purposed url for one of the team's own export assets.
+
+    The token authenticates anonymously and bypasses the org's publicly-shared-resources
+    setting, so it is minted on demand rather than stored anywhere a lower-privileged
+    reader could reach. ``asset_id`` arrives through caller-writable metadata, hence the
+    team check; the manager also excludes assets past their TTL.
+    """
+    asset = ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+    if asset is None:
+        return None
+    return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
+
+
 def render_png_export(
     *,
     team: Team,

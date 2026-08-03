@@ -13,6 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
     _SLACK_CODE_FENCE,
@@ -21,6 +22,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DocumentConnectorUnavailable,
     _chart_card_blocks,
     _section_blocks,
+    _SlackImageCard,
     create_living_artifact,
     deliver_pending_slack_file_artifacts,
     edit_living_artifact,
@@ -552,12 +554,13 @@ class TestLivingArtifacts(TestCase):
     @override_settings(SITE_URL="http://localhost:8010")
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_slack_file_adapter_allows_url_backed_chart_images_without_file_scope(
+    def test_slack_file_adapter_allows_chart_images_with_own_export_without_file_scope(
         self, mock_integration_for_mapping, _mock_flag
     ):
         # Chart images deliver as image blocks pointing at a PostHog-hosted url — no upload,
-        # no files:write. Only the chart endpoint mints image_url metadata.
+        # no files:write.
         self._create_scopeless_mapping(mock_integration_for_mapping)
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.PNG)
 
         artifact = create_living_artifact(
             run=self.task_run,
@@ -566,27 +569,34 @@ class TestLivingArtifacts(TestCase):
             adapter=TaskArtifact.Adapter.SLACK_FILE,
             content_bytes=b"png-bytes",
             content_type="image/png",
-            metadata={"image_url": "http://localhost:8010/exporter/export-1.png?token=abc"},
+            metadata={"export_asset_id": asset.id},
         )
 
         self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
         self.assertEqual(artifact.location["delivery_status"], "pending")
-        # Delivery reads image_url straight off the row, so the scope bypass is only safe
-        # if creation actually persisted it.
-        self.assertEqual(artifact.metadata["image_url"], "http://localhost:8010/exporter/export-1.png?token=abc")
+        self.assertEqual(artifact.metadata["export_asset_id"], asset.id)
+        # The delivery token bypasses the org's publicly-shared-resources setting and metadata
+        # is readable with only task:read, so it must never be stored — delivery mints it.
+        self.assertNotIn("image_url", artifact.metadata)
+
+    def _foreign_team_asset_id(self) -> int:
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        return ExportedAsset.objects.create(team=other_team, export_format=ExportedAsset.ExportFormat.PNG).id
 
     @parameterized.expand(
         [
-            ("no_image_url", None),
-            # Caller-writable metadata must not smuggle an off-origin url past the scope check —
-            # delivery would refuse to reference it and the artifact would hang pending forever.
-            ("untrusted_image_url", {"image_url": "https://attacker.example/fake-chart.png"}),
+            ("no_export_asset_id", lambda _self: None),
+            ("unknown_export_asset_id", lambda _self: {"export_asset_id": 987654}),
+            # export_asset_id is caller-writable, so pointing it at another team's asset must not
+            # buy the scope bypass — delivery refuses to mint for it and the artifact would
+            # otherwise hang pending forever.
+            ("export_asset_id_from_another_team", lambda self: {"export_asset_id": self._foreign_team_asset_id()}),
         ]
     )
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_slack_file_adapter_rejects_non_chart_images_without_file_scope(
-        self, _name, metadata, mock_integration_for_mapping, _mock_flag
+    def test_slack_file_adapter_rejects_images_without_a_resolvable_export(
+        self, _name, metadata_factory, mock_integration_for_mapping, _mock_flag
     ):
         self._create_scopeless_mapping(mock_integration_for_mapping)
 
@@ -598,7 +608,7 @@ class TestLivingArtifacts(TestCase):
                 adapter=TaskArtifact.Adapter.SLACK_FILE,
                 content_bytes=b"png-bytes",
                 content_type="image/png",
-                metadata=metadata,
+                metadata=metadata_factory(self),
             )
 
         self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
@@ -780,7 +790,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
     )
     def test_button_only_added_for_trusted_url_within_slack_cap(self, _name, url, expected_block_types):
         artifact = TaskArtifact(name="Chart", metadata={"posthog_url": url})
-        blocks = _chart_card_blocks(artifact, "F123")
+        blocks = _chart_card_blocks(_SlackImageCard(artifact, {}, file_id="F123"))
         self.assertEqual([b["type"] for b in blocks], expected_block_types)
 
     def test_oversized_sections_split_below_block_char_cap(self):
@@ -812,13 +822,13 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             self.assertTrue(text.startswith(_SLACK_CODE_FENCE))
             self.assertTrue(text.endswith(_SLACK_CODE_FENCE))
 
-    def test_untrusted_image_url_falls_back_to_uploaded_file_reference(self):
-        artifact = TaskArtifact(name="Chart", metadata={"image_url": "https://attacker.example/fake.png"})
-        blocks = _chart_card_blocks(artifact, "F123")
+    def test_card_without_a_minted_url_references_the_uploaded_file(self):
+        card = _SlackImageCard(TaskArtifact(name="Chart"), {}, file_id="F123")
+        blocks = _chart_card_blocks(card)
         self.assertEqual(blocks[1], {"type": "image", "slack_file": {"id": "F123"}, "alt_text": "Chart"})
 
-    def test_trusted_image_url_is_referenced_directly(self):
+    def test_card_with_a_minted_url_references_it_directly(self):
         image_url = "http://localhost:8010/exporter/export-1.png?token=abc"
-        artifact = TaskArtifact(name="Chart", metadata={"image_url": image_url})
-        blocks = _chart_card_blocks(artifact, None)
+        card = _SlackImageCard(TaskArtifact(name="Chart"), {}, image_url=image_url)
+        blocks = _chart_card_blocks(card)
         self.assertEqual(blocks[1], {"type": "image", "image_url": image_url, "alt_text": "Chart"})

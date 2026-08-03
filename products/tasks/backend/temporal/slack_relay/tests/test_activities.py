@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import ClassVar
 
 import unittest
@@ -364,9 +365,14 @@ class TestRelaySlackMessage(TestCase):
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts.get_delivery_image_url",
+        return_value="http://localhost:8010/exporter/export-chart.png?token=abc",
+    )
     @override_settings(SITE_URL="http://localhost:8010")
     def test_chart_composes_single_message_with_answer_image_and_button(
         self,
+        mock_delivery_url,
         _mock_delete_progress,
         mock_post,
         _mock_update,
@@ -376,15 +382,14 @@ class TestRelaySlackMessage(TestCase):
         _mock_flag,
         _mock_living_artifacts_flag,
     ):
-        # Must be SITE_URL-origin: off-origin urls are treated as untrusted caller metadata
-        # (no button, no url-referenced image block).
+        # posthog_url must be SITE_URL-origin, or it is treated as untrusted caller metadata
+        # and no button is added.
         chart_url = "http://localhost:8010/project/1/insights/abc123"
-        image_url = "http://localhost:8010/exporter/export-chart.png?token=abc"
         artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",
             filename="signups.v1.png",
             content_type="image/png",
-            metadata={"posthog_url": chart_url, "image_url": image_url},
+            metadata={"posthog_url": chart_url, "export_asset_id": 321},
         )
         slack = unittest.mock.MagicMock()
         slack_integration = unittest.mock.MagicMock()
@@ -419,7 +424,19 @@ class TestRelaySlackMessage(TestCase):
         answer_block, header_block, image_block, actions_block = composed_call.kwargs["blocks"]
         self.assertEqual(answer_block["text"]["text"], "<@U123> Here's the trend.")
         self.assertEqual(header_block["text"]["text"], "*Signups by week*")
-        self.assertEqual(image_block, {"type": "image", "image_url": image_url, "alt_text": "Signups by week"})
+        self.assertEqual(
+            image_block,
+            {
+                "type": "image",
+                "image_url": "http://localhost:8010/exporter/export-chart.png?token=abc",
+                "alt_text": "Signups by week",
+            },
+        )
+        # Minted from the stored reference at post time, scoped to this run's team.
+        self.assertEqual(
+            mock_delivery_url.call_args.kwargs,
+            {"team_id": self.team.id, "asset_id": 321, "expiry_delta": timedelta(days=30)},
+        )
         button = actions_block["elements"][0]
         self.assertEqual(button["url"], chart_url)
         self.assertEqual(button["text"]["text"], "Open in PostHog")

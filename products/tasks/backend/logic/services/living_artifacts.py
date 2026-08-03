@@ -10,6 +10,7 @@ import mimetypes
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -25,6 +26,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
+from products.exports.backend.facade.api import get_delivery_image_url
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -722,16 +724,36 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
         )
 
 
-def _is_url_backed_image(content_type: str, *, artifact: TaskArtifact | None, metadata: dict[str, Any] | None) -> bool:
-    """Whether delivery can post this artifact as an image block referencing its ``image_url``.
+# Slack re-fetches image_url after the message is posted, so the token has to outlive the
+# post. Scoped to the artifact's own 30-day storage TTL rather than the 365-day default.
+_CHART_IMAGE_URL_TTL = timedelta(days=30)
 
-    Only the chart endpoint mints these urls, but metadata is caller-writable through the
-    generic create/edit APIs — so the url only counts when it points back at us."""
+
+def _export_asset_id(metadata: dict[str, Any] | None) -> int | None:
+    asset_id = (metadata or {}).get("export_asset_id")
+    return asset_id if isinstance(asset_id, int) and not isinstance(asset_id, bool) else None
+
+
+def _delivery_image_url(team_id: int, metadata: dict[str, Any] | None) -> str | None:
+    """Mint the url delivery references for a chart image, or None when there is no export.
+
+    Resolving the id through the exports facade is what makes the url trustworthy: it is
+    minted from the team's own asset rather than read out of caller-writable metadata.
+    """
+    asset_id = _export_asset_id(metadata)
+    if asset_id is None:
+        return None
+    return get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=_CHART_IMAGE_URL_TTL)
+
+
+def _is_url_backed_image(
+    content_type: str, *, team_id: int, artifact: TaskArtifact | None, metadata: dict[str, Any] | None
+) -> bool:
+    """Whether delivery can post this artifact as an image block instead of an upload."""
     if not content_type.startswith("image/"):
         return False
     effective = {**((artifact.metadata if artifact is not None else None) or {}), **(metadata or {})}
-    image_url = effective.get("image_url")
-    return isinstance(image_url, str) and bool(image_url) and _is_posthog_origin_url(image_url)
+    return _delivery_image_url(team_id, effective) is not None
 
 
 class SlackFileArtifactAdapter(LivingArtifactAdapter):
@@ -764,12 +786,12 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         slack_integration = _slack_integration_for_mapping(mapping)
         resolved_content_type = content_type or _guess_content_type(name)
         # Chart images deliver as image blocks referencing a PostHog-hosted url, which needs no
-        # upload and therefore no files:write. Everything else (non-images, and images without a
-        # trusted url) goes out as an upload, so it needs the scope up front — accepting it here
-        # would leave the artifact pending forever with the agent believing it was delivered.
-        if not _is_url_backed_image(resolved_content_type, artifact=artifact, metadata=metadata) and (
-            slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
-        ):
+        # upload and therefore no files:write. Everything else (non-images, and images with no
+        # resolvable export) goes out as an upload, so it needs the scope up front — accepting it
+        # here would leave the artifact pending forever with the agent believing it was delivered.
+        if not _is_url_backed_image(
+            resolved_content_type, team_id=run.team_id, artifact=artifact, metadata=metadata
+        ) and (slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))):
             raise ValueError(
                 "Slack file delivery is unavailable: the Slack integration is missing the files:write scope, "
                 "so you do not have this capability. Use adapter=slack_message and summarize the result as text instead."
@@ -850,9 +872,9 @@ def deliver_pending_slack_file_artifacts(
 
     Images compose into a single chat message together with ``answer_sections``
     (the relay's converted answer text): text sections first, then one card per
-    chart (title, image block, "Open in PostHog" button). Chart images carry a
-    public ``image_url`` in metadata — Slack's image proxy fetches the PNG from
-    us, so no file upload (and no files:write scope) is involved; other images
+    chart (title, image block, "Open in PostHog" button). Chart images reference a
+    url minted here from their export asset — Slack's image proxy fetches the PNG
+    from us, so no file upload (and no files:write scope) is involved; other images
     upload without a channel share and are referenced by file id. chat.postMessage
     is synchronous, so the whole answer lands atomically — unlike channel file
     shares, which Slack materializes asynchronously. Non-image files still deliver
@@ -895,15 +917,15 @@ def deliver_pending_slack_file_artifacts(
 
     image_cards: list[_SlackImageCard] = []
     for artifact, version_payload, content_type in image_files:
-        image_url = (artifact.metadata or {}).get("image_url")
-        if isinstance(image_url, str) and image_url and _is_posthog_origin_url(image_url):
-            # Slack fetches the image from the url in the card — nothing to upload. Metadata is
-            # caller-writable, so an off-origin url must not be posted as the PostHog bot; it
-            # falls through to the upload path, which posts the stored bytes instead.
-            image_cards.append((artifact, version_payload, None, None))
+        # Slack fetches the image from the url in the card — nothing to upload. An artifact
+        # whose export can't be resolved for this team falls through to the upload path,
+        # which posts the stored bytes instead.
+        image_url = _delivery_image_url(run.team_id, artifact.metadata)
+        if image_url is not None:
+            image_cards.append(_SlackImageCard(artifact, version_payload, image_url=image_url))
             continue
-        if isinstance(image_url, str) and image_url:
-            logger.warning("task_artifact.chart_image_url_untrusted_origin", artifact_id=str(artifact.id))
+        if _export_asset_id(artifact.metadata) is not None:
+            logger.warning("task_artifact.chart_export_asset_unresolved", artifact_id=str(artifact.id))
         if not has_file_scope:
             logger.warning(
                 "task_artifact.slack_file_delivery_missing_scope",
@@ -924,19 +946,18 @@ def deliver_pending_slack_file_artifacts(
         except Exception:
             logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
             continue
-        image_cards.append((artifact, version_payload, file_id, file_response))
+        image_cards.append(_SlackImageCard(artifact, version_payload, file_id=file_id, file_response=file_response))
 
     if image_cards:
         # Only cards that actually reached the thread are delivered — an unposted image
         # is invisible (it uploaded with no channel share), so marking it delivered
         # would lose it permanently instead of leaving it pending for the next relay.
         def _mark_card_delivered(card: _SlackImageCard) -> None:
-            artifact, version_payload, card_file_id, card_file_response = card
             if _mark_slack_file_artifact_delivered(
-                artifact=artifact,
-                version_number=int(version_payload.get("version") or artifact.current_version or 0),
-                file_id=card_file_id,
-                file_response=card_file_response,
+                artifact=card.artifact,
+                version_number=int(card.version_payload.get("version") or card.artifact.current_version or 0),
+                file_id=card.file_id,
+                file_response=card.file_response,
             ):
                 result.delivered_count += 1
 
@@ -1038,9 +1059,14 @@ def _pending_slack_content_type(artifact: TaskArtifact, version_payload: dict[st
 _SLACK_MESSAGE_BLOCK_LIMIT = 50
 
 
-# (artifact, pending version, uploaded file id, upload response) — the last two are
-# None for url-referenced images, which involve no upload.
-_SlackImageCard = tuple[TaskArtifact, dict[str, Any], "str | None", "dict[str, Any] | None"]
+@dataclass
+class _SlackImageCard:
+    artifact: TaskArtifact
+    version_payload: dict[str, Any]
+    # A card carries either a minted image_url (nothing uploaded) or an uploaded file id.
+    image_url: str | None = None
+    file_id: str | None = None
+    file_response: dict[str, Any] | None = None
 
 
 def _post_composed_answer_message(
@@ -1062,8 +1088,8 @@ def _post_composed_answer_message(
     sections = [section for section in answer_sections if section.strip()]
     section_blocks = _section_blocks(sections)
     card_blocks: list[dict[str, Any]] = []
-    for artifact, _version_payload, file_id, _file_response in image_cards:
-        card_blocks.extend(_chart_card_blocks(artifact, file_id))
+    for card in image_cards:
+        card_blocks.extend(_chart_card_blocks(card))
 
     spill_count = max(len(section_blocks) - max(_SLACK_MESSAGE_BLOCK_LIMIT - len(card_blocks), 0), 0)
     posted_blocks = 0
@@ -1074,7 +1100,7 @@ def _post_composed_answer_message(
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
     # deterministically as invalid_blocks, so go straight to the per-card path.
     if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
-        fallback_text = sections[0] if sections else image_cards[0][0].name
+        fallback_text = sections[0] if sections else image_cards[0].artifact.name
         try:
             _post_blocks_with_processing_retry(
                 slack,
@@ -1096,20 +1122,19 @@ def _post_composed_answer_message(
     for block in kept:
         posted_blocks += 1 if _post_thread_text(slack, mapping=mapping, text=block["text"]["text"]) else 0
     for card in image_cards:
-        artifact, _version_payload, file_id, _file_response = card
         try:
             _post_blocks_with_processing_retry(
                 slack,
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
-                text=artifact.name,
-                blocks=_chart_card_blocks(artifact, file_id),
+                text=card.artifact.name,
+                blocks=_chart_card_blocks(card),
                 attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
                 deadline=deadline,
             )
             mark_delivered(card)
         except Exception:
-            logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
+            logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(card.artifact.id), exc_info=True)
     return bool(section_blocks) and posted_blocks == len(section_blocks)
 
 
@@ -1194,15 +1219,13 @@ def _is_posthog_origin_url(url: str) -> bool:
     return candidate.scheme == expected.scheme and candidate.netloc == expected.netloc
 
 
-def _chart_card_blocks(artifact: TaskArtifact, file_id: str | None) -> list[dict[str, Any]]:
+def _chart_card_blocks(card: _SlackImageCard) -> list[dict[str, Any]]:
+    artifact = card.artifact
     metadata = artifact.metadata or {}
-    image_url = metadata.get("image_url")
-    # Same origin rule as posthog_url below: metadata is caller-writable, and an unchecked
-    # url here would let a task writer post an arbitrary external image as the PostHog bot.
-    if isinstance(image_url, str) and image_url and _is_posthog_origin_url(image_url):
-        image_block: dict[str, Any] = {"type": "image", "image_url": image_url, "alt_text": artifact.name}
+    if card.image_url is not None:
+        image_block: dict[str, Any] = {"type": "image", "image_url": card.image_url, "alt_text": artifact.name}
     else:
-        image_block = {"type": "image", "slack_file": {"id": file_id}, "alt_text": artifact.name}
+        image_block = {"type": "image", "slack_file": {"id": card.file_id}, "alt_text": artifact.name}
     blocks: list[dict[str, Any]] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{_escape_slack_mrkdwn_text(artifact.name)}*"}},
         image_block,
