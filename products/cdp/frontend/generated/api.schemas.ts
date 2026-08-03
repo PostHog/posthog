@@ -568,6 +568,12 @@ export interface HogFunctionEmailReadResponseApi {
     from?: unknown
     /** Recipient(s), as stored on the email value. */
     to?: unknown
+    /** Reply-to address(es), comma-separated. */
+    replyTo?: string
+    /** CC recipients, comma-separated. */
+    cc?: string
+    /** BCC recipients, comma-separated. */
+    bcc?: string
     /** The Unlayer design JSON - address its nodes by id with the patch endpoint's operations. */
     design?: unknown
     /** True when the returned email comes from a staged draft rather than the live config. */

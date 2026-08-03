@@ -27,7 +27,14 @@ import {
     HogFunctionsRevisionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
 import { HogFunctionEmailPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withInformationalResponse,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
@@ -136,7 +143,7 @@ const CdpFunctionsGetEmailSchema = HogFunctionsEmailRetrieveParams.omit({ projec
 
 const cdpFunctionsGetEmail = (): ToolBase<
     typeof CdpFunctionsGetEmailSchema,
-    WithPostHogUrl<Schemas.HogFunctionEmailReadResponse>
+    WithInformationalResponse<WithPostHogUrl<Schemas.HogFunctionEmailReadResponse>>
 > => ({
     name: 'cdp-functions-get-email',
     schema: CdpFunctionsGetEmailSchema,
@@ -146,7 +153,11 @@ const cdpFunctionsGetEmail = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/email/`,
         })
-        return await withPostHogUrl(context, result, `/pipeline/${result.id}`)
+        return withInformationalResponse(
+            await withPostHogUrl(context, result, `/pipeline/${params.id}`),
+            'hog-function-email',
+            "Use it only to read the email's current fields and design block ids before patching."
+        )
     },
 })
 

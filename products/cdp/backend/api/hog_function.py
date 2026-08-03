@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -115,6 +116,17 @@ CREATE_ENABLED_MESSAGE = (
     "Create destinations disabled: test with an invocation first, then enable with a separate update "
     "once the config looks right."
 )
+EMAIL_PATCH_WITH_OPEN_DRAFT_MESSAGE = (
+    "This function has config staged for review, and a live email edit would be overwritten when "
+    "that draft is published. Publish or discard the draft first."
+)
+EMAIL_DESIGN_CONFLICT_MESSAGE = (
+    "This function's email design changed while the edit was being prepared. Read the email again "
+    "and retry the operations against the current design."
+)
+# The fields email_patch may touch. design is edited via operations and html is derived from the
+# design, so both get a pointer to the right path instead of a place in this list.
+EMAIL_PATCH_ALLOWED_FIELDS = ("subject", "preheader", "text", "to", "from", "replyTo", "cc", "bcc")
 
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
 # and it signs both sides of the publish, so a valid token proves the caller saw what publishing
@@ -821,6 +833,13 @@ class HogFunctionEmailUpdateSerializer(serializers.Serializer):
                 f"email_patch can't set {', '.join(blocked)}: edit the design via operations, and html is "
                 "re-rendered from the design on every change."
             )
+        # A misspelled field would otherwise merge in silently and the intended one stay unchanged.
+        unknown = [key for key in value if key not in EMAIL_PATCH_ALLOWED_FIELDS]
+        if unknown:
+            raise serializers.ValidationError(
+                f"email_patch has unsupported key(s) {', '.join(sorted(unknown))}. Supported fields: "
+                f"{', '.join(EMAIL_PATCH_ALLOWED_FIELDS)}."
+            )
         return value
 
     def validate(self, data: Any) -> Any:
@@ -841,6 +860,9 @@ HogFunctionEmailReadResponseSerializer = type(
         "text": serializers.CharField(required=False, help_text="Plain-text body."),
         "from": serializers.JSONField(required=False, help_text="Sender, as stored on the email value."),
         "to": serializers.JSONField(required=False, help_text="Recipient(s), as stored on the email value."),
+        "replyTo": serializers.CharField(required=False, help_text="Reply-to address(es), comma-separated."),
+        "cc": serializers.CharField(required=False, help_text="CC recipients, comma-separated."),
+        "bcc": serializers.CharField(required=False, help_text="BCC recipients, comma-separated."),
         "design": serializers.JSONField(
             required=False,
             help_text="The Unlayer design JSON - address its nodes by id with the patch endpoint's operations.",
@@ -850,6 +872,45 @@ HogFunctionEmailReadResponseSerializer = type(
         ),
     },
 )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _RenderedEmailDesign:
+    # The design the ops were applied to, kept so the in-lock apply can detect a concurrent edit.
+    base_design: dict
+    design: dict
+    html: str
+
+
+def _render_email_operations(
+    value: dict, operations: list[dict], key: str, hog_function_id: str
+) -> _RenderedEmailDesign:
+    # The design half of an email edit: ops applied to the email's design and the result rendered
+    # to HTML. Kept out of _email_update's transaction because rendering is a synchronous Unlayer
+    # HTTP call (up to 30s) that must run before the row lock is taken, never under it.
+    design = value.get("design")
+    if not isinstance(design, dict):
+        raise exceptions.ValidationError(
+            {
+                "operations": "This function's email has no editable design JSON to patch. Set "
+                f"inputs.{key}.value.design with a full update first, then use surgical operations."
+            }
+        )
+    new_design = apply_design_operations(design, operations)
+    for warning in validate_design(new_design):
+        logger.info("hog_function_email_design_warning", warning=warning, hog_function_id=hog_function_id)
+    try:
+        html = render_design_html(new_design)
+    except UnlayerNotConfiguredError:
+        raise exceptions.ValidationError(
+            {
+                "operations": "Design rendering is not configured on this instance - an administrator "
+                "must set UNLAYER_API_KEY to enable design editing."
+            }
+        )
+    except UnlayerRenderError as e:
+        raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
+    return _RenderedEmailDesign(base_design=design, design=new_design, html=html)
 
 
 class HogFunctionPublishRequestSerializer(serializers.Serializer):
@@ -1518,6 +1579,16 @@ class HogFunctionViewSet(
             }
         )
 
+    def _email_edit_target(self, inputs: Any, inputs_schema: Any) -> tuple[str, dict]:
+        key = self._email_input_key(inputs_schema)
+        entry = (inputs or {}).get(key)
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError(
+                {"email": f"This function's '{key}' input has no email content yet. Set inputs.{key}.value first."}
+            )
+        return key, value
+
     @extend_schema(
         request=HogFunctionEmailUpdateSerializer,
         responses={200: HogFunctionEmailReadResponseSerializer},
@@ -1541,13 +1612,7 @@ class HogFunctionViewSet(
         instance = self.get_object()
         has_draft = bool(instance.draft)
         source = instance.draft if has_draft else {"inputs_schema": instance.inputs_schema, "inputs": instance.inputs}
-        key = self._email_input_key(source.get("inputs_schema"))
-        entry = (source.get("inputs") or {}).get(key)
-        value = entry.get("value") if isinstance(entry, dict) else None
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError(
-                {"email": f"This function's '{key}' input has no email content yet. Set inputs.{key}.value first."}
-            )
+        _, value = self._email_edit_target(source.get("inputs"), source.get("inputs_schema"))
         # html is derived from design and can be enormous - never part of the read-back.
         return Response({**{k: v for k, v in value.items() if k != "html"}, "has_draft": has_draft})
 
@@ -1568,6 +1633,20 @@ class HogFunctionViewSet(
         # extend the row lock.
         revisions_enabled = use_destinations_revisions(self.team)
 
+        # Rendering is a synchronous Unlayer HTTP call, so it also runs before the transaction,
+        # against the unlocked row. Draft routing is predicted the same way the locked section
+        # decides it; if the routing or the design moves before the lock, the apply conflicts.
+        rendered: Optional[_RenderedEmailDesign] = None
+        if operations:
+            predicts_draft = self._should_route_to_draft(instance, revisions_enabled, sent={"inputs"})
+            if predicts_draft and instance.draft:
+                render_key, render_value = self._email_edit_target(
+                    instance.draft.get("inputs"), instance.draft.get("inputs_schema") or instance.inputs_schema
+                )
+            else:
+                render_key, render_value = self._email_edit_target(instance.inputs, instance.inputs_schema)
+            rendered = _render_email_operations(render_value, operations, render_key, str(instance.id))
+
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFunction.objects.select_for_update().get(pk=instance.pk)
@@ -1575,6 +1654,11 @@ class HogFunctionViewSet(
             before_update = HogFunction.objects.get(pk=instance.pk)
 
             route_to_draft = self._should_route_to_draft(locked, revisions_enabled, sent={"inputs"})
+
+            # A live edit under an open draft would be silently undone when the stale draft is
+            # published over it later. Conflict instead, so the caller resolves the draft first.
+            if revisions_enabled and not route_to_draft and locked.draft:
+                raise DraftExistsError(EMAIL_PATCH_WITH_OPEN_DRAFT_MESSAGE)
 
             # Draft edits compose on the staged draft, not on live - a second patch must see the first.
             if route_to_draft and locked.draft:
@@ -1584,45 +1668,27 @@ class HogFunctionViewSet(
                 base_inputs = deepcopy(locked.inputs or {})
                 inputs_schema = locked.inputs_schema
 
-            key = self._email_input_key(inputs_schema)
-            entry = base_inputs.get(key)
-            value = entry.get("value") if isinstance(entry, dict) else None
-            if not isinstance(value, dict):
-                raise exceptions.ValidationError(
-                    {"email": f"This function's '{key}' input has no email content yet. Set inputs.{key}.value first."}
-                )
+            _, value = self._email_edit_target(base_inputs, inputs_schema)
 
-            if operations:
-                design = value.get("design")
-                if not isinstance(design, dict):
-                    raise exceptions.ValidationError(
-                        {
-                            "operations": "This function's email has no editable design JSON to patch. Set "
-                            f"inputs.{key}.value.design with a full update first, then use surgical operations."
-                        }
-                    )
-                new_design = apply_design_operations(design, operations)
-                for warning in validate_design(new_design):
-                    logger.info("hog_function_email_design_warning", warning=warning, hog_function_id=str(locked.id))
-                value["design"] = new_design
-                try:
-                    value["html"] = render_design_html(new_design)
-                except UnlayerNotConfiguredError:
-                    raise exceptions.ValidationError(
-                        {
-                            "operations": "Design rendering is not configured on this instance - an administrator "
-                            "must set UNLAYER_API_KEY to enable design editing."
-                        }
-                    )
-                except UnlayerRenderError as e:
-                    raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
+            if rendered is not None:
+                # The render ran before the lock, against the state read back then. A design that
+                # moved in between means the ops were applied to a stale tree, so conflict and let
+                # the caller re-read rather than silently overwrite the concurrent edit.
+                if value.get("design") != rendered.base_design:
+                    raise StaleHogFunctionUpdateError(EMAIL_DESIGN_CONFLICT_MESSAGE)
+                value["design"] = rendered.design
+                value["html"] = rendered.html
 
             if email_patch:
                 _deep_merge(value, email_patch)
 
             # The full inputs payload goes through the normal serializer so validation recompiles the
-            # email input's bytecode and secret inputs elsewhere are recovered, not clobbered.
-            serializer = self.get_serializer(locked, data={"inputs": base_inputs}, partial=True)
+            # email input's bytecode and secret inputs elsewhere are recovered, not clobbered. The
+            # schema rides along so a draft base is validated against the draft's own staged schema,
+            # not the live one, keeping draft-only input keys out of the silently-dropped path.
+            serializer = self.get_serializer(
+                locked, data={"inputs": base_inputs, "inputs_schema": inputs_schema}, partial=True
+            )
             serializer.is_valid(raise_exception=True)
 
             if route_to_draft:

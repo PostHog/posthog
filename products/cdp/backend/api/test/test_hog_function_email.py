@@ -137,12 +137,16 @@ class TestHogFunctionEmail(DraftTestCase):
     def test_email_patch_merges_fields_without_rerendering(self, mock_render):
         function_id = self._create_email_function()
 
-        response = self._patch_email(function_id, {"email_patch": {"subject": "New subject", "preheader": None}})
+        response = self._patch_email(
+            function_id,
+            {"email_patch": {"subject": "New subject", "preheader": None, "replyTo": "reply@posthog.com"}},
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         mock_render.assert_not_called()
         value = self._stored_email_value(function_id)
         assert value["subject"] == "New subject"
+        assert value["replyTo"] == "reply@posthog.com"
         # A null leaf deletes the key.
         assert "preheader" not in value
         # Untouched fields survive the merge.
@@ -157,6 +161,8 @@ class TestHogFunctionEmail(DraftTestCase):
             ("html", {"email_patch": {"html": "<p>sneaky</p>"}}),
             ("empty", {"email_patch": {}}),
             ("non_object", {"email_patch": "subject"}),
+            # A misspelled field must not merge in silently while the intended one stays unchanged.
+            ("unknown_key", {"email_patch": {"subjct": "typo"}}),
         ]
     )
     def test_email_patch_rejects_bad_payloads(self, _name, payload):
@@ -227,6 +233,34 @@ class TestHogFunctionEmail(DraftTestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert self._stored_email_value(function_id) == EMAIL_VALUE
 
+    def test_design_moved_between_render_and_lock_rejected_with_409(self):
+        function_id = self._create_email_function()
+
+        def concurrent_edit_lands_during_render(design: dict) -> str:
+            # Stand in for another writer committing between the pre-lock render and the locked
+            # apply: the render call is the last thing that runs before the transaction opens.
+            function = HogFunction.objects.get(id=function_id)
+            inputs = function.inputs
+            assert inputs is not None
+            text_block = inputs["email"]["value"]["design"]["body"]["rows"][0]["columns"][0]["contents"][0]
+            text_block["values"]["text"] = "<p>Concurrent copy</p>"
+            HogFunction.objects.filter(id=function_id).update(inputs=inputs)
+            return "<p>Rendered</p>"
+
+        with patch(RENDER_PATH, side_effect=concurrent_edit_lands_during_render):
+            response = self._patch_email(
+                function_id,
+                {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]},
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        value = self._stored_email_value(function_id)
+        # The concurrent edit survives, and the stale pre-rendered html never lands.
+        assert value["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["text"] == (
+            "<p>Concurrent copy</p>"
+        )
+        assert value["html"] == "<p>Old copy</p>"
+
     # --- PATCH: draft routing ---
 
     def test_agent_patch_on_enabled_destination_stages_draft(self):
@@ -253,6 +287,59 @@ class TestHogFunctionEmail(DraftTestCase):
         # The second patch must see the first: draft edits compose, they don't reset.
         assert staged["subject"] == "First staged"
         assert staged["preheader"] == "Second staged"
+
+    @patch(RENDER_PATH, return_value="<p>Rendered</p>")
+    def test_design_ops_compose_on_a_drafted_design(self, _mock_render):
+        # Two consecutive draft design edits: the second must render against the draft's design,
+        # not the live one, or the apply reads it as a concurrent edit and conflicts.
+        function_id = self._create_email_function()
+        ops = [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>First</p>"}}}]
+        first = self._agent_patch_email(function_id, {"operations": ops})
+        assert first.status_code == status.HTTP_200_OK, first.json()
+
+        ops[0]["patch"] = {"values": {"text": "<p>Second</p>"}}
+        second = self._agent_patch_email(function_id, {"operations": ops})
+        assert second.status_code == status.HTTP_200_OK, second.json()
+
+        staged = self._staged_email_value(function_id)
+        assert staged["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["text"] == "<p>Second</p>"
+        # Live stays what a human last approved.
+        assert self._stored_email_value(function_id)["design"] == DESIGN
+
+    def test_live_email_patch_with_open_draft_conflicts(self):
+        function_id = self._create_email_function()
+        staged = self._agent_patch_email(function_id, {"email_patch": {"subject": "Staged"}})
+        assert staged.status_code == status.HTTP_200_OK, staged.json()
+
+        response = self._patch_email(function_id, {"email_patch": {"subject": "Web edit"}})
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        # Neither side moved: live keeps what a human approved, the draft keeps the staged edit.
+        assert self._stored_email_value(function_id)["subject"] == "Welcome!"
+        assert self._staged_email_value(function_id)["subject"] == "Staged"
+
+    def test_email_patch_composing_on_draft_keeps_draft_only_inputs(self):
+        function_id = self._create_email_function()
+        schema_with_banner = [
+            *EMAIL_FUNCTION["inputs_schema"],
+            {"key": "banner", "type": "string", "label": "Banner", "required": False},
+        ]
+        self._stage(
+            function_id,
+            {
+                "inputs_schema": schema_with_banner,
+                "inputs": {"email": {"value": EMAIL_VALUE}, "api_key": {"secret": True}, "banner": {"value": "Hi"}},
+            },
+        )
+
+        response = self._agent_patch_email(function_id, {"email_patch": {"subject": "Draft subject"}})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        draft = HogFunction.objects.get(id=function_id).draft
+        assert draft is not None
+        # The draft's own staged schema governs validation, so a draft-only input survives.
+        assert draft["inputs"]["banner"]["value"] == "Hi"
+        assert self._staged_email_value(function_id)["subject"] == "Draft subject"
 
     @parameterized.expand(
         [
