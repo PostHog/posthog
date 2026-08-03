@@ -174,13 +174,13 @@ function isTripwire(file) {
     return TRIPWIRE_MATCHERS.some((re) => re.test(file))
 }
 
-// Tool caches share the directory with the products, so a local run picks up
-// .ruff_cache and __pycache__ as products and invents a lane for each. CI never
-// sees them — a fresh checkout holds only tracked directories and this job runs
-// no Python — so this keeps a local run answering the same as CI rather than
-// fixing a live miscount. Dropping a real product would only ever widen, since
-// an unrecognized product name falls through to ALL, so the filter is safe in
-// the one direction it can be wrong.
+// Tool caches share the directory with the products, so a local run can pick up
+// directories such as .ruff_cache, .pytest_cache, and __pycache__ as products and
+// invent a lane for each. CI never sees them because a fresh checkout has only
+// tracked directories and this job does not run Python, so this keeps a local run
+// consistent with CI rather than fixing a live miscount. Dropping a real product
+// would only ever widen, because an unrecognized product name falls through to
+// ALL, so the filter is safe in the one direction it can be wrong.
 function isProductDirectory(name) {
     return !name.startsWith('.') && !name.startsWith('__') && name !== 'node_modules'
 }
