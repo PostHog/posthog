@@ -5,11 +5,15 @@ from typing import Literal, TypedDict
 
 from django.utils import timezone
 
-from posthog.ducklake.cp_teams import CPTeam
-from posthog.ducklake.models import DuckgresSinkSchemaState
-
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.facade import sink_state
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresSinkState,
+    DuckgresSinkStateRecord,
+    ManagedWarehouseTeamMembership,
+)
+from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 ReadinessState = Literal[
@@ -22,15 +26,14 @@ ReadinessState = Literal[
 ]
 
 PERSISTENT_BACKFILL_FAILURES = 3
-# sync_paused ranks below every active-work or failure state (those are still worth surfacing even
-# on a paused schema's source) but above up_to_date: a source with some schemas paused shouldn't
-# read as fully "up to date" when part of it isn't being kept current at all.
+# A paused schema is intentional configuration, so active and healthy schemas determine a source's
+# rollup first. A source still reports sync_paused when every visible schema is paused.
 READINESS_PRIORITY: tuple[ReadinessState, ...] = (
     "needs_attention",
     "backfilling",
     "waiting",
-    "sync_paused",
     "up_to_date",
+    "sync_paused",
 )
 
 
@@ -89,7 +92,7 @@ class ManagedWarehouseDataStatus(TypedDict):
     generated_at: datetime
 
 
-def _event_historical_partition_count(backfill: CPTeam) -> int | None:
+def _event_historical_partition_count(backfill: ManagedWarehouseTeamMembership) -> int | None:
     if backfill.earliest_event_date is None:
         return None
 
@@ -100,7 +103,7 @@ def _event_historical_partition_count(backfill: CPTeam) -> int | None:
 def dataset_status(
     *,
     dataset: Literal["events", "persons"],
-    backfill: CPTeam | None,
+    backfill: ManagedWarehouseTeamMembership | None,
     partitions: list[ManagedWarehouseBackfillPartition],
 ) -> DatasetStatus:
     if backfill is None or not backfill.backfill_enabled:
@@ -181,7 +184,7 @@ def dataset_status(
     }
 
 
-def source_table_readiness(state: DuckgresSinkSchemaState) -> tuple[ReadinessState, str]:
+def source_table_readiness(state: DuckgresSinkStateRecord) -> tuple[ReadinessState, str]:
     """Readiness derived purely from events the sink jobs recorded at the time of the work.
 
     There is deliberately no liveness inference here (no pending counts, no staleness
@@ -189,14 +192,11 @@ def source_table_readiness(state: DuckgresSinkSchemaState) -> tuple[ReadinessSta
     the last live apply is stamped by the sink at apply time — the UI reports what ran
     and when, nothing more.
     """
-    if (
-        state.state == DuckgresSinkSchemaState.State.NEEDS_RESYNC
-        or state.consecutive_failures >= PERSISTENT_BACKFILL_FAILURES
-    ):
+    if state.state == DuckgresSinkState.NEEDS_RESYNC or state.consecutive_failures >= PERSISTENT_BACKFILL_FAILURES:
         return "needs_attention", "This table needs a fresh warehouse copy before imports can continue."
-    if state.state == DuckgresSinkSchemaState.State.PENDING_BACKFILL:
+    if state.state == DuckgresSinkState.PENDING_BACKFILL:
         return "waiting", "Waiting to copy existing rows into the warehouse."
-    if state.state == DuckgresSinkSchemaState.State.BACKFILLING:
+    if state.state == DuckgresSinkState.BACKFILLING:
         if state.chunk_count:
             return "backfilling", f"Copied {state.chunks_applied} of {state.chunk_count} backfill chunks."
         return "backfilling", "Existing rows are being copied into the warehouse."
@@ -210,7 +210,7 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
     per-source detail lookup (one source's schemas, for the drill-down modal) so the readiness
     computation and the visibility rules never drift between the two views.
     """
-    states = list(DuckgresSinkSchemaState.objects.filter(team_id=team_id).order_by("schema_id"))
+    states = sink_state.list_sink_states_for_team(team_id)
     if not states:
         return []
 
@@ -254,7 +254,7 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
                 "table_name": schema.name,
                 "readiness_state": readiness_state,
                 "detail": detail,
-                "backfilled": state.state == DuckgresSinkSchemaState.State.PRIMED,
+                "backfilled": state.state == DuckgresSinkState.PRIMED,
                 "completed_chunks": state.chunks_applied,
                 "total_chunks": state.chunk_count,
                 "last_applied_at": state.queue_last_applied_at,
@@ -363,13 +363,9 @@ def _roll_up_state(states: list[ReadinessState]) -> ReadinessState:
 
 
 def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatus:
-    # Deferred: team_state pulls ducklake.common (and its duckdb dependency) in — keep
-    # that off the API import path.
-    from posthog.ducklake import team_state  # noqa: PLC0415
-
-    # Degrades to None (reported not_configured) when the control plane can't answer:
-    # a status read must never 500.
-    backfill = team_state.team_backfill_row(team_id)
+    # A status read degrades to None (reported not_configured) when the control plane
+    # can't answer; it must never 500.
+    backfill = team_backfill_membership(team_id)
     partitions = list(
         ManagedWarehouseBackfillPartition.objects.for_team(team_id)
         .filter(environment_id=team_id)

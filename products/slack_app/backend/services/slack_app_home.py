@@ -414,8 +414,8 @@ def _header_blocks() -> list[dict]:
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
     """Headline that shows which model is actually running, and why.
 
-    When nothing is set the agent-server picks its own default — we don't
-    know which one, so don't lie. Just say so and let the user override.
+    When nothing is set the Slack bot defaults to Opus 5 (pinned in the task
+    creation activity); the user can still override it here.
     """
     header = _section_title(
         "🤖 AI model",
@@ -430,7 +430,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Inheriting PostHog Desktop's default — pick personal or workspace settings to override.",
+                    "text": "Defaulting to Opus 5. Pick personal or workspace settings to override.",
                 },
             },
             source_blurb,

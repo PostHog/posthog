@@ -11,8 +11,8 @@ use tokio_util::sync::CancellationToken;
 use tonic::Code;
 
 use crate::backend::{
-    BounceReason, DrainSession, ForwardDecision, LeaderBackend, StashKey, StashedRequest,
-    TakenKeyRun, BOUNCE_BACKOFF, MAX_CONSECUTIVE_BOUNCES,
+    BounceReason, DrainSession, ForwardDecision, ForwardPath, LeaderBackend, StashKey,
+    StashedRequest, TakenKeyRun, BOUNCE_BACKOFF, MAX_CONSECUTIVE_BOUNCES,
 };
 use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 
@@ -57,7 +57,7 @@ use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 ///
 /// 3. **Bounce and retry.** A classified forward attempt (see
 ///    `LeaderBackend::forward_classified`, the single reading of leader
-///    responses shared with the live path) can conclude no outcome
+///    responses shared with the direct path) can conclude no outcome
 ///    exists: a `FailedPrecondition` from the target (its fence or
 ///    ownership is still settling — a reaffirm's drain racing the
 ///    owner's resume, or a completion's drain racing the new owner's
@@ -133,7 +133,7 @@ enum Disposition {
 /// `UNAVAILABLE` so the client retries with a fresh request rather than
 /// waiting out a response that may exceed its gRPC timeout. Otherwise
 /// the attempt is one classified forward — the same shared reading of
-/// leader responses the live path uses (see
+/// leader responses the direct path uses (see
 /// `LeaderBackend::forward_classified`), so the two paths cannot drift
 /// in what counts as an outcome versus a bounce.
 async fn forward_one(
@@ -159,7 +159,13 @@ async fn forward_one(
     // stamps `x-partition` and the leader serializes per key, so replaying
     // here preserves arrival order without re-entering the stash.
     match leader_backend
-        .forward_classified(req.method, partition, &req.headers, &req.frame)
+        .forward_classified(
+            ForwardPath::Stash,
+            req.method,
+            partition,
+            &req.headers,
+            &req.frame,
+        )
         .await
     {
         ForwardDecision::Delivered { response, .. } => {
@@ -183,21 +189,17 @@ struct KeyRunOutcome {
 
 /// Put an interrupted key run's remainder back at its admission
 /// positions: the entry whose attempt was cut short plus everything not
-/// yet attempted.
+/// yet attempted. Retry accounting stays with the callers — only an
+/// actually-attempted head counts as a stash-path retry, so the
+/// never-attempted tail goes back uncounted.
 async fn put_back_rest(
     session: &DrainSession,
     key: StashKey,
     head: Entry<StashedRequest>,
     rest: IntoIter<Entry<StashedRequest>>,
-    reason: &'static str,
 ) {
     let mut entries = vec![head];
     entries.extend(rest);
-    metrics::counter!(
-        "personhog_router_stash_put_back_total",
-        "reason" => reason
-    )
-    .increment(entries.len() as u64);
     session.put_back(key, entries).await;
 }
 
@@ -219,10 +221,34 @@ async fn forward_key_run(
     let mut entries = run.entries.into_iter();
     while let Some(mut entry) = entries.next() {
         if cancel.is_cancelled() {
-            put_back_rest(session, run.key, entry, entries, "cancelled").await;
+            put_back_rest(session, run.key, entry, entries).await;
             return outcome;
         }
-        match forward_one(leader_backend, max_stash_wait, partition, &entry.item).await {
+        // Race the forward against cancellation: an in-flight call can
+        // otherwise hold this lane for the full backend timeout, and at
+        // router shutdown the drain-lane join sits between cancellation
+        // and the lease revoke — a slow forward there delays
+        // deregistration, stalling every freeze that counts this router.
+        let forwarded = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => None,
+            d = forward_one(leader_backend, max_stash_wait, partition, &entry.item) => Some(d),
+        };
+        let Some(disposition) = forwarded else {
+            // The abandoned call may already be on the wire, so the
+            // outcome is unknown — same ambiguity as a transport bounce,
+            // same conservative marking.
+            entry.item.possibly_applied = true;
+            metrics::counter!(
+                "personhog_router_forward_retries_total",
+                "path" => ForwardPath::Stash.label(),
+                "reason" => "cancelled"
+            )
+            .increment(1);
+            put_back_rest(session, run.key, entry, entries).await;
+            return outcome;
+        };
+        match disposition {
             Disposition::Reply {
                 response,
                 outcome: label,
@@ -231,7 +257,11 @@ async fn forward_key_run(
                 metrics::histogram!("personhog_router_stash_wait_duration_ms")
                     .record(entry.item.enqueued_at.elapsed().as_secs_f64() * 1000.0);
                 if entry.item.reply.send(response).is_err() {
-                    metrics::counter!("personhog_router_stash_dropped_total").increment(1);
+                    metrics::counter!(
+                        "personhog_router_stash_dropped_total",
+                        "reason" => "receiver_gone"
+                    )
+                    .increment(1);
                 }
                 metrics::counter!(
                     "personhog_router_stash_drained_total",
@@ -245,7 +275,13 @@ async fn forward_key_run(
                 if matches!(reason, BounceReason::Transport) {
                     entry.item.possibly_applied = true;
                 }
-                put_back_rest(session, run.key, entry, entries, reason.label()).await;
+                metrics::counter!(
+                    "personhog_router_forward_retries_total",
+                    "path" => ForwardPath::Stash.label(),
+                    "reason" => reason.label()
+                )
+                .increment(1);
+                put_back_rest(session, run.key, entry, entries).await;
                 outcome.bounced = true;
                 return outcome;
             }

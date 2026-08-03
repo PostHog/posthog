@@ -6,6 +6,7 @@ import structlog
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
+from products.managed_warehouse.backend.facade import sink_state
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_STATUS_TABLE,
     DUCKGRES_STATUS_VIEW,
@@ -41,16 +42,16 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         replan_schema = options.get("replan_backfill")
         if replan_schema:
-            from posthog.models import DuckgresSinkSchemaState
-
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+            try:
+                state = sink_state.get_sink_state(replan_schema)
+            except (ValueError, ValidationError) as e:
+                raise CommandError(f"No duckgres sink state for schema {replan_schema!r}: {e}")
+            if state is None:
+                raise CommandError(f"No duckgres sink state for schema {replan_schema!r}")
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (  # noqa: PLC0415 — only needed for the optional --replan-backfill path
                 replan_backfill,
             )
 
-            try:
-                state = DuckgresSinkSchemaState.objects.get(schema_id=replan_schema)
-            except (DuckgresSinkSchemaState.DoesNotExist, ValueError, ValidationError) as e:
-                raise CommandError(f"No duckgres sink state for schema {replan_schema!r}: {e}")
             if options.get("dry_run"):
                 self.stdout.write(
                     f"Would retire backfill run {state.backfill_run_uuid!r} "

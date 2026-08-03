@@ -18,10 +18,13 @@ import structlog
 from prometheus_client import Histogram
 from psycopg import sql
 
-from posthog.ducklake.common import duckgres_data_imports_schema, get_duckgres_config_for_org
-from posthog.ducklake.storage import setup_duckgres_session
 from posthog.models import Team
 
+from products.managed_warehouse.backend.facade.api import (
+    duckgres_data_imports_schema,
+    get_duckgres_query_server_config,
+    setup_duckgres_session,
+)
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
@@ -312,13 +315,13 @@ def _log_applied_by_concurrent_processor(batch: PendingBatch) -> None:
 
 
 def _connect_to_duckgres(org_id: str) -> psycopg.Connection[Any]:
-    config = get_duckgres_config_for_org(org_id)
+    config = get_duckgres_query_server_config(org_id)
     return psycopg.connect(
-        host=config["DUCKGRES_HOST"],
-        port=config["DUCKGRES_PORT"],
-        dbname=config["DUCKGRES_DATABASE"],
-        user=config["DUCKGRES_USERNAME"],
-        password=config["DUCKGRES_PASSWORD"],
+        host=config.host,
+        port=config.port,
+        dbname=config.database,
+        user=config.username,
+        password=config.password,
         autocommit=True,
         # A half-open connection to a dead worker would otherwise block the sync
         # thread for the OS TCP timeout (hours). Keepalives bound it to ~2 minutes;

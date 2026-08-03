@@ -102,7 +102,19 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
-        coerce_string_fields=["owner_id"],
+        # owner_id flips int/string per row; the nullable epoch attributes flip the
+        # same way (each observed failing prod syncs), so the whole family is pinned.
+        coerce_string_fields=[
+            "owner_id",
+            "last_seen_at",
+            "last_replied_at",
+            "last_contacted_at",
+            "last_email_opened_at",
+            "last_email_clicked_at",
+            "ios_last_seen_at",
+            "android_last_seen_at",
+            "signed_up_at",
+        ],
     ),
     "conversations": IntercomEndpointConfig(
         name="conversations",
@@ -111,7 +123,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
-        coerce_string_fields=["admin_assignee_id", "team_assignee_id"],
+        coerce_string_fields=["admin_assignee_id", "team_assignee_id", "waiting_since", "snoozed_until"],
     ),
     "tickets": IntercomEndpointConfig(
         # `POST /tickets/search` mirrors contacts/conversations: it accepts

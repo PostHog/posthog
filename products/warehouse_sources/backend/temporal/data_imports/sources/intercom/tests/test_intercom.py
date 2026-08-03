@@ -271,6 +271,30 @@ class TestCoerceStringFields:
         assert data_map is not None
         assert data_map({"owner_id": 7, "id": "c1"}) == {"owner_id": "7", "id": "c1"}
 
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "last_seen_at",
+            "last_replied_at",
+            "last_contacted_at",
+            "last_email_opened_at",
+            "last_email_clicked_at",
+            "ios_last_seen_at",
+            "android_last_seen_at",
+            "signed_up_at",
+        ],
+    )
+    def test_contacts_data_map_coerces_epoch_attributes(self, field: str):
+        # Intercom returns each nullable epoch attribute as an int on some rows and a
+        # string on others, so every one must be pinned to string before rows hit Arrow.
+        resource = get_resource(
+            "contacts", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        data_map = resource.get("data_map")
+        assert data_map is not None
+        assert data_map({"id": "c1", field: 1700000000}) == {"id": "c1", field: "1700000000"}
+        assert data_map({"id": "c2", field: None}) == {"id": "c2", field: None}
+
     @pytest.mark.parametrize("name", ["conversations", "tickets"])
     def test_assignee_ids_data_map_coerces_to_str(self, name: str):
         # REST-path wiring for both streams carrying flat assignee ids: Intercom returns
@@ -292,6 +316,22 @@ class TestCoerceStringFields:
             "admin_assignee_id": None,
             "team_assignee_id": "678",
         }
+
+    @pytest.mark.parametrize("field", ["waiting_since", "snoozed_until"])
+    def test_conversations_data_map_coerces_epoch_attributes(self, field: str):
+        # The parent conversations stream carries its own top-level epoch attributes with
+        # the same int-or-string flip as the conversation_parts substream. Coercing only
+        # the substream left conversations syncs failing on int64-vs-string merges.
+        resource = get_resource(
+            "conversations",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            db_incremental_field_last_value=None,
+        )
+        data_map = resource.get("data_map")
+        assert data_map is not None
+        assert data_map({"id": "1", field: 1700000000}) == {"id": "1", field: "1700000000"}
+        assert data_map({"id": "2", field: None}) == {"id": "2", field: None}
 
     def test_endpoint_without_coerce_fields_has_no_data_map(self):
         # Only endpoints declaring coerce_string_fields get a data_map — others stay untouched.
