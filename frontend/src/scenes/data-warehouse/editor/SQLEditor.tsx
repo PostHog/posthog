@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -678,7 +678,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     loading={notebooksLoading}
                                     type="primary"
                                     size="small"
-                                    icon={<IconNotebook />}
                                     onClick={() => convertToNotebook()}
                                     data-attr="sql-editor-continue-in-notebook-button"
                                     sideAction={{
@@ -779,7 +778,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                icon={continueInNotebookIsPrimary ? <IconNotebook /> : undefined}
                                 onClick={continueInNotebookIsPrimary ? () => convertToNotebook() : onPrimarySaveClick}
                                 loading={continueInNotebookIsPrimary && notebooksLoading}
                                 disabledReason={
