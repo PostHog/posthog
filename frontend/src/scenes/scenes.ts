@@ -672,6 +672,11 @@ export const redirects: Record<
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
         return urls.marketingAnalyticsApp() + (params ? `?${params}` : '')
     },
+    // Product-name-shaped URL that was never a real route; keep old bookmarks and links out of a 404
+    '/web-analytics': urls.webAnalytics(),
+    '/web-analytics/*': ({ _ }) => `${urls.webAnalytics()}/${_}`,
+    // The revenue analytics dashboard scene was removed; send stale bookmarks to the surviving revenue surface
+    '/revenue_analytics': urls.revenueSettings(),
 
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {

@@ -81,6 +81,22 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
+    it('redirects /web-analytics and its subpaths to /web, the route that actually exists', async () => {
+        router.actions.push('/web-analytics')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.webAnalytics())
+
+        router.actions.push('/web-analytics/health')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.webAnalyticsHealth())
+    })
+
+    it('redirects the removed /revenue_analytics dashboard path to the surviving revenue settings scene', async () => {
+        router.actions.push('/revenue_analytics')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.revenueSettings())
+    })
+
     it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
         router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
         await expectLogic(logic).delay(1)
