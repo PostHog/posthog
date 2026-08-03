@@ -453,8 +453,8 @@ class TestMergeQueuePullRequests:
             patcher.stop()
 
         assert [row["id"] for page in pages for row in page] == ["pr-1", "pr-2"]
-        # One stamp for the whole run, taken at its start — a per-page `now()` would push the
-        # watermark past rows a later page had not been fetched for yet.
+        # One stamp for the whole run, taken at its start, because a per-page `now()` would push
+        # the watermark past rows a later page had not been fetched for yet.
         assert {row["synced_through"] for page in pages for row in page} == {"2024-06-15T00:00:00Z"}
         assert sent_bodies[0]["targetBranch"] == "main"
         assert "since" not in sent_bodies[0]

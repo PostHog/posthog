@@ -113,8 +113,9 @@ class TrunkCursorPaginator(BasePaginator):
         if request.json is None:
             request.json = {}
         request.json["take"] = self.take
-        # `cursor` is typed as a uuid, so send it only once we have one — an empty string is not
-        # the documented "first page" value the way `page_token` is on the flaky-tests endpoints.
+        # `cursor` is typed as a uuid, so send it only once we have one, because an empty string
+        # is not the documented "first page" value the way `page_token` is on the flaky-tests
+        # endpoints.
         if self.cursor:
             request.json["cursor"] = self.cursor
         else:
