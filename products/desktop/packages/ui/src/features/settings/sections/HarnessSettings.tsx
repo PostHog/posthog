@@ -226,7 +226,7 @@ export function HarnessSettings() {
 
       <SettingRow
         label="Allow bypass permissions mode"
-        description="Adds bypass permissions to the mode menu so you can pick it for a single task. Tasks keep asking for approval until you choose it. A task in that mode runs bash commands, file edits and web requests without asking. This also unlocks Full access in Codex"
+        description="Adds bypass permissions to the mode menu so you can pick it per session. Sessions keep asking for approval until you pick it. This also unlocks Full access in Codex"
         noBorder
       >
         <Switch
