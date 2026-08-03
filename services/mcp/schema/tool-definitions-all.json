@@ -10069,7 +10069,7 @@
         "feature_flag": "tasks"
     },
     "tasks-list": {
-        "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
+        "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. To check a spawned child, use its returned task ID with tasks-retrieve. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List tasks",
@@ -10084,7 +10084,7 @@
         "feature_flag": "tasks"
     },
     "tasks-retrieve": {
-        "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
+        "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use the task ID returned by tasks-spawn to check a child task. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get task",
@@ -10099,7 +10099,7 @@
         "feature_flag": "tasks"
     },
     "tasks-runs-list": {
-        "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
+        "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts. Pass a child task ID returned by tasks-spawn to inspect that child's run history.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List task runs",
@@ -10142,6 +10142,21 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "tasks-spawn": {
+        "description": "Spawn and start a cloud child task for the current orchestrator run. Pass your own current run ID as `parent_run_id`. The child's `description` is passed verbatim as its prompt, so make it specific, self-contained, and complete. Children inherit the parent's channel and can use its shared context. Record each returned child task ID because there is no children-list filter; use tasks-retrieve with that ID to check the child later. The parent is woken automatically with a summary when the child run finishes and, when `wake_on` includes `pr_merged`, when its pull request merges. After spawning, end your turn and wait instead of polling. Children cannot spawn children. Prefer spawning the next dependent task only after the previous task's pull request merges.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Spawn child task",
+        "title": "Spawn child task",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks-orchestration"
     },
     "update-feature-flag": {
         "description": "Update a feature flag by ID in the current project.",

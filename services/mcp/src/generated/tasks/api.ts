@@ -1142,3 +1142,39 @@ export const TasksRunsSessionLogsRetrieveQueryParams = /* @__PURE__ */ zod.objec
         .default(tasksRunsSessionLogsRetrieveQueryOffsetDefault)
         .describe('Zero-based offset into the filtered log entries'),
 })
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * @summary Spawn a child task
+ */
+export const TasksSpawnCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksSpawnCreateBodyTitleMax = 255
+
+export const tasksSpawnCreateBodyRepositoryMax = 255
+
+export const TasksSpawnCreateBody = /* @__PURE__ */ zod.object({
+    parent_run_id: zod.string().describe('Cloud run that is spawning this child task.'),
+    title: zod.string().max(tasksSpawnCreateBodyTitleMax).describe('Title for the child task.'),
+    description: zod.string().describe('Prompt passed verbatim to the child task.'),
+    repository: zod
+        .string()
+        .max(tasksSpawnCreateBodyRepositoryMax)
+        .nullish()
+        .describe('Optional target repository in organization\/repository format.'),
+    runtime_adapter: zod.enum(['claude', 'codex']).optional().describe('\* `claude` - claude\n\* `codex` - codex'),
+    model: zod.string().optional(),
+    reasoning_effort: zod
+        .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+        .optional()
+        .describe(
+            '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+        ),
+    wake_on: zod.array(zod.enum(['pr_merged']).describe('\* `pr_merged` - pr_merged')).optional(),
+})
