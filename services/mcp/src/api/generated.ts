@@ -14173,6 +14173,26 @@ export namespace Schemas {
       clustering_job_id?: string | null;
     }
 
+    /**
+     * * `dataset_archived` - dataset_archived
+     * * `dataset_name_conflict` - dataset_name_conflict
+     * * `dataset_item_archived` - dataset_item_archived
+     * * `dataset_item_active` - dataset_item_active
+     * * `external_id_conflict` - external_id_conflict
+     * * `stale_version` - stale_version
+     */
+    export type CodeEnum = typeof CodeEnum[keyof typeof CodeEnum];
+
+
+    export const CodeEnum = {
+      DatasetArchived: 'dataset_archived',
+      DatasetNameConflict: 'dataset_name_conflict',
+      DatasetItemArchived: 'dataset_item_archived',
+      DatasetItemActive: 'dataset_item_active',
+      ExternalIdConflict: 'external_id_conflict',
+      StaleVersion: 'stale_version',
+    } as const;
+
     export interface CodeInviteRedeemRequest {
       /** @maxLength 50 */
       code: string;
@@ -21517,20 +21537,48 @@ export namespace Schemas {
       Databricks: 'Databricks',
     } as const;
 
-    export interface Dataset {
-      readonly id: string;
-      /** @maxLength 400 */
+    export interface DatasetConflictResponse {
+      /** Stable code identifying why the mutation was rejected.
+       *
+       * * `dataset_archived` - dataset_archived
+       * * `dataset_name_conflict` - dataset_name_conflict
+       * * `dataset_item_archived` - dataset_item_archived
+       * * `dataset_item_active` - dataset_item_active
+       * * `external_id_conflict` - external_id_conflict
+       * * `stale_version` - stale_version */
+      code: CodeEnum;
+      /** Explanation of how to resolve the conflict. */
+      detail: string;
+      /**
+         * Current item version when the conflict concerns an item.
+         * @nullable
+         */
+      current_version?: number | null;
+      /**
+         * Existing item ID when the conflict concerns an external ID.
+         * @nullable
+         */
+      current_item_id?: string | null;
+    }
+
+    /**
+     * Optional JSON object with descriptive dataset metadata.
+     */
+    export type DatasetCreateMetadata = { [key: string]: unknown };
+
+    export interface DatasetCreate {
+      /**
+         * Dataset name. Names are unique within a project.
+         * @maxLength 400
+         */
       name: string;
-      /** @nullable */
-      description?: string | null;
-      metadata?: unknown;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      /** @nullable */
-      deleted?: boolean | null;
-      readonly created_by: UserBasic;
-      readonly team: number;
+      /**
+         * Optional description of what the dataset contains.
+         * @maxLength 10000
+         */
+      description?: string;
+      /** Optional JSON object with descriptive dataset metadata. */
+      metadata?: DatasetCreateMetadata;
     }
 
     /**
@@ -21545,31 +21593,162 @@ export namespace Schemas {
       Persons: 'persons',
     } as const;
 
-    export interface DatasetItem {
-      readonly id: string;
+    export interface DatasetItemArchive {
+      /**
+         * Current item version observed by the caller.
+         * @minimum 1
+         */
+      base_version: number;
+    }
+
+    /**
+     * Optional JSON object with item metadata.
+     */
+    export type DatasetItemCreateMetadata = { [key: string]: unknown };
+
+    export type DatasetJSONValue = { [key: string]: unknown } | unknown[] | string | number | boolean;
+
+    export interface DatasetItemCreate {
+      /** Dataset that will own the item. */
       dataset: string;
-      input?: unknown;
-      output?: unknown;
-      metadata?: unknown;
       /**
+         * Optional case-sensitive stable key used for idempotent creates.
          * @maxLength 255
          * @nullable
          */
-      ref_trace_id?: string | null;
-      /** @nullable */
-      ref_timestamp?: string | null;
+      external_id?: string | null;
+      /** Input supplied to the system under test. Any non-null JSON value is accepted. */
+      input: DatasetJSONValue;
+      /** Optional user-authored expected output. */
+      expected_output?: DatasetJSONValue | null;
+      /** Optional actual output captured from the source trace. */
+      source_output?: DatasetJSONValue | null;
+      /** Optional JSON object with item metadata. */
+      metadata?: DatasetItemCreateMetadata;
       /**
+         * Trace ID copied from the source event.
          * @maxLength 255
          * @nullable
          */
-      ref_source_id?: string | null;
+      source_trace_id?: string | null;
+      /**
+         * Event ID copied from the source trace.
+         * @maxLength 255
+         * @nullable
+         */
+      source_event_id?: string | null;
+      /**
+         * Timestamp needed to retrieve the event-backed source trace.
+         * @nullable
+         */
+      source_timestamp?: string | null;
+    }
+
+    /**
+     * JSON object with item metadata.
+     */
+    export type DatasetItemReadMetadata = { [key: string]: unknown };
+
+    export interface DatasetItemRead {
+      /** Stable dataset item ID shared by every version. */
+      readonly id: string;
+      /** Dataset that owns the item. */
+      readonly dataset: string;
+      /**
+         * Optional caller-owned stable key.
+         * @nullable
+         */
+      readonly external_id: string | null;
+      readonly version: number;
+      /** ID of this immutable item version. */
+      readonly version_id: string;
+      /** Dataset revision that introduced this item version. */
+      readonly dataset_revision: number;
+      /** ID of the dataset revision that introduced this item version. */
+      readonly dataset_revision_id: string;
+      readonly archived: boolean;
+      /** Input supplied to the system under test. */
+      readonly input: DatasetJSONValue;
+      /** Optional user-authored expected output. */
+      readonly expected_output: DatasetJSONValue | null;
+      /** Optional actual output captured from the source trace. */
+      readonly source_output: DatasetJSONValue | null;
+      /** JSON object with item metadata. */
+      readonly metadata: DatasetItemReadMetadata;
       /** @nullable */
-      deleted?: boolean | null;
+      readonly source_trace_id: string | null;
+      /** @nullable */
+      readonly source_event_id: string | null;
+      /** @nullable */
+      readonly source_timestamp: string | null;
+      /** When the stable item was created. */
+      readonly created_at: string;
+      /**
+         * When the item last received a new version.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic | null;
+      /** When this immutable version was created. */
+      readonly version_created_at: string;
+      readonly version_created_by: UserBasic | null;
+      /** Project that owns the item. */
+      readonly team_id: number;
+    }
+
+    export interface DatasetItemRestore {
+      /**
+         * Current item version observed by the caller.
+         * @minimum 1
+         */
+      base_version: number;
+      /**
+         * Historical version to copy. Omit to restore the archived version's content.
+         * @minimum 1
+         * @nullable
+         */
+      source_version?: number | null;
+    }
+
+    /**
+     * JSON object with descriptive dataset metadata.
+     */
+    export type DatasetReadMetadata = { [key: string]: unknown };
+
+    export interface DatasetRead {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      /** JSON object with descriptive dataset metadata. */
+      readonly metadata: DatasetReadMetadata;
+      readonly archived: boolean;
+      /**
+         * Latest dataset revision, or null before the first item is added.
+         * @nullable
+         */
+      readonly current_revision: number | null;
+      /**
+         * ID of the latest committed dataset revision.
+         * @nullable
+         */
+      readonly current_revision_id: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
-      readonly created_by: UserBasic;
-      readonly team: number;
+      readonly created_by: UserBasic | null;
+      /** Project that owns the dataset. */
+      readonly team_id: number;
+    }
+
+    export interface DatasetRevisionRead {
+      readonly id: string;
+      /** Dataset this revision belongs to. */
+      readonly dataset_id: string;
+      readonly revision: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Project that owns the revision. */
+      readonly team_id: number;
     }
 
     export interface DayItem {
@@ -27301,6 +27480,12 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    export type ExperimentOriginalExperiment = { [key: string]: unknown } | null;
+
+    /**
      * * `cohort` - cohort
      * * `person` - person
      * * `group` - group
@@ -27978,6 +28163,16 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
+      /**
+         * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+         * @nullable
+         */
+      version?: number | null;
+      /**
+         * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+         * @nullable
+         */
+      original_experiment?: ExperimentOriginalExperiment;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
@@ -28772,6 +28967,12 @@ export namespace Schemas {
     }
 
     /**
+     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    export type ExperimentWriteOriginalExperiment = { [key: string]: unknown } | null;
+
+    /**
      * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
      */
     export interface ExperimentWrite {
@@ -28873,6 +29074,16 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
+      /**
+         * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+         * @nullable
+         */
+      version?: number | null;
+      /**
+         * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+         * @nullable
+         */
+      original_experiment?: ExperimentWriteOriginalExperiment;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
@@ -42931,6 +43142,11 @@ export namespace Schemas {
       readonly customer_id: string | null;
       /** @nullable */
       enforce_2fa?: boolean | null;
+      /**
+         * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+         * @nullable
+         */
+      enforce_verified_domains?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
       /**
@@ -43908,22 +44124,31 @@ export namespace Schemas {
       results: DataWarehouseSavedQueryMinimal[];
     }
 
-    export interface PaginatedDatasetItemList {
+    export interface PaginatedDatasetItemReadList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: DatasetItem[];
+      results: DatasetItemRead[];
     }
 
-    export interface PaginatedDatasetList {
+    export interface PaginatedDatasetReadList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: Dataset[];
+      results: DatasetRead[];
+    }
+
+    export interface PaginatedDatasetRevisionReadList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DatasetRevisionRead[];
     }
 
     export interface PaginatedDigestChannelList {
@@ -50429,47 +50654,24 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    export interface PatchedDataset {
-      readonly id?: string;
-      /** @maxLength 400 */
-      name?: string;
-      /** @nullable */
-      description?: string | null;
-      metadata?: unknown;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      /** @nullable */
-      deleted?: boolean | null;
-      readonly created_by?: UserBasic;
-      readonly team?: number;
-    }
+    /**
+     * Replacement JSON object for descriptive dataset metadata.
+     */
+    export type PatchedDatasetUpdateMetadata = { [key: string]: unknown };
 
-    export interface PatchedDatasetItem {
-      readonly id?: string;
-      dataset?: string;
-      input?: unknown;
-      output?: unknown;
-      metadata?: unknown;
+    export interface PatchedDatasetUpdate {
       /**
-         * @maxLength 255
-         * @nullable
+         * New dataset name. Names are unique within a project.
+         * @maxLength 400
          */
-      ref_trace_id?: string | null;
-      /** @nullable */
-      ref_timestamp?: string | null;
+      name?: string;
       /**
-         * @maxLength 255
-         * @nullable
+         * New dataset description.
+         * @maxLength 10000
          */
-      ref_source_id?: string | null;
-      /** @nullable */
-      deleted?: boolean | null;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      readonly created_by?: UserBasic;
-      readonly team?: number;
+      description?: string;
+      /** Replacement JSON object for descriptive dataset metadata. */
+      metadata?: PatchedDatasetUpdateMetadata;
     }
 
     export interface PatchedDesignPatch {
@@ -51255,6 +51457,12 @@ export namespace Schemas {
     }
 
     /**
+     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * @nullable
+     */
+    export type PatchedExperimentWriteOriginalExperiment = { [key: string]: unknown } | null;
+
+    /**
      * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
      */
     export interface PatchedExperimentWrite {
@@ -51356,6 +51564,16 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
+      /**
+         * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+         * @nullable
+         */
+      version?: number | null;
+      /**
+         * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+         * @nullable
+         */
+      original_experiment?: PatchedExperimentWriteOriginalExperiment;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
@@ -53105,6 +53323,11 @@ export namespace Schemas {
       readonly customer_id?: string | null;
       /** @nullable */
       enforce_2fa?: boolean | null;
+      /**
+         * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+         * @nullable
+         */
+      enforce_verified_domains?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
       /**
@@ -77822,9 +78045,58 @@ export namespace Schemas {
 
     export type DatasetItemsListParams = {
     /**
-     * Filter by dataset ID
+     * Return archived items instead of active items.
      */
-    dataset?: string;
+    archived?: boolean;
+    /**
+     * Dataset whose items should be returned.
+     */
+    dataset: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Return the exact dataset snapshot at this revision.
+     * @minimum 1
+     */
+    revision?: number;
+    };
+
+    /**
+     * Replacement input. Omit to keep the current value.
+     */
+    export type DatasetItemsPartialUpdateBodyInput = { [key: string]: unknown } | unknown[] | string | number | boolean;
+
+    /**
+     * Replacement expected output. Send null to clear it.
+     */
+    export type DatasetItemsPartialUpdateBodyExpectedOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    /**
+     * Replacement metadata object. Send an empty object to clear it.
+     */
+    export type DatasetItemsPartialUpdateBodyMetadata = { [key: string]: unknown };
+
+    export type DatasetItemsPartialUpdateBody = {
+      /**
+         * Current item version observed by the caller.
+         * @minimum 1
+         */
+      base_version: number;
+      /** Replacement input. Omit to keep the current value. */
+      input?: DatasetItemsPartialUpdateBodyInput;
+      /** Replacement expected output. Send null to clear it. */
+      expected_output?: DatasetItemsPartialUpdateBodyExpectedOutput;
+      /** Replacement metadata object. Send an empty object to clear it. */
+      metadata?: DatasetItemsPartialUpdateBodyMetadata;
+    };
+
+    export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -77837,7 +78109,13 @@ export namespace Schemas {
 
     export type DatasetsListParams = {
     /**
-     * Multiple values may be separated by commas.
+     * Return archived datasets instead of active datasets.
+     */
+    archived?: boolean;
+    /**
+     * Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.
+     * @minItems 1
+     * @maxItems 100
      */
     id__in?: string[];
     /**
@@ -77849,18 +78127,31 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Ordering
+     * Field and direction used to order results.
      *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * @minLength 1
      */
-    order_by?: string[];
+    order_by?: string;
     /**
-     * Search in name, description, or metadata
+     * Search dataset names, descriptions, and metadata.
+     * @minLength 1
      */
     search?: string;
+    };
+
+    export type DatasetsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DesktopFileSystemListParams = {
