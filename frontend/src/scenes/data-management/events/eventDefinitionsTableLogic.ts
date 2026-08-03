@@ -192,15 +192,7 @@ export interface eventDefinitionsTableLogicActions {
             }[]
         }
     }
-    bulkUpdateVerified: ({
-        ids,
-        verified,
-        onSuccess,
-    }: {
-        ids: string[]
-        verified: boolean
-        onSuccess?: () => void
-    }) => {
+    bulkUpdateVerified: ({ ids, verified }: { ids: string[]; onSuccess?: () => void; verified: boolean }) => {
         ids: string[]
         verified: boolean
         onSuccess?: () => void
