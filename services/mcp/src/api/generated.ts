@@ -72978,7 +72978,7 @@ export namespace Schemas {
       readonly period_end: string;
       /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
       readonly projected_monthly_credits: number;
-      /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
+      /** The slice of `credit_limit` that never bills: the plan's free allocation plus any active credit grant. Only credits beyond this number are billed. */
       readonly free_monthly_credits: number;
     }
 
