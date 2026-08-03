@@ -187,7 +187,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # retry connects with the same database name and fails identically. Match the
             # locale-independent error code (the database name is volatile and the message text is
             # translated on non-English servers).
-            "(1049,": "The database configured for this source no longer exists (MySQL error 1049). It may have been renamed or dropped — update the database name in your source settings, or restore it, then resync.",
+            "(1049,": "The database configured for this source no longer exists (MySQL error 1049). It may have been renamed or dropped. Update the database name in your source settings, or restore it, then resync.",
             "sqlstate 42S02": None,  # Table not found error
             # MySQL/MariaDB error 1146 (ER_NO_SUCH_TABLE): a table the sync reads no longer exists
             # in the source — it was renamed or dropped after the schema was set up. The streaming
