@@ -10730,6 +10730,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-patch-action-email": {
+        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Patch a workflow step's email",
+        "title": "Patch a workflow step's email",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-patch-email-template": {
         "description": "Surgically edit an email template's design by sending a small, ordered list of operations instead of resending the whole design JSON. Prefer this over workflows-update-email-template for any change to an existing design. Reference blocks by their id (call workflows-get-email-template first to read the current design and its ids). For the common case — tweak one block — use update_content with a deep-merge patch (e.g. {op: update_content, id: '<block-id>', patch: {values: {text: '<p>New copy</p>'}}}); a null leaf deletes that key. Use add_content / remove_content / move_content / add_row / remove_row for structural changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the result.",
         "category": "Workflows",

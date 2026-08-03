@@ -13,6 +13,7 @@ import {
 } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
+import { mirrorCall } from '../utils/mirror-call'
 import { HogExecutorService } from './hog-executor.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { GroupsManagerService } from './managers/groups-manager.service'
@@ -46,7 +47,8 @@ export class BatchExportHogFunctionService {
         private hogFunctionManager: HogFunctionManagerService,
         private hogExecutor: HogExecutorService,
         private hogWatcher: HogWatcherService,
-        private invocationResultsService: InvocationResultsService
+        private invocationResultsService: InvocationResultsService,
+        private hogWatcherMirror: HogWatcherService | null = null
     ) {
         this.promiseScheduler = new PromiseScheduler()
     }
@@ -98,6 +100,9 @@ export class BatchExportHogFunctionService {
             Promise.all([
                 this.invocationResultsService.queueInvocationResultsAndFlush([result]),
                 this.hogWatcher.observeResultsBuffered(result),
+                mirrorCall('hog-watcher.observeResultsBuffered', () =>
+                    this.hogWatcherMirror?.observeResultsBuffered(result)
+                ),
             ])
         )
 

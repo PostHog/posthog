@@ -94,6 +94,7 @@ from products.managed_warehouse.backend.facade.api import (
 )
 from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
+from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
     resolve_events_persons_tables,
@@ -2369,11 +2370,12 @@ def register_persons_files_with_duckling(
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
-    team_id, _ = parse_partition_key_dates(context.partition_key)
+    team_id, dates = parse_partition_key_dates(context.partition_key)
     if config.dry_run:
         _run_duckling_events_backfill(context, config)
         return
 
+    mode = "monthly" if len(dates) > 1 else "daily"
     run_id = context.run.run_id
     record_backfill_started(
         team_id=team_id,
@@ -2381,24 +2383,29 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         partition_key=context.partition_key,
         run_id=run_id,
     )
-    try:
-        _run_duckling_events_backfill(context, config)
-    except Exception as error:
+    with track_duckling_backfill(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        mode=mode,
+    ):
+        try:
+            _run_duckling_events_backfill(context, config)
+        except Exception as error:
+            record_backfill_finished(
+                team_id=team_id,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                partition_key=context.partition_key,
+                run_id=run_id,
+                error=error,
+            )
+            raise
+
         record_backfill_finished(
             team_id=team_id,
             dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
             partition_key=context.partition_key,
             run_id=run_id,
-            error=error,
         )
-        raise
-
-    record_backfill_finished(
-        team_id=team_id,
-        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
-        partition_key=context.partition_key,
-        run_id=run_id,
-    )
 
 
 def _run_duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
@@ -2550,6 +2557,14 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
                 "bucket": target.bucket,
             }
         )
+        if not config.dry_run:
+            record_duckling_backfill_workload(
+                team_id=team_id,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                mode="monthly" if len(dates) > 1 else "daily",
+                files_registered=total_registered,
+                partitions_exported=days_exported,
+            )
 
         context.log.info(
             f"Completed duckling backfill for team_id={team_id}: "
@@ -2589,24 +2604,30 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         partition_key=partition_key,
         run_id=run_id,
     )
-    try:
-        _run_duckling_persons_backfill(context, config)
-    except Exception as error:
+    mode = "full" if is_full_export_partition(partition_key) else "daily"
+    with track_duckling_backfill(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        mode=mode,
+    ):
+        try:
+            _run_duckling_persons_backfill(context, config)
+        except Exception as error:
+            record_backfill_finished(
+                team_id=team_id,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                partition_key=partition_key,
+                run_id=run_id,
+                error=error,
+            )
+            raise
+
         record_backfill_finished(
             team_id=team_id,
             dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
             partition_key=partition_key,
             run_id=run_id,
-            error=error,
         )
-        raise
-
-    record_backfill_finished(
-        team_id=team_id,
-        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
-        partition_key=partition_key,
-        run_id=run_id,
-    )
 
 
 def _run_duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
@@ -2749,6 +2770,14 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                     "bucket": target.bucket,
                 }
             )
+            if not config.dry_run:
+                record_duckling_backfill_workload(
+                    team_id=team_id,
+                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                    mode="full",
+                    files_registered=files_registered,
+                    partitions_exported=int(bool(s3_glob)),
+                )
 
             context.log.info(
                 f"Completed duckling persons full backfill for team_id={team_id}: {files_registered} files registered"
@@ -2827,6 +2856,14 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                     "bucket": target.bucket,
                 }
             )
+            if not config.dry_run:
+                record_duckling_backfill_workload(
+                    team_id=team_id,
+                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                    mode="daily",
+                    files_registered=total_registered,
+                    partitions_exported=days_exported,
+                )
 
             context.log.info(
                 f"Completed duckling persons daily backfill for team_id={team_id}: "
