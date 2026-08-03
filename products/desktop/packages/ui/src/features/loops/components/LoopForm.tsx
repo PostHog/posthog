@@ -444,7 +444,7 @@ export function LoopForm({
           align="center"
           justify="end"
           gap="2"
-          className="sticky bottom-0 z-10 border-border border-t bg-(--gray-1) pt-4"
+          className="sticky bottom-0 z-10 border-border border-t bg-(--gray-1) py-4"
         >
           <Button
             variant="soft"
