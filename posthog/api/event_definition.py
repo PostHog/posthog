@@ -310,6 +310,11 @@ class EventDefinitionViewSet(
             search_query = search_query + " AND NOT name = ANY(%(excluded_list)s)"
             params["excluded_list"] = excluded_list
 
+        names = [name for value in self.request.query_params.getlist("names") for name in value.split(",") if name]
+        if names:
+            search_query = search_query + " AND posthog_eventdefinition.name = ANY(%(names)s)"
+            params["names"] = list(set(names))
+
         sql = create_event_definitions_sql(
             event_type,
             is_enterprise=EE_AVAILABLE,
@@ -387,7 +392,16 @@ class EventDefinitionViewSet(
                 required=False,
                 description="When true, omit events that have been explicitly hidden by a team admin (Enterprise only).",
             ),
+            OpenApiParameter(
+                "names",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description="Return exact matches for these event names. Pass names as repeated or comma-separated values.",
+            ),
         ],
+        extensions={"x-product": "event_definitions"},
     )
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

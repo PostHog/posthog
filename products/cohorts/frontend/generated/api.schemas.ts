@@ -213,6 +213,7 @@ export interface CohortFilterGroupApi {
 
 export interface CohortFiltersApi {
     properties: CohortFilterGroupApi
+    filterTestAccounts?: boolean | null
 }
 
 /**

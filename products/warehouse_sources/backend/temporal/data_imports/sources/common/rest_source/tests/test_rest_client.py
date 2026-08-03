@@ -353,10 +353,14 @@ class TestRESTClient:
         mock_session.send.return_value = error
 
         client = RESTClient(base_url="https://api.example.com")
-        with pytest.raises(RESTClientRetryableError):
+        with pytest.raises(RESTClientRetryableError) as ctx:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 5
+        # An upstream blip surviving every tenacity attempt is expected to clear on Temporal's own
+        # activity retry, not a PostHog defect, so it must carry the non-reportable marker the
+        # activity interceptor uses to keep it out of error tracking.
+        assert isinstance(ctx.value, NonReportableError)
 
     @pytest.mark.parametrize(
         "content",

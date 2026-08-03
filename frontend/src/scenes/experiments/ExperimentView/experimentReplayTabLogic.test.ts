@@ -1,10 +1,21 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    SessionRecordingSidebarTab,
+} from '~/types'
+
+import { experimentsSessionContextsCreate } from 'products/experiments/frontend/generated/api'
 
 import { getViewRecordingFiltersForVariant } from '../utils'
 import { RETENTION_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
@@ -12,6 +23,10 @@ import { experimentReplayTabLogic } from './experimentReplayTabLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntentForCrossSell: jest.fn().mockResolvedValue(null),
+}))
+
+jest.mock('products/experiments/frontend/generated/api', () => ({
+    experimentsSessionContextsCreate: jest.fn().mockResolvedValue({ results: [] }),
 }))
 
 const PURCHASE_METRIC = {
@@ -68,6 +83,7 @@ describe('experimentReplayTabLogic', () => {
         // The facet reducer is persisted; clear so no test inherits another's selection.
         localStorage.clear()
         initKeaTests()
+        ;(experimentsSessionContextsCreate as jest.Mock).mockClear()
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -424,6 +440,52 @@ describe('experimentReplayTabLogic', () => {
         failed.unmount()
     })
 
+    it('prefetches session contexts for a loaded recordings page when the flag is on', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+        logic.actions.recordingsLoaded(['s1', 's2'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(experimentsSessionContextsCreate).toHaveBeenCalledWith(expect.any(String), {
+            session_ids: ['s1', 's2'],
+        })
+    })
+
+    it('re-warms the rest of the page when a recording is opened', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+
+        // Opening before any page has loaded must not fire an empty batch (the backend 400s it).
+        logic.actions.recordingOpened('s1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
+
+        logic.actions.recordingsLoaded(['s1', 's2', 's3'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The server-side cache TTL runs from prefetch time, so each open must re-warm the
+        // page — without this, a user who watches one recording past the TTL opens every
+        // later one cold. The opened id is excluded: the player is fetching it right now.
+        logic.actions.recordingOpened('s2')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(2)
+        expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[1][1].session_ids).toEqual(['s1', 's3'])
+    })
+
+    it('never prefetches for flag-disabled viewers, and caps a batch at the backend limit', async () => {
+        // Ungated, every experiment-tab visit would fire the expensive ClickHouse scans for
+        // viewers who can't even see the experiments box.
+        logic.actions.recordingsLoaded(['s1'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
+
+        // Over-cap ids must be sliced, not sent — the backend 400s the whole batch above its cap.
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+        logic.actions.recordingsLoaded(Array.from({ length: 25 }, (_, index) => `session-${index}`))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(1)
+        expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[0][1].session_ids).toHaveLength(20)
+    })
+
     it('offers saved/shared metrics in the facet, deduped by uuid', async () => {
         const savedMetric = {
             query: {
@@ -451,5 +513,21 @@ describe('experimentReplayTabLogic', () => {
             'metric-saved',
         ])
         withSaved.unmount()
+    })
+
+    it('lands the player sidebar on Overview, and hands it back when the tab goes away', () => {
+        // Held mounted across the unmount below, standing in for a player that outlives this tab —
+        // the only case in which the reset has anything to do.
+        const sidebar = playerSidebarLogic()
+        sidebar.mount()
+
+        // Recordings are opened from here to see what the experiment did to a session, which is what
+        // the Overview tab shows. Landing on Inspector instead hides it behind a click.
+        expect(sidebar.values.defaultTab).toBe(SessionRecordingSidebarTab.OVERVIEW)
+
+        logic.unmount()
+        expect(sidebar.values.defaultTab).toBe(SessionRecordingSidebarTab.INSPECTOR)
+
+        sidebar.unmount()
     })
 })

@@ -749,6 +749,27 @@ export interface PatchedAlertApi {
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
+/**
+ * * `email` - email
+ * * `destination` - destination
+ */
+export type FailedDeliveryChannelsEnumApi =
+    (typeof FailedDeliveryChannelsEnumApi)[keyof typeof FailedDeliveryChannelsEnumApi]
+
+export const FailedDeliveryChannelsEnumApi = {
+    Email: 'email',
+    Destination: 'destination',
+} as const
+
+export interface AlertTestDeliveryResponseApi {
+    /** Number of active destinations queued for test delivery. */
+    destination_count: number
+    /** Number of subscribed users sent a test email. */
+    email_recipient_count: number
+    /** Configured delivery channels that failed to schedule or send. */
+    failed_delivery_channels: FailedDeliveryChannelsEnumApi[]
+}
+
 export interface AlertSimulateApi {
     /** Insight ID to simulate the detector on. */
     insight: number

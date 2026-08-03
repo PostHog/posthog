@@ -322,6 +322,11 @@ class TestBingAdsClient:
         assert campaign_data["Status"] == "Active"
         assert campaign_data["Languages"] == ["English"]
 
+        # Every campaign type must be requested — omitting CampaignType silently drops everything but
+        # Search campaigns to Bing's Search-only default.
+        _, call_kwargs = mock_client_instance.GetCampaignsByAccountId.call_args
+        assert call_kwargs["CampaignType"] == "App Audience DynamicSearchAds Hotel PerformanceMax Search Shopping"
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_campaigns_surfaces_soap_fault_detail(self, mock_service_client):
         """GetCampaignsByAccountId raises the same generic 'Invalid client data' WebFault as GetUser when

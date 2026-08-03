@@ -6,8 +6,8 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura import source as oura_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura.oura import OuraResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura.settings import ENDPOINTS

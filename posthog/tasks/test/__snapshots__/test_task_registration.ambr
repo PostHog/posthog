@@ -2,7 +2,6 @@
 # name: TestAllTasksRegistered.test_all_posthog_tasks_registered_snapshot
   list([
     'posthog.api.oauth.cimd.refresh_cimd_metadata_task',
-    'posthog.api.oauth.cimd.register_cimd_provisioning_application_task',
     'posthog.approvals.tasks.expire_old_change_requests',
     'posthog.approvals.tasks.validate_pending_change_requests',
     'posthog.caching.warming.schedule_warming_for_teams_task',
@@ -32,6 +31,8 @@
     'posthog.tasks.email.send_conversation_restore_email',
     'posthog.tasks.email.send_discussions_mentioned',
     'posthog.tasks.email.send_email_change_emails',
+    'posthog.tasks.email.send_email_sending_suspended',
+    'posthog.tasks.email.send_email_sending_unsuspended',
     'posthog.tasks.email.send_email_verification',
     'posthog.tasks.email.send_error_tracking_issue_assigned',
     'posthog.tasks.email.send_error_tracking_weekly_digest',

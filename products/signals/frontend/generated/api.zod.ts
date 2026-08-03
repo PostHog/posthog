@@ -48,6 +48,76 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
+ * @summary Post an inline review comment on a report's implementation PR
+ */
+export const signalsReportPrReviewCommentsCreateBodyBodyMax = 65536
+
+export const signalsReportPrReviewCommentsCreateBodyInReplyToRegExp = new RegExp('^[0-9]+$')
+
+export const SignalsReportPrReviewCommentsCreateBody = /* @__PURE__ */ zod
+    .object({
+        body: zod
+            .string()
+            .max(signalsReportPrReviewCommentsCreateBodyBodyMax)
+            .describe('Comment body (GitHub-flavored markdown).'),
+        in_reply_to: zod
+            .string()
+            .regex(signalsReportPrReviewCommentsCreateBodyInReplyToRegExp)
+            .nullish()
+            .describe('Numeric id of the thread root comment to reply to. When set, path\/line\/side are ignored.'),
+        path: zod
+            .string()
+            .nullish()
+            .describe('File path to anchor a new comment thread to (required when starting a new thread).'),
+        line: zod
+            .number()
+            .min(1)
+            .nullish()
+            .describe('Diff line to anchor a new comment thread to (required when starting a new thread).'),
+        side: zod
+            .union([zod.enum(['LEFT', 'RIGHT']).describe('\* `LEFT` - LEFT\n\* `RIGHT` - RIGHT'), zod.null()])
+            .optional()
+            .describe(
+                "Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.\n\n\* `LEFT` - LEFT\n\* `RIGHT` - RIGHT"
+            ),
+    })
+    .describe(
+        'Request body for posting an inline PR review comment as the requesting user.\n\nTwo shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new\nthread on a diff line (`body` + `path` + `line`, optionally `side`).'
+    )
+
+/**
+ * @summary Edit one of the requesting user's own review comments
+ */
+export const signalsReportPrReviewCommentUpdateBodyBodyMax = 65536
+
+export const SignalsReportPrReviewCommentUpdateBody = /* @__PURE__ */ zod
+    .object({
+        body: zod
+            .string()
+            .max(signalsReportPrReviewCommentUpdateBodyBodyMax)
+            .optional()
+            .describe('New comment body (GitHub-flavored markdown).'),
+    })
+    .describe("Request body for editing a review comment's markdown body.")
+
+/**
+ * @summary React to a review comment as the requesting user
+ */
+export const SignalsReportPrReviewCommentReactionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .enum(['+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'])
+            .describe(
+                '\* `+1` - +1\n\* `-1` - -1\n\* `laugh` - laugh\n\* `hooray` - hooray\n\* `confused` - confused\n\* `heart` - heart\n\* `rocket` - rocket\n\* `eyes` - eyes'
+            )
+            .describe(
+                "Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.\n\n\* `+1` - +1\n\* `-1` - -1\n\* `laugh` - laugh\n\* `hooray` - hooray\n\* `confused` - confused\n\* `heart` - heart\n\* `rocket` - rocket\n\* `eyes` - eyes"
+            ),
+    })
+    .describe('Request body for adding an emoji reaction to a review comment.')
+
+/**
  * Refund the flat charge for this report's implementation PR and archive the report. Refunds auto-approve: the charge is either excluded from usage before it is ever reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe customer-balance credit on the next invoice. A refunded PR does not count toward the free monthly PR allowance. One refund per report, ever — repeat calls return the existing refund with already_refunded=true. The report is archived as part of the refund (a resolved report stays resolved) and can't be restored afterwards.
  * @summary Refund a report's implementation PR
  */
@@ -327,6 +397,12 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+                auto_pause_exempt: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.'
+                    ),
                 run_cron_schedule: zod
                     .string()
                     .max(signalsScoutCreateBodyConfigOneRunCronScheduleMax)
@@ -399,6 +475,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+        auto_pause_exempt: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.'
+            ),
         run_cron_schedule: zod
             .string()
             .max(signalsScoutConfigCreateBodyRunCronScheduleMax)
@@ -433,7 +515,9 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
         enabled: zod
             .boolean()
             .optional()
-            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+            .describe(
+                'Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched.'
+            ),
         emit: zod
             .boolean()
             .optional()
@@ -482,6 +566,12 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
+            ),
+        auto_pause_exempt: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
@@ -633,9 +723,9 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                     )
             )
             .max(signalsScoutEditReportBodyChartsMax)
-            .optional()
+            .nullish()
             .describe(
-                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched."
+                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
     })
     .describe(
@@ -716,7 +806,9 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
         already_addressed: zod
             .boolean()
             .default(signalsScoutEmitReportBodyAlreadyAddressedDefault)
-            .describe('Whether the issue already appears fixed in recent changes (tracked separately).'),
+            .describe(
+                'Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned \/ in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately.'
+            ),
         repository: zod
             .string()
             .nullish()
@@ -1043,9 +1135,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'intercom',
             'hubspot',
             'engineering_analytics',
+            'google_search_console',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
         ),
     source_type: zod
         .enum([
@@ -1126,9 +1219,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'intercom',
             'hubspot',
             'engineering_analytics',
+            'google_search_console',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
         ),
     source_type: zod
         .enum([
@@ -1209,10 +1303,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'intercom',
             'hubspot',
             'engineering_analytics',
+            'google_search_console',
         ])
         .optional()
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
         ),
     source_type: zod
         .enum([

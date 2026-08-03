@@ -96,6 +96,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
+    '/my-tickets': ['MyTickets', 'myTickets'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
     '/customer_analytics/accounts/:accountId': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
@@ -108,6 +109,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
+    '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
@@ -149,7 +151,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
-    '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+    '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -177,6 +179,12 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+    '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
+    '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
+    '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
+    '/mcp-servers/member/:id': ['McpGatewayMember', 'mcpGatewayMember'],
+    '/mcp-servers': ['McpGateway', 'mcpGateway'],
+    '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
@@ -359,6 +367,7 @@ export const productRedirects: Record<
             : '/customer_analytics/dashboard'
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
+    '/data-warehouse': () => urls.sources(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
@@ -523,6 +532,7 @@ export const productConfiguration: Record<string, any> = {
     SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
+    MyTickets: { name: 'Your tickets', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -539,6 +549,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_warehouse',
         description: 'Review and manage governed metrics, certifications, and relationships for your data.',
     },
+    DataCatalogMetric: { projectBased: true, name: 'Metric' },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
@@ -713,6 +724,17 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
+    McpGateway: {
+        projectBased: true,
+        name: 'MCP servers',
+        description:
+            'Route every MCP server your team uses through one gateway: shared credentials, per-tool policies, agent identities, and an audit log.',
+        layout: 'app-container',
+        iconType: 'tools',
+    },
+    McpGatewayServer: { projectBased: true, name: 'MCP server' },
+    McpGatewayAgent: { projectBased: true, name: 'MCP agent' },
+    McpGatewayMember: { projectBased: true, name: 'MCP member access' },
     Metrics: {
         name: 'Metrics',
         projectBased: true,
@@ -965,6 +987,7 @@ export const productUrls = {
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
     supportSettings: (): string => '/support/settings',
+    myTickets: (): string => '/my-tickets',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
@@ -991,6 +1014,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+    dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
     dataOps: (tab?: string, dagId?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -1198,6 +1222,13 @@ export const productUrls = {
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+    mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
+    mcpGateway: (): string => '/mcp-servers',
+    mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
+    mcpGatewayServer: (id: string, scope?: string): string =>
+        `/mcp-servers/server/${id}${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`,
+    mcpGatewayAgent: (id: string): string => `/mcp-servers/agent/${id}`,
+    mcpGatewayMember: (id: string | number): string => `/mcp-servers/member/${id}`,
     metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
@@ -1794,8 +1825,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
         flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
+        tags: ['alpha'],
         sceneKey: 'DataCatalog',
-        sceneKeys: ['DataCatalog'],
+        sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },
     {
         path: 'Data warehouse',
@@ -2071,6 +2103,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
     },
     {
+        path: 'MCP servers',
+        intents: [],
+        category: ProductItemCategory.AI_ENGINEERING,
+        href: urls.mcpGateway(),
+        iconType: 'tools',
+        flag: FEATURE_FLAGS.MCP_GATEWAY,
+        tags: ['alpha'],
+        sceneKey: 'McpGateway',
+        sceneKeys: ['McpGateway', 'McpGatewayServer', 'McpGatewayAgent', 'McpGatewayMember'],
+    },
+    {
         path: 'Marketing analytics',
         intents: [ProductKey.MARKETING_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
@@ -2254,7 +2297,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
     },
     {
         path: 'Surveys',

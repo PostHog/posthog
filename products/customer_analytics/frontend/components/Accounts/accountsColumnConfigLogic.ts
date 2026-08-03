@@ -91,6 +91,9 @@ export type AccountColumnGroupKey =
     | 'sql_expression'
     | `accounts.${string}`
 
+export const ALL_COLUMNS_KEY = 'all'
+export type PickerGroupKey = AccountColumnGroupKey | typeof ALL_COLUMNS_KEY
+
 // Custom property definition ids are UUIDs, which aren't valid HogQL identifiers (hyphens).
 // Strip them so the column alias is a clean identifier, and so the renderer can map a visible
 // column name back to its definition.
@@ -180,6 +183,32 @@ export type AccountColumnGroup = {
     label: string
     options: AccountColumnOption[]
     isFreeform?: boolean
+}
+
+export type AccountPickerColumnOption = AccountColumnOption & { groupLabel: string; isSelected: boolean }
+
+// Null activeGroup means "All columns": search spans every non-freeform group.
+export function filterColumnOptions(
+    groups: AccountColumnGroup[],
+    activeGroup: AccountColumnGroup | null,
+    search: string,
+    selectColumns: string[]
+): AccountPickerColumnOption[] {
+    if (activeGroup?.isFreeform) {
+        return []
+    }
+    const searchableGroups = activeGroup ? [activeGroup] : groups.filter((group) => !group.isFreeform)
+    const query = search.trim().toLowerCase()
+    const selected = new Set(selectColumns)
+    return searchableGroups.flatMap((group) =>
+        group.options
+            .filter((option) => !query || option.name.toLowerCase().includes(query))
+            .map((option) => ({
+                ...option,
+                groupLabel: group.label,
+                isSelected: selected.has(option.expression),
+            }))
+    )
 }
 
 // Field types that point at joined tables/views (lazy joins, virtual tables,
@@ -350,6 +379,7 @@ export interface accountsColumnConfigLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
     accountsColumnGroups: AccountColumnGroup[]
+    activePickerGroup: AccountColumnGroup | null
     aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi>
     columnConfiguratorVisible: boolean
@@ -365,6 +395,11 @@ export interface accountsColumnConfigLogicValues {
     displayByAlias: AccountColumnDisplayState
     editingColumn: string | null
     editingColumnIndex: number | null
+    filteredColumnOptions: AccountPickerColumnOption[]
+    pickerGroupKey: PickerGroupKey
+    pickerSearch: string
+    pickerSearchPlaceholder: string
+    pickerSqlInput: string
     querySelectColumns: string[]
     relationshipDefinitions: AccountRelationshipDefinitionApi[]
     relationshipDefinitionsLoaded: boolean
@@ -386,6 +421,9 @@ export interface accountsColumnConfigLogicActions {
         force?: boolean
     } // databaseTableListLogic
     loadJoins: () => any // joinsLogic
+    addSqlExpression: () => {
+        value: true
+    }
     hideColumnConfigurator: () => {
         value: true
     }
@@ -445,6 +483,15 @@ export interface accountsColumnConfigLogicActions {
     setEditingColumnIndex: (index: number | null) => {
         index: number | null
     }
+    setPickerGroupKey: (key: PickerGroupKey) => {
+        key: PickerGroupKey
+    }
+    setPickerSearch: (search: string) => {
+        search: string
+    }
+    setPickerSqlInput: (sqlInput: string) => {
+        sqlInput: string
+    }
     setSelectColumns: (columns: string[]) => {
         columns: string[]
     }
@@ -484,6 +531,17 @@ export interface accountsColumnConfigLogicMeta {
             customPropertyDefinitions: CustomPropertyDefinitionApi[],
             relationshipDefinitions: AccountRelationshipDefinitionApi[]
         ) => AccountColumnGroup[]
+        activePickerGroup: (
+            accountsColumnGroups: AccountColumnGroup[],
+            pickerGroupKey: PickerGroupKey
+        ) => AccountColumnGroup | null
+        filteredColumnOptions: (
+            accountsColumnGroups: AccountColumnGroup[],
+            activePickerGroup: AccountColumnGroup | null,
+            pickerSearch: string,
+            selectColumns: string[]
+        ) => AccountPickerColumnOption[]
+        pickerSearchPlaceholder: (activePickerGroup: AccountColumnGroup | null) => string
         customPropertyDefinitionsById: (
             customPropertyDefinitions: CustomPropertyDefinitionApi[]
         ) => Record<string, CustomPropertyDefinitionApi>
@@ -545,6 +603,10 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         setColumnDisplayConfig: (config: AccountColumnDisplayState) => ({ config }),
         setEditingColumnIndex: (index: number | null) => ({ index }),
         updateColumnExpression: (index: number, expression: string) => ({ index, expression }),
+        setPickerGroupKey: (key: PickerGroupKey) => ({ key }),
+        setPickerSearch: (search: string) => ({ search }),
+        setPickerSqlInput: (sqlInput: string) => ({ sqlInput }),
+        addSqlExpression: true,
     }),
     reducers({
         selectColumns: [
@@ -592,6 +654,26 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
+            },
+        ],
+        pickerGroupKey: [
+            ALL_COLUMNS_KEY as PickerGroupKey,
+            {
+                setPickerGroupKey: (_, { key }) => key,
+            },
+        ],
+        pickerSearch: [
+            '',
+            {
+                setPickerSearch: (_, { search }) => search,
+                // A stale query from another category would silently hide results.
+                setPickerGroupKey: () => '',
+            },
+        ],
+        pickerSqlInput: [
+            '',
+            {
+                setPickerSqlInput: (_, { sqlInput }) => sqlInput,
             },
         ],
         columnDisplay: [
@@ -690,6 +772,32 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     relationshipDefinitions
                 ),
         ],
+        activePickerGroup: [
+            (s) => [s.accountsColumnGroups, s.pickerGroupKey],
+            (accountsColumnGroups: AccountColumnGroup[], pickerGroupKey: PickerGroupKey): AccountColumnGroup | null =>
+                pickerGroupKey === ALL_COLUMNS_KEY
+                    ? null
+                    : (accountsColumnGroups.find((group) => group.key === pickerGroupKey) ?? null),
+        ],
+        filteredColumnOptions: [
+            (s) => [s.accountsColumnGroups, s.activePickerGroup, s.pickerSearch, s.selectColumns],
+            (
+                accountsColumnGroups: AccountColumnGroup[],
+                activePickerGroup: AccountColumnGroup | null,
+                pickerSearch: string,
+                selectColumns: string[]
+            ): AccountPickerColumnOption[] =>
+                filterColumnOptions(accountsColumnGroups, activePickerGroup, pickerSearch, selectColumns),
+        ],
+        pickerSearchPlaceholder: [
+            (s) => [s.activePickerGroup],
+            (activePickerGroup: AccountColumnGroup | null): string =>
+                activePickerGroup?.isFreeform
+                    ? 'Use the SQL expression panel below'
+                    : activePickerGroup
+                      ? `Search ${activePickerGroup.label.toLowerCase()}`
+                      : 'Search all columns',
+        ],
         customPropertyDefinitionsById: [
             (s) => [s.customPropertyDefinitions],
             (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
@@ -783,6 +891,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         resetColumns: () => {
             if (!objectsEqual(values.selectColumns, values.defaultSelectColumns)) {
                 actions.setSelectColumns(values.defaultSelectColumns)
+            }
+        },
+        addSqlExpression: () => {
+            const expression = values.pickerSqlInput.trim()
+            if (expression) {
+                actions.selectColumn(expression)
+                actions.setPickerSqlInput('')
             }
         },
     })),

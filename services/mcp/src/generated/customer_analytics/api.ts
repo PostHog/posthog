@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 44 enabled ops
+ * PostHog API - MCP 49 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -197,6 +197,17 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -398,11 +409,86 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
 export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AccountsSummariesListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AccountsSummariesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AnnouncementsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AnnouncementsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AnnouncementsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(zod.string())
+        .describe(
+            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
+        ),
+})
+
+export const AnnouncementsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+/**
+ * Slack channels the SupportHog bot can post to, labeled by customer account name.
+ */
+export const AnnouncementsChannelsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(

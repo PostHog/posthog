@@ -30,10 +30,11 @@ use cohort_stream_processor::consumers::{
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
+use cohort_stream_processor::observability::disk::SharedDiskUtilization;
 use cohort_stream_processor::partitions::{
     merge_partition_key, partition_for, partition_of, run_rebalance_worker, CohortConsumerContext,
     ConsumerPauser, Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionPauser,
-    PartitionRouter, COHORT_PARTITION_COUNT,
+    PartitionRouter, SeedPacingConfig, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, ChangeOrigin, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
@@ -618,6 +619,7 @@ async fn spawn_instance(
             scan_page: 1,
             backlog: reconcile_backlog.clone(),
         },
+        person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -724,6 +726,9 @@ async fn spawn_instance(
         COMMIT_INTERVAL,
         fence_margin_ms,
         PROBE_NEVER,
+        // Both pacing triggers disabled: these tests pin fence and holdover behavior.
+        SeedPacingConfig::default(),
+        Arc::new(SharedDiskUtilization::new(Duration::MAX)),
     );
     tasks.push(tokio::spawn(seed_follower.process()));
 

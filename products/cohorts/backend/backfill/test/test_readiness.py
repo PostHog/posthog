@@ -10,7 +10,7 @@ from products.cohorts.backend.backfill.readiness import ensure_filters_shape_has
 from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort
 from products.cohorts.backend.models.backfill import CohortBackfillRunCohort, CohortBackfillRunStatus
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash
+from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash, extract_person_leaf_shape_hash
 
 
 @override_settings(
@@ -188,13 +188,24 @@ class TestBackfillReadiness(BaseTest):
         Cohort.objects.filter(id=cohort.id).update(
             filters_shape_hash=None,
             behavioral_filters_shape_hash=None,
+            person_filters_shape_hash=None,
         )
         cohort.filters_shape_hash = None
         cohort.behavioral_filters_shape_hash = None
+        cohort.person_filters_shape_hash = None
 
         self.assertEqual(ensure_filters_shape_hash(cohort), extract_leaf_shape_hash(cohort.filters))
         self.assertIsNotNone(cohort.behavioral_filters_shape_hash)
+        self.assertEqual(
+            cohort.person_filters_shape_hash,
+            extract_person_leaf_shape_hash(cohort.filters),
+        )
 
-        Cohort.objects.filter(id=cohort.id).update(filters_shape_hash="persisted")
+        Cohort.objects.filter(id=cohort.id).update(
+            filters_shape_hash="persisted",
+            person_filters_shape_hash="persisted-person",
+        )
         cohort.filters_shape_hash = None
+        cohort.person_filters_shape_hash = None
         self.assertEqual(ensure_filters_shape_hash(cohort), "persisted")
+        self.assertEqual(cohort.person_filters_shape_hash, "persisted-person")

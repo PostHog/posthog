@@ -2,10 +2,17 @@ from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.exports.backend.models.exported_asset import SEVEN_DAYS, SIX_MONTHS, TWELVE_MONTHS, ExportedAsset
+from products.exports.backend.models.exported_asset import (
+    SEVEN_DAYS,
+    SIX_MONTHS,
+    TWELVE_MONTHS,
+    ExportedAsset,
+    get_content_response,
+)
 
 
 class TestExportedAssetModel(APIBaseTest):
@@ -180,3 +187,27 @@ class TestExportedAssetFilename(APIBaseTest):
             export_context={"filename": "cohort-test"},
         )
         assert asset.filename == "cohort-test-2024-06-15-103000.xlsx"
+
+
+class TestDirectContentResponse(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("bounded_png_serves_bytes", ExportedAsset.ExportFormat.PNG, 200),
+            ("unbounded_video_redirects", ExportedAsset.ExportFormat.MP4, 302),
+        ]
+    )
+    def test_direct_mode_only_buffers_bounded_formats(
+        self, _name: str, export_format: str, expected_status: int
+    ) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=export_format,
+            content=b"bytes" if expected_status == 200 else None,
+            content_location="exports/some/key" if expected_status == 302 else None,
+        )
+        with patch(
+            "products.exports.backend.models.exported_asset.object_storage.get_presigned_url",
+            return_value="https://storage.example.com/presigned",
+        ):
+            response = get_content_response(asset, direct=True)
+        assert response.status_code == expected_status

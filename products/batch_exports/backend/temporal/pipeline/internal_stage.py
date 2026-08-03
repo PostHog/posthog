@@ -18,6 +18,7 @@ from temporalio import activity
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from posthog.credentials import AWSKeyPair
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -92,7 +93,7 @@ def _uses_object_storage_endpoint() -> bool:
 def _get_s3_endpoint_url() -> str:
     """Get the S3 endpoint URL for the Temporal worker.
 
-    When running the stack locally, MinIO runs in Docker but the Temporal workers run outside, so we need to pass in
+    When running the stack locally, the local object storage runs in Docker but the Temporal workers run outside, so we need to pass in
     localhost URL rather than the hostname of the container.
     """
     if _is_local_dev_or_test():
@@ -100,20 +101,24 @@ def _get_s3_endpoint_url() -> str:
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
-def _get_s3_credentials() -> tuple[str | None, str | None]:
-    """Get the S3 credentials for S3 internal staging bucket.
+def _get_s3_credentials() -> AWSKeyPair | None:
+    """Get the S3 credentials for the internal staging bucket, or None to authenticate keylessly.
 
-    If keyless S3 auth is enabled, we use no credentials as the IAM role will be used to authenticate.
-    Otherwise, we use the credentials from the object storage settings.
+    Keyless S3 auth (IAM role) returns None. A partially configured environment counts as keyless
+    rather than yielding half a key pair.
     """
-    use_keyless_s3_auth = not _uses_object_storage_endpoint()
-    if use_keyless_s3_auth:
-        aws_access_key_id = None
-        aws_secret_access_key = None
-    else:
-        aws_access_key_id = settings.OBJECT_STORAGE_ACCESS_KEY_ID
-        aws_secret_access_key = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
-    return aws_access_key_id, aws_secret_access_key
+    if not _uses_object_storage_endpoint():
+        return None
+    access_key_id = settings.OBJECT_STORAGE_ACCESS_KEY_ID
+    secret_access_key = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
+    if access_key_id is None or secret_access_key is None:
+        if (access_key_id is None) != (secret_access_key is None):
+            LOGGER.warning(
+                "Only one of OBJECT_STORAGE_ACCESS_KEY_ID and OBJECT_STORAGE_SECRET_ACCESS_KEY is set, "
+                "falling back to keyless S3 auth"
+            )
+        return None
+    return AWSKeyPair.unsafe_from_strings(access_key_id, secret_access_key)
 
 
 def socket_factory(addr_info):
@@ -151,12 +156,12 @@ class AIOHTTPSession(BaseAIOHTTPSession):
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
-    aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
+    credentials = _get_s3_credentials()
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
+        aws_access_key_id=credentials.access_key_id if credentials else None,
+        aws_secret_access_key=credentials.secret_access_key if credentials else None,
         endpoint_url=_get_s3_endpoint_url(),
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
@@ -410,11 +415,9 @@ async def _get_query(
     num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
     assert num_partitions is not None  # to satisfy mypy
 
-    aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
     s3_function = get_s3_function_call(
         s3_folder=s3_staging_folder_url,
-        s3_key=aws_access_key_id,
-        s3_secret=aws_secret_access_key,
+        credentials=_get_s3_credentials(),
         num_partitions=num_partitions,
     )
 
@@ -531,12 +534,12 @@ def _get_clickhouse_s3_staging_folder_url(folder: str) -> str:
     """Get the URL for the S3 staging folder of a given batch export and attempt number.
 
     This is passed to the ClickHouse query as the `s3_folder` parameter.
-    When running the stack locally, ClickHouse and MinIO are both running in Docker so we use the hostname of the
+    When running the stack locally, ClickHouse and the local object storage are both running in Docker so we use the hostname of the
     container.
     """
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
     region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
-    # in these environments this will be a URL for MinIO
+    # in these environments this will be a URL for the local object storage
     if _uses_object_storage_endpoint():
         base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
@@ -581,8 +584,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # Some tests create data in the future, so we do not check this.
         raise DataIntervalEndInFutureError(end_at)
 
-    with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
-        await wait_for_delta_past_data_interval_end(end_at, delta)
+    if not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end:
+        with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
+            await wait_for_delta_past_data_interval_end(end_at, delta)
 
     done_ranges: list[tuple[dt.datetime, dt.datetime]] = []
     async with get_client(
@@ -610,17 +614,17 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
                 query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
                     data_interval_start=interval_start,
                     data_interval_end=interval_end,
                     s3_folder=s3_staging_folder_url,
-                    s3_key=aws_access_key_id,
-                    s3_secret=aws_secret_access_key,
+                    credentials=_get_s3_credentials(),
                     num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
                 )
+                query_settings = query_or_model.get_clickhouse_request_settings()
             else:
                 query = query_or_model
+                query_settings = {}
 
             base_s3_staging_folder = get_base_s3_staging_folder(
                 batch_export_id=batch_export_id,
@@ -644,7 +648,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
 
             try:
                 with TRACER.start_as_current_span("batch_export.stage.clickhouse_query") as query_span:
-                    written_rows = await _execute_query(client, query, query_parameters)
+                    written_rows = await _execute_query(client, query, query_parameters, query_settings)
                     if written_rows is not None:
                         query_span.set_attribute("batch_export.stage.written_rows", written_rows)
             except ClickHouseError:
@@ -673,7 +677,12 @@ def _written_rows_from_summary(summary: dict[str, typing.Any] | None) -> int | N
         return None
 
 
-async def _execute_query(client: ClickHouseClient, query: str, query_parameters: dict[str, typing.Any]) -> int | None:
+async def _execute_query(
+    client: ClickHouseClient,
+    query: str,
+    query_parameters: dict[str, typing.Any],
+    query_settings: dict[str, str] | None = None,
+) -> int | None:
     """Execute the batch exports query and wait for it to complete.
 
     If the query takes longer than 300 seconds, we time out and wait for the query to complete by checking the query log
@@ -689,7 +698,7 @@ async def _execute_query(client: ClickHouseClient, query: str, query_parameters:
     with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
         try:
             summary = await client.execute_query_with_summary(
-                query, query_parameters=query_parameters, query_id=query_id, timeout=300
+                query, query_parameters=query_parameters, query_id=query_id, timeout=300, settings=query_settings
             )
         except ClickHouseClientTimeoutError:
             logger.warning(
