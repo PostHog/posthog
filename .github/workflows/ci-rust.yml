@@ -647,7 +647,11 @@ jobs:
                   # never asked anything. 21s is the lowest TTL
                   # validate_fencing_timescales accepts with fencing on,
                   # so the freeze runs past it and the run is sized to
-                  # leave the woken zombie time to try.
+                  # leave the woken zombie time to try. The gate asserts
+                  # rejection by consequence (an unfenced landing fails
+                  # the verifier; a crash fails the liveness check), not
+                  # by scraping fence metrics — the deterministic
+                  # fencing_integration tests carry the per-arm coverage.
                   ./target/debug/personhog-test-harness gate \
                     --leader-env KAFKA_TRANSACTIONAL_FENCING=true \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 40s \
