@@ -11,8 +11,7 @@ class WeeklyDigestInputs:
     dry_run: bool = True
     org_ids: list[str] | None = None
     # How many per-org activities run at once within each page (bounds ClickHouse load
-    # and webhook rate per page). All pages start at once, so the fleet's activity-slot
-    # capacity (35 in prod) is the effective global throttle.
+    # and webhook rate per page).
     max_concurrent: int = 10
     # Total executions per org activity: initial run + 5 retries. The final attempt sends
     # partial digests instead of deferring recipients whose teams failed to build.
@@ -24,9 +23,9 @@ class WeeklyDigestInputs:
 
 @dataclasses.dataclass(frozen=True)
 class GetDigestOrgsInputs:
-    # Object storage key the discovered org ids are written to. The org list never rides
-    # through workflow history — only this key and a count do — so history and payload
-    # sizes stay flat no matter how many orgs are discovered.
+    # Object storage key the discovered org ids are written to. Discovery returns only this
+    # key and a count, keeping the discovered org list out of workflow history no matter how
+    # many orgs it finds. A targeted manual run still passes its org_ids through directly.
     storage_key: str
     org_ids: list[str] | None = None
 

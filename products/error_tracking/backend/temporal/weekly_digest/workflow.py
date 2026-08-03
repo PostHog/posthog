@@ -139,7 +139,7 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
     a child workflow immediately.
 
     Only a storage key and a count ride through workflow history, so history and payload
-    sizes stay flat regardless of org count. All children start at once — the worker
+    sizes stay flat regardless of org count. All children start at once, so the worker
     fleet's activity-slot capacity is the intended global throttle.
     """
 

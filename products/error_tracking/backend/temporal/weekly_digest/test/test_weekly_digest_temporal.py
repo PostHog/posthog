@@ -435,20 +435,37 @@ class _FanOutTracker:
     inputs_seen: list[SendOrgDigestInputs] = dataclasses.field(default_factory=list)
 
 
-def _storage_stubs(org_ids: list[str], cleanup_keys: list[str] | None = None):
-    """Discovery/load/cleanup stubs backed by an in-memory org list instead of S3."""
+def _storage_stubs(
+    org_ids: list[str],
+    cleanup_keys: list[str] | None = None,
+    load_calls: list[LoadPageOrgsInputs] | None = None,
+    fail_page: int | None = None,
+):
+    # In-memory stand-in for object storage, keyed by storage_key rather than closing over
+    # the org list, so a page reading a key discovery never wrote — or reading one cleanup
+    # already deleted — fails here the way it would against S3.
+    store: dict[str, list[str]] = {}
 
     @activity.defn(name="get_digest_orgs_activity")
     async def _get_orgs(inputs: GetDigestOrgsInputs) -> GetDigestOrgsResult:
+        if org_ids:
+            store[inputs.storage_key] = sorted(org_ids)
         return GetDigestOrgsResult(total_orgs=len(org_ids))
 
     @activity.defn(name="load_page_orgs_activity")
     async def _load_page(inputs: LoadPageOrgsInputs) -> list[str]:
+        if load_calls is not None:
+            load_calls.append(inputs)
+        if inputs.page_number == fail_page:
+            raise ApplicationError(f"object storage unavailable for page {fail_page}", non_retryable=True)
+        if inputs.storage_key not in store:
+            raise ApplicationError(f"Digest org list not found in object storage at {inputs.storage_key}")
         start = (inputs.page_number - 1) * inputs.page_size
-        return sorted(org_ids)[start : start + inputs.page_size]
+        return store[inputs.storage_key][start : start + inputs.page_size]
 
     @activity.defn(name="cleanup_digest_orgs_activity")
     async def _cleanup(inputs: CleanupDigestOrgsInputs) -> None:
+        store.pop(inputs.storage_key, None)
         if cleanup_keys is not None:
             cleanup_keys.append(inputs.storage_key)
 
@@ -555,6 +572,7 @@ class TestErrorTrackingWeeklyDigestWorkflow:
     async def test_pages_through_all_orgs_via_child_workflows(self):
         org_ids = sorted(f"org-{i}" for i in range(25))
         cleanup_keys: list[str] = []
+        load_calls: list[LoadPageOrgsInputs] = []
         seen: list[str] = []
 
         @activity.defn(name="send_org_digest_activity")
@@ -562,19 +580,28 @@ class TestErrorTrackingWeeklyDigestWorkflow:
             seen.append(inputs.org_id)
             return SendOrgDigestResult(sent=1, teams_built=1)
 
-        result = await self._execute(WeeklyDigestInputs(page_size=10), [*_storage_stubs(org_ids, cleanup_keys), _send])
+        result = await self._execute(
+            WeeklyDigestInputs(page_size=10), [*_storage_stubs(org_ids, cleanup_keys, load_calls), _send]
+        )
 
         # Every org is processed exactly once across the page children (25 orgs at
         # page_size 10 = pages of 10/10/5), and the stored list is cleaned up after.
         assert Counter(seen) == Counter(org_ids)
         assert result == WeeklyDigestResult(orgs=25, orgs_failed=0, sent=25)
         assert len(cleanup_keys) == 1
+        # Each child must request its own page at the parent's page_size: a child that
+        # ignores page_size pulls the whole list into one activity payload, which is the
+        # payload-cap failure the storage handoff exists to avoid.
+        assert sorted((call.page_number, call.page_size) for call in load_calls) == [(1, 10), (2, 10), (3, 10)]
+        # The key written, read, and deleted must all be the same one.
+        assert {call.storage_key for call in load_calls} == set(cleanup_keys)
 
     @pytest.mark.asyncio
     async def test_failure_in_early_page_is_reported_by_the_parent(self):
         # Exact multiple of page_size: page math must not add an empty trailing page
         # or drop failures or totals.
         org_ids = sorted(f"org-{i}" for i in range(20))
+        load_calls: list[LoadPageOrgsInputs] = []
         seen: list[str] = []
 
         @activity.defn(name="send_org_digest_activity")
@@ -585,10 +612,37 @@ class TestErrorTrackingWeeklyDigestWorkflow:
             return SendOrgDigestResult(sent=1, teams_built=1)
 
         with pytest.raises(Exception) as exc_info:
-            await self._execute(WeeklyDigestInputs(page_size=10), [*_storage_stubs(org_ids), _send])
+            await self._execute(
+                WeeklyDigestInputs(page_size=10), [*_storage_stubs(org_ids, load_calls=load_calls), _send]
+            )
 
         cause = exc_info.value.__cause__
         assert cause is not None and getattr(cause, "type", None) == FAILED_ORGS_ERROR_TYPE
         # A failure in page 1 must not stop later pages: every page drains and the
         # parent reports the failure once at the end.
         assert Counter(seen) == Counter(org_ids)
+        # 20 orgs at page_size 10 is exactly two pages. A ceil that rounds up unconditionally
+        # would add a third child that loads nothing.
+        assert sorted(call.page_number for call in load_calls) == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_page_that_cannot_load_its_orgs_is_attributed_as_a_whole_page(self):
+        # A child that never gets its org ids reports nothing back, so the parent has to
+        # attribute the page from its own math. Counting it as one org would tell an
+        # operator a storage outage cost 1 org when it cost the whole page.
+        org_ids = sorted(f"org-{i}" for i in range(25))
+        sent_orgs: list[str] = []
+
+        @activity.defn(name="send_org_digest_activity")
+        async def _send(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
+            sent_orgs.append(inputs.org_id)
+            return SendOrgDigestResult(sent=1, teams_built=1)
+
+        with pytest.raises(Exception) as exc_info:
+            await self._execute(WeeklyDigestInputs(page_size=10), [*_storage_stubs(org_ids, fail_page=1), _send])
+
+        cause = exc_info.value.__cause__
+        assert cause is not None and getattr(cause, "type", None) == FAILED_ORGS_ERROR_TYPE
+        assert "10/25 orgs" in str(cause)
+        # The other pages still drain: only page 1's orgs go unsent.
+        assert Counter(sent_orgs) == Counter(org_ids[10:])
