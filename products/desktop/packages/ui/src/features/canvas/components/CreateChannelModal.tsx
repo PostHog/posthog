@@ -23,13 +23,54 @@ import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/ho
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
-import { type CSSProperties, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 
 // Matches Slack's "Create a channel" naming constraint.
 const MAX_CONTEXT_NAME_LENGTH = 80;
 
-const DESCRIPTION_PLACEHOLDER =
-  "Grab all files relating to X feature, get all relevant pull requests, in this X repo(s)";
+const DESCRIPTION_EXAMPLES = [
+  "Feature flags help teams control feature access, target specific users, and manage gradual rollouts.",
+  "The onboarding experience guides new customers from creating an account to completing their first successful setup.",
+  "We're migrating our billing system to Stripe while preserving existing subscriptions and minimizing disruption.",
+  "Authentication includes sign-in, account recovery, session management, roles, and permissions across our applications.",
+  "The mobile redesign aims to simplify navigation, improve accessibility, and make common workflows faster.",
+];
+
+const DESCRIPTION_ROTATION_INTERVAL_MS = 5000;
+
+function RotatingDescriptionPlaceholder({ visible }: { visible: boolean }) {
+  const [exampleIndex, setExampleIndex] = useState(0);
+  const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!visible || reduceMotion) return;
+
+    const interval = window.setInterval(() => {
+      setExampleIndex((current) => (current + 1) % DESCRIPTION_EXAMPLES.length);
+    }, DESCRIPTION_ROTATION_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [reduceMotion, visible]);
+
+  return (
+    <AnimatePresence initial={false} mode="wait">
+      {visible && (
+        <motion.span
+          key={exampleIndex}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-2 top-2 text-muted-foreground text-xs"
+          initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2 }}
+        >
+          {DESCRIPTION_EXAMPLES[exampleIndex]}
+        </motion.span>
+      )}
+    </AnimatePresence>
+  );
+}
 
 interface CreateChannelModalProps {
   open: boolean;
@@ -62,12 +103,14 @@ export function CreateChannelModal({
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [descriptionFocused, setDescriptionFocused] = useState(false);
   const [repositories, setRepositories] = useState<string[]>([]);
   const [repoIntegration, setRepoIntegration] = useState<number | null>(null);
   // Create mode's step. Describe mode has no name step, so it starts past it.
   const [step, setStep] = useState<"name" | "describe" | "repositories">(
     "name",
   );
+  const descriptionHelperId = useId();
 
   // Reset the fields each time the modal opens so a previous draft never
   // lingers. Adjusted inline during render (prev-prop comparison) rather than in
@@ -78,6 +121,7 @@ export function CreateChannelModal({
     if (open) {
       setName("");
       setDescription("");
+      setDescriptionFocused(false);
       setRepositories([]);
       setRepoIntegration(null);
       setStep("name");
@@ -210,24 +254,35 @@ export function CreateChannelModal({
           What's this {spacesLayout ? "space" : "channel"} about?
         </FieldLabel>
       )}
-      <Textarea
-        id="context-description"
-        autoFocus
-        rows={4}
-        className="max-h-[40vh] overflow-y-auto"
-        value={description}
-        placeholder={DESCRIPTION_PLACEHOLDER}
-        disabled={busy}
-        onChange={(e) => setDescription(e.target.value)}
-        onKeyDown={(e) => {
-          // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
-          // repeats, so it goes through the same latch as the buttons.
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            void submitOnce(submitDescribeStep);
-          }
-        }}
-      />
+      <p id={descriptionHelperId} className="text-muted-foreground text-xs">
+        Tell PostHog about this {spacesLayout ? "space" : "channel"}. We'll use
+        it to create a CONTEXT.md file with relevant information for future
+        tasks.
+      </p>
+      <div className="relative">
+        <Textarea
+          id="context-description"
+          aria-describedby={descriptionHelperId}
+          rows={4}
+          className="max-h-[40vh] overflow-y-auto"
+          value={description}
+          disabled={busy}
+          onFocus={() => setDescriptionFocused(true)}
+          onBlur={() => setDescriptionFocused(false)}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => {
+            // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
+            // repeats, so it goes through the same latch as the buttons.
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void submitOnce(submitDescribeStep);
+            }
+          }}
+        />
+        <RotatingDescriptionPlaceholder
+          visible={!descriptionFocused && description.length === 0 && !busy}
+        />
+      </div>
     </Field>
   );
 
@@ -376,11 +431,19 @@ export function CreateChannelModal({
               >
                 Back
               </Button>
-              {/* The description is optional; Next always advances to the
-                  repositories step and a filled description seeds context.md. */}
+              <Button
+                variant="default"
+                disabled={busy}
+                onClick={() => {
+                  setDescription("");
+                  setStep("repositories");
+                }}
+              >
+                Skip
+              </Button>
               <Button
                 variant="primary"
-                disabled={busy}
+                disabled={!canDescribe}
                 onClick={() => void submitOnce(submitDescribeStep)}
               >
                 Next
