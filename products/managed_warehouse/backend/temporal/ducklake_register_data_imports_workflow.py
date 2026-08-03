@@ -267,7 +267,7 @@ async def prepare_ducklake_data_imports_registration_activity(
 
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
         ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
-        ducklake_table_name = duckgres_data_imports_table_name(schema)
+        ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
         landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
             team_id=inputs.team_id,
             ducklake_schema_name=ducklake_schema_name,

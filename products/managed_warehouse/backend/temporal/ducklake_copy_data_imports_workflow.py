@@ -424,7 +424,7 @@ async def _prepare_data_imports_ducklake_metadata(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=ducklake_schema_name,
-                ducklake_table_name=duckgres_data_imports_table_name(schema),
+                ducklake_table_name=await database_sync_to_async(duckgres_data_imports_table_name)(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,

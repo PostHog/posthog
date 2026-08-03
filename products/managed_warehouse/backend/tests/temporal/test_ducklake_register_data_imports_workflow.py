@@ -3,7 +3,7 @@ import datetime as dt
 import contextlib
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -34,11 +34,15 @@ from products.warehouse_sources.backend.facade.models import (
 
 @pytest.fixture(autouse=True)
 def _cp_no_rows():
-    from unittest.mock import patch
-
-    with patch(
-        "products.managed_warehouse.backend.facade.team_state.data_imports_schema",
-        side_effect=lambda team_id: f"posthog_data_imports_team_{team_id}",
+    with (
+        patch(
+            "products.managed_warehouse.backend.facade.team_state.data_imports_schema",
+            side_effect=lambda team_id: f"posthog_data_imports_team_{team_id}",
+        ),
+        patch(
+            "products.managed_warehouse.backend.facade.team_state.data_imports_table_naming_version",
+            return_value="copy_v1",
+        ),
     ):
         yield
 
