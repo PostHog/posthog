@@ -40,7 +40,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.security.url_validation import has_authority_bypass_chars, has_encoded_authority_terminator
+from posthog.security.url_validation import has_ambiguous_authority
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -524,7 +524,7 @@ def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]],
     if not hostname:
         return hostname_in_allowed_url_list(allowed_url_list, hostname)
     candidate = canonicalize_encoded_url(hostname)
-    if has_authority_bypass_chars(candidate) or has_encoded_authority_terminator(candidate):
+    if has_ambiguous_authority(candidate):
         return False
     return hostname_in_allowed_url_list(allowed_url_list, urlparse(candidate).hostname)
 

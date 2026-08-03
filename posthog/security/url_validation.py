@@ -164,10 +164,9 @@ def has_authority_bypass_chars(url: str) -> bool:
     URLs containing these characters cannot be safely validated by host, because
     the validated host differs from the host the client will actually connect to.
 
-    This runs on every SSRF-validated outbound fetch, so it stays limited to
-    sequences no client resolves consistently. Percent-encoded characters that are
-    merely ambiguous under a decode-then-split reading are handled by
-    ``has_encoded_authority_terminator``, which only redirect validation applies.
+    This is the lenient rule, for URLs we are about to fetch ourselves. Only the SSRF
+    validator in this module uses it. Anything that hands a URL back to a client wants
+    ``has_ambiguous_authority`` instead.
     """
     if "\\" in url:
         return True
@@ -176,25 +175,29 @@ def has_authority_bypass_chars(url: str) -> bool:
     return False
 
 
-def has_encoded_authority_terminator(url: str) -> bool:
+def has_ambiguous_authority(url: str) -> bool:
     """
-    Detect a percent-encoded authority delimiter anywhere in the URL authority.
+    Reject a URL whose authority any client could read differently than ``urlparse`` does.
 
-    A consumer that percent-decodes before splitting the authority sees it end at the
-    terminator, so ``https://good.example%2F@evil.example/`` reads as ``good.example``
-    there and as ``evil.example`` under ``urlparse``. Nothing in the request path
-    decodes that early today, which makes this a tripwire rather than the control:
-    it exists so that reintroducing a decode step, or dropping ``strip_url_userinfo``
-    from a redirect target, fails closed instead of silently reopening the split.
+    This is the strict rule, for a URL we hand back to a client: a redirect target, an
+    OAuth ``redirect_uri``, a link in an email. Those are delivered with the authority
+    intact, so the host we validated has to be the host the recipient resolves.
 
-    Only redirect validation calls this. The same sequences are legitimate in
-    credentials (an email username encodes ``@`` as ``%40``, a password may encode
-    ``/``, ``?``, or ``#``), so applying it to outbound fetches would reject ordinary
-    basic auth. Redirect targets have no business carrying credentials at all.
+    On top of the backslash cases, it rejects ``ENCODED_AUTHORITY_TERMINATORS`` anywhere
+    in the authority. A consumer that percent-decodes before splitting sees the authority
+    end at the terminator, so ``https://good.example%2F@evil.example/`` reads as
+    ``good.example`` there and as ``evil.example`` under ``urlparse``.
 
-    Pass a full URL: a bare host has no authority to inspect. Sequences in the path,
-    query, or fragment are ordinary encoded data and are ignored.
+    Outbound fetches deliberately do not get this rule. Percent-encoded characters are
+    ordinary in credentials (an email username encodes ``@`` as ``%40``, a password may
+    encode ``/``, ``?``, or ``#``), so applying it there would reject routine basic auth.
+    A URL we hand to someone else has no business carrying credentials in the first place.
+
+    Pass a full URL: a bare host has no authority to inspect. The same sequences in a
+    path, query, or fragment are ordinary encoded data and are ignored.
     """
+    if has_authority_bypass_chars(url):
+        return True
     try:
         authority = urlparse.urlparse(url).netloc.lower()
     except ValueError:

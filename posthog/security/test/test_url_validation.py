@@ -305,6 +305,13 @@ class TestUrlValidation:
             ("https://example.com%23@attacker.com/", True),
             ("https://example.com%40@attacker.com/", True),
             ("https://example.com%2Fpath", True),
+            # Credentials are legitimate on a fetch but not on a URL we hand back, and
+            # the encoded characters in them are exactly what makes the authority
+            # ambiguous, so the strict rule rejects them where the lenient one allows.
+            ("https://user%40corp.example:pass@example.com/path", True),
+            # The strict rule subsumes the backslash cases.
+            ("http://attacker.com\\@example.com", True),
+            ("http://example.com%5Cpath", True),
             ("https://example.com/", False),
             # The same sequences outside the authority are ordinary encoded data.
             ("https://example.com/repos/group%2Fproject", False),
@@ -315,5 +322,5 @@ class TestUrlValidation:
             ("https://exa℀mple.com/", True),
         ],
     )
-    def test_has_encoded_authority_terminator(self, url, expected):
-        assert uv.has_encoded_authority_terminator(url) is expected
+    def test_has_ambiguous_authority(self, url, expected):
+        assert uv.has_ambiguous_authority(url) is expected
