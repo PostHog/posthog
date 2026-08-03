@@ -9,6 +9,7 @@ import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
+import { ScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     dailyCronToTime,
@@ -135,6 +136,33 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Network access</span>
+                    <span className="text-[11.5px] text-muted">
+                        What the scout can reach while it runs. Trusted domains cover PostHog, GitHub, and common
+                        package registries. Full access lets it reach any site.
+                    </span>
+                </div>
+                <LemonSelect
+                    size="small"
+                    value={config.network_access}
+                    options={[
+                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains only' },
+                        { value: ScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
+                    ]}
+                    // Editable while the scout is disabled, unlike the schedule controls: a newly
+                    // enabled scout with no prior run is immediately due, so network access must be
+                    // settable BEFORE the enable or the first run races out under the default policy.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    className="w-44"
+                    onChange={(value) => {
+                        if (value !== config.network_access) {
+                            onUpdate(config.id, { network_access: value })
+                        }
+                    }}
+                />
+            </div>
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Opt out of auto-pause</span>

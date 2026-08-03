@@ -57,6 +57,12 @@ logger = logging.getLogger(__name__)
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
+# Dedicated env for scouts whose config opts into full network access. Sandbox envs are
+# per-team rows shared by name, and `upsert_internal_sandbox_env` reasserts policy on every
+# call — so a full-network run must NOT reuse the shared research env above, or it would
+# flip the network policy for report research and every trusted-mode scout on the team.
+SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
+
 # Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` rolls the whole fleet
 # up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
@@ -454,10 +460,19 @@ async def _spawn_and_run(
     `runtime_adapter` that serves it — the agent server derives the provider from it; all `None` keeps
     the agent-server default Claude runtime). Returns `(last_message, task_run_id)`.
     """
+    # The config's `network_access` picks the sandbox env — and with it the egress policy the
+    # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
+    # env name so its unrestricted policy can't be reasserted onto the shared one.
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
+        network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL
+    else:
+        sandbox_env_name = SIGNALS_SCOUT_SANDBOX_ENV_NAME
+        network_access_level = tasks_facade.SandboxNetworkAccessLevel.TRUSTED
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
-        SIGNALS_SCOUT_SANDBOX_ENV_NAME,
-        tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+        sandbox_env_name,
+        network_access_level,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
@@ -740,6 +755,12 @@ def _create_run_row(
         )
         if value is not None
     }
+    # Stamped only when non-default, like the model triple: absence means the run held the
+    # trusted-domains posture. Stamped (rather than read off the config later) because the
+    # config row can be edited after the fact, which would silently rewrite what past runs
+    # could actually reach.
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        metadata["network_access"] = config.network_access
     # The three dimensions that pin down which instructions this run actually got. All are
     # point-in-time facts that become unrecoverable later, which is why they are stamped rather
     # than resolved at read time: the harness prompt has no version history, a skill's
@@ -905,7 +926,12 @@ def _capture_run_started(
         "task_run_id": task_run_id,
     }
     _attach_run_shape_props(
-        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+        properties,
+        config=config,
+        skill=skill,
+        github_guidance=github_guidance,
+        model=model,
+        runtime_adapter=runtime_adapter,
     )
     try:
         posthoganalytics.capture(
@@ -1001,6 +1027,7 @@ def _capture_config_auto_paused(
 def _attach_run_shape_props(
     properties: dict[str, Any],
     *,
+    config: SignalScoutConfig,
     skill: LoadedSkill,
     github_guidance: bool,
     model: str | None,
@@ -1013,13 +1040,17 @@ def _attach_run_shape_props(
     which is the dimension a prompt A/B has to hold constant, and until it existed nothing recorded
     which build a run used. Model and runtime adapter are attached only when the
     `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
-    agent-server default served it. All three make run outcomes (timeout rate, runtime, emit volume)
-    sliceable without joining through $ai_generation.
+    agent-server default served it. `network_access` follows the same absent-means-default
+    convention (attached only for `full`), so an event-based readout never pools runs with
+    different egress capabilities under one model or prompt. All of these make run outcomes
+    (timeout rate, runtime, emit volume) sliceable without joining through $ai_generation.
     """
     properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
     properties["skill_origin"] = skill.origin
     properties["github_guidance"] = github_guidance
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        properties["network_access"] = config.network_access
     if model is not None:
         properties["model"] = model
     if runtime_adapter is not None:
@@ -1071,7 +1102,12 @@ def _capture_run_finished(
         "emitted_count": emitted_count,
     }
     _attach_run_shape_props(
-        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+        properties,
+        config=config,
+        skill=skill,
+        github_guidance=github_guidance,
+        model=model,
+        runtime_adapter=runtime_adapter,
     )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.

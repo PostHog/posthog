@@ -1220,24 +1220,39 @@ def upsert_internal_sandbox_env(
 ) -> UUID:
     """Get-or-create an internal sandbox environment, reasserting policy on every call.
 
+    Only rows already carrying the requested ``internal`` flag are matched for reuse: users
+    can create environments with arbitrary names through the sandbox environment API, and a
+    same-named user row must never be adopted (or deleted) by internal provisioning — the
+    internal env is created alongside it instead. Reasserted policy covers the whole
+    execution surface, not just network: the user-controllable ``custom_image``,
+    ``environment_variables``, and ``repositories`` fields are cleared on every call, so
+    nothing a person set on a row (before or after it became internal) can ride into an
+    internally provisioned run.
+
     ``SandboxEnvironment`` has no unique constraint on ``(team_id, name)``, so concurrent
     callers can both INSERT. We dedupe on ``MultipleObjectsReturned`` by keeping the oldest
-    row and deleting the rest.
+    matching row and deleting the rest.
     """
     defaults: dict = {
         "network_access_level": network_access_level,
         "private": private,
-        "internal": internal,
+        "custom_image": None,
+        "environment_variables": {},
+        "repositories": [],
     }
     if allowed_domains is not None:
         defaults["allowed_domains"] = allowed_domains
         defaults["include_default_domains"] = include_default_domains
     try:
-        env, _ = SandboxEnvironment.objects.update_or_create(team_id=team_id, name=name, defaults=defaults)
+        env, _ = SandboxEnvironment.objects.update_or_create(
+            team_id=team_id, name=name, internal=internal, defaults=defaults
+        )
         return env.id
     except SandboxEnvironment.MultipleObjectsReturned:
         with transaction.atomic():
-            dupes = list(SandboxEnvironment.objects.filter(team_id=team_id, name=name).order_by("created_at"))
+            dupes = list(
+                SandboxEnvironment.objects.filter(team_id=team_id, name=name, internal=internal).order_by("created_at")
+            )
             keeper = dupes[0]
             SandboxEnvironment.objects.filter(id__in=[d.id for d in dupes[1:]]).delete()
         for key, value in defaults.items():
