@@ -173,6 +173,27 @@ class TestSQLV2ApplyPageBounds(SimpleTestCase):
             out == "select * from (select * from credit.billing_credits\n) as posthog_notebook_page limit 301 offset 0"
         )
 
+    @parameterized.expand(
+        [
+            ("explain", "explain select 1"),
+            ("uppercase", "EXPLAIN ANALYZE select 1"),
+            ("show", "show search_path"),
+            ("behind_a_comment", "-- why is this slow\nexplain select 1"),
+        ]
+    )
+    def test_raw_bounding_leaves_unnestable_statements_alone(self, _name: str, query: str) -> None:
+        # Postgres admits EXPLAIN/SHOW in raw mode (only MySQL restricts raw SQL to SELECT), and
+        # neither is valid inside a derived table. Wrapping them turns a query that works in the
+        # SQL editor into a syntax error, so they reach the engine as written.
+        assert apply_raw_page_bounds(query, limit=301, offset=0) == query
+
+    def test_raw_bounding_still_wraps_a_select_behind_a_comment(self) -> None:
+        # The leading-keyword check skips comments, so it must not mistake a commented SELECT
+        # for something unnestable and ship an unbounded scan into the result store.
+        out = apply_raw_page_bounds("-- daily totals\nselect * from users", limit=301, offset=0)
+        assert out.startswith("select * from (-- daily totals\nselect * from users")
+        assert out.endswith(") as posthog_notebook_page limit 301 offset 0")
+
 
 class TestSQLV2Callback(APIBaseTest):
     def setUp(self):
@@ -792,6 +813,46 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertIn("WITH df1 AS (SELECT id FROM events)", run.code)
         mock_enqueue.assert_called_once()
+
+    def _deny_source_access(self) -> None:
+        # Demote from owner (owner bypasses access control), turn the feature on, and deny this
+        # one source. Query access stays intact — that is the point: it does not imply source access.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+    def test_reading_a_connection_run_needs_source_access(self, _mock_enabled):
+        # Dispatch gated the source, but the run row outlives that check and this endpoint serves
+        # its rows to anyone with notebook + query access. Without a re-check a member denied
+        # viewer on the warehouse could poll a colleague's run and read what it pulled.
+        with team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                code="select * from public.users",
+                connection_id=self.source.id,
+                envelope={"status": "ok", "columns": ["id"], "first_page": [[1]]},
+                status=NotebookNodeRun.Status.DONE,
+            )
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["result"]["first_page"], [[1]])
+
+        self._deny_source_access()
+        self.assertEqual(self.client.get(url).status_code, 403)
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")

@@ -10,6 +10,7 @@ the query status (`sync_direct_run`) because the manager has no completion callb
 Kernel-lane runs (python/duckdb) keep the Temporal -> sandbox dispatch in sql_v2.py.
 """
 
+import re
 import hmac
 import hashlib
 from typing import TYPE_CHECKING, Any
@@ -66,6 +67,21 @@ def notebook_direct_query_id(run_id: str) -> str:
         f"notebook-direct-query:{run_id}".encode(),
         hashlib.sha256,
     ).hexdigest()
+
+
+# Leading whitespace and comments, so the keyword check below sees the real first word.
+_LEADING_NOISE = re.compile(r"^(?:\s+|--[^\n]*\n?|/\*.*?\*/)+", re.DOTALL)
+# Statements that return rows but are not valid inside a derived table. Postgres (and so the
+# managed warehouse) admits these in raw mode — only MySQL restricts raw SQL to SELECT — and
+# they all produce tiny introspection results, so serving them unbounded is safe. Anything
+# unrecognized still gets wrapped: an over-eager bound is a syntax error the user can see,
+# while an over-eager pass-through would put an unbounded scan into the result store.
+_UNWRAPPABLE_LEADING_KEYWORDS = frozenset({"explain", "show", "describe", "desc", "pragma"})
+
+
+def _leading_keyword(query: str) -> str:
+    words = _LEADING_NOISE.sub("", query).split(None, 1)
+    return words[0].lower() if words else ""
 
 
 def _strip_statement_terminator(query: str) -> str:
@@ -137,9 +153,13 @@ def apply_raw_page_bounds(query: str, limit: int, offset: int) -> str:
     """Bound a raw (engine-dialect) query, which the HogQL parser can't read.
 
     No pushdown analysis is possible without parsing, so this is `apply_page_bounds`'s
-    wrapper fallback with the parse step skipped.
+    wrapper fallback with the parse step skipped — except for the statements that cannot be
+    nested at all, which are served as written rather than turned into a syntax error.
     """
-    return _wrap_page_query(_strip_statement_terminator(query), limit, offset)
+    query = _strip_statement_terminator(query)
+    if _leading_keyword(query) in _UNWRAPPABLE_LEADING_KEYWORDS:
+        return query
+    return _wrap_page_query(query, limit, offset)
 
 
 def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) -> None:

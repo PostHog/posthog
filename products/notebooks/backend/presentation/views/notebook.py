@@ -648,6 +648,24 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
 
+    def _require_run_connection_access(self, run: NotebookNodeRun, user: User | None) -> None:
+        # Dispatch resolved the source for the user who ran the cell, but the run row outlives
+        # that check and these endpoints serve its rows to anyone with notebook + query access.
+        # Without re-checking, a user denied viewer on the warehouse source could read rows a
+        # colleague's run pulled from it. Notebook + query access does not imply source access.
+        if not run.connection_id:
+            return
+        if (
+            get_direct_connection_source(
+                self.team,
+                str(run.connection_id),
+                user=user,
+                require_pure_direct=run.send_raw_query,
+            )
+            is None
+        ):
+            raise PermissionDenied("You need access to this cell's data source to read its results.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
 
@@ -1294,6 +1312,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         if run is None:
             raise Http404()
+        self._require_run_connection_access(run, user)
 
         # Direct (hogql) runs have no callback: this poll advances the row from the async
         # query status, and while the manager's result is alive it also returns the full
@@ -1339,6 +1358,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         if run is None:
             raise Http404()
+        self._require_run_connection_access(run, user)
         if run.status != NotebookNodeRun.Status.DONE:
             return Response({"detail": "Run has no result to page."}, status=400)
 
