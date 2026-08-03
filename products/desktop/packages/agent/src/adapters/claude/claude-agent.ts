@@ -1774,11 +1774,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         getSessionJsonlPath(this.sessionId, session.cwd),
       );
     } catch (error) {
+      // Already gone is the common case (every clear after the first). Anything
+      // else means the file survives, and a cold reconnect that finds it resumes
+      // the pre-clear conversation — so the clear has to fail rather than report
+      // a success the next reconnect quietly undoes.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        this.logger.warn("Failed to remove stale session jsonl after /clear", {
-          sessionId: this.sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        throw error;
       }
     }
 

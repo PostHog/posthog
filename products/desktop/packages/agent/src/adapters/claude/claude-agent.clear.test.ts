@@ -340,21 +340,31 @@ describe("ClaudeAcpAgent /clear", () => {
     unlinkSpy.mockRestore();
   });
 
-  it("still completes the clear if removing the stale jsonl fails for a reason other than a missing file", async () => {
+  it("fails the clear when the stale jsonl survives for a reason other than a missing file", async () => {
+    // The file outliving the clear means a cold reconnect hydrates by the stable ACP
+    // id, finds it, and restores the pre-clear conversation. Reporting success here
+    // would hand back the context the user asked to drop, silently.
     const unlinkSpy = vi
       .spyOn(fs.promises, "unlink")
       .mockRejectedValue(
         Object.assign(new Error("EACCES"), { code: "EACCES" }),
       );
-    const { agent } = makeAgent();
+    const { agent, client } = makeAgent();
     installFakeSession(agent, "s-unlink-fails");
 
-    const result = await agent.prompt({
-      sessionId: "s-unlink-fails",
-      prompt: [{ type: "text", text: "/clear" }],
-    });
+    await expect(
+      agent.prompt({
+        sessionId: "s-unlink-fails",
+        prompt: [{ type: "text", text: "/clear" }],
+      }),
+    ).rejects.toThrow("EACCES");
 
-    expect(result.stopReason).toBe("end_turn");
+    expect(
+      findExtNotification(client, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED),
+    ).toBeUndefined();
+    expect(
+      findAllExtNotifications(client, POSTHOG_NOTIFICATIONS.STATUS).at(-1),
+    ).toMatchObject({ status: "clearing_failed" });
     unlinkSpy.mockRestore();
   });
 
