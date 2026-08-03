@@ -46,7 +46,7 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 # (at least partly) without the new event, so they must keep counting exposures via
 # $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
 # after the cutoff can rely on $experiment_exposure covering their whole exposure window.
-EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 8, 1, tzinfo=UTC)
 
 
 def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
@@ -65,16 +65,20 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
         start_date = start_date.replace(tzinfo=UTC)
     if start_date < EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
         return DEFAULT_EXPOSURE_EVENT
-    if posthoganalytics.feature_enabled(
-        EXPERIMENT_EXPOSURE_EVENT_FLAG,
-        str(team.id),
-        groups={"project": str(team.id)},
-        group_properties={"project": {"id": str(team.id)}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    ):
-        return EXPERIMENT_EXPOSURE_EVENT
-    return DEFAULT_EXPOSURE_EVENT
+    # only_evaluate_locally keeps this off the network - it runs on the query hot path, so an
+    # inconclusive or failed local evaluation must fall back to the pre-rollout default.
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            EXPERIMENT_EXPOSURE_EVENT_FLAG,
+            str(team.id),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return DEFAULT_EXPOSURE_EVENT
+    return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
 def _is_actions_node_dict(config: dict) -> bool:
