@@ -929,6 +929,30 @@ class TestMprocsGeneratorRegression:
         assert "property-defs-rs" in config.procs
         assert "docker-compose" in config.procs
 
+    def test_secure_connections_demo_only_autostarts_for_its_intent(self) -> None:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+
+        default_config = MprocsGenerator(registry).generate(resolver.resolve(["product_analytics"]))
+        secure_connections_config = MprocsGenerator(registry).generate(resolver.resolve(["secure_connections"]))
+        combined_config = MprocsGenerator(registry).generate(
+            resolver.resolve(["product_analytics", "secure_connections"])
+        )
+
+        assert "secure-connections-demo" not in default_config.procs
+        assert "secure-connections-demo" in secure_connections_config.procs
+        assert "autostart" not in secure_connections_config.procs["secure-connections-demo"]
+        assert "autostart_when_resolved" not in secure_connections_config.procs["secure-connections-demo"]
+        backend_shell = secure_connections_config.procs["backend"]["shell"]
+        assert "SECURE_CONNECTION_MANAGEMENT_URL=" in backend_shell
+        assert "http://127.0.0.1:18081" in backend_shell
+        assert "SECURE_CONNECTION_DEMO_TENANT_SLUG=" in backend_shell
+        assert "acme" in backend_shell
+        assert "SECURE_CONNECTION_MANAGEMENT_URL" not in default_config.procs["backend"]["shell"]
+        assert "SECURE_CONNECTION_WORKER_URL" in combined_config.procs["nodejs"]["shell"]
+        assert "SECURE_CONNECTION_WORKLOAD_SECRET" in combined_config.procs["nodejs"]["shell"]
+
 
 class TestMprocsGeneratorPreservesCapability:
     """Generated procs retain `capability:` so phrocs can group by capability.

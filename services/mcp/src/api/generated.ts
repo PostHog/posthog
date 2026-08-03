@@ -63995,6 +63995,75 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SecureConnection {
+      /** Stable identifier for this connection. */
+      id: string;
+      /** Name advertised by the connection proxy. */
+      name: string;
+      /** Type of service exposed by this connection. */
+      connection_type: string;
+      /** Current status reported by the connection service. */
+      connection_status: string;
+      /** How requests are selected by the customer-side proxy. */
+      selector_kind: string;
+      /** Public routing selector advertised for this connection. */
+      selector: string;
+    }
+
+    export interface SecureConnectionApproval {
+      connection_id: string;
+      approved: boolean;
+    }
+
+    export type SecureConnectionApprovalsCdpApprovedConnections = {[key: string]: { [key: string]: unknown }};
+
+    export interface SecureConnectionApprovals {
+      cdp_approved_connections: SecureConnectionApprovalsCdpApprovedConnections;
+    }
+
+    export interface SecureConnectionEnrollment {
+      /** One-time response credential used to enroll a connection proxy. */
+      enrollment_key: string;
+      /** Tenant-scoped credential used by the proxy to report its available services. */
+      advertisement_token: string;
+      /** Tenant identifier used by the connection proxy. */
+      tenant_id: string;
+      /** Control server URL used by the connection proxy. */
+      control_url: string;
+    }
+
+    /**
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `connected` - connected
+     */
+    export type SecureConnectionStateEnum = typeof SecureConnectionStateEnum[keyof typeof SecureConnectionStateEnum];
+
+
+    export const SecureConnectionStateEnum = {
+      NotConfigured: 'not_configured',
+      Waiting: 'waiting',
+      Connected: 'connected',
+    } as const;
+
+    export interface SecureConnectionStatus {
+      /** Current setup state for this project's secure connection.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `connected` - connected */
+      connection_state: SecureConnectionStateEnum;
+      /** Services currently advertised through the secure connection. */
+      connections: SecureConnection[];
+    }
+
+    export interface SecureConnectionTest {
+      /** Whether at least one active connection was found. */
+      success: boolean;
+      /** Result of the connection check. */
+      detail: string;
+    }
+
     export interface SendInvitesRequest {
       /**
          * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.

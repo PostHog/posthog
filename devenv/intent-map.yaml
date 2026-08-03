@@ -230,6 +230,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [duckgres]
 
+    secure_connections_demo:
+        description: 'Local Secure connections control plane and example private services'
+        requires: []
+        docker_profiles: []
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -413,6 +418,10 @@ intents:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'
         capabilities:
             [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, stripe_mock]
+
+    secure_connections:
+        description: 'Secure connections with the local Burrow demo control plane'
+        capabilities: [secure_connections_demo]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

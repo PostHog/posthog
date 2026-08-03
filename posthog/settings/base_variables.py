@@ -72,6 +72,12 @@ LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
 # Must hold the same value in both regions; unset disables the proxy.
 PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
 
+SECURE_CONNECTION_MANAGEMENT_URL: str = get_from_env("SECURE_CONNECTION_MANAGEMENT_URL", "")
+SECURE_CONNECTION_CONTROL_URL: str = get_from_env("SECURE_CONNECTION_CONTROL_URL", "")
+SECURE_CONNECTION_PUBLIC_CONTROL_URL: str = get_from_env("SECURE_CONNECTION_PUBLIC_CONTROL_URL", "")
+SECURE_CONNECTION_ADMIN_TOKEN: str = get_from_env("SECURE_CONNECTION_ADMIN_TOKEN", "")
+SECURE_CONNECTION_DEMO_TENANT_SLUG: str = get_from_env("SECURE_CONNECTION_DEMO_TENANT_SLUG", "")
+
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)

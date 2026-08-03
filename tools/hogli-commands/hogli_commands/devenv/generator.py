@@ -253,7 +253,8 @@ class MprocsGenerator(ConfigGenerator):
 
             # Include if: in resolved units, or autostart: false (manual start)
             is_resolved = name in resolved.units
-            is_manual_start = proc_config.get("autostart") is False
+            autostart_when_resolved = proc_config.get("autostart_when_resolved") is True
+            is_manual_start = proc_config.get("autostart") is False and not autostart_when_resolved
 
             if not is_resolved and not is_manual_start:
                 continue
@@ -264,6 +265,9 @@ class MprocsGenerator(ConfigGenerator):
             # Remove metadata fields - not mprocs config.
             # (note that capability is kept, because it's used in groups)
             proc_config.pop("ask_skip", None)
+            proc_config.pop("autostart_when_resolved", None)
+            if autostart_when_resolved:
+                proc_config.pop("autostart", None)
 
             # Give procs without an explicit capability a synthetic one so they
             # don't all fall into "Ungrouped" when the user groups by capability,
@@ -298,8 +302,10 @@ class MprocsGenerator(ConfigGenerator):
             # Special handling for backend/nodejs - wire up personhog env vars when capability is active
             if name == "backend":
                 proc_config = self._add_personhog_env(proc_config, resolved)
+                proc_config = self._add_secure_connections_env(proc_config, resolved)
             if name == "nodejs":
                 proc_config = self._add_personhog_env(proc_config, resolved)
+                proc_config = self._add_secure_connections_env(proc_config, resolved)
 
             # Special handling for temporal-worker - install uv groups when capabilities require them
             if name == "temporal-worker":
@@ -467,6 +473,27 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         original_shell = proc_config.get("shell", "")
         if original_shell:
             env_exports = "export PERSONHOG_ADDR='127.0.0.1:50052'"
+            proc_config["shell"] = f"{env_exports} && {original_shell}"
+
+        return proc_config
+
+    def _add_secure_connections_env(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Configure Django before the concurrently-started demo process is ready."""
+        if "secure_connections_demo" not in resolved.capabilities:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if original_shell:
+            env = {
+                "SECURE_CONNECTION_MANAGEMENT_URL": "http://127.0.0.1:18081",
+                "SECURE_CONNECTION_CONTROL_URL": "http://127.0.0.1:18081",
+                "SECURE_CONNECTION_PUBLIC_CONTROL_URL": "http://burrow:8080",
+                "SECURE_CONNECTION_ADMIN_TOKEN": "demo-admin-token",
+                "SECURE_CONNECTION_DEMO_TENANT_SLUG": "acme",
+                "SECURE_CONNECTION_WORKER_URL": "http://127.0.0.1:18090",
+                "SECURE_CONNECTION_WORKLOAD_SECRET": "demo-workload-secret-at-least-32-bytes",
+            }
+            env_exports = " && ".join(f"export {key}='{value}'" for key, value in env.items())
             proc_config["shell"] = f"{env_exports} && {original_shell}"
 
         return proc_config

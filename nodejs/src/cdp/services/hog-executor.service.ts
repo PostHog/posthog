@@ -37,6 +37,7 @@ import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { SecureConnectionsService } from './secure-connections.service'
 import {
     SELF_LOOP_MAX_DEPTH,
     getSelfLoopDepth,
@@ -148,10 +149,12 @@ export async function cdpTrackedFetch({
     templateId,
     teamId,
     hogFunctionId,
+    secureConnectionsService,
 }: {
     url: string
     fetchParams: FetchOptions
     templateId: string
+    secureConnectionsService?: SecureConnectionsService
 } & CdpFetchAttribution): Promise<{
     fetchError: Error | null
     fetchResponse: FetchResponse | null
@@ -161,9 +164,13 @@ export async function cdpTrackedFetch({
 
     // Attribution read by the URL-validation check logs in common/utils/request.ts, which
     // run inside undici's connect flow where no caller context is otherwise available.
+    const fetchImplementation =
+        secureConnectionsService && teamId && secureConnectionsService.isSecureConnectionUrl(url)
+            ? () => secureConnectionsService.fetch(teamId, url, fetchParams)
+            : () => fetch(url, fetchParams)
     const doFetch = () =>
         fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
-            tryCatch(async () => await fetch(url, fetchParams))
+            tryCatch(async () => await fetchImplementation())
         )
 
     let [fetchError, fetchResponse] = await doFetch()
@@ -270,7 +277,8 @@ export class HogExecutorService {
         private hogInputsService: HogInputsService,
         private emailService: EmailService,
         private recipientTokensService: RecipientTokensService,
-        private pushNotificationService: PushNotificationService
+        private pushNotificationService: PushNotificationService,
+        private secureConnectionsService?: SecureConnectionsService
     ) {}
 
     async buildInputsWithGlobals(
@@ -962,6 +970,7 @@ export class HogExecutorService {
             templateId,
             teamId: invocation.teamId,
             hogFunctionId: invocation.hogFunction.id,
+            secureConnectionsService: this.secureConnectionsService,
         })
 
         result.invocation.state.timings.push({

@@ -117,6 +117,7 @@ depends_on = [
     "products.replay_vision",
     "products.revenue_analytics",
     "products.review_hog",
+    "products.secure_connections",
     "products.signals",
     "products.slack_app",
     "products.stamphog",
@@ -185,6 +186,19 @@ depends_on = [
     "products.notifications",
 ]
 layer = "modules"
+
+[[modules]]
+path = "products.secure_connections"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = ["products.secure_connections"]
 
 [[modules]]
 path = "products.cdp"

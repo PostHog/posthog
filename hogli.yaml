@@ -579,6 +579,9 @@ build:
         cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
         description: Remove a previously synced skill from .agents/skills/
 docker:
+    secure-connections:demo:
+        click: products.secure_connections.cli:secure_connections_demo
+        description: Run the secure connections demo from a sibling Burrow checkout
     docker:services:up:
         click: hogli_commands.devenv.cli:docker_services_up
         description: Start Docker services based on your intent config

@@ -43,6 +43,7 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { SecureConnectionsService } from './services/secure-connections.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { EncryptedFields } from './utils/encryption-utils'
@@ -154,6 +155,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'SECURE_CONNECTION_WORKER_URL'
+        | 'SECURE_CONNECTION_WORKLOAD_SECRET'
         | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
@@ -426,6 +429,10 @@ export function createCdpCoreServices(
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
+    const secureConnectionsService = new SecureConnectionsService(deps.postgres, {
+        workerUrl: config.SECURE_CONNECTION_WORKER_URL,
+        workloadSecret: config.SECURE_CONNECTION_WORKLOAD_SECRET,
+    })
     const pushNotificationService = new PushNotificationService(
         deps.integrationManager,
         deps.encryptedFields,
@@ -452,7 +459,8 @@ export function createCdpCoreServices(
         hogInputsService,
         emailService,
         recipientTokensService,
-        pushNotificationService
+        pushNotificationService,
+        secureConnectionsService
     )
 
     const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(deps.postgres)
