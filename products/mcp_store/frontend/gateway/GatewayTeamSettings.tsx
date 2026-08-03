@@ -266,7 +266,7 @@ function GatewayServerAccessRow({
                     <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
                     <div className="flex-1 min-w-0">
                         <div className="font-semibold truncate">{server.name}</div>
-                        <div className="text-xs text-secondary">Catalog server. Follows the team default.</div>
+                        <div className="text-xs text-secondary truncate">{server.description}</div>
                     </div>
                 </div>
             ) : (
@@ -280,9 +280,7 @@ function GatewayServerAccessRow({
                         <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
                         <div className="flex-1 min-w-0 text-left">
                             <div className="font-semibold truncate">{server.name}</div>
-                            <div className="text-xs text-secondary">
-                                {server.tool_count} tool{server.tool_count === 1 ? '' : 's'}
-                            </div>
+                            <div className="text-xs text-secondary truncate">{server.description}</div>
                         </div>
                     </div>
                 </LemonButton>
