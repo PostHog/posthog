@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1281_migrate_managed_warehouse_models"),
+        ("posthog", "1282_alter_user_role_at_organization"),
     ]
 
     operations = [

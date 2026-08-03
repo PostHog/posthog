@@ -586,7 +586,7 @@ class TestCarriesProvisioningConfig(SimpleTestCase):
 
 class TestNormalizeCimdUrl(SimpleTestCase):
     # `CIMDVerificationToken.cimd_url` stores this function's output directly, and migration
-    # 1283_backfill_cimd_verification_token_url keeps a frozen copy of the same logic. Changing
+    # 1284_backfill_cimd_verification_token_url keeps a frozen copy of the same logic. Changing
     # what any of these inputs normalize to silently unverifies every stored token bound to a
     # URL of that shape, with no test failure elsewhere — that's what this table pins.
     @parameterized.expand(
