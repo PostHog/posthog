@@ -21,6 +21,8 @@ describe('HogMasker Valkey migration', () => {
     })
 
     beforeAll(async () => {
+        // This suite runs against the local Redis test container; production connections come from CDP_* env vars.
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
         source = new IORedis(redisUrl, { db: 14 })
         target = new IORedis(redisUrl, { db: 15 })
