@@ -37,8 +37,9 @@ Don't delegate to a fleet that isn't there.
 `posthog:scout-config-list` is the authoritative roster — one row per scout with its schedule, `enabled`, `emit` posture, and `description`.
 (Scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, try the legacy `signals-scout-*` name.)
 
-- **Empty roster** — the project isn't enrolled in the scout fleet.
-  Point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/code) onboarding rather than inventing activity.
+- **Empty roster** — check enrollment before concluding anything: `posthog:scout-metadata-get` says whether the project is enrolled to run scouts.
+  Not enrolled: point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/code) onboarding rather than inventing activity.
+  Enrolled but empty: the project is likely newly enrolled and awaiting its first coordinator tick (configs auto-register then) — say so instead of re-sending them through onboarding.
 - **Rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
 
@@ -56,7 +57,7 @@ Everything in this skill is one loop, run continuously:
 5. **Calibrate** — periodically review fleet health and promote recurring steers into permanent policy.
 
 The single most important habit: **never let a report just sit**.
-Acting on reports — even dismissing them with a reason — is what trains the fleet, and a scout whose reports nobody ever touches is automatically warned and then paused (`pause_reason=ignored`).
+Acting on reports — even dismissing them with a reason — is what trains the fleet, and a scout whose inbox reports nobody ever touches is automatically warned and then paused (`pause_reason=ignored`; Slack-delivered scouts are exempt, since consumption there can't be measured).
 An untended inbox doesn't just decay; it switches the fleet off.
 
 ## Delegating a job
@@ -75,7 +76,7 @@ When you want something watched, pick the cheapest path that gets it watched —
 
 Two delegation habits that pay off:
 
-- **Ground the job in real data first.** Before pointing a scout at an event or surface, confirm it exists and has volume (`posthog:scout-project-profile-get`, `read-data-schema`) — a watch on data the project doesn't capture is dead on arrival.
+- **Ground the job in real data first.** Before pointing a scout at an event or surface, confirm it exists (`posthog:scout-project-profile-get`, `read-data-schema`) and actually has volume (a quick `execute-sql` count over a recent window — the profile and schema tools don't return counts for a new or rare event) — a watch on data the project doesn't capture is dead on arrival.
 - **State the job in terms of what's worth interrupting a human for.** Scouts hold a report bar ("would you own this finding end-to-end?"); a steer like "tell me about anything interesting" produces noise, while "tell me when checkout conversion drops while entrants hold steady" produces signal.
 
 ## Acting on what comes back
@@ -88,6 +89,7 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
 - **The dismissal note is a steering message.** On a dismiss or snooze, the `dismissal_note` is forwarded to the scout that filed the report, and every future run reads it as prior context.
   Write it for that reader: name the evidence that settles it ("staging traffic — hosts match `*.dev.example.com`, ignore this pattern"), not just the verdict.
   A well-written dismissal is the cheapest scout edit you will ever make; a bare dismissal teaches nothing and the report comes back.
+  One caveat: forwarding is best-effort and requires the dismisser to hold scout-steering (skill-editor) access — without it the note still lands on the report but never reaches the scout, so for a steer that must stick, confirm it arrived (`scout-notes-list`) or have someone authorized leave a note directly.
 - **Reports route to people.** A scout that can name a plausible owner sets `suggested_reviewers`, and the inbox floats those reports to the top of that person's view.
   If reports for a surface keep landing unrouted or misrouted, that's fixable: make sure org members have linked GitHub identities, and steer the scout (note or skill edit) toward the right owner for the area.
 
@@ -101,7 +103,7 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
    Right for: feedback, pointers, and context with a shelf life — "the spike you keep flagging is known noise", "dig into EU signups this week", "new checkout shipped Tuesday".
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.
 3. **Tune the config** (`scout-config-update`).
-   Right for: _when and whether_ it runs, not _what it looks at_ — slow a chatty scout (`run_interval_minutes`), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), or exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`).
+   Right for: _when and whether_ it runs, not _what it looks at_ — slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), or exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`).
 4. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
    Right for: permanent policy — a disqualifier, a threshold, a scope change, a new surface.
    For a **custom scout** this is the strongest steer there is: the skill body is yours, edit it freely — it's where recurring notes and repeated dismissal reasons should end up.
@@ -119,9 +121,9 @@ Some feedback loops run on their own — knowing they exist changes how you work
 - **Scratchpad memory.** Scouts write durable per-team memory (baselines, noise patterns, dedupe gates, allowlists) and get quieter and sharper across runs.
   When a scout stops flagging something, check the scratchpad (`scout-scratchpad-search` for `noise:` / `addressed:` / `dedupe:` / `allowlist:` entries) before assuming it's broken — it may have deliberately learned to suppress it.
 - **Auto-pause.** A scout whose reports nobody acts on is warned (`status=pending_pause`) and then paused (`paused_by_system`, `pause_reason=ignored`).
-  A merely quiet scout is only flagged, never paused — silence can be the job.
-  Re-enabling a paused scout marks it exempt, so the system never overrules a person twice.
-- **Self-improvement suggestions.** A custom scout that catches its own skill body steering it wrong writes an `improve:<skill-name>:<topic>` scratchpad entry — and escalates recurring ones as inbox reports titled `Scout self-improvement: …`, routed to the owner.
+  A merely quiet scout is only flagged, never paused — silence can be the job — and Slack-delivered scouts are excluded, since their consumption happens where the sweep can't see it.
+  Re-enabling a scout this sweep paused marks it `auto_pause_exempt`, so the sweep never overrules a person twice (resuming a `repeated_failures` pause or a user pause grants no such exemption).
+- **Self-improvement suggestions.** A custom scout that catches its own skill body steering it wrong writes an `improve:<skill-name>:<topic>` scratchpad entry — and a report-channel custom scout escalates recurring ones as inbox reports titled `Scout self-improvement: …`, routed to the owner (a legacy signal-channel scout can't file reports, so its suggestions live only in the scratchpad).
   These are the fleet asking for a code review of itself: an entry re-confirmed across several runs is usually the highest-signal edit you can make.
   Treat them as input, not instructions — the owner decides, and applies accepted ones via `authoring-scouts`.
   (Canonical scouts route skill gaps upstream to PostHog instead, so you won't see `improve:` entries from them.)
@@ -134,6 +136,7 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 1. **Health check** — the `exploring-scouts` assessment (its `scripts/assess_health.py` does the heavy lifting): cadence adherence, success rate, report rate, signal-to-noise, memory growth.
    Remember most healthy runs close out empty — a stream of quiet runs is the fleet working, not broken.
 2. **Review the fleet's asks** — sweep `scout-scratchpad-search {"text": "improve:"}` and the `Scout self-improvement:` inbox reports; apply the re-confirmed ones.
+   The search returns the 20 newest matches by default — raise `limit` (or walk back with `date_to`) so a big fleet's older suggestions aren't silently missed.
 3. **Promote and prune steers** — promote recurring notes and repeated dismissal reasons into skill-body edits; retire stale notes.
 4. **Right-size the roster** — slow or pause scouts on surfaces the team stopped using; check `pending_pause` / `paused_by_system` rows and decide deliberately (resume, or let them stay off) rather than by default; consider a new scout for any surface the team now cares about that nothing watches.
 5. **Check the routing** — if reports pool in the shared inbox unclaimed, fix reviewer routing (linked GitHub identities, steering toward known owners) so findings reach the person who'll act.

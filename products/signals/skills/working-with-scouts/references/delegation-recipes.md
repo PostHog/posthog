@@ -61,10 +61,10 @@ Scouts run in a sandbox that defaults to a trusted-domain allowlist (PostHog, Gi
 Diagnose which scout, then climb the ladder — don't pause the fleet wholesale.
 
 1. Find the offender: report rates per scout via `exploring-scouts` (near-100% of runs writing is the tell), or just look at who filed the reports being ignored.
-2. **Dismiss the noise well.** Every dismissal note is forwarded to the filing scout — three specific notes ("staging hosts", "known crawler", "internal test org") often quiet a scout with zero editing.
+2. **Dismiss the noise well.** Dismissal notes are forwarded to the filing scout (when the dismisser has scout-steering access) — three specific notes ("staging hosts", "known crawler", "internal test org") often quiet a scout with zero editing.
 3. Still noisy? A **note** stating the pattern generally ("traffic from `*.dev.example.com` is ours, never report it").
 4. Structurally noisy? Edit the body via `authoring-scouts`: add the disqualifier, raise the threshold.
-5. Right signal, wrong volume? Slow it down: `scout-config-update` with a larger `run_interval_minutes`.
+5. Right signal, wrong volume? Slow it down: `scout-config-update` with a larger `run_interval_minutes` — and if the config has a `run_cron_schedule`, clear or update it too, since a cron schedule takes precedence over the interval.
    Pause (`enabled: false`) is the last resort — a paused scout learns nothing.
 
 ## "The scouts never find anything"
@@ -75,7 +75,7 @@ Before loosening anything:
 1. Confirm the fleet runs at all (`scout-config-list`: enrollment, `enabled`, `emit` — dry-run scouts write nothing) and that runs actually execute (`exploring-scouts` health check).
 2. Read a few run summaries: a scout narrating "surface at baseline" is working; if it keeps saying "no data for X", the watched surface may not capture data (`scout-project-profile-get` shows what's in use).
 3. Only then consider the bar: a threshold edit via `authoring-scouts`, or a note pointing at what the team considers report-worthy that the scout is skipping.
-4. Check the inbox default view isn't hiding output: suppressed reports (judged not-actionable) don't surface — `inbox-reports-list` with `status: "suppressed"` shows whether the scout is finding things that get filtered.
+4. Check the inbox default view isn't hiding output: suppressed reports (judged not-actionable) don't surface — `inbox-reports-list` with `status: "suppressed"` plus the `scout: "<skill_name>"` filter shows whether _this_ scout is finding things that get filtered (without the scout filter you'd be reading the whole project's suppressed reports).
 
 ## "Get reports to the right person"
 
