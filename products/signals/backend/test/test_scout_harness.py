@@ -4,6 +4,7 @@ import re
 import json
 import random
 import asyncio
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -31,10 +32,17 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import FAILURE_STREAK_PAUSE_THRESHOLD, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, _ai_stage, _create_run_row, arun_signals_scout
+from products.signals.backend.scout_harness.runner import (
+    SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
+    SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+    RunResult,
+    _ai_stage,
+    _create_run_row,
+    arun_signals_scout,
+)
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     SkillNotFoundError,
@@ -44,6 +52,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -847,6 +856,60 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
     assert captured["ai_stage"] == "scout:custom"
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "network_access,expected_env_name,expected_level",
+    [
+        pytest.param(
+            None,
+            SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            id="default_trusted",
+        ),
+        pytest.param(
+            "full",
+            SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.FULL,
+            id="full",
+        ),
+    ],
+)
+async def test_sandbox_env_matches_config_network_access(
+    ateam, aerrors_skill, network_access, expected_env_name, expected_level
+):
+    # The (env name, level) pair is the egress enforcement point: `upsert_internal_sandbox_env`
+    # reasserts policy per call on the per-team env row named here, so a `full` config routed to
+    # the shared trusted env would silently lift the restriction for every other scout on the
+    # team — and a config value that never reaches provisioning would leave a "full" scout
+    # blocked. The default path (no pre-existing config row) must stay on the trusted env.
+    if network_access is not None:
+        await database_sync_to_async(SignalScoutConfig.objects.create, thread_sensitive=False)(
+            team=ateam, skill_name="signals-scout-errors", network_access=network_access
+        )
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    env_mock = MagicMock(return_value="env-id")
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", env_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    env_mock.assert_called_once_with(ateam.id, expected_env_name, expected_level)
+    # Provenance stamp: `metadata.network_access` is present exactly when the run departed from
+    # the trusted default — a later config edit must not rewrite what past runs could reach.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.unscoped().get)(id=run_result.run_id)
+    assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
+
+
 @parameterized.expand(
     [
         ("canonical", "signals-scout-general", "scout:general"),
@@ -1132,6 +1195,90 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # process-task workflow's own task_run_failed event fires.
     assert props["error_type"] == "RuntimeError"
     assert props["error_message"] == "sandbox refused to start"
+
+
+@contextmanager
+def _stubbed_spawn_dependencies():
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    # The wedge this exists for: a (team, skill) lane that can never succeed stays due every
+    # tick, so it re-dispatches forever and takes a full-length sandbox lease each time to
+    # produce nothing. Nothing else in the harness notices, so the breaker has to.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
+
+    async def _run_once(*, failing: bool, capture):
+        start = (
+            AsyncMock(side_effect=RuntimeError("poll_for_turn: timed out after 900s"))
+            if failing
+            else _fake_start_invoking_hook(session, result)
+        )
+        with (
+            patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+            patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture", new=capture),
+            # Canonical-skill sync is disk + DB work unrelated to the breaker, and this test
+            # calls the entrypoint once per run in the streak.
+            patch("products.signals.backend.scout_harness.runner.sync_canonical_skills"),
+            _stubbed_spawn_dependencies(),
+        ):
+            return await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    def _paused_events(capture) -> list:
+        return [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_config_auto_paused"]
+
+    async def _reload() -> SignalScoutConfig:
+        return await database_sync_to_async(SignalScoutConfig.objects.get)(
+            team=ateam, skill_name="signals-scout-errors"
+        )
+
+    capture = MagicMock()
+    for _ in range(FAILURE_STREAK_PAUSE_THRESHOLD - 1):
+        await _run_once(failing=True, capture=capture)
+    config = await _reload()
+    assert config.consecutive_failure_count == FAILURE_STREAK_PAUSE_THRESHOLD - 1
+    assert config.status == SignalScoutConfig.Status.ACTIVE
+    assert _paused_events(capture) == []
+
+    await _run_once(failing=True, capture=capture)
+    config = await _reload()
+    assert config.consecutive_failure_count == FAILURE_STREAK_PAUSE_THRESHOLD
+    assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+    assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
+    assert config.enabled is False
+    trip = _paused_events(capture)
+    assert len(trip) == 1
+    assert trip[0].kwargs["properties"]["consecutive_failure_count"] == FAILURE_STREAK_PAUSE_THRESHOLD
+    assert "timed out after 900s" in trip[0].kwargs["properties"]["auto_pause_reason"]
+
+    # A failed probe leaves the lane paused but must not re-alert — otherwise the event stops
+    # being a count of wedges and becomes a count of doomed runs again.
+    await _run_once(failing=True, capture=capture)
+    config = await _reload()
+    assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+    assert len(_paused_events(capture)) == 1
+
+    # A probe that gets through resumes the lane with a clean streak, so a lane whose cause
+    # was fixed recovers without anyone having to un-pause it by hand.
+    assert (await _run_once(failing=False, capture=capture)).status == TaskRun.Status.COMPLETED.value
+    config = await _reload()
+    assert config.consecutive_failure_count == 0
+    assert config.status == SignalScoutConfig.Status.ACTIVE
+    assert config.pause_reason is None
+    assert config.enabled is True
 
 
 @pytest.mark.asyncio

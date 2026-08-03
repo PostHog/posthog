@@ -274,9 +274,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
     def _can_single_scan(self) -> bool:
         # Events-only, non-property-aggregating series read the same `events` source on both arms, so the
-        # start and return timestamp arrays can be computed in one pass. Property aggregation has a known
-        # legacy/variant discrepancy and stays on the UNION; a data-warehouse entity is a genuinely
-        # different source and cannot collapse here.
+        # start and return timestamp arrays can be computed in one pass. Property aggregation stays on the
+        # UNION because collapsing it into the single scan is known to diverge from legacy results; the
+        # UNION shape itself matches legacy (covered by the aggregation tests in
+        # test_retention_query_runner.py). A data-warehouse entity is a genuinely different source and
+        # cannot collapse here.
         return (
             not self.has_property_aggregation
             and self.start_event.type != EntityType.DATA_WAREHOUSE
