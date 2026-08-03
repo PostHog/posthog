@@ -258,9 +258,9 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
             "error_tracking_weekly_digest_project_enabled", {}
         )
         assert project_enabled == {str(team_b.pk): True}
-        assert [section["team_name"] for section in mock_post.call_args.kwargs["json"]["digest"]["project_sections"]] == [
-            team_b.name
-        ]
+        assert [
+            section["team_name"] for section in mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
+        ] == [team_b.name]
         assert result == SendOrgDigestResult(sent=1, teams_built=1)
 
     def test_auto_select_skips_the_busiest_project_the_user_cannot_access(self):
