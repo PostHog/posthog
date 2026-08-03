@@ -577,9 +577,13 @@ function loadContractSurfaces(repoRoot, products) {
 // exactly when the dependents most need to be tested alongside it.
 const CONTRACT_DECLARATIONS = ['turbo.json', 'package.json']
 
+function isContractDeclaration(product, file) {
+    return CONTRACT_DECLARATIONS.includes(file.slice(`products/${product}/`.length))
+}
+
 function touchesContractSurface(product, file, contractSurfaces) {
     const relativePath = file.slice(`products/${product}/`.length)
-    if (CONTRACT_DECLARATIONS.includes(relativePath)) {
+    if (isContractDeclaration(product, file)) {
         return true
     }
     const matcher = contractSurfaces.get(product)
@@ -791,7 +795,7 @@ function computeTargets(changedFiles, context) {
         }
     }
 
-    const changedIsolatedProducts = new Set()
+    const cascadeSeeds = new Set()
     let inertFiles = 0
 
     for (const file of changedFiles) {
@@ -930,12 +934,24 @@ function computeTargets(changedFiles, context) {
                 if (isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
                     if (touchesContractSurface(product, file, contractSurfaces)) {
-                        changedIsolatedProducts.add(product)
+                        cascadeSeeds.add(product)
                     }
                 } else if (backendDetachedProducts.has(product)) {
                     // No backend suite covers this product and no declared
-                    // module imports it, so the lane it keeps is its own.
+                    // module imports it, so the lane it keeps is its own. This
+                    // case comes first because it also answers the declaration
+                    // case below: a product absent from the module graph has no
+                    // importers for the cascade to name.
                     targets.add(pyProduct(product))
+                } else if (isContractDeclaration(product, file)) {
+                    // A non-isolated product's backend code has no declared
+                    // boundary, so it keeps widening below. Its declarations
+                    // are a different kind of file: they configure this
+                    // product's own tasks, including the backend:test command
+                    // most of them carry, and every importer that a change to
+                    // them can reach is named by the cascade instead.
+                    targets.add(pyProduct(product))
+                    cascadeSeeds.add(product)
                 } else {
                     allPyProducts()
                 }
@@ -956,11 +972,12 @@ function computeTargets(changedFiles, context) {
     // backend target. Only 14 of the products declare a contract check, so
     // widening on each of them would collapse every cascade to the full set.
     //
-    // The seeds are the products whose contract surface changed, and the
-    // dependents are one hop deep. See the two numbered narrowings at the top
-    // of this file for what that gives up.
-    if (changedIsolatedProducts.size > 0) {
-        const dependents = tachDependentProducts([...changedIsolatedProducts], tachGraph)
+    // The seeds are the products whose contract surface changed, plus any
+    // product whose own declarations changed, and the dependents are one hop
+    // deep. See the two numbered narrowings at the top of this file for what
+    // that gives up.
+    if (cascadeSeeds.size > 0) {
+        const dependents = tachDependentProducts([...cascadeSeeds], tachGraph)
         if (dependents === null) {
             allPyProducts()
         } else {
