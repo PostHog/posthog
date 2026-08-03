@@ -22,13 +22,6 @@ class WeeklyDigestInputs:
     # max_concurrent_pages * max_concurrent — keep it at or below the worker fleet's
     # activity-slot capacity (35 in prod) or the extra pages just queue.
     max_concurrent_pages: int = 3
-    # Continue-as-new carried state for the pre-fan-out workflow path — never set by
-    # callers. Still honored so an execution continued-as-new from an old deploy resumes
-    # from its cursor with its counters intact.
-    cursor: str | None = None
-    carried_orgs: int = 0
-    carried_orgs_failed: int = 0
-    carried_sent: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
