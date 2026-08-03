@@ -30,4 +30,16 @@ describe("assertCanvasCapability", () => {
       assertCanvasCapability(capabilities, method, payload),
     ).not.toThrow();
   });
+
+  it("rejects requests when the published manifest is missing", () => {
+    expect(() =>
+      assertCanvasCapability(undefined, "query", { hogql: "select 1" }),
+    ).toThrow("manifest");
+  });
+
+  it("rejects methods that are not covered by the manifest", () => {
+    expect(() =>
+      assertCanvasCapability(capabilities, "run", { query: "select 1" }),
+    ).toThrow('Method "run" is not allowed');
+  });
 });

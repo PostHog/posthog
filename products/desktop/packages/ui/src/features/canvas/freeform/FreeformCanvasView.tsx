@@ -654,16 +654,7 @@ export function FreeformCanvasView({
               <BuiltCanvas
                 key={`${pinnedArtifact.buildId}:${artifactRefreshKey}`}
                 artifactUrl={pinnedArtifact.url}
-                // View mode enforces the published manifest's capabilities.
-                // They're undefined while the manifest hasn't loaded, and the
-                // assert allows that transient window instead of hard-failing
-                // every read. The interactive path never gates: the author's
-                // own client keeps full data access while iterating.
-                capabilities={
-                  interactive
-                    ? undefined
-                    : publishedBuild?.manifest?.capabilities
-                }
+                capabilities={publishedBuild?.manifest?.capabilities}
                 onDataRequest={onDataRequest}
                 onError={onError}
                 onReady={onArtifactReady}

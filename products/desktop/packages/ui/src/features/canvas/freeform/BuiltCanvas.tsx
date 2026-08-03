@@ -71,13 +71,9 @@ document.body.append(artifactFrame);
 
 export interface BuiltCanvasProps {
   artifactUrl: string;
-  /**
-   * View-mode data gate: the published manifest's frozen capabilities, which
-   * every data request is asserted against. undefined = ungated — the
-   * interactive/edit path (the author's own client keeps full data access
-   * while iterating), or the transient window before a manifest has loaded.
-   */
-  capabilities?: CanvasCapabilities;
+  /** The published manifest's frozen capabilities. Missing manifests deny all
+   * data requests. */
+  capabilities: CanvasCapabilities | undefined;
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   onError?: (message: string, stack?: string) => void;
   /** The artifact's runtime booted and posted "ready" — proof the signed URL
@@ -137,9 +133,9 @@ export function BuiltCanvas({
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
       }),
-      isFrameFocused: () => document.activeElement === iframeRef.current,
+      hasUserActivation: () => navigator.userActivation?.isActive === true,
       // Built artifacts run arbitrary published code, so an external open asks
-      // first even after the focus + throttle gates pass.
+      // first even after the activation + throttle gates pass.
       openExternal: (url) => {
         if (window.confirm(`Open this link in your browser?\n\n${url}`)) {
           openExternalUrl(url);

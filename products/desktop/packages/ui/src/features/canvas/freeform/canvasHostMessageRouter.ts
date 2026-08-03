@@ -41,11 +41,9 @@ export interface CanvasHostMessageRouterOptions {
   /** Latest callbacks, read fresh per message, so the router can be created
    * once per mount without going stale. */
   callbacks: () => CanvasHostCallbacks;
-  /** Whether the user has interacted with the frame. A real link click moves
-   * focus into the iframe; requiring it stops canvas code from auto-opening
-   * URLs on load (e.g. thumbnails). */
-  isFrameFocused: () => boolean;
-  /** open-external UX once the safety/focus/throttle gates pass — a confirm
+  /** Whether the browser is currently processing a trusted user gesture. */
+  hasUserActivation: () => boolean;
+  /** open-external UX once the safety/activation/throttle gates pass — a confirm
    * dialog, a direct open, whatever the host warrants. */
   openExternal: (url: string) => void;
   /** A dropped open-external, with why (logging vs silence is caller policy). */
@@ -126,7 +124,7 @@ export function createCanvasHostMessageRouter(
         // Re-checks the schema's allowlist refine in case it ever drifts.
         if (!isSafePostHogUrl(message.url)) {
           options.onExternalOpenBlocked?.(message.url, "unsafe-url");
-        } else if (!options.isFrameFocused()) {
+        } else if (!options.hasUserActivation()) {
           options.onExternalOpenBlocked?.(message.url, "no-interaction");
         } else if (
           Date.now() - lastExternalOpen <

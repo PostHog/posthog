@@ -3,10 +3,16 @@ import { describe, expect, it, vi } from "vitest";
 import { BuiltCanvas } from "./BuiltCanvas";
 
 describe("BuiltCanvas", () => {
+  const capabilities = {
+    posthog: { insights: [], inlineQueries: false, captureEvents: [] },
+    network: { origins: [] },
+  };
+
   it("loads an immutable artifact without granting origin or popup access", () => {
     render(
       <BuiltCanvas
         artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
         onDataRequest={vi.fn()}
       />,
     );
@@ -32,6 +38,7 @@ describe("BuiltCanvas", () => {
     render(
       <BuiltCanvas
         artifactUrl="https://usercontent.example/build/index.html"
+        capabilities={capabilities}
         onDataRequest={onDataRequest}
       />,
     );
@@ -75,10 +82,7 @@ describe("BuiltCanvas", () => {
     render(
       <BuiltCanvas
         artifactUrl="https://usercontent.example/build/index.html"
-        capabilities={{
-          posthog: { insights: [], inlineQueries: false, captureEvents: [] },
-          network: { origins: [] },
-        }}
+        capabilities={capabilities}
         onDataRequest={onDataRequest}
       />,
     );

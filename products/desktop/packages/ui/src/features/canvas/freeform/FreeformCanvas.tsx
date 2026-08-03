@@ -146,7 +146,7 @@ export function FreeformCanvas({
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
       }),
-      isFrameFocused: () => document.activeElement === iframeRef.current,
+      hasUserActivation: () => navigator.userActivation?.isActive === true,
       openExternal: openExternalUrl,
       // This host's policy is to log dropped opens rather than drop silently.
       onExternalOpenBlocked: (url, reason) => {
