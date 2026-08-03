@@ -10,6 +10,9 @@ import deltalake
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import realign_decimal_buffers
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 
 _HELPER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
@@ -114,16 +117,17 @@ class TestGetDeltaTableUnrecoverableErrors:
         delta_uri = "s3://bucket/team_id/job_id/t"
 
         s3 = MagicMock()
-        s3._rm = AsyncMock()
         s3_cm = MagicMock()
         s3_cm.__aenter__ = AsyncMock(return_value=s3)
         s3_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_aget_s3_client = MagicMock(return_value=s3_cm)
 
         module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
         with (
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
-            patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{module}.aget_s3_client", mock_aget_s3_client),
+            patch(f"{module}._purge_s3_prefix", AsyncMock()) as mock_purge,
             patch(f"{module}.capture_exception"),
         ):
             mock_delta_table.is_deltatable.return_value = True
@@ -133,12 +137,43 @@ class TestGetDeltaTableUnrecoverableErrors:
                 result = await helper.get_delta_table()
                 assert result is None
                 assert helper.is_first_sync is True
-                s3._rm.assert_awaited_once_with(delta_uri, recursive=True)
+                # Regression guard: a bare recursive `_rm` (instead of the enumerate-then-delete
+                # `_purge_s3_prefix`) can leave `_delta_log` strays on S3-compatible stores and
+                # recreate this exact corruption on the next sync.
+                mock_purge.assert_awaited_once_with(s3, delta_uri)
+                mock_aget_s3_client.assert_called_once_with(fresh_instance=True)
             else:
                 with pytest.raises(Exception, match="something else went wrong"):
                     await helper.get_delta_table()
-                s3._rm.assert_not_awaited()
+                mock_purge.assert_not_awaited()
                 assert helper.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_open_failure_heals_even_if_prefix_already_gone(self):
+        """A concurrent purge (e.g. a retried Temporal attempt) can already have cleared the
+        prefix by the time this one runs `_purge_s3_prefix`, which surfaces as `FileNotFoundError`.
+        That's still a successful heal, not a failure to propagate."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        s3_cm = MagicMock()
+        s3_cm.__aenter__ = AsyncMock(return_value=MagicMock())
+        s3_cm.__aexit__ = AsyncMock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{module}._purge_s3_prefix", AsyncMock(side_effect=FileNotFoundError)),
+            patch(f"{module}.capture_exception"),
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = Exception("Kernel error: No table metadata or protocol found in delta log.")
+
+            result = await helper.get_delta_table()
+            assert result is None
+            assert helper.is_first_sync is True
 
     @pytest.mark.asyncio
     async def test_is_deltatable_failure_is_captured_and_reraised(self):
@@ -166,25 +201,31 @@ class TestGetDeltaTableUnrecoverableErrors:
     @pytest.mark.asyncio
     async def test_is_deltatable_transient_error_is_not_captured_but_still_reraised(self):
         """A known-transient object-store blip (e.g. an S3 LIST request timing out) must not be
-        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug —
-        but it must still propagate so Temporal's activity retry policy retries the sync."""
+        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug.
+        It must still propagate (as TransientObjectStoreError, not the raw OSError) so Temporal's
+        activity retry policy retries the sync. Wrapping matters, not just suppressing the inline
+        capture_exception call here: a bare OSError would still reach the activity interceptor
+        (posthog_client.py), which reports any uncaught activity exception that isn't a
+        NonReportableError, minting a fresh error-tracking issue per blip anyway."""
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
         delta_uri = "s3://bucket/team_id/job_id/t"
 
         module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        original_error = OSError(
+            "Generic S3 error\nError getting list response body\nHTTP error\n"
+            "request or response body error\noperation timed out"
+        )
         with (
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            mock_delta_table.is_deltatable.side_effect = OSError(
-                "Generic S3 error\nError getting list response body\nHTTP error\n"
-                "request or response body error\noperation timed out"
-            )
+            mock_delta_table.is_deltatable.side_effect = original_error
 
-            with pytest.raises(OSError, match="operation timed out"):
+            with pytest.raises(TransientObjectStoreError, match="operation timed out") as exc_info:
                 await helper.get_delta_table()
 
+            assert exc_info.value.__cause__ is original_error
             mock_capture.assert_not_called()
             cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
             assert helper.is_first_sync is False

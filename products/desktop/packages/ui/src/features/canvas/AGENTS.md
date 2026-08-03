@@ -7,13 +7,16 @@ The root `AGENTS.md` architecture rules still apply.
 
 ## Components & styling
 
-- **Use `@posthog/quill`, not Radix.** New UI in this space pulls components from
+- **Use `@posthog/quill`, never Radix.** All UI in this space pulls components from
   `@posthog/quill` (`Button`, `Dialog*`, `AlertDialog*`, `DropdownMenu*`,
-  `ContextMenu*`, `Tooltip*`, `Collapsible*`, …). Do **not** reach for
-  `@radix-ui/themes` or `@radix-ui/react-*`. Some older code here still imports
+  `ContextMenu*`, `Tooltip*`, `Collapsible*`, …). Adding a `@radix-ui/themes` or
+  `@radix-ui/react-*` import is banned — see [UI Components](../../../../../AGENTS.md#ui-components)
+  in the root `AGENTS.md` for the full mapping. Some older code here still imports
   `@radix-ui/themes` (`Box`, `Flex`, `Text`, `AlertDialog`) — that's legacy to be
-  migrated, not a pattern to copy. When you touch such code, prefer swapping to
-  the Quill equivalent.
+  migrated, not a pattern to copy. When you touch such code, replace it: layout
+  primitives (`Box`, `Flex`, `Grid`) become `div`s with Tailwind classes
+  (`<Flex align="center" gap="2">` → `<div className="flex items-center gap-2">`),
+  and everything else becomes its Quill equivalent.
 - **Don't restyle Quill internals.** Quill components are already themed —
   spacing, typography, and especially **color** are baked in. Do not add
   `text-gray-*` / `text-muted-foreground` / `font-*` or other color/typography
