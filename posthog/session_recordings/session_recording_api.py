@@ -1042,7 +1042,13 @@ class SessionRecordingViewSet(
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
-        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        try:
+            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        except Exception as e:
+            # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
+            # it should just render empty like a session with no matching event would.
+            capture_exception(e)
+            properties = None
         return Response({"properties": properties})
 
     # Returns metadata about the recording
@@ -1685,12 +1691,6 @@ class SessionRecordingViewSet(
         user = cast(User, request.user)
 
         recording = self.get_object()
-
-        cache_key = f"summarize_recording_{self.team.pk}_{recording.session_id}"
-        # Check if the response is cached
-        cached_response = cache.get(cache_key)
-        if cached_response is not None:
-            return Response(cached_response)
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")

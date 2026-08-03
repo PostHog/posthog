@@ -46,6 +46,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
+from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -90,12 +91,15 @@ from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
+    SUPPORTED_ACTION_TYPES,
+    TRIGGER_TYPES,
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -109,6 +113,7 @@ from products.workflows.backend.services.timing_reschedule import (
     get_timing_reschedule_action_ids,
     use_workflows_timing_reschedule,
 )
+from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
@@ -141,6 +146,85 @@ DRAFT_CONTENT_FIELDS = (
     "abort_action",
     "variables",
 )
+
+
+# Compiled from the author's filters rather than written by them, and only present once a condition has
+# been through validation. Comparing them would make an unchanged condition look edited.
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+
+
+def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
+    """The parts of a wait condition a person actually wrote, with compiler output dropped."""
+    if not isinstance(condition, dict):
+        return condition
+    filters = condition.get("filters")
+    if not isinstance(filters, dict):
+        return condition
+    return {
+        **condition,
+        "filters": {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS},
+    }
+
+
+def _wait_condition_already_stored(action: dict, context: dict) -> bool:
+    """
+    True when this wait's condition matches the one already persisted for the same action.
+
+    The gate exists to stop *new* clock-based waits, not to make an existing workflow un-editable.
+    Every strict save re-validates the whole actions array, so without this an unrelated edit (or
+    simply resuming a paused flow) would be refused over a condition that was already accepted.
+    """
+    stored = context.get("stored_wait_conditions")
+    if not stored:
+        return False
+    action_id = action.get("id")
+    if action_id not in stored:
+        return False
+    return _authored_condition(stored[action_id]) == _authored_condition((action.get("config") or {}).get("condition"))
+
+
+def _reject_clock_based_wait(config: dict, team: Team) -> None:
+    """
+    Refuse a wait whose condition depends on the clock rather than on something happening.
+
+    Nothing notifies the matcher when time passes, so such a wait can only be advanced by the
+    periodic re-check. Rejecting it at save time is what allows that re-check to be removed.
+    """
+    filters = (config.get("condition") or {}).get("filters")
+    if not filters:
+        return
+
+    try:
+        expr = compile_filters_expr(filters, team)
+    except Exception as e:
+        # Fail closed. Nothing else inspects a wait's condition at save time, so swallowing this would
+        # let an unwakeable wait through whenever compilation trips on something the shape serializer
+        # doesn't check - a condition referencing a deleted action raises Action.DoesNotExist here, for
+        # instance. If we can't read the condition we can't claim a stream will wake it.
+        logger.warning("workflows.wait_condition_uncompilable", error=str(e))
+        raise serializers.ValidationError(
+            {
+                "config": (
+                    "This wait's condition could not be read, so we can't tell how it would be woken. "
+                    "Check the events, actions and properties it refers to still exist."
+                )
+            }
+        )
+
+    clock_function = find_clock_function(expr)
+    if not clock_function:
+        return
+
+    raise serializers.ValidationError(
+        {
+            "config": (
+                f"This wait uses {clock_function}(), so it depends on the current time rather than on "
+                "something happening, and it can only advance once the workflow checks it again. "
+                "To wait for a point in time, use a delay step, then add this condition to the step "
+                "after it."
+            )
+        }
+    )
 
 
 def snapshot_flow_content(flow: HogFlow) -> dict:
@@ -596,6 +680,66 @@ class HogFlowActionConfigField(serializers.JSONField):
     pass
 
 
+class HogFlowActionTypeField(serializers.ChoiceField):
+    """A closed set of action types, rejected at write time rather than at run time.
+
+    A type with no worker handler can never execute: it saves fine, then every run that reaches it
+    dies with "Action type 'x' not supported", and unless the step sets on_error: continue everything
+    downstream silently never happens. Keeping `choices` populated also means drf-spectacular emits
+    the enum, so generated clients and MCP tools advertise the valid values instead of callers
+    guessing them.
+
+    ChoiceField's own invalid_choice message is run through str.format, which can't carry the JSON
+    example below (its braces would be read as format placeholders), so the message is raised here.
+    """
+
+    def to_internal_value(self, data: Any) -> str:
+        # isinstance before the membership test: self.choices is a dict, so `data in self.choices`
+        # raises TypeError on an unhashable JSON object/array, which escapes DRF's validation stack
+        # (it only catches ValidationError) and 500s the endpoint.
+        if isinstance(data, str) and data in self.choices:
+            return super().to_internal_value(data)
+        raise serializers.ValidationError(
+            f"Unsupported action type {self._describe(data)}. "
+            f"Valid types are: {', '.join(SUPPORTED_ACTION_TYPES)}. "
+            "Steps that act on PostHog data don't get a type of their own - they are type 'function' "
+            f"with a template_id.{self._hint(data)}"
+        )
+
+    @staticmethod
+    def _hint(data: Any) -> str:
+        # The types actually seen in stored workflows cluster into a few mistakes, so point at the
+        # step the caller was reaching for rather than repeating one example to everyone.
+        if not isinstance(data, str):
+            return ""
+        lowered = data.lower()
+        if lowered in TRIGGER_TYPES:
+            hint = (
+                f" '{data}' is a trigger type, not an action type: the trigger is a single action of "
+                "type 'trigger' and its kind belongs in the workflow's trigger field."
+            )
+            if lowered == "webhook":
+                hint += " To call an external endpoint from a step, use template_id 'template-webhook'."
+            return hint
+        if "person" in lowered or "propert" in lowered or "contact" in lowered:
+            return (
+                " To set person properties, use template_id 'template-posthog-update-person-properties' "
+                "with inputs distinct_id, set_properties and set_once_properties."
+            )
+        if "webhook" in lowered or "http" in lowered or "request" in lowered:
+            return " To call an external endpoint, use template_id 'template-webhook'."
+        return ""
+
+    @staticmethod
+    def _describe(data: Any) -> str:
+        # Echo the value back only when it's a short string. A non-string type is a malformed
+        # payload, and interpolating a whole nested object into the message would put it in the
+        # response and the logs behind it.
+        if not isinstance(data, str):
+            return f"(expected a string, got {type(data).__name__})"
+        return f'"{data[:100]}"' if len(data) > 100 else f'"{data}"'
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
     # real ids are short generated slugs, so 200 is generous.
@@ -613,12 +757,9 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(
         required=False, default=None, allow_null=True, help_text="Property filters gating this action."
     )
-    type = serializers.CharField(
-        max_length=100,
-        help_text=(
-            "trigger | function | function_email | function_sms | delay | "
-            "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
-        ),
+    type = HogFlowActionTypeField(
+        choices=SUPPORTED_ACTION_TYPES,
+        help_text="One of: " + " | ".join(SUPPORTED_ACTION_TYPES) + ".",
     )
     config = HogFlowActionConfigField(
         help_text=(
@@ -941,6 +1082,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     else:
                         serializer.is_valid(raise_exception=True)
                         event_config["filters"] = serializer.validated_data
+            if strict and not _wait_condition_already_stored(data, self.context):
+                _reject_clock_based_wait(data["config"], self.context["get_team"]())
 
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")
@@ -1152,6 +1295,56 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
+AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
+# Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
+# re-dialled on every request, short enough that a just-fixed config recovers within a minute.
+AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS = 60
+
+
+def _aws_tenant_health(sending_status: str, reputation_impact: str | None) -> str:
+    if sending_status == "DISABLED":
+        return "suspended"
+    if reputation_impact == "HIGH":
+        return "critical"
+    if reputation_impact == "LOW":
+        return "warning"
+    return "healthy"
+
+
+def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
+    """
+    AWS-side tenant state for the reputation endpoint, cached briefly: the endpoint reloads on every
+    search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
+    Failures return None (the response field is nullable) so AWS being unreachable never breaks the
+    rates display; failures cache under a shorter TTL so a broken SES isn't re-dialled per request.
+
+    Deliberately no SES_ACCESS_KEY_ID gate: cloud pods authenticate via their IAM role and leave
+    the key env vars unset, so a key check reads as "SES not configured" exactly where SES IS
+    configured. Environments truly without SES fail the call and land in the error path below.
+    """
+    cache_key = f"workflows_ses_tenant_reputation_{team_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached["value"]
+    try:
+        raw = SESProvider().get_tenant_reputation(team_id)
+    except Exception:
+        logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
+        cache.set(cache_key, {"value": None}, AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS)
+        return None
+    value = (
+        {
+            "health": _aws_tenant_health(raw["sending_status"], raw["reputation_impact"]),
+            "sending_status": raw["sending_status"],
+            "findings": raw["findings"],
+        }
+        if raw is not None
+        else None
+    )
+    cache.set(cache_key, {"value": value}, AWS_TENANT_REPUTATION_CACHE_SECONDS)
+    return value
+
+
 class EmailSendingRatesSerializer(serializers.Serializer):
     """Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics."""
 
@@ -1182,7 +1375,71 @@ class WorkflowEmailSendingRatesSerializer(EmailSendingRatesSerializer):
     )
 
 
+class AwsTenantFindingSerializer(serializers.Serializer):
+    """An open reputation finding AWS SES raised for this project's email sending."""
+
+    finding_type = serializers.ChoiceField(
+        choices=["DKIM", "DMARC", "SPF", "BIMI", "COMPLAINT", "BOUNCE", "FEEDBACK_3P", "IP_LISTING"],
+        read_only=True,
+        help_text=(
+            "What the finding is about: authentication setup (DKIM/DMARC/SPF/BIMI), recipient signals "
+            "(COMPLAINT/BOUNCE/FEEDBACK_3P), or a blocklist listing (IP_LISTING)."
+        ),
+    )
+    impact = serializers.ChoiceField(
+        choices=["LOW", "HIGH"],
+        read_only=True,
+        help_text="AWS's impact rating. HIGH-impact findings can pause the project's sending automatically.",
+    )
+    description = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text=(
+            "AWS's short description of the finding. Often a terse disambiguator (e.g. DKIM1) rather "
+            "than full remediation prose — finding_type carries the remediation category."
+        ),
+    )
+    last_updated_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When AWS last updated this finding."
+    )
+
+
+class AwsTenantReputationSerializer(serializers.Serializer):
+    """Authoritative reputation for this project's SES tenant, as judged and enforced by AWS."""
+
+    health = serializers.ChoiceField(
+        choices=["healthy", "warning", "critical", "suspended"],
+        read_only=True,
+        help_text=(
+            "Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact "
+            "findings), critical (high-impact findings — sending may be paused), suspended (the SES "
+            "tenant's sending is paused). Reflects AWS state only; PostHog-initiated suspensions are "
+            "reported separately via email_sending_suspended."
+        ),
+    )
+    sending_status = serializers.ChoiceField(
+        choices=["ENABLED", "REINSTATED", "DISABLED"],
+        read_only=True,
+        help_text=(
+            "The tenant's aggregate sending status. REINSTATED means sending was re-enabled after a "
+            "pause and AWS is re-monitoring it."
+        ),
+    )
+    findings = AwsTenantFindingSerializer(
+        many=True, read_only=True, help_text="Open findings, if any, with AWS's remediation guidance."
+    )
+
+
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
+    aws = AwsTenantReputationSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Sending health as judged and enforced by AWS SES for this project's tenant; null when "
+            "the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is "
+            "unreachable."
+        ),
+    )
     reputation = EmailSendingRatesSerializer(
         allow_null=True,
         read_only=True,
@@ -1411,6 +1668,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+
+        # Wait conditions the live flow already carries, so per-action validation can tell a newly
+        # introduced clock condition from one we have been storing all along. Seeded here because
+        # nested action validation runs during field processing, before validate() is reached.
+        self.context["stored_wait_conditions"] = {
+            action["id"]: (action.get("config") or {}).get("condition")
+            for action in ((instance.actions if instance else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
 
         status = data.get("status")
         if status is None and instance:
@@ -3215,10 +3481,12 @@ class HogFlowViewSet(
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
         Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
-        the fly from app metrics: a project-wide aggregate plus per-workflow rows (worst first,
-        capped). Display only — reputation judgment and enforcement live with AWS SES tenant
-        management, which attributes sends per team.
+        the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+        capped), together with the authoritative AWS SES tenant verdict — sending status and open
+        reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
         """
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
         # The project-wide aggregate pools ALL workflows' email (that's its point), so it can't be
         # filtered per object grant — only members with project-wide workflow read access get it.
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
@@ -3329,6 +3597,9 @@ class HogFlowViewSet(
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
+                    # Same gate as `reputation`: the tenant verdict pools ALL workflows' email,
+                    # so members holding only object-level grants don't get it.
+                    "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
                     "reputation": reputation,
                     "workflows": workflow_rows,
                     "email_sending_suspended": suspended_at is not None,

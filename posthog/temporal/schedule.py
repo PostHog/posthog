@@ -20,6 +20,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
     should_register_checkpoint_compaction_schedule,
@@ -47,7 +48,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
@@ -98,6 +98,7 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
@@ -383,7 +384,16 @@ async def create_sync_events_retention_schedule(client: Client):
     sync_events_retention_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "sync-events-retention",
-            SyncEventsRetentionInput(dry_run=False),
+            SyncEventsRetentionInput(
+                dry_run=False,
+                slo=SloConfig(
+                    operation=SloOperation.SYNC_EVENTS_RETENTION,
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    team_id=0,
+                    resource_id="sync-events-retention",
+                    distinct_id="sync-events-retention",
+                ),
+            ),
             id="sync-events-retention-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             retry_policy=common.RetryPolicy(

@@ -384,6 +384,35 @@ export interface HogFlowEdgeApi {
 }
 
 /**
+ * * `trigger` - trigger
+ * * `function` - function
+ * * `function_email` - function_email
+ * * `function_sms` - function_sms
+ * * `function_push` - function_push
+ * * `delay` - delay
+ * * `wait_until_condition` - wait_until_condition
+ * * `wait_until_time_window` - wait_until_time_window
+ * * `conditional_branch` - conditional_branch
+ * * `random_cohort_branch` - random_cohort_branch
+ * * `exit` - exit
+ */
+export type HogFlowActionTypeEnumApi = (typeof HogFlowActionTypeEnumApi)[keyof typeof HogFlowActionTypeEnumApi]
+
+export const HogFlowActionTypeEnumApi = {
+    Trigger: 'trigger',
+    Function: 'function',
+    FunctionEmail: 'function_email',
+    FunctionSms: 'function_sms',
+    FunctionPush: 'function_push',
+    Delay: 'delay',
+    WaitUntilCondition: 'wait_until_condition',
+    WaitUntilTimeWindow: 'wait_until_time_window',
+    ConditionalBranch: 'conditional_branch',
+    RandomCohortBranch: 'random_cohort_branch',
+    Exit: 'exit',
+} as const
+
+/**
  * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
  */
 export type HogFlowActionApiConfig =
@@ -431,11 +460,20 @@ export interface HogFlowActionApi {
     updated_at?: number
     /** Property filters gating this action. */
     filters?: HogFunctionFiltersApi | null
-    /**
-     * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
-     * @maxLength 100
-     */
-    type: string
+    /** One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+     *
+     * * `trigger` - trigger
+     * * `function` - function
+     * * `function_email` - function_email
+     * * `function_sms` - function_sms
+     * * `function_push` - function_push
+     * * `delay` - delay
+     * * `wait_until_condition` - wait_until_condition
+     * * `wait_until_time_window` - wait_until_time_window
+     * * `conditional_branch` - conditional_branch
+     * * `random_cohort_branch` - random_cohort_branch
+     * * `exit` - exit */
+    type: HogFlowActionTypeEnumApi
     /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
     config: HogFlowActionApiConfig
     /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
@@ -636,19 +674,19 @@ export interface MessageAssetApi {
     function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
-    /** Asset kind. Currently always 'email'. */
+    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
     kind: string
     /** The recipient's distinct_id. */
     distinct_id: string
     /** The recipient's person UUID, if resolved. */
     person_id: string
-    /** The recipient email address. */
+    /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. */
     recipient: string
-    /** The email subject line. */
+    /** The email subject line, or the push notification title. */
     subject: string
-    /** Delivery status at capture time. Currently always 'sent'. */
+    /** Delivery status at capture time. Currently always 'sent' - only delivered messages are captured. */
     status: string
-    /** When the email was sent. */
+    /** When the message was sent. */
     sent_at: string
 }
 
@@ -1058,6 +1096,119 @@ export interface WorkflowStatsRowApi {
 }
 
 /**
+ * * `healthy` - healthy
+ * * `warning` - warning
+ * * `critical` - critical
+ * * `suspended` - suspended
+ */
+export type AwsTenantReputationHealthEnumApi =
+    (typeof AwsTenantReputationHealthEnumApi)[keyof typeof AwsTenantReputationHealthEnumApi]
+
+export const AwsTenantReputationHealthEnumApi = {
+    Healthy: 'healthy',
+    Warning: 'warning',
+    Critical: 'critical',
+    Suspended: 'suspended',
+} as const
+
+/**
+ * * `ENABLED` - ENABLED
+ * * `REINSTATED` - REINSTATED
+ * * `DISABLED` - DISABLED
+ */
+export type SendingStatusEnumApi = (typeof SendingStatusEnumApi)[keyof typeof SendingStatusEnumApi]
+
+export const SendingStatusEnumApi = {
+    Enabled: 'ENABLED',
+    Reinstated: 'REINSTATED',
+    Disabled: 'DISABLED',
+} as const
+
+/**
+ * * `DKIM` - DKIM
+ * * `DMARC` - DMARC
+ * * `SPF` - SPF
+ * * `BIMI` - BIMI
+ * * `COMPLAINT` - COMPLAINT
+ * * `BOUNCE` - BOUNCE
+ * * `FEEDBACK_3P` - FEEDBACK_3P
+ * * `IP_LISTING` - IP_LISTING
+ */
+export type FindingTypeEnumApi = (typeof FindingTypeEnumApi)[keyof typeof FindingTypeEnumApi]
+
+export const FindingTypeEnumApi = {
+    Dkim: 'DKIM',
+    Dmarc: 'DMARC',
+    Spf: 'SPF',
+    Bimi: 'BIMI',
+    Complaint: 'COMPLAINT',
+    Bounce: 'BOUNCE',
+    Feedback3p: 'FEEDBACK_3P',
+    IpListing: 'IP_LISTING',
+} as const
+
+/**
+ * * `LOW` - LOW
+ * * `HIGH` - HIGH
+ */
+export type ImpactEnumApi = (typeof ImpactEnumApi)[keyof typeof ImpactEnumApi]
+
+export const ImpactEnumApi = {
+    Low: 'LOW',
+    High: 'HIGH',
+} as const
+
+/**
+ * An open reputation finding AWS SES raised for this project's email sending.
+ */
+export interface AwsTenantFindingApi {
+    /** What the finding is about: authentication setup (DKIM/DMARC/SPF/BIMI), recipient signals (COMPLAINT/BOUNCE/FEEDBACK_3P), or a blocklist listing (IP_LISTING).
+     *
+     * * `DKIM` - DKIM
+     * * `DMARC` - DMARC
+     * * `SPF` - SPF
+     * * `BIMI` - BIMI
+     * * `COMPLAINT` - COMPLAINT
+     * * `BOUNCE` - BOUNCE
+     * * `FEEDBACK_3P` - FEEDBACK_3P
+     * * `IP_LISTING` - IP_LISTING */
+    readonly finding_type: FindingTypeEnumApi
+    /** AWS's impact rating. HIGH-impact findings can pause the project's sending automatically.
+     *
+     * * `LOW` - LOW
+     * * `HIGH` - HIGH */
+    readonly impact: ImpactEnumApi
+    /** AWS's short description of the finding. Often a terse disambiguator (e.g. DKIM1) rather than full remediation prose — finding_type carries the remediation category. */
+    readonly description: string
+    /**
+     * When AWS last updated this finding.
+     * @nullable
+     */
+    readonly last_updated_at: string | null
+}
+
+/**
+ * Authoritative reputation for this project's SES tenant, as judged and enforced by AWS.
+ */
+export interface AwsTenantReputationApi {
+    /** Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact findings), critical (high-impact findings — sending may be paused), suspended (the SES tenant's sending is paused). Reflects AWS state only; PostHog-initiated suspensions are reported separately via email_sending_suspended.
+     *
+     * * `healthy` - healthy
+     * * `warning` - warning
+     * * `critical` - critical
+     * * `suspended` - suspended */
+    readonly health: AwsTenantReputationHealthEnumApi
+    /** The tenant's aggregate sending status. REINSTATED means sending was re-enabled after a pause and AWS is re-monitoring it.
+     *
+     * * `ENABLED` - ENABLED
+     * * `REINSTATED` - REINSTATED
+     * * `DISABLED` - DISABLED */
+    readonly sending_status: SendingStatusEnumApi
+    /** Open findings, if any, with AWS's remediation guidance. */
+    readonly findings: readonly AwsTenantFindingApi[]
+}
+
+/**
  * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
  */
 export interface EmailSendingRatesApi {
@@ -1086,6 +1237,8 @@ export interface WorkflowEmailSendingRatesApi {
 }
 
 export interface TeamEmailReputationResponseApi {
+    /** Sending health as judged and enforced by AWS SES for this project's tenant; null when the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is unreachable. */
+    readonly aws: AwsTenantReputationApi | null
     /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
     readonly reputation: EmailSendingRatesApi | null
     /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */

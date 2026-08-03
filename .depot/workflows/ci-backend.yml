@@ -258,6 +258,9 @@ jobs:
                         # (skills/, scripts/). Catch any .py change so the
                         # backend job triggers when only those files move.
                         - 'products/**/*.py'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
@@ -516,6 +519,8 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
+            # Shadow trial: canonical threads a setup-action app token into
+            # pnpm-install; mint stripped here (secret not available on Depot).
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
@@ -717,7 +722,8 @@ jobs:
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
+                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
+                  # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
@@ -819,6 +825,9 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure \
                     </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+            # Shadow trial: canonical threads a setup-action app token into both
+            # pnpm-install and setup-python; mint stripped here (secret not
+            # available on Depot), so setup-python keeps the bot PAT.
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
