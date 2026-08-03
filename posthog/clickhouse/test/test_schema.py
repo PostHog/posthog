@@ -16,11 +16,7 @@ from posthog.models.event.sql import (
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
 )
-from posthog.models.flag_evaluations.sql import (
-    FLAG_EVALUATIONS_KAFKA_COLUMNS,
-    FLAG_EVALUATIONS_MV_SQL,
-    FLAG_EVALUATIONS_TABLE_SQL,
-)
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_KAFKA_COLUMNS, FLAG_EVALUATIONS_MV_SQL
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
@@ -64,11 +60,7 @@ def _declared_column_names(block: str) -> list[str]:
         line = raw_line.strip().lstrip(",").strip()
         if not line or line.startswith("--"):
             continue
-        if line.startswith("INDEX") or line.startswith(")"):
-            break
-        token = line.split()[0]
-        if token.isidentifier():
-            names.append(token)
+        names.append(line.split()[0])
     return names
 
 
@@ -83,18 +75,13 @@ def _mv_projected_names(mv_sql: str) -> list[str]:
     return names
 
 
-def test_flag_evaluations_column_lists_stay_in_sync():
-    # The shared template is the canonical column list. The sharded data table
-    # inlines its own copy (to carry CODEC/INDEX/DEFAULT annotations) and the MV
-    # hand-writes its SELECT projection, so both drift by hand. Order matters as
-    # much as membership: the MV writes to writable_flag_evaluations positionally,
-    # and neither a reordered projection nor a Distributed/local shape mismatch
-    # raises an error at creation time.
+def test_flag_evaluations_mv_projection_matches_column_template():
+    # Every flag_evaluations table renders from one column template, but the MV
+    # hand-writes its SELECT projection. Order matters as much as membership: the
+    # MV writes to writable_flag_evaluations positionally, so a dropped or
+    # reordered column lands data in the wrong column without raising.
     template_columns = _declared_column_names(FLAG_EVALUATIONS_KAFKA_COLUMNS)
     assert template_columns
-
-    sharded_columns = _declared_column_names(FLAG_EVALUATIONS_TABLE_SQL().split("(", 1)[1])
-    assert sharded_columns == template_columns
 
     kafka_meta_columns = _declared_column_names(KAFKA_COLUMNS_WITH_PARTITION)
     assert _mv_projected_names(FLAG_EVALUATIONS_MV_SQL()) == template_columns + kafka_meta_columns

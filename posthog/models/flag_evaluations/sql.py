@@ -36,39 +36,41 @@ FLAG_EVALUATIONS_TTL_DAYS = 90
 FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 
 # The sort key matches the queries we run: per-flag usage over a date range,
-# uniques by distinct_id. No date element here on purpose: PARTITION BY is
-# already daily, so a date column in ORDER BY would be constant within every
-# part and sort nothing. The trailing hash intentionally differs from the
-# sharding key — cityHash64 is the events table's convention for within-shard
-# ordering — and a MergeTree ORDER BY is immutable once data exists, so the
-# two must not silently move together.
-FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, cityHash64(distinct_id))"
+# uniques by distinct_id. toDate(timestamp) sits inside it because PARTITION BY
+# is monthly — without it, a one-day query for one flag would read that flag's
+# whole month. The trailing hash intentionally differs from the sharding key —
+# cityHash64 is the events table's convention for within-shard ordering — and a
+# MergeTree ORDER BY is immutable once data exists, so the two must not silently
+# move together.
+FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))"
 
-# Shared column list (no CODEC clauses — ZSTD applies on the storage side
-# only), rendered in two variants via {ts_default}. The Kafka engine table
-# must NOT carry the timestamp DEFAULTs: JSONEachRow fills omitted fields
-# with the column default, and the MV's legacy-SDK fallbacks detect exactly
-# that zero-value sentinel — a DEFAULT there would mask it. The Distributed
-# tables MUST carry them: an INSERT through a Distributed table fills omitted
-# columns from the Distributed table's own schema before forwarding to the
-# shard, so without them a direct insert via writable_flag_evaluations would
-# store epoch instead of the sharded table's fallback.
+# One canonical column list, rendered in a Kafka variant and a storage variant.
+#
+# The Kafka engine table must NOT carry the timestamp DEFAULTs: JSONEachRow
+# fills omitted fields with the column default, and the MV's legacy-SDK
+# fallbacks detect exactly that zero-value sentinel — a DEFAULT there would mask
+# it. Both Distributed tables MUST carry them: an INSERT through a Distributed
+# table fills omitted columns from the Distributed table's own schema before
+# forwarding to the shard, so without them a direct insert via
+# writable_flag_evaluations would store epoch instead of the sharded table's
+# fallback. That makes the Distributed and sharded column lists identical, which
+# is also how the events family declares its CODECs.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     team_id Int64,
     uuid UUID,
-    timestamp DateTime64(6, 'UTC'),
-    inserted_at DateTime64(6, 'UTC'){ts_default},
-    distinct_id String,
-    session_id String,
-    device_id String,
-    flag_key String,
+    timestamp DateTime64(6, 'UTC'){dt_codec},
+    inserted_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
+    distinct_id String{codec},
+    session_id String{codec},
+    device_id String{codec},
+    flag_key String{codec},
     response LowCardinality(String),
     flag_id UInt64,
     flag_version UInt32,
     reason LowCardinality(String),
-    request_id String,
-    evaluated_at DateTime64(6, 'UTC'){ts_default},
-    error String,
+    request_id String{codec},
+    evaluated_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
+    error String{codec},
     locally_evaluated Bool,
     lib LowCardinality(String),
     lib_version LowCardinality(String),
@@ -76,19 +78,26 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     os LowCardinality(String),
     os_version LowCardinality(String),
     app_version LowCardinality(String),
-    current_url String,
-    pathname String,
+    current_url String{codec},
+    pathname String{codec},
     country_code LowCardinality(String),
     subdivision_1_code LowCardinality(String),
-    group_0 String,
-    group_1 String,
-    group_2 String,
-    group_3 String,
-    group_4 String
+    group_0 String{codec},
+    group_1 String{codec},
+    group_2 String{codec},
+    group_3 String{codec},
+    group_4 String{codec}
 """.strip()
 
-FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="")
-_FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default=" DEFAULT timestamp")
+FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="", codec="", dt_codec="")
+
+# ZSTD on the plain String columns and DoubleDelta on the timestamps;
+# LowCardinality columns compress well on their own.
+_FLAG_EVALUATIONS_STORAGE_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
+    ts_default=" DEFAULT timestamp",
+    codec=" CODEC(ZSTD(1))",
+    dt_codec=" CODEC(DoubleDelta, ZSTD(1))",
+)
 
 
 def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
@@ -97,8 +106,7 @@ def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
     return MergeTreeEngine(FLAG_EVALUATIONS_TABLE, replication_scheme=ReplicationScheme.SHARDED)
 
 
-# The actual data lives on the sharded main cluster. ZSTD on the plain String
-# columns; LowCardinality columns compress well on their own.
+# The actual data lives on the sharded main cluster.
 #
 # The bloom filters cover point lookups the sort key can't serve (a specific
 # user, session, or flags-service request). The minmax on inserted_at serves
@@ -108,50 +116,19 @@ def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
 # exists, so retrofitting one means a full MATERIALIZE INDEX mutation — much
 # cheaper to declare up front.
 #
-# The DEFAULTs — mirrored on both Distributed tables, since a Distributed INSERT
-# fills omitted columns from its own schema before forwarding — mean a direct
-# insert that omits evaluated_at or inserted_at (tests, the planned events-table
-# backfill) falls back to the row's own timestamp rather than the wall-clock
-# insert time, so a bulk historical backfill doesn't stamp every row as freshly
-# inserted right now: that would break anything windowing or checkpointing on
-# inserted_at. Neither DEFAULT reproduces the MV's Kafka-path fallback exactly
-# (_timestamp, the Kafka broker time, isn't available to a column default), but
-# timestamp is the closest available proxy for both columns.
+# The DEFAULTs mean a direct insert that omits evaluated_at or inserted_at
+# (tests, the planned events-table backfill) falls back to the row's own
+# timestamp rather than the wall-clock insert time, so a bulk historical
+# backfill doesn't stamp every row as freshly inserted right now: that would
+# break anything windowing or checkpointing on inserted_at. Neither DEFAULT
+# reproduces the MV's Kafka-path fallback exactly (_timestamp, the Kafka broker
+# time, isn't available to a column default), but timestamp is the closest
+# available proxy for both columns.
 FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
-    team_id Int64,
-    uuid UUID,
-    timestamp DateTime64(6, 'UTC') CODEC(DoubleDelta, ZSTD(1)),
-    inserted_at DateTime64(6, 'UTC') DEFAULT timestamp CODEC(DoubleDelta, ZSTD(1)),
-    distinct_id String CODEC(ZSTD(1)),
-    session_id String CODEC(ZSTD(1)),
-    device_id String CODEC(ZSTD(1)),
-    flag_key String CODEC(ZSTD(1)),
-    response LowCardinality(String),
-    flag_id UInt64,
-    flag_version UInt32,
-    reason LowCardinality(String),
-    request_id String CODEC(ZSTD(1)),
-    evaluated_at DateTime64(6, 'UTC') DEFAULT timestamp CODEC(DoubleDelta, ZSTD(1)),
-    error String CODEC(ZSTD(1)),
-    locally_evaluated Bool,
-    lib LowCardinality(String),
-    lib_version LowCardinality(String),
-    is_server Bool,
-    os LowCardinality(String),
-    os_version LowCardinality(String),
-    app_version LowCardinality(String),
-    current_url String CODEC(ZSTD(1)),
-    pathname String CODEC(ZSTD(1)),
-    country_code LowCardinality(String),
-    subdivision_1_code LowCardinality(String),
-    group_0 String CODEC(ZSTD(1)),
-    group_1 String CODEC(ZSTD(1)),
-    group_2 String CODEC(ZSTD(1)),
-    group_3 String CODEC(ZSTD(1)),
-    group_4 String CODEC(ZSTD(1)),
+    {_FLAG_EVALUATIONS_STORAGE_COLUMNS},
     INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -159,10 +136,11 @@ CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
--- Daily partitions: with ttl_only_drop_parts a part only drops when its newest
--- row expires, so monthly partitions would stretch effective retention well
--- past the TTL and reclaim disk in month-sized cliffs.
-PARTITION BY toYYYYMMDD(timestamp)
+-- Monthly, matching the events family. Daily partitions would put ~90 of them
+-- under a 90-day TTL, and enough parts across them to strain merges. The cost
+-- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
+-- row expires, so rows survive up to a month past the TTL.
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
 {ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
 SETTINGS ttl_only_drop_parts = 1
@@ -174,7 +152,7 @@ def _distributed_table_sql(table_name: str) -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
-    {_FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS}
+    {_FLAG_EVALUATIONS_STORAGE_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}
