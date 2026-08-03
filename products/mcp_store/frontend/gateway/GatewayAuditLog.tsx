@@ -29,7 +29,7 @@ export function GatewayAuditLog(): JSX.Element {
     const { auditResponse, auditResponseLoading, callerFilter, counts, hasActiveFilters, quickFilter, page } =
         useValues(gatewayAuditLogic)
     const { clearFilters, setCallerFilter, setQuickFilter, setPage } = useActions(gatewayAuditLogic)
-    const { serviceAccounts, serviceAccountsLoading } = useValues(mcpGatewayLogic)
+    const { isAdmin, serviceAccounts, serviceAccountsLoading } = useValues(mcpGatewayLogic)
     const callerOptions: LemonSelectOptions<string> = [
         { options: [{ value: 'all', label: 'Everyone' }] },
         ...(serviceAccounts.length > 0
@@ -51,7 +51,9 @@ export function GatewayAuditLog(): JSX.Element {
             <div>
                 <h2 className="mb-1">Audit log</h2>
                 <p className="mb-0 text-sm text-secondary">
-                    This log shows every tool call routed through the gateway and how the gateway handled it.
+                    {isAdmin
+                        ? 'This log shows every tool call routed through the gateway and how the gateway handled it.'
+                        : 'This log shows tool calls made through your MCP server connections, including calls from agents you shared them with.'}
                 </p>
             </div>
 
@@ -103,7 +105,7 @@ export function GatewayAuditLog(): JSX.Element {
                 emptyState={
                     hasActiveFilters
                         ? 'No tool calls match these filters. Clear the filters to see more activity.'
-                        : 'No tool calls have been routed through the gateway yet.'
+                        : 'No tool calls are available in this audit log yet.'
                 }
                 pagination={{
                     controlled: true,

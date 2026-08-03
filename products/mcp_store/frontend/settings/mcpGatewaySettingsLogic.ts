@@ -6,10 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { mcpGatewayLogic } from '../gateway/mcpGatewayLogic'
-import { ADMIN_TABS, GatewayTab } from '../gateway/mcpGatewaySceneLogic'
+import { ADMIN_TABS, GatewayTab, MEMBER_TABS } from '../gateway/mcpGatewaySceneLogic'
 import { TeamMCPGatewayConfigApi } from '../generated/api.schemas'
-
-const MEMBER_TABS: GatewayTab[] = ['servers']
 
 export type GatewaySettingsDetailView = 'agent' | 'member' | 'server'
 

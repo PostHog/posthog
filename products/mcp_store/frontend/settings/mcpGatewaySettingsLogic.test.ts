@@ -78,12 +78,17 @@ describe('mcpGatewaySettingsLogic', () => {
         expect(router.values.searchParams).toEqual({ keep: 'value' })
     })
 
-    it('keeps members on the Servers tab when an admin-only tab is requested', async () => {
+    it('shows the audit tab to members and keeps admin-only tabs unavailable', async () => {
         await mountSettings(false)
 
         router.actions.push(urls.settings('mcp-servers'), { tab: 'audit', keep: 'value' })
 
-        expect(settingsLogic?.values.availableTabs).toEqual(['servers'])
+        expect(settingsLogic?.values.availableTabs).toEqual(['servers', 'audit'])
+        expect(settingsLogic?.values.activeTab).toBe('audit')
+        expect(router.values.searchParams).toEqual({ tab: 'audit', keep: 'value' })
+
+        router.actions.push(urls.settings('mcp-servers'), { tab: 'team', keep: 'value' })
+
         expect(settingsLogic?.values.activeTab).toBe('servers')
         expect(router.values.searchParams).toEqual({ keep: 'value' })
     })

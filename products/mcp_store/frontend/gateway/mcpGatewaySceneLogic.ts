@@ -10,7 +10,7 @@ import { mcpGatewayLogic } from './mcpGatewayLogic'
 export type GatewayTab = 'servers' | 'team' | 'settings' | 'audit'
 
 export const ADMIN_TABS: GatewayTab[] = ['servers', 'team', 'settings', 'audit']
-const MEMBER_TABS: GatewayTab[] = ['servers']
+export const MEMBER_TABS: GatewayTab[] = ['servers', 'audit']
 
 function searchParamsWithoutOAuth(searchParams: Record<string, unknown>): Record<string, unknown> {
     return Object.fromEntries(
@@ -72,12 +72,12 @@ export const mcpGatewaySceneLogic = kea<mcpGatewaySceneLogicType>([
     }),
     listeners(({ values }) => ({
         [mcpGatewayLogic.actionTypes.loadConfigSuccess]: ({ config }) => {
-            if (!config.is_admin && values.activeTab !== 'servers') {
+            if (!config.is_admin && !MEMBER_TABS.includes(values.activeTab)) {
                 router.actions.replace(urls.mcpGateway())
             }
         },
         [mcpGatewayLogic.actionTypes.loadConfigFailure]: () => {
-            if (values.activeTab !== 'servers') {
+            if (!MEMBER_TABS.includes(values.activeTab)) {
                 router.actions.replace(urls.mcpGateway())
             }
         },
@@ -116,7 +116,7 @@ export const mcpGatewaySceneLogic = kea<mcpGatewaySceneLogicType>([
                 handleOAuthCallback(searchParams ?? {})
                 const next = (ADMIN_TABS.includes(tab as GatewayTab) ? tab : 'servers') as GatewayTab
                 const config = mcpGatewayLogic.values.config
-                if (next !== 'servers' && config !== null && !config.is_admin) {
+                if (config !== null && !config.is_admin && !MEMBER_TABS.includes(next)) {
                     router.actions.replace(urls.mcpGateway())
                     return
                 }

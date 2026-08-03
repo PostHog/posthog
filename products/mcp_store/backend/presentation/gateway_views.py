@@ -761,10 +761,10 @@ class AuditQuerySerializer(serializers.Serializer):
 
 
 class AuditCountsSerializer(serializers.Serializer):
-    all = serializers.IntegerField(help_text="Every audited tool call.")
-    agents = serializers.IntegerField(help_text="Calls made by service accounts.")
-    approvals = serializers.IntegerField(help_text="Calls that were approved or are awaiting approval.")
-    blocked = serializers.IntegerField(help_text="Calls the gateway blocked.")
+    all = serializers.IntegerField(help_text="Every audited tool call visible to the requesting user.")
+    agents = serializers.IntegerField(help_text="Visible calls made by service accounts.")
+    approvals = serializers.IntegerField(help_text="Visible calls that were approved or are awaiting approval.")
+    blocked = serializers.IntegerField(help_text="Visible calls the gateway blocked.")
 
 
 class GatewayMemberSummarySerializer(serializers.Serializer):
@@ -1316,8 +1316,9 @@ class MCPAuditEventViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Read-only trail of proxied tool calls. Admin-only — it exposes what
-    every member and agent has been doing."""
+    """Read-only trail of proxied tool calls. Project admins see all calls.
+    Members see calls made through their connections, including calls made by
+    agents using connections they shared."""
 
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve", "counts"]
@@ -1326,22 +1327,16 @@ class MCPAuditEventViewSet(
     queryset = MCPAuditEvent.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[MCPAuditEvent]) -> QuerySet[MCPAuditEvent]:
-        return (
-            MCPAuditEvent.objects.for_team(self.team_id)
-            .select_related("actor_user", "actor_service_account")
-            .order_by("-created_at")
-        )
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self._require_project_admin()
-        return super().retrieve(request, *args, **kwargs)
+        events = MCPAuditEvent.objects.for_team(self.team_id)
+        if not self._is_project_admin():
+            events = events.filter(installation__user_id=cast(User, self.request.user).id)
+        return events.select_related("actor_user", "actor_service_account").order_by("-created_at")
 
     @validated_request(
         query_serializer=AuditQuerySerializer,
         responses={200: OpenApiResponse(response=MCPAuditEventSerializer(many=True))},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self._require_project_admin()
         query = request.validated_query_data
         queryset = self.filter_queryset(self.get_queryset())
 
@@ -1364,9 +1359,8 @@ class MCPAuditEventViewSet(
     @action(detail=False, methods=["get"], url_path="counts")
     def counts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Totals backing the quick-filter chips."""
-        self._require_project_admin()
         return Response(
-            MCPAuditEvent.objects.for_team(self.team_id).aggregate(
+            self.get_queryset().aggregate(
                 all=Count("id"),
                 agents=Count("id", filter=Q(actor_service_account__isnull=False)),
                 approvals=Count("id", filter=Q(decision__in=["approved", "pending"])),

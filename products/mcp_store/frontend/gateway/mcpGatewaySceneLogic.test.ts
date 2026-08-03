@@ -84,7 +84,7 @@ describe('mcpGatewaySceneLogic', () => {
         }
     )
 
-    it.each(['team', 'settings', 'audit'] as const)(
+    it.each(['team', 'settings'] as const)(
         'redirects a non-admin from a direct %s tab URL to the servers tab',
         async (tab) => {
             let resolveConfig!: (config: TeamMCPGatewayConfigApi) => void
@@ -110,4 +110,15 @@ describe('mcpGatewaySceneLogic', () => {
             expect(sceneLogic.values.activeTab).toBe('servers')
         }
     )
+
+    it('allows a member to open the audit tab directly', async () => {
+        router.actions.push(urls.mcpGatewayTab('audit'))
+        mountLogics()
+
+        await expectLogic(gatewayLogic).toFinishAllListeners()
+
+        expect(sceneLogic.values.availableTabs).toEqual(['servers', 'audit'])
+        expect(sceneLogic.values.activeTab).toBe('audit')
+        expect(router.values.location.pathname).toBe('/project/997/mcp-servers/audit')
+    })
 })

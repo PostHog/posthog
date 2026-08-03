@@ -28,7 +28,7 @@ The gateway experience has these pages and workflows:
   Member details show connection and access status across registered servers, with admin controls for enabling or disabling access.
 - **Team settings**: Control whether members can add custom servers or manage agent access.
   Admins can also configure member and agent policy baselines, enable or disable servers for the team, and manage organization rules.
-- **Audit log**: Review gateway activity, apply quick filters, filter by agent caller, and page through results.
+- **Audit log**: Project admins can review all gateway activity. Members can review calls made through their own connections, including calls made by agents using connections they shared. The log supports quick filters, agent caller filters, and pagination.
 
 The standalone gateway routes under `/mcp-servers` use the same data and page components and wait for `MCP_GATEWAY` before rendering.
 When the flag is off, detail routes return to the Settings page.

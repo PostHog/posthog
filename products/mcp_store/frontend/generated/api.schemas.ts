@@ -120,13 +120,13 @@ export interface PaginatedMCPAuditEventListApi {
 }
 
 export interface AuditCountsApi {
-    /** Every audited tool call. */
+    /** Every audited tool call visible to the requesting user. */
     all: number
-    /** Calls made by service accounts. */
+    /** Visible calls made by service accounts. */
     agents: number
-    /** Calls that were approved or are awaiting approval. */
+    /** Visible calls that were approved or are awaiting approval. */
     approvals: number
-    /** Calls the gateway blocked. */
+    /** Visible calls the gateway blocked. */
     blocked: number
 }
 

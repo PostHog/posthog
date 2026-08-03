@@ -89,8 +89,9 @@ export const getMcpGatewayAuditListUrl = (projectId: string, params?: McpGateway
 }
 
 /**
- * Read-only trail of proxied tool calls. Admin-only — it exposes what
- * every member and agent has been doing.
+ * Read-only trail of proxied tool calls. Project admins see all calls.
+ * Members see calls made through their connections, including calls made by
+ * agents using connections they shared.
  */
 export const mcpGatewayAuditList = async (
     projectId: string,
@@ -108,8 +109,9 @@ export const getMcpGatewayAuditRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Read-only trail of proxied tool calls. Admin-only — it exposes what
- * every member and agent has been doing.
+ * Read-only trail of proxied tool calls. Project admins see all calls.
+ * Members see calls made through their connections, including calls made by
+ * agents using connections they shared.
  */
 export const mcpGatewayAuditRetrieve = async (
     projectId: string,
