@@ -1,4 +1,4 @@
-"""Classifier runner for versioned enrichment labels (the "score lab" brains).
+"""Classifier runner for versioned AI enrichment labels.
 
 Pure functions only: no persistence, no client construction. Callers build the OpenAI
 client via `get_llm_client(product="growth")` and pass it in — this module just turns

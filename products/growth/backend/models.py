@@ -149,7 +149,7 @@ class OrganizationEnrichmentFetch(UUIDModel):
 
 
 class EnrichmentPromptConfig(UUIDModel):
-    """A versioned LLM classifier definition for one enrichment label (the "score lab" brains).
+    """A versioned LLM classifier definition for one AI enrichment label.
 
     Rails are code; brains are rows: the label owner iterates prompt/model/input selection by
     creating new rows, without a deploy. A behavior change is always a new row (new version),
