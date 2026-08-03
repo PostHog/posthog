@@ -6,18 +6,17 @@ from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
-from django.utils import timezone
 
 import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 from prometheus_client import Gauge
 
-from posthog.ducklake.team_state import CPUnavailableError
 from posthog.exceptions_capture import capture_exception
-from posthog.models import DuckgresSinkSchemaState
 from posthog.sync import database_sync_to_async_pool
 
+from products.managed_warehouse.backend.facade import sink_state
+from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
@@ -68,7 +67,7 @@ def _record_live_batch_applied(schema_id: str) -> None:
     query the warehouse-sources queue DB (which it has no credentials for).
     """
     close_old_connections()
-    DuckgresSinkSchemaState.objects.filter(schema_id=schema_id).update(queue_last_applied_at=timezone.now())
+    sink_state.record_live_batch_applied(schema_id)
 
 
 # How often the fetch path refreshes the enabled-team set and runs the
@@ -99,7 +98,7 @@ SINK_BLOCKED_OLDEST_AGE_SECONDS = Gauge(
     multiprocess_mode="livemax",
 )
 # Visibility-only, deliberately unalerted: hard-blocked schemas are an operator
-# remediation queue (durably tracked on DuckgresSinkSchemaState), not a page.
+# remediation queue (durably tracked on the sink state), not a page.
 SINK_FAILING_BLOCKED_BACKLOG = Gauge(
     "duckgres_sink_failing_blocked_backlog",
     "Delta-succeeded batches held back behind a hard-blocked schema (backfill failure streak / needs_resync)",

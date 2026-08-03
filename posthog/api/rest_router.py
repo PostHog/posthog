@@ -53,6 +53,7 @@ from . import (
     organization_member,
     organization_personal_api_key,
     personal_api_key,
+    posthog_connection,
     project_secret_api_key,
     proxy_record,
     query,
@@ -170,6 +171,12 @@ projects_router.register(
 
 
 projects_router.register(r"integrations", integration.IntegrationViewSet, "project_integrations", ["team_id"])
+projects_router.register(
+    r"posthog_connections",
+    posthog_connection.PostHogConnectionViewSet,
+    "project_posthog_connections",
+    ["team_id"],
+)
 projects_router.register(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
