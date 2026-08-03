@@ -82,9 +82,19 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
 })
 
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
+    email_domain: zod
+        .string()
+        .optional()
+        .describe('Only return members whose email address is on this domain (case-insensitive).'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
+    outside_verified_domains: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement."
+        ),
     search: zod
         .string()
         .optional()

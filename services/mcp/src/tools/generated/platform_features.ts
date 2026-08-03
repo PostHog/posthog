@@ -527,9 +527,11 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
             query: {
+                email_domain: params.email_domain,
                 limit: params.limit,
                 offset: params.offset,
                 order: params.order,
+                outside_verified_domains: params.outside_verified_domains,
                 search: params.search,
             },
         })

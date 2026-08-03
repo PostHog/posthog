@@ -26,6 +26,7 @@ import type {
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
+    OrganizationEnforceVerifiedDomainsResponseApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
     PaginatedActivityLogListApi,
@@ -159,6 +160,25 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     return apiMutator<void>(getDestroyUrl(id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getEnableVerifiedDomainsEnforcementCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/enable_verified_domains_enforcement/`
+}
+
+/**
+ * Turn on verified-domain enforcement and remove the members whose email domain is outside
+ * the organization's verified domains, in one transaction. Owners are never removed — they
+ * keep gated access and can disable the setting themselves. Admin only.
+ */
+export const enableVerifiedDomainsEnforcementCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationEnforceVerifiedDomainsResponseApi> => {
+    return apiMutator<OrganizationEnforceVerifiedDomainsResponseApi>(getEnableVerifiedDomainsEnforcementCreateUrl(id), {
+        ...options,
+        method: 'POST',
     })
 }
 

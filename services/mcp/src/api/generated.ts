@@ -43274,6 +43274,13 @@ export namespace Schemas {
       identity_provider_config?: string | null;
     }
 
+    export interface OrganizationEnforceVerifiedDomainsResponse {
+      /** Whether verified-domain enforcement was turned on. */
+      success: boolean;
+      /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
+      removed_members: number;
+    }
+
     export interface OrganizationFeatureFlagRow {
       /** ID of the representative feature flag for this key */
       id: number;
@@ -76108,6 +76115,10 @@ export namespace Schemas {
 
     export type MembersListParams = {
     /**
+     * Only return members whose email address is on this domain (case-insensitive).
+     */
+    email_domain?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -76119,6 +76130,10 @@ export namespace Schemas {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string;
+    /**
+     * When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.
+     */
+    outside_verified_domains?: boolean;
     /**
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
