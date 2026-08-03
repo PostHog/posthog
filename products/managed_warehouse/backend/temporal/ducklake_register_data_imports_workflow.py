@@ -48,6 +48,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_rows_metric,
     get_ducklake_register_data_imports_stale_metric,
     get_ducklake_register_data_imports_started_metric,
+    record_ducklake_register_data_imports_stage_duration,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -63,6 +64,7 @@ def _stage_timer(*, stage: str, team_id: int, schema_id: str) -> ExecutionTimeRe
         "Execution duration of one post-gate DuckLake data import registration stage.",
         {"stage": stage, "team_id": str(team_id), "schema_id": schema_id},
         log=True,
+        histogram_recorder=record_ducklake_register_data_imports_stage_duration,
     )
 
 
@@ -182,7 +184,7 @@ async def prepare_ducklake_data_imports_registration_activity(
 
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
         ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
-        ducklake_table_name = duckgres_data_imports_table_name(schema)
+        ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
         landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
             team_id=inputs.team_id,
             ducklake_schema_name=ducklake_schema_name,

@@ -603,6 +603,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -615,6 +616,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -2454,6 +2456,7 @@ export interface CredentialApi {
  * * `Odoo` - Odoo
  * * `Airbridge` - Airbridge
  * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3735,6 +3738,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Odoo: 'Odoo',
     Airbridge: 'Airbridge',
     Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

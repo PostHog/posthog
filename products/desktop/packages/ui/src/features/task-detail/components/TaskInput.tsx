@@ -1,4 +1,4 @@
-import { FileText, X } from "@phosphor-icons/react";
+import { X } from "@phosphor-icons/react";
 import type { AutoresearchService } from "@posthog/core/autoresearch/autoresearch";
 import { AUTORESEARCH_SERVICE } from "@posthog/core/autoresearch/identifiers";
 import { buildKickoffPreamble } from "@posthog/core/autoresearch/prompts";
@@ -97,6 +97,7 @@ import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { resolveWorkspaceModePreference } from "../hooks/workspaceModePreference";
 import { AgentRuntimeSelect } from "./AgentRuntimeSelect";
+import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
 import {
@@ -1385,6 +1386,15 @@ export function TaskInput({
                     (runtime === "pi" && !currentPiModel)
                   }
                   tourTarget="task-input"
+                  attachmentsPrefix={
+                    includeChannelContext ? (
+                      <ChannelContextChip
+                        channelName={channelName}
+                        onView={onContextChipClick}
+                        onRemove={() => setChannelContextDismissed(true)}
+                      />
+                    ) : undefined
+                  }
                   repoPath={selectedDirectory}
                   modeOption={runtime === "pi" ? undefined : modeOption}
                   onModeChange={runtime === "pi" ? undefined : handleModeChange}
@@ -1475,44 +1485,6 @@ export function TaskInput({
                         <X size={12} />
                       </button>
                     </Tooltip>
-                  </div>
-                )}
-                {includeChannelContext && (
-                  <div className="-mt-px mx-2 flex select-none flex-wrap items-center gap-1.5 rounded-b-md border border-gray-6 border-t-0 bg-gray-2 px-2 py-1 text-[12px] text-gray-11">
-                    <span className="shrink-0 text-gray-10">Using:</span>
-                    <span className="inline-flex items-center gap-1 rounded-[var(--radius-1)] bg-[var(--gray-a3)] px-1.5 py-px font-medium text-[var(--gray-11)]">
-                      {onContextChipClick ? (
-                        <Tooltip content="View this CONTEXT.md">
-                          <button
-                            type="button"
-                            onClick={onContextChipClick}
-                            className="inline-flex min-w-0 items-center gap-1 rounded text-[var(--gray-11)] hover:text-gray-12"
-                          >
-                            <FileText size={12} />
-                            <span className="truncate">
-                              {channelName ? `#${channelName} ` : ""}CONTEXT.md
-                            </span>
-                          </button>
-                        </Tooltip>
-                      ) : (
-                        <>
-                          <FileText size={12} />
-                          <span className="truncate">
-                            {channelName ? `#${channelName} ` : ""}CONTEXT.md
-                          </span>
-                        </>
-                      )}
-                      <Tooltip content="Don't include this CONTEXT.md">
-                        <button
-                          type="button"
-                          onClick={() => setChannelContextDismissed(true)}
-                          aria-label="Remove CONTEXT.md from prompt"
-                          className="ml-0.5 inline-flex size-3.5 items-center justify-center rounded text-gray-10 hover:bg-gray-5 hover:text-gray-12"
-                        >
-                          <X size={12} />
-                        </button>
-                      </Tooltip>
-                    </span>
                   </div>
                 )}
                 {effectiveWorkspaceMode === "cloud" &&
