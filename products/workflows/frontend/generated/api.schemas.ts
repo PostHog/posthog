@@ -674,7 +674,7 @@ export interface MessageAssetApi {
     function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
-    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoint currently returns only 'email'. */
+    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
     kind: string
     /** The recipient's distinct_id. */
     distinct_id: string

@@ -375,10 +375,18 @@ pub async fn warm_from_kafka(
         CoordError::invalid_state(format!("partition {partition} exceeds i32::MAX"))
     })?;
 
-    // Query the writer's committed offset via a separate, short-lived client.
-    // This keeps our long-lived warming consumer isolated from the writer's
-    // consumer group.
-    let committed_offset = with_warm_retry("committed_offset", partition, cfg.retry, || async {
+    // Arc because the watermark retry closure needs its own handle for
+    // the blocking pool; sole ownership returns once the retries finish.
+    let consumer = Arc::new(pools.warming.checkout()?);
+
+    // The two offset queries are independent — the writer's committed
+    // position comes from the offsets pool, the watermarks from this
+    // consumer — so they run concurrently; each keeps its own retry
+    // policy. The committed query uses a separate, short-lived client to
+    // keep the long-lived warming consumer isolated from the writer's
+    // consumer group. `fetch_watermarks` is synchronous in rdkafka and
+    // may block for the full timeout, so it runs on the blocking pool.
+    let committed_fut = with_warm_retry("committed_offset", partition, cfg.retry, || async {
         fetch_writer_committed_offset(
             &pools.offsets,
             &cfg.topic,
@@ -386,17 +394,8 @@ pub async fn warm_from_kafka(
             cfg.committed_offsets_timeout,
         )
         .await
-    })
-    .await?;
-
-    // Arc because the watermark retry closure needs its own handle for
-    // the blocking pool; sole ownership returns once the retries finish.
-    let consumer = Arc::new(pools.warming.checkout()?);
-
-    // `fetch_watermarks` is synchronous in rdkafka and may block for the
-    // full timeout. Run it on the blocking pool so retries don't park the
-    // runtime thread.
-    let (low, hwm) = with_warm_retry("fetch_watermarks", partition, cfg.retry, || {
+    });
+    let watermarks_fut = with_warm_retry("fetch_watermarks", partition, cfg.retry, || {
         let consumer = Arc::clone(&consumer);
         let topic = cfg.topic.clone();
         let timeout = cfg.fetch_watermarks_timeout;
@@ -409,8 +408,28 @@ pub async fn warm_from_kafka(
             .await
             .map_err(|e| CoordError::invalid_state(format!("fetch_watermarks join: {e}")))?
         }
-    })
-    .await?;
+    });
+    let (committed_res, watermarks_res) = tokio::join!(committed_fut, watermarks_fut);
+    let (low, hwm) = match watermarks_res {
+        Ok(marks) => marks,
+        // The watermark call failed on this consumer, so the pool's
+        // drop-doubtful-clients contract applies: fall through without
+        // giving it back.
+        Err(e) => return Err(e),
+    };
+    let committed_offset = match committed_res {
+        Ok(offset) => offset,
+        Err(e) => {
+            // The committed-offset query runs on the offsets pool's
+            // client; this consumer did nothing and is sound. Returning
+            // it keeps reconcile-driven warm retries from rebuilding a
+            // Kafka client per attempt.
+            if let Ok(consumer) = Arc::try_unwrap(consumer) {
+                pools.warming.give_back(consumer);
+            }
+            return Err(e);
+        }
+    };
 
     let start_offset = resolve_start_offset(committed_offset, low, cfg.lookback_offsets);
 
@@ -425,6 +444,20 @@ pub async fn warm_from_kafka(
         "computed warming range"
     );
 
+    if hwm <= start_offset {
+        // Empty range — install an empty partition cache. Use the
+        // atomic install path so this matches the populated path's
+        // publication semantics (the partition becomes observable in
+        // a single dashmap insert). The consumer never got assigned, so
+        // it goes straight back to the pool.
+        cache.install_warmed_partition(partition, std::iter::empty());
+        tracing::info!(partition, hwm, start_offset, "no messages to warm in range");
+        if let Ok(consumer) = Arc::try_unwrap(consumer) {
+            pools.warming.give_back(consumer);
+        }
+        return Ok(());
+    }
+
     let mut assign_tpl = TopicPartitionList::new();
     assign_tpl
         .add_partition_offset(&cfg.topic, partition_i32, Offset::Offset(start_offset))
@@ -432,16 +465,6 @@ pub async fn warm_from_kafka(
     consumer
         .assign(&assign_tpl)
         .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
-
-    if hwm <= start_offset {
-        // Empty range — install an empty partition cache. Use the
-        // atomic install path so this matches the populated path's
-        // publication semantics (the partition becomes observable in
-        // a single dashmap insert).
-        cache.install_warmed_partition(partition, std::iter::empty());
-        tracing::info!(partition, hwm, start_offset, "no messages to warm in range");
-        return Ok(());
-    }
 
     // Buffer records locally and only commit them to the cache after the
     // entire range warms successfully. Any decode/IO failure mid-range

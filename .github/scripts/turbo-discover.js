@@ -52,7 +52,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
 // the temporal durations must count toward product sizing so the product is sharded for that load —
 // otherwise a huge suite lands in one unsharded bucket and times out.
-const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['managed-warehouse', 'warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.

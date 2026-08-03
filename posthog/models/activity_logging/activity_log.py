@@ -336,6 +336,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "auto_pause_exempt": "never pause for inactivity",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -396,11 +397,13 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
-    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout).
-    # When that is the only change, suppress the activity signal entirely so run bookkeeping
-    # never spams the audit log.
+    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
+    # and the failure streak by the runner on every run outcome. When those are the only
+    # change, suppress the activity signal entirely so run bookkeeping never spams the audit
+    # log. A breaker trip is NOT suppressed: it moves `status`, which logs like any pause.
     "SignalScoutConfig": [
         "last_run_at",
+        "consecutive_failure_count",
     ],
 }
 
@@ -765,6 +768,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Run bookkeeping, not user intent — keep it out of change detection even when it
         # rides along with a real change (belt-and-suspenders with signal_exclusions above).
         "last_run_at",
+        "consecutive_failure_count",
         # Companion bookkeeping that rides along with every logged `status` change; the
         # activity log entry itself already carries who and when.
         "status_changed_at",

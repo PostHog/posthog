@@ -7,6 +7,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import InterfaceError, OperationalError
+
+from parameterized import parameterized
+
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -246,6 +250,39 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
         with pytest.raises(RESTClientRetryableError):
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        ("operational_error", OperationalError, "query_wait_timeout"),
+        ("interface_error", InterfaceError, "connection already closed"),
+    ]
+)
+@pytest.mark.asyncio
+async def test_app_db_connection_error_reraised_as_non_reportable(_name: str, error_cls: type[Exception], message: str):
+    # A Django OperationalError/InterfaceError here can only come from a lookup against PostHog's
+    # own app DB (e.g. resolving a team or CustomPropertySource for the person-property staging
+    # hook) — sources talk to a customer's own database over a raw driver connection, never Django's
+    # ORM. It's a transient connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout
+    # under load), so it must be re-raised as NonReportableError (like RESTClientRetryableError
+    # above) rather than the bare exception, which the activity interceptor would still capture.
+    error = error_cls(message)
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 

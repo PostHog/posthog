@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Literal, get_args
+from typing import Any, Literal, TypedDict, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -114,6 +114,15 @@ logger = structlog.get_logger(__name__)
 # Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
 # experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
 EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
+
+CleanupRepositorySource = Literal["explicit", "single_repo", "ambiguous", "no_integration"]
+
+
+class CleanupRepositoryTarget(TypedDict):
+    repository: str | None
+    source: CleanupRepositorySource
+    candidates: list[str]
+
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -2305,6 +2314,7 @@ class ExperimentService:
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
+        repository: str | None = None,
         request: Any | None = None,
     ) -> Experiment:
         """End a running experiment: set end_date and mark as stopped.
@@ -2323,7 +2333,9 @@ class ExperimentService:
         experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
-        self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
+        self._report_experiment_ended(
+            experiment, request=request, open_cleanup_pr=open_cleanup_pr, repository=repository
+        )
 
         return experiment
 
@@ -2342,7 +2354,9 @@ class ExperimentService:
             )
         )
 
-    def _maybe_open_cleanup_pr(self, experiment: Experiment, open_cleanup_pr: bool) -> None:
+    def _maybe_open_cleanup_pr(
+        self, experiment: Experiment, open_cleanup_pr: bool, requested_repository: str | None = None
+    ) -> None:
         """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
         experiment's feature-flag code, via the Tasks engine.
 
@@ -2355,7 +2369,8 @@ class ExperimentService:
                 return
 
             flag_key = experiment.get_feature_flag_key()
-            repository = self._resolve_cleanup_repository(experiment)
+            target = self.get_cleanup_repository_target(experiment, requested_repository=requested_repository)
+            repository = target["repository"]
             if repository is None:
                 # No safe target — skipping beats opening a PR against the wrong repo.
                 logger.info(
@@ -2363,8 +2378,15 @@ class ExperimentService:
                     experiment_id=experiment.id,
                     team_id=experiment.team_id,
                     flag_key=flag_key,
+                    requested_repository=requested_repository,
                 )
                 return
+
+            if requested_repository and target["source"] == "explicit":
+                # Persist the request's choice only now that it passed the installation check —
+                # a typo'd or stale name must not stick and block the single-repo fallback later.
+                experiment.repository = requested_repository
+                experiment.save(update_fields=["repository"])
 
             plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
             title, description = build_cleanup_prompt(experiment, flag_key, plan)
@@ -2409,31 +2431,53 @@ class ExperimentService:
         except Exception:
             logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
 
-    def _resolve_cleanup_repository(self, experiment: Experiment) -> str | None:
-        """Repository the cleanup PR targets: the experiment's explicit `repository`, else the
-        team's only cached GitHub repo. Several repos (or no GitHub integration) means there is
-        no safe target and the cleanup is skipped — a wrong-repo PR is worse than none.
+    def get_cleanup_repository_target(
+        self, experiment: Experiment, requested_repository: str | None = None
+    ) -> CleanupRepositoryTarget:
+        """Repository the cleanup PR targets: the repository requested on end/ship, else the
+        experiment's saved `repository`, else the team's only cached GitHub repo. Several repos
+        (or no GitHub integration) means there is no safe target and the cleanup is skipped —
+        a wrong-repo PR is worse than none.
+
+        Returns how the target was determined (`source`) and the team's connected repositories
+        (`candidates`) so the end-experiment modal can show the target or offer a picker.
         """
         # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        github = tasks_repo_selection.resolve_team_github_integration(experiment.team_id, team=experiment.team)
+        # team_only: the candidates are shown to any experiment viewer with Code access, and the
+        # cleanup PR is opened by the team installation's bot identity — a personal-connection
+        # fallback would both leak someone's private repo names and target a repo the bot can't use.
+        github = tasks_repo_selection.resolve_team_github_integration(
+            experiment.team_id, team=experiment.team, team_only=True
+        )
         if github is None:
-            return None
+            return {"repository": None, "source": "no_integration", "candidates": []}
         cached = {
-            full_name.lower()
+            full_name.lower(): full_name
             for repo in github.list_all_cached_repositories(max_repos=1000)
             if (full_name := repo.get("full_name"))
         }
-        if experiment.repository:
+        candidates = sorted(cached.values(), key=str.lower)
+        if not cached:
+            # An integration with nothing to target is as good as none — without this, a
+            # stale saved repo would report "ambiguous" and the modal would show an empty picker.
+            return {"repository": None, "source": "no_integration", "candidates": []}
+        explicit = requested_repository or experiment.repository
+        if explicit:
             # An explicit repo must still belong to this team's installation — GitHub
             # installations can be shared, so an unchecked name could reach another
-            # project's private repository through the shared credential.
-            return experiment.repository if experiment.repository.lower() in cached else None
+            # project's private repository through the shared credential. A stale explicit
+            # value does not fall back to the single cached repo: the user pointed at a
+            # specific repo, so ask again rather than silently retarget.
+            if explicit.lower() in cached:
+                # The stored value is lowercased on write; return GitHub's own casing.
+                return {"repository": cached[explicit.lower()], "source": "explicit", "candidates": candidates}
+            return {"repository": None, "source": "ambiguous", "candidates": candidates}
         if len(cached) == 1:
-            return cached.pop()
-        return None
+            return {"repository": candidates[0], "source": "single_repo", "candidates": candidates}
+        return {"repository": None, "source": "ambiguous", "candidates": candidates}
 
     def _report_experiment_ended(
         self,
@@ -2441,10 +2485,11 @@ class ExperimentService:
         *,
         request: Any | None = None,
         open_cleanup_pr: bool = False,
+        repository: str | None = None,
     ) -> None:
         # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
         # analytics below so it behaves the same regardless of call context.
-        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr)
+        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository)
 
         if request is None:
             return
@@ -2618,6 +2663,7 @@ class ExperimentService:
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
+        repository: str | None = None,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -2697,7 +2743,9 @@ class ExperimentService:
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
         )
         if was_running:
-            self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
+            self._report_experiment_ended(
+                experiment, request=request, open_cleanup_pr=open_cleanup_pr, repository=repository
+            )
 
         return experiment
 

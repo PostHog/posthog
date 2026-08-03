@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
@@ -58,6 +59,7 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
+    MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -142,6 +144,7 @@ __all__ = [
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "ensure_personal_channel_id",
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
@@ -929,6 +932,7 @@ def create_and_run_task(
     signal_report_id: str | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
+    channel_id: str | UUID | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -936,7 +940,12 @@ def create_and_run_task(
     Thin wrapper over ``Task.create_and_run`` that returns ids + the created run as a DTO
     instead of leaking the ORM ``Task``. ``team`` is a core ``posthog.Team`` (not a tasks
     model). Less-common keyword arguments are forwarded verbatim via ``**extra``.
+
+    ``channel_id`` files the task into a channel's feed; left NULL for non-channel surfaces.
+    An id the creator can't file into (see ``_visible_channel``) is ignored rather than
+    raising — feed placement must never break task creation.
     """
+    channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
         title=title,
@@ -944,6 +953,7 @@ def create_and_run_task(
         origin_product=origin_product,
         user_id=user_id,
         repository=repository,
+        channel=channel,
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
@@ -1048,6 +1058,7 @@ def create_task_without_run(
     title: str = "",
     description: str = "",
     repository: str | None = None,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -1061,6 +1072,7 @@ def create_task_without_run(
         origin_product=origin_product,
         user_id=user_id,
         repository=repository,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
 
@@ -1921,6 +1933,14 @@ def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
     """A run scoped to its parent task + team. Caller is responsible for task visibility."""
     return _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
+
+
+def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
+    """Precheck so callers can 404 before doing expensive work (e.g. a render)."""
+    try:
+        return TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id).exists()
+    except (ValueError, TypeError, DjangoValidationError):
+        return False
 
 
 def task_accessible_for_run_view(
@@ -5321,24 +5341,34 @@ def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
     )
 
 
+def _team_channels(team_id: int) -> QuerySet[Channel]:
+    # for_team rather than a bare team_id filter so these reads also resolve outside request
+    # scope (Temporal activities), where the fail-closed manager raises on an unscoped read.
+    return Channel.objects.for_team(team_id)
+
+
 def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
     # select_related so _channel_to_dto doesn't lazy-load created_by per call.
+    channels = _team_channels(team_id).select_related("created_by")
+    lookup = {
+        "team_id": team_id,
+        "created_by_id": user_id,
+        "channel_type": Channel.ChannelType.PERSONAL,
+        "deleted": False,
+    }
     try:
-        channel, _ = Channel.objects.select_related("created_by").get_or_create(
-            team_id=team_id,
-            created_by_id=user_id,
-            channel_type=Channel.ChannelType.PERSONAL,
-            deleted=False,
-            defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
-        )
+        channel, _ = channels.get_or_create(**lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME})
     except IntegrityError:
-        channel = Channel.objects.select_related("created_by").get(
-            team_id=team_id,
-            created_by_id=user_id,
-            channel_type=Channel.ChannelType.PERSONAL,
-            deleted=False,
-        )
+        channel = channels.get(**lookup)
     return channel
+
+
+def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
+    """Get-or-create the user's personal "#me" channel and return its id.
+
+    For callers outside a request (Temporal activities) that need somewhere to file a task.
+    """
+    return _ensure_personal_channel(team_id, user_id).id
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
@@ -5452,7 +5482,7 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
     """A channel the requester may read: any live public channel on the team, or their
     own personal channel. ``None`` when it's missing or someone else's personal channel."""
-    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+    channel = _team_channels(team_id).filter(id=channel_id, deleted=False).first()
     if channel is None:
         return None
     if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
@@ -5692,7 +5722,8 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=_visible_task_qs(team_id, user_id))
+    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
 
 
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
