@@ -7601,6 +7601,7 @@ export enum UserRole {
     Leadership = 'leadership',
     Marketing = 'marketing',
     Sales = 'sales',
+    Student = 'student',
     Other = 'other',
 }
 

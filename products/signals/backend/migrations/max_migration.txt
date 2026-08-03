@@ -1,1 +1,1 @@
-0083_signalscoutconfig_auto_pause_exempt
+0084_signalscoutconfig_network_access

@@ -43,6 +43,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
+from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
@@ -1713,4 +1714,130 @@ class ExperimentSessionContextsResponseSerializer(serializers.Serializer):
             "(only the most recent days are computed). Fetch omitted sessions individually via the "
             "single-session endpoint."
         ),
+    )
+
+
+class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
+    """Request body for the session-bucket endpoint."""
+
+    bucket = serializers.ChoiceField(
+        choices=[bucket.value for bucket in SessionBucket],
+        help_text=(
+            "Which question the returned session set answers. 'fired_any': the session fired at least one event "
+            "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
+            "session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and "
+            "never reached its last one. All three are session-scoped and goal-free: they say what happened in "
+            "the session, not whether it helped or hurt the metric."
+        ),
+    )
+    metric_uuids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, help_text="UUID of one of the experiment's metrics."),
+        required=False,
+        default=list,
+        help_text=(
+            "Metrics the bucket is computed over. Exactly one funnel metric for 'funnel_dropoff'. Omit for the "
+            "other buckets to use every metric of the experiment that can be matched to recordings."
+        ),
+    )
+    variant = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Restrict to sessions that saw this variant. Omit for every variant. A session that saw more than "
+            "one variant matches each variant it saw."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=MAX_SESSION_BUCKET_LIMIT,
+        min_value=1,
+        max_value=MAX_SESSION_BUCKET_LIMIT,
+        help_text=(
+            f"Maximum session IDs to return, at most {MAX_SESSION_BUCKET_LIMIT}. The most recently active "
+            "matching sessions win."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs["bucket"] == SessionBucket.FUNNEL_DROPOFF and len(attrs.get("metric_uuids") or []) != 1:
+            raise serializers.ValidationError(
+                {"metric_uuids": ["The drop-off bucket takes exactly one funnel metric."]}
+            )
+        return attrs
+
+
+class ExperimentSessionBucketMetricSerializer(serializers.Serializer):
+    """One metric the bucket was computed over."""
+
+    metric_uuid = serializers.CharField(help_text="UUID of the experiment metric.")
+    metric_name = serializers.CharField(
+        help_text="Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed."
+    )
+
+
+class ExperimentSessionBucketExcludedMetricSerializer(serializers.Serializer):
+    """One requested metric the bucket could not be computed over."""
+
+    metric_uuid = serializers.CharField(help_text="UUID of the experiment metric.")
+    metric_name = serializers.CharField(help_text="Display name of the metric.")
+    reason = serializers.CharField(
+        help_text=(
+            "Why the metric can't be matched to recordings: a data-warehouse-only source, a retention window, "
+            "or events only ever captured server-side."
+        )
+    )
+
+
+class ExperimentSessionBucketResponseSerializer(serializers.Serializer):
+    """Session recordings of an experiment matching a bucket."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "IDs of matching sessions that have a recording, most recently active first. Feed these to a "
+            "recordings query as session_ids; they are a subset of the experiment's exposed sessions, so the "
+            "exposure filter can stay in place alongside them."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text="True when more sessions matched than the limit returned. Older matches were dropped first."
+    )
+    considered_metrics = ExperimentSessionBucketMetricSerializer(
+        many=True,
+        help_text=(
+            "The metrics the bucket was actually computed over. Load-bearing for 'no_metric_activity': "
+            "'fired nothing' only means something next to the list of metrics it was evaluated against."
+        ),
+    )
+    excluded_metrics = ExperimentSessionBucketExcludedMetricSerializer(
+        many=True,
+        help_text=(
+            "Requested metrics left out of the bucket because they can never match a recording, with the reason. "
+            "They are reported rather than silently producing an empty result."
+        ),
+    )
+    date_from = serializers.DateTimeField(
+        help_text=(
+            f"Start of the window scanned: the experiment's run window, clamped to its most recent "
+            f"{MAX_BUCKET_SCAN_DAYS} days. Matches outside it are not returned."
+        )
+    )
+    date_to = serializers.DateTimeField(
+        help_text="End of the window scanned: the experiment's end date, or now while it runs."
+    )
+    filter_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the project's test-account filters were applied, following the experiment's exposure "
+            "criteria, the same rule the experiment's recordings list uses."
+        )
+    )
+    used_exposure_fallback = serializers.BooleanField(
+        help_text=(
+            "True when the exposed population was matched on the stamped $feature/<flag key> event property "
+            "instead of the exposure event, because the default exposure event has only ever been captured "
+            "server-side and can never match a session. The sessions then mean 'the flag was active in this "
+            "session', not 'the exposure moment was captured'. The variant comes from the flag's value on each "
+            "event, so a returning user can appear under a variant they were re-bucketed into later."
+        )
     )
