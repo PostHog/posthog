@@ -68,7 +68,7 @@ impl CymbalResolutionService {
             symbol_resolution_limiter: self.symbol_resolution_limiter.clone(),
             // Event-level release resolution (`$release_id` / app-metadata hash) runs on the
             // processing side, so no release pool or cache is needed here. The frame-derived
-            // releases this server returns in the `Done` sidecar come from the symbol-set join
+            // releases this server returns on the resolved frames come from the symbol-set join
             // inside the symbol resolver, which uses its own pool.
             posthog_pool: None,
             release_cache: ReleaseCache::disabled(),

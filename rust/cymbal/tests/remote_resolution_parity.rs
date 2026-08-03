@@ -254,10 +254,10 @@ fn sample_raw_frame() -> RawFrame {
     .expect("valid raw frame")
 }
 
-/// The frame-derived release reaches `$exception_release` identically on both paths, even though
-/// it travels differently: in-memory on `Frame.release` locally, via the `releases_json` sidecar
-/// remotely. The byte-for-byte exception-list comparison cannot see it (`Frame.release` is
-/// serde-skipped), so it gets its own parity assertion.
+/// The frame-derived release reaches `$exception_release` identically on both paths: in-memory on
+/// `Frame.release` locally, serialized inside the frame JSON remotely. The byte-for-byte
+/// exception-list comparison cannot see it (`into_resolved` strips releases from frames after
+/// selection, on both paths), so it gets its own parity assertion.
 #[tokio::test]
 async fn local_and_remote_stages_produce_identical_exception_release() {
     let resolver: Arc<dyn SymbolResolver> = Arc::new(ReleaseAttachingResolver {

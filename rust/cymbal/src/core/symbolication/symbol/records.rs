@@ -108,6 +108,12 @@ impl ErrorTrackingStackFrame {
         } else {
             None
         };
+        // Stored contents never include the release: `load_all` re-joins it via the symbol set so
+        // a release (re)bind takes effect on the next load instead of going stale in cache rows.
+        let mut contents = serde_json::to_value(&self.contents)?;
+        if let Some(object) = contents.as_object_mut() {
+            object.remove("release");
+        }
         sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingstackframe (raw_id, part, team_id, created_at, symbol_set_id, contents, resolved, id, context)
@@ -124,7 +130,7 @@ impl ErrorTrackingStackFrame {
             self.id.team_id,
             self.created_at,
             self.symbol_set_id,
-            serde_json::to_value(&self.contents)?,
+            contents,
             self.resolved,
             Uuid::now_v7(),
             context,

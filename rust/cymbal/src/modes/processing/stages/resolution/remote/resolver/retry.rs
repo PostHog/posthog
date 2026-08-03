@@ -17,7 +17,6 @@ use cymbal_proto::cymbal::resolution::v1::{resolve_outcome, ErrorKind, ResolveOu
 use tonic::Status;
 
 use crate::error::UnhandledError;
-use crate::frames::releases::ReleaseRecord;
 use crate::metric_consts::{
     REMOTE_RESOLUTION_ERROR_KINDS, REMOTE_RESOLUTION_LATENCY,
     REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS, REMOTE_RESOLUTION_REQUESTS,
@@ -152,17 +151,13 @@ pub(super) async fn resolve_work_item(
         };
 
         match decision {
-            ItemDecision::Done {
-                exception,
-                releases,
-            } => {
+            ItemDecision::Done(exception) => {
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "ok").increment(1);
                 record_reroute_depth("ok", attempts_used);
                 return Ok(ResolvedRemoteItem {
                     event_slot: work_item.event_slot,
                     exception_slot: work_item.exception_slot,
                     exception,
-                    releases,
                 });
             }
             ItemDecision::Overloaded(message) => {
@@ -280,10 +275,7 @@ fn single_outcome(
 
 #[derive(Debug)]
 enum ItemDecision {
-    Done {
-        exception: Exception,
-        releases: Vec<ReleaseRecord>,
-    },
+    Done(Exception),
     Overloaded(String),
     Retry {
         message: String,
@@ -311,24 +303,7 @@ fn classify_outcome(
                         format!("invalid_done_payload: failed to parse resolved exception: {err}"),
                     )
                 })?;
-            // Empty bytes means an older server that predates the field, or no frame resolved
-            // with a release — both are simply "no releases".
-            let releases = if done.releases_json.is_empty() {
-                Vec::new()
-            } else {
-                serde_json::from_slice::<Vec<ReleaseRecord>>(&done.releases_json).map_err(
-                    |err| {
-                        terminal_item_error(
-                            work_item.token,
-                            format!("invalid_done_payload: failed to parse frame releases: {err}"),
-                        )
-                    },
-                )?
-            };
-            Ok(ItemDecision::Done {
-                exception,
-                releases,
-            })
+            Ok(ItemDecision::Done(exception))
         }
         resolve_outcome::Result::Retry(retry) => {
             let retry_after = (retry.retry_after_ms > 0)
@@ -450,32 +425,33 @@ fn record_reroute_depth(outcome: &'static str, attempts_used: u32) {
 mod tests {
     use cymbal_proto::cymbal::resolution::v1::{Done, Error, Retry};
 
+    use crate::frames::releases::ReleaseRecord;
+
     use super::*;
 
     #[test]
     fn classify_outcome_parses_done_exception() {
         let work_item = work_item(7);
-        // Empty `releases_json` is what a server predating the field sends; it must decode as
-        // "no releases", not an error.
         let outcome = ResolveOutcome {
             id: 7,
             result: Some(resolve_outcome::Result::Done(Done {
                 resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
                     .expect("valid exception"),
-                releases_json: Vec::new(),
             })),
         };
 
         let decision = classify_outcome(&work_item, outcome).expect("done outcome");
         assert!(matches!(
             decision,
-            ItemDecision::Done { exception, releases }
-                if exception.exception_type == "Resolved" && releases.is_empty()
+            ItemDecision::Done(exception) if exception.exception_type == "Resolved"
         ));
     }
 
+    // The frame-derived release crosses the wire inside the frame JSON; a frame without the
+    // key (an older server, or no release bound) must parse to `None`, and one with it must
+    // land on `Frame.release`.
     #[test]
-    fn classify_outcome_parses_done_releases_sidecar() {
+    fn classify_outcome_parses_frame_releases_from_the_exception_json() {
         let release = ReleaseRecord {
             id: uuid::Uuid::now_v7(),
             team_id: 42,
@@ -485,36 +461,29 @@ mod tests {
             project: "my-app".to_string(),
             metadata: None,
         };
+        let mut with_release = exception("Resolved");
+        with_release.stack = Some(crate::types::Stacktrace::Resolved {
+            frames: vec![frame(Some(release.clone())), frame(None)],
+        });
+
         let work_item = work_item(7);
         let outcome = ResolveOutcome {
             id: 7,
             result: Some(resolve_outcome::Result::Done(Done {
-                resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
+                resolved_exception_json: serde_json::to_vec(&with_release)
                     .expect("valid exception"),
-                releases_json: serde_json::to_vec(&vec![release.clone()]).expect("valid releases"),
             })),
         };
 
         let decision = classify_outcome(&work_item, outcome).expect("done outcome");
-        assert!(matches!(
-            decision,
-            ItemDecision::Done { releases, .. } if releases == vec![release]
-        ));
-    }
-
-    #[test]
-    fn classify_outcome_rejects_malformed_releases_sidecar() {
-        let work_item = work_item(7);
-        let outcome = ResolveOutcome {
-            id: 7,
-            result: Some(resolve_outcome::Result::Done(Done {
-                resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
-                    .expect("valid exception"),
-                releases_json: b"not json".to_vec(),
-            })),
+        let ItemDecision::Done(parsed) = decision else {
+            panic!("expected done decision");
         };
-
-        assert!(classify_outcome(&work_item, outcome).is_err());
+        let Some(crate::types::Stacktrace::Resolved { frames }) = parsed.stack else {
+            panic!("expected resolved stack");
+        };
+        assert_eq!(frames[0].release, Some(release));
+        assert_eq!(frames[1].release, None);
     }
 
     #[test]
@@ -607,6 +576,28 @@ mod tests {
             module: None,
             thread_id: None,
             stack: None,
+        }
+    }
+
+    fn frame(release: Option<ReleaseRecord>) -> crate::frames::Frame {
+        crate::frames::Frame {
+            frame_id: common_types::error_tracking::FrameId::placeholder(),
+            mangled_name: "f".to_string(),
+            line: None,
+            column: None,
+            source: None,
+            module: None,
+            in_app: true,
+            resolved_name: None,
+            lang: "javascript".to_string(),
+            resolved: true,
+            resolve_failure: None,
+            synthetic: false,
+            suspicious: false,
+            junk_drawer: None,
+            code_variables: None,
+            context: None,
+            release,
         }
     }
 }

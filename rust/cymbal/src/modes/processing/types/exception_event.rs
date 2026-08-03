@@ -29,11 +29,6 @@ pub struct Parsed {
     /// The release resolved from the event's `$release_id` or mobile app metadata, if any. Set by
     /// `EventReleaseResolver` and emitted as `$exception_release` at `into_resolved`.
     pub(crate) event_release: Option<ReleaseRecord>,
-    /// Releases bound to the symbol sets that resolved this event's frames, accumulated from the
-    /// remote resolution response sidecar. The local resolution path instead leaves them on
-    /// `Frame.release`; both sources are merged at `into_resolved`, where the latest one becomes
-    /// the `$exception_release` fallback when `event_release` is unset.
-    pub(crate) frame_releases: Vec<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,18 +47,13 @@ impl ResolvedMetadata {
     fn from_exception_list(
         exception_list: &ExceptionList,
         event_release: Option<&ReleaseRecord>,
-        frame_releases: Vec<ReleaseRecord>,
     ) -> Self {
         // The event-level release (`$release_id` / mobile app-metadata hash) is authoritative;
         // frame-derived releases only fill in when it resolved nothing, picking the latest so an
         // event whose stack mixes chunks from several releases reports the newest one.
         let release = event_release
             .cloned()
-            .or_else(|| {
-                let mut candidates = frame_releases;
-                candidates.extend(exception_list.get_frame_releases());
-                ReleaseRecord::latest(candidates)
-            })
+            .or_else(|| ReleaseRecord::latest(exception_list.get_frame_releases()))
             .map(|release| release.to_info());
 
         Self {
@@ -235,16 +225,14 @@ impl ExceptionEvent<Parsed> {
         self.state.event_release = release;
     }
 
-    pub(crate) fn add_frame_releases(&mut self, releases: Vec<ReleaseRecord>) {
-        self.state.frame_releases.extend(releases);
-    }
-
-    pub(crate) fn into_resolved(self) -> ExceptionEvent<Resolved> {
+    pub(crate) fn into_resolved(mut self) -> ExceptionEvent<Resolved> {
         let metadata = ResolvedMetadata::from_exception_list(
             &self.exception_list,
             self.state.event_release.as_ref(),
-            self.state.frame_releases.clone(),
         );
+        // `Frame.release` serializes on the resolution-service wire, but must never reach the
+        // clickhouse-bound serializations of the exception list; selection is done, so drop it.
+        self.exception_list.clear_frame_releases();
         self.map_state(|state| Resolved {
             metadata,
             client_fingerprint: state.client_fingerprint,
@@ -606,7 +594,6 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
                 legacy_order_exception_list,
                 legacy_order_resolved: None,
                 event_release: None,
-                frame_releases: Vec::new(),
             },
         })
     }
@@ -791,7 +778,6 @@ mod tests {
         let metadata = ResolvedMetadata::from_exception_list(
             &ExceptionList::default(),
             Some(&release_record("hash-abc")),
-            Vec::new(),
         );
         assert!(metadata.release.is_some());
     }
@@ -800,8 +786,7 @@ mod tests {
     fn missing_event_release_leaves_the_release_unset() {
         // Without an event-level release and without any frame-derived candidate there is nothing
         // to emit.
-        let metadata =
-            ResolvedMetadata::from_exception_list(&ExceptionList::default(), None, Vec::new());
+        let metadata = ResolvedMetadata::from_exception_list(&ExceptionList::default(), None);
         assert!(metadata.release.is_none());
     }
 
@@ -811,47 +796,64 @@ mod tests {
         // newer; the fallback only fills a gap, it never overrides.
         let event_release = release_record_at("event-hash", 100);
         let newer_frame_release = release_record_at("frame-hash", 5_000);
+        let exception_list =
+            exception_list_with_frames(vec![frame_with_release(Some(newer_frame_release))]);
 
-        let metadata = ResolvedMetadata::from_exception_list(
-            &ExceptionList::default(),
-            Some(&event_release),
-            vec![newer_frame_release],
-        );
+        let metadata =
+            ResolvedMetadata::from_exception_list(&exception_list, Some(&event_release));
 
         let expected = serde_json::to_value(event_release.to_info()).unwrap();
         assert_eq!(serde_json::to_value(&metadata.release).unwrap(), expected);
     }
 
     #[test]
-    fn frame_release_fallback_picks_the_latest_across_both_sources() {
-        // Without an event-level release, the fallback considers the remote sidecar and the
-        // releases local symbolication left on the frames, and picks the most recently created.
-        let sidecar_release = release_record_at("sidecar-hash", 100);
-        let latest_frame_release = release_record_at("frame-hash", 5_000);
-        let exception_list = exception_list_with_frames(vec![frame_with_release(Some(
-            latest_frame_release.clone(),
-        ))]);
+    fn into_resolved_strips_releases_from_frames_after_selection() {
+        // `Frame.release` serializes (for the resolution-service wire), so if `into_resolved`
+        // stopped stripping it, release payloads would leak into every clickhouse-bound
+        // serialization of the exception list.
+        let release = release_record_at("frame-hash", 5_000);
+        let parsed = ExceptionEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 42,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            exception_list: exception_list_with_frames(vec![frame_with_release(Some(release))]),
+            debug_images: vec![],
+            props: HashMap::new(),
+            proposed_issue_name: None,
+            proposed_issue_description: None,
+            state: Parsed {
+                client_fingerprint: None,
+                legacy_order_exception_list: None,
+                legacy_order_resolved: None,
+                event_release: None,
+            },
+        };
 
-        let metadata = ResolvedMetadata::from_exception_list(
-            &exception_list,
-            None,
-            vec![sidecar_release.clone()],
+        let resolved = parsed.into_resolved();
+
+        assert!(resolved.metadata().release.is_some(), "selection ran first");
+        let list_json = serde_json::to_string(resolved.exception_list()).unwrap();
+        assert!(
+            !list_json.contains("release"),
+            "clickhouse-bound exception list must not carry frame releases: {list_json}"
         );
+    }
 
-        let expected = serde_json::to_value(latest_frame_release.to_info()).unwrap();
-        assert_eq!(serde_json::to_value(&metadata.release).unwrap(), expected);
+    #[test]
+    fn frame_release_fallback_picks_the_latest() {
+        // Without an event-level release, the fallback picks the most recently created release
+        // across the frames, regardless of frame order.
+        let older_release = release_record_at("older-hash", 100);
+        let latest_release = release_record_at("latest-hash", 5_000);
+        let exception_list = exception_list_with_frames(vec![
+            frame_with_release(Some(older_release)),
+            frame_with_release(None),
+            frame_with_release(Some(latest_release.clone())),
+        ]);
 
-        // And the other way around: a newer sidecar release beats an older frame-attached one.
-        let exception_list =
-            exception_list_with_frames(vec![frame_with_release(Some(sidecar_release))]);
-        let newer_sidecar = release_record_at("sidecar-hash-2", 9_000);
-        let metadata = ResolvedMetadata::from_exception_list(
-            &exception_list,
-            None,
-            vec![newer_sidecar.clone()],
-        );
+        let metadata = ResolvedMetadata::from_exception_list(&exception_list, None);
 
-        let expected = serde_json::to_value(newer_sidecar.to_info()).unwrap();
+        let expected = serde_json::to_value(latest_release.to_info()).unwrap();
         assert_eq!(serde_json::to_value(&metadata.release).unwrap(), expected);
     }
 

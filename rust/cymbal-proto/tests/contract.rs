@@ -30,7 +30,6 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
             id: 1,
             result: Some(resolve_outcome::Result::Done(Done {
                 resolved_exception_json: br#"{"type":"ResolvedError"}"#.to_vec(),
-                releases_json: br#"[{"version":"1.2.3"}]"#.to_vec(),
             })),
         },
         ResolveOutcome {
@@ -71,7 +70,7 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
     assert!(matches!(
         &decoded[0].result,
         Some(resolve_outcome::Result::Done(done))
-            if done.releases_json == br#"[{"version":"1.2.3"}]"#
+            if done.resolved_exception_json == br#"{"type":"ResolvedError"}"#
     ));
     assert!(matches!(
         decoded[1].result,
@@ -99,25 +98,6 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
         decoded.iter().map(|outcome| outcome.id).collect::<Vec<_>>(),
         vec![1, 2, 3, 4, 5]
     );
-}
-
-#[test]
-fn done_without_releases_field_decodes_to_empty_bytes() {
-    // Skew compatibility both ways: a Done with no releases encodes byte-identical to the
-    // pre-`releases_json` message (prost omits default fields), and decoding such a message —
-    // what an older server sends — yields empty bytes, which callers must treat as "no releases".
-    let without_releases = Done {
-        resolved_exception_json: br#"{"type":"ResolvedError"}"#.to_vec(),
-        releases_json: Vec::new(),
-    };
-
-    let decoded = Done::decode(without_releases.encode_to_vec().as_slice()).unwrap();
-
-    assert_eq!(
-        decoded.resolved_exception_json,
-        br#"{"type":"ResolvedError"}"#
-    );
-    assert!(decoded.releases_json.is_empty());
 }
 
 #[test]

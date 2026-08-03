@@ -94,11 +94,22 @@ impl ExceptionList {
             .unwrap_or(false)
     }
 
-    /// Releases attached in-memory to this list's frames by local symbolication. Frames that came
-    /// back from the remote resolution service never carry one (`Frame.release` is not
-    /// serialized); their releases arrive via the response sidecar instead.
+    /// Releases attached to this list's frames — by local symbolication directly, or deserialized
+    /// from the remote resolution response (`Frame.release` serializes on that wire).
     pub fn get_frame_releases(&self) -> Vec<ReleaseRecord> {
         ReleaseRecord::collect_from_frames(self.get_frames_iter())
+    }
+
+    /// Drops `Frame.release` from every resolved frame. Called once `$exception_release`
+    /// selection is done, so clickhouse-bound serializations of this list never carry it.
+    pub fn clear_frame_releases(&mut self) {
+        for exception in self.0.iter_mut() {
+            if let Some(Stacktrace::Resolved { frames }) = exception.stack.as_mut() {
+                for frame in frames {
+                    frame.release = None;
+                }
+            }
+        }
     }
 }
 

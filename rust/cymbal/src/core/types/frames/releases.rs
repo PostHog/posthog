@@ -7,10 +7,12 @@ use sha2::{Digest, Sha512};
 use sqlx::Executor;
 use uuid::Uuid;
 
+use crate::symbolication::symbol_store::saving::truncate_ref;
+
 use super::Frame;
 
-// Serialized only on the internal resolution-service wire (`Done.releases_json`), never into the
-// clickhouse-bound event JSON — `Frame.release` stays `#[serde(skip)]`.
+// Serialized only on the internal resolution-service wire, inside each resolved frame's JSON —
+// never into the clickhouse-bound event JSON, which `into_resolved` strips `Frame.release` from.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseRecord {
     pub id: Uuid,
@@ -85,6 +87,9 @@ impl ReleaseRecord {
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
+        // Stored refs are truncated to MAX_REF_BYTES by SymbolSetRecord::load/save; match on the
+        // same truncated value or long refs (e.g. >2KB JS source URLs) never join.
+        let symbol_set_ref = truncate_ref(symbol_set_ref);
         let row = sqlx::query_as!(
             Self,
             r#"

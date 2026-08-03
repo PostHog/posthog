@@ -344,24 +344,24 @@ async fn raw_frames_are_resolved_into_done_payload() {
 }
 
 #[tokio::test]
-async fn frame_releases_are_emitted_in_the_done_sidecar_and_kept_out_of_the_exception() {
+async fn frame_releases_are_serialized_inside_the_resolved_frames() {
     let release = ReleaseRecord {
         id: uuid::Uuid::from_u128(7),
         team_id: 123,
-        hash_id: "sidecar-hash".to_string(),
+        hash_id: "wire-hash".to_string(),
         created_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         version: "9.9.9".to_string(),
         project: "my-app".to_string(),
         metadata: None,
     };
     let raw_frame = sample_raw_frame();
-    // Two resolved frames carrying the same release: the sidecar must dedupe by release id.
+    // One frame with a release, one without: the release must ride its own frame's JSON and a
+    // missing key (what an older server sends for every frame) must deserialize to `None`.
     let mut first = sample_resolved_frame(&raw_frame);
     first.frame_id = raw_frame.frame_id(123, 0, &[]);
     first.release = Some(release.clone());
     let mut second = sample_resolved_frame(&raw_frame);
     second.frame_id = raw_frame.frame_id(123, 1, &[]);
-    second.release = Some(release.clone());
     let service = make_service(FakeResolver {
         fail_unhandled: false,
         resolved_frames: vec![first, second],
@@ -377,41 +377,22 @@ async fn frame_releases_are_emitted_in_the_done_sidecar_and_kept_out_of_the_exce
         panic!("expected Done outcome, got {:?}", outcomes[0]);
     };
 
-    let releases: Vec<ReleaseRecord> =
-        serde_json::from_slice(&done.releases_json).expect("valid releases sidecar");
-    assert_eq!(releases, vec![release]);
-
-    // `Frame.release` must stay out of the serialized exception: the sidecar is the only place
-    // releases cross the wire, and the frame JSON shape doubles as clickhouse output.
-    let resolved: serde_json::Value =
+    let resolved: Exception =
         serde_json::from_slice(&done.resolved_exception_json).expect("valid resolved exception");
-    let frames = resolved["stacktrace"]["frames"]
+    let Some(Stacktrace::Resolved { frames }) = resolved.stack else {
+        panic!("raw stack must be replaced with resolved frames");
+    };
+    assert_eq!(frames[0].release, Some(release));
+    assert_eq!(frames[1].release, None);
+
+    let raw: serde_json::Value =
+        serde_json::from_slice(&done.resolved_exception_json).expect("valid resolved exception");
+    let frames_json = raw["stacktrace"]["frames"]
         .as_array()
         .expect("resolved frames present");
-    assert!(frames.iter().all(|frame| frame.get("release").is_none()));
-}
-
-#[tokio::test]
-async fn done_sidecar_is_empty_bytes_when_no_frame_has_a_release() {
-    let raw_frame = sample_raw_frame();
-    let mut resolver_frame = sample_resolved_frame(&raw_frame);
-    resolver_frame.frame_id = raw_frame.frame_id(123, 99, &[]);
-    let service = make_service(FakeResolver {
-        fail_unhandled: false,
-        resolved_frames: vec![resolver_frame],
-    });
-    let mut exc = raw_exception("RuntimeError");
-    exc.stack = Some(Stacktrace::Raw {
-        frames: vec![raw_frame],
-    });
-
-    let outcomes = resolve_items(service, vec![make_item(1, &exc)]).await;
-    let resolve_outcome::Result::Done(done) = outcome_result(&outcomes[0]) else {
-        panic!("expected Done outcome, got {:?}", outcomes[0]);
-    };
-
-    // Empty bytes, not `[]`: byte-identical to what a server predating the field sends.
-    assert!(done.releases_json.is_empty());
+    assert!(frames_json[0].get("release").is_some());
+    // `skip_serializing_if` keeps release-less frames byte-identical to the old wire shape.
+    assert!(frames_json[1].get("release").is_none());
 }
 
 #[tokio::test]

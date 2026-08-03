@@ -34,7 +34,7 @@ const NEGATIVE_CACHE_MAX_WEIGHT: u64 = 64 * 1024 * 1024;
 
 // We truncate the reference to resolve an issue with the maximum size in a BTRee index on Postgres
 // TODO: update model to use a hash of the reference instead
-fn truncate_ref(s: &str) -> &str {
+pub(crate) fn truncate_ref(s: &str) -> &str {
     if s.len() <= MAX_REF_BYTES {
         return s;
     }
