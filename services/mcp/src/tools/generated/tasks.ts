@@ -640,7 +640,7 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
     },
 })
 
-const TasksSpawnSchema = TasksSpawnCreateBody.extend({
+const TasksSpawnSchema = TasksSpawnCreateBody.omit({ sandbox_environment_id: true, custom_image_id: true }).extend({
     parent_run_id: TasksSpawnCreateBody.shape['parent_run_id'].describe('Your current orchestrator run ID.'),
     description: TasksSpawnCreateBody.shape['description'].describe(
         "The child's verbatim prompt. Make it specific, self-contained, and complete because the child works independently."
