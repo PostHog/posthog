@@ -18,10 +18,15 @@ const PENDING_INVITE = {
     created_at: '2026-04-17T12:00:00Z',
 }
 
+// The case this feature exists for: a pile of similarly named leftovers around one product,
+// where only one is real and the names alone can't tell you which.
 const FRESHNESS_TEAMS = [
-    { ...MOCK_DEFAULT_TEAM, id: 1001, project_id: 1001, name: 'Marketing site' },
-    { ...MOCK_DEFAULT_TEAM, id: 1002, project_id: 1002, name: 'Mobile app' },
-    { ...MOCK_DEFAULT_TEAM, id: 1003, project_id: 1003, name: 'Internal tools' },
+    { ...MOCK_DEFAULT_TEAM, id: 1001, project_id: 1001, name: 'MockHog staging' },
+    { ...MOCK_DEFAULT_TEAM, id: 1002, project_id: 1002, name: 'MockHog test' },
+    { ...MOCK_DEFAULT_TEAM, id: 1003, project_id: 1003, name: 'MockHog test 2' },
+    { ...MOCK_DEFAULT_TEAM, id: 1004, project_id: 1004, name: 'MockHog dev sandbox' },
+    { ...MOCK_DEFAULT_TEAM, id: 1005, project_id: 1005, name: 'MockHog EU' },
+    { ...MOCK_DEFAULT_TEAM, id: 1006, project_id: 1006, name: 'MockHog old app' },
 ]
 
 // Relative to now so the rendered durations stay stable as real time passes.
@@ -32,7 +37,6 @@ const DATA_FRESHNESS = {
     quiet_after_days: 7,
     results: [
         {
-            // The current project: everything still flowing, so it gets no indicator at all.
             team_id: MOCK_DEFAULT_TEAM.id,
             freshness: 'live',
             last_data_at: daysAgo(0),
@@ -43,23 +47,39 @@ const DATA_FRESHNESS = {
         },
         {
             team_id: 1001,
-            freshness: 'partial',
-            last_data_at: daysAgo(0),
-            sources: [
-                { data_source: 'product_analytics', last_data_at: daysAgo(0) },
-                { data_source: 'session_replay', last_data_at: daysAgo(11) },
-            ],
+            freshness: 'stale',
+            last_data_at: daysAgo(12),
+            sources: [{ data_source: 'product_analytics', last_data_at: daysAgo(12) }],
         },
         {
             team_id: 1002,
-            freshness: 'quiet',
-            last_data_at: daysAgo(12),
-            sources: [
-                { data_source: 'error_tracking', last_data_at: daysAgo(12) },
-                { data_source: 'product_analytics', last_data_at: daysAgo(14) },
-            ],
+            freshness: 'stale',
+            last_data_at: daysAgo(96),
+            sources: [{ data_source: 'product_analytics', last_data_at: daysAgo(96) }],
         },
         { team_id: 1003, freshness: 'never', last_data_at: null, sources: [] },
+        {
+            team_id: 1004,
+            freshness: 'stale',
+            last_data_at: daysAgo(410),
+            sources: [{ data_source: 'error_tracking', last_data_at: daysAgo(410) }],
+        },
+        {
+            // Still in use, just not the project you're currently in.
+            team_id: 1005,
+            freshness: 'live',
+            last_data_at: daysAgo(0),
+            sources: [
+                { data_source: 'product_analytics', last_data_at: daysAgo(0) },
+                { data_source: 'logs', last_data_at: daysAgo(1) },
+            ],
+        },
+        {
+            team_id: 1006,
+            freshness: 'stale',
+            last_data_at: daysAgo(200),
+            sources: [{ data_source: 'session_replay', last_data_at: daysAgo(200) }],
+        },
     ],
 }
 

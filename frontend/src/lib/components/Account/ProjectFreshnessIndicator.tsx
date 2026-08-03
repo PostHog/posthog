@@ -22,23 +22,29 @@ const DATA_SOURCE_LABELS: Record<DataSourceEnumApi, string> = {
     data_warehouse: 'Data warehouse',
 }
 
-// Short forms for the row label, where a full product name would crowd out the project name.
-const DATA_SOURCE_SHORT_LABELS: Record<DataSourceEnumApi, string> = {
-    product_analytics: 'Analytics',
-    session_replay: 'Replay',
-    error_tracking: 'Errors',
-    llm_analytics: 'LLM',
-    surveys: 'Surveys',
-    feature_flags: 'Flags',
-    logs: 'Logs',
-    apm: 'Tracing',
-    destinations: 'Destinations',
-    messaging: 'Messaging',
-    data_warehouse: 'Warehouse',
-}
-
-function daysSince(timestamp: string): number {
-    return dayjs().diff(dayjs(timestamp), 'day')
+/**
+ * Compact enough to sit in a menu row without crowding the project name, and unit-unambiguous
+ * so a column of them can be compared at a glance. Notably `mo` rather than `m`, which would
+ * read as minutes next to `1y`.
+ */
+function compactAge(timestamp: string): string {
+    const then = dayjs(timestamp)
+    if (dayjs().diff(then, 'minute') < 60) {
+        return 'now'
+    }
+    const hours = dayjs().diff(then, 'hour')
+    if (hours < 24) {
+        return `${hours}h`
+    }
+    const days = dayjs().diff(then, 'day')
+    if (days < 30) {
+        return `${days}d`
+    }
+    const months = dayjs().diff(then, 'month')
+    if (months < 12) {
+        return `${months}mo`
+    }
+    return `${dayjs().diff(then, 'year')}y`
 }
 
 function SourceBreakdown({
@@ -54,11 +60,11 @@ function SourceBreakdown({
     return (
         <div className="flex flex-col gap-0.5 mt-1">
             {sources.map((source) => {
-                const isQuiet = daysSince(source.last_data_at) >= quietAfterDays
+                const isStale = dayjs().diff(dayjs(source.last_data_at), 'day') >= quietAfterDays
                 return (
                     <div key={source.data_source} className="flex items-center justify-between gap-4">
                         <span>{DATA_SOURCE_LABELS[source.data_source] ?? source.data_source}</span>
-                        <span className={cn('shrink-0', isQuiet ? 'text-warning' : 'text-tertiary')}>
+                        <span className={cn('shrink-0', isStale && 'text-tertiary')}>
                             {dayjs(source.last_data_at).fromNow()}
                         </span>
                     </div>
@@ -68,55 +74,11 @@ function SourceBreakdown({
     )
 }
 
-function describe(
-    freshness: DataFreshnessProjectApi,
-    quietAfterDays: number,
-    lookbackDays: number
-): { label: string; headline: string; isAlarming: boolean } {
-    if (freshness.freshness === 'never') {
-        return {
-            label: 'No data yet',
-            headline: 'This project has not received any data yet.',
-            isAlarming: false,
-        }
-    }
-
-    if (freshness.freshness === 'quiet') {
-        if (!freshness.last_data_at) {
-            return {
-                label: `Quiet ${lookbackDays}d+`,
-                headline: `No data of any kind has reached this project in the last ${lookbackDays} days.`,
-                isAlarming: true,
-            }
-        }
-        const days = daysSince(freshness.last_data_at)
-        return {
-            label: `Quiet ${days}d`,
-            headline: `No data of any kind has reached this project in ${days} days.`,
-            isAlarming: true,
-        }
-    }
-
-    const quietSources = freshness.sources.filter((source) => daysSince(source.last_data_at) >= quietAfterDays)
-    return {
-        // Naming the one dead source is the whole point of this state, so it goes in the row
-        // rather than hiding behind a hover. Beyond one, the count is all that fits.
-        label:
-            quietSources.length === 1
-                ? `${DATA_SOURCE_SHORT_LABELS[quietSources[0].data_source] ?? quietSources[0].data_source} quiet`
-                : `${quietSources.length} sources quiet`,
-        headline: 'Data is still arriving, but some sources have gone quiet.',
-        isAlarming: false,
-    }
-}
-
 /**
- * Says something only when there is something to say: a project where everything is still
- * arriving renders nothing, so the switcher stays quiet until a project doesn't.
- *
- * Matches the "Pending invite" label in this same list rather than inventing a second visual
- * language for row status: one right-aligned text run, no icon, so every row lines up and
- * color is left to carry severity.
+ * How long ago this project last received data of any kind, on every row rather than only the
+ * problem ones. The question being answered is "which of these similarly-named projects is the
+ * live one", which is a comparison across the whole list, so every row has to carry a value.
+ * `now` next to a column of `3mo` answers it without needing color or a badge.
  */
 export function ProjectFreshnessIndicator({
     freshness,
@@ -127,11 +89,26 @@ export function ProjectFreshnessIndicator({
     quietAfterDays: number
     lookbackDays: number
 }): JSX.Element | null {
-    if (!freshness || freshness.freshness === 'live') {
+    if (!freshness) {
         return null
     }
 
-    const { label, headline, isAlarming } = describe(freshness, quietAfterDays, lookbackDays)
+    let label: string
+    let headline: string
+
+    if (freshness.freshness === 'never') {
+        label = 'Never'
+        headline = 'This project has never received any data.'
+    } else if (!freshness.last_data_at) {
+        label = `${lookbackDays}d+`
+        headline = `No data of any kind in the last ${lookbackDays} days.`
+    } else {
+        label = compactAge(freshness.last_data_at)
+        headline =
+            freshness.freshness === 'live'
+                ? `Last received data ${dayjs(freshness.last_data_at).fromNow()}.`
+                : `No data of any kind since ${dayjs(freshness.last_data_at).fromNow()}.`
+    }
 
     return (
         <Tooltip
@@ -145,8 +122,11 @@ export function ProjectFreshnessIndicator({
         >
             <span
                 className={cn(
-                    'text-xxs shrink-0 ml-1 whitespace-nowrap',
-                    isAlarming ? 'text-warning' : 'text-tertiary'
+                    'text-xxs shrink-0 ml-1 whitespace-nowrap tabular-nums',
+                    // The live row is the one being looked for, so it keeps normal contrast while
+                    // the rest recede. With one live project among ten only that row reads at full
+                    // strength; with ten live projects nothing is dimmed and nothing shouts.
+                    freshness.freshness === 'live' ? 'text-secondary' : 'text-tertiary opacity-70'
                 )}
             >
                 {label}

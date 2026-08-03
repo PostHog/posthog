@@ -239,16 +239,14 @@ export interface PatchedOrganizationApi {
 /**
  * * `never` - never
  * * `live` - live
- * * `partial` - partial
- * * `quiet` - quiet
+ * * `stale` - stale
  */
 export type FreshnessEnumApi = (typeof FreshnessEnumApi)[keyof typeof FreshnessEnumApi]
 
 export const FreshnessEnumApi = {
     Never: 'never',
     Live: 'live',
-    Partial: 'partial',
-    Quiet: 'quiet',
+    Stale: 'stale',
 } as const
 
 /**
@@ -302,12 +300,11 @@ export interface DataFreshnessSourceApi {
 export interface DataFreshnessProjectApi {
     /** ID of the project this freshness verdict is for. */
     team_id: number
-    /** `never` if the project has never ingested anything, `live` if every source that delivered recently is still delivering, `partial` if some sources have gone quiet while others keep arriving, `quiet` if nothing arrived within `quiet_after_days`.
+    /** `live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, `never` if the project has never ingested anything at all.
      *
      * * `never` - never
      * * `live` - live
-     * * `partial` - partial
-     * * `quiet` - quiet */
+     * * `stale` - stale */
     freshness: FreshnessEnumApi
     /**
      * When data of any kind last reached the project, or null if nothing arrived within the lookback window.

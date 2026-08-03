@@ -69,16 +69,20 @@ class DataSource(StrEnum):
 
 
 class Freshness(StrEnum):
-    """The project-level verdict. Values are part of the API contract."""
+    """The project-level verdict. Values are part of the API contract.
+
+    Deliberately only three states. The question this answers is "is this project in use",
+    which is binary plus the unstarted case. A project still receiving one kind of data is in
+    use even if another kind stopped, so per-source decay does not get its own verdict; the
+    `sources` breakdown is there for anyone who wants to see why.
+    """
 
     # Never ingested anything, ever. An unstarted project, not a stale one.
     NEVER = "never"
-    # Everything that delivered within the window is still delivering.
+    # Something of any kind arrived recently.
     LIVE = "live"
-    # Something is still arriving, but a source that was active has gone quiet.
-    PARTIAL = "partial"
-    # Nothing at all arrived recently.
-    QUIET = "quiet"
+    # Nothing of any kind arrived recently.
+    STALE = "stale"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -178,11 +182,9 @@ def derive_freshness(team: Team, found: dict[DataSource, datetime], quiet_before
     if last_data_at is None:
         # `ingested_event` is the only unbounded signal available, so it is what separates a
         # project that never started from one whose data predates the lookback window.
-        freshness = Freshness.QUIET if team.ingested_event else Freshness.NEVER
+        freshness = Freshness.STALE if team.ingested_event else Freshness.NEVER
     elif last_data_at < quiet_before:
-        freshness = Freshness.QUIET
-    elif any(source.last_data_at < quiet_before for source in sources):
-        freshness = Freshness.PARTIAL
+        freshness = Freshness.STALE
     else:
         freshness = Freshness.LIVE
 

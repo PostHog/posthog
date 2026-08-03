@@ -25,22 +25,22 @@ class TestDeriveFreshness(SimpleTestCase):
                 Freshness.LIVE,
             ),
             (
-                "one source silent while another keeps arriving",
+                "one source silent while another keeps arriving is still in use",
                 True,
                 {DataSource.PRODUCT_ANALYTICS: _ago(0.1), DataSource.SESSION_REPLAY: _ago(11)},
-                Freshness.PARTIAL,
+                Freshness.LIVE,
             ),
             (
                 "every source silent",
                 True,
                 {DataSource.PRODUCT_ANALYTICS: _ago(9), DataSource.LOGS: _ago(20)},
-                Freshness.QUIET,
+                Freshness.STALE,
             ),
             (
                 "nothing in the window but the project has ingested before",
                 True,
                 {},
-                Freshness.QUIET,
+                Freshness.STALE,
             ),
             (
                 "nothing in the window and the project never ingested",

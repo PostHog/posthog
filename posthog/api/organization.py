@@ -391,9 +391,8 @@ class DataFreshnessProjectSerializer(serializers.Serializer):
     freshness = serializers.ChoiceField(
         choices=[(freshness.value, freshness.value) for freshness in Freshness],
         help_text=(
-            "`never` if the project has never ingested anything, `live` if every source that delivered "
-            "recently is still delivering, `partial` if some sources have gone quiet while others keep "
-            "arriving, `quiet` if nothing arrived within `quiet_after_days`."
+            "`live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, "
+            "`never` if the project has never ingested anything at all."
         ),
     )
     last_data_at = serializers.DateTimeField(
