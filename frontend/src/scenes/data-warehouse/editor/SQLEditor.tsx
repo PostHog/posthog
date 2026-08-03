@@ -682,6 +682,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     data-attr="sql-editor-continue-in-notebook-button"
                                     sideAction={{
                                         icon: <IconChevronDown />,
+                                        'data-attr': 'sql-editor-save-options-button',
                                         dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (

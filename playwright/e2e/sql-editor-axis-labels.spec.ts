@@ -7,7 +7,9 @@ import { expect, test, PlaywrightWorkspaceSetupResult } from '../utils/workspace
 async function goToSavedSqlInsight(page: Page, insightShortId: InsightShortId): Promise<void> {
     await page.goto(`/sql#insight=${insightShortId}`, { waitUntil: 'domcontentloaded' })
     await expect(page).toHaveURL(/\/sql#.*insight=/)
-    await expect(page.getByRole('button', { name: 'Update insight' })).toBeVisible({ timeout: 30_000 })
+    await page.getByTestId('sql-editor-save-options-button').click()
+    await expect(page.getByRole('menuitem', { name: 'Update insight' })).toBeVisible({ timeout: 30_000 })
+    await page.keyboard.press('Escape')
     await expect(page.locator('.DataVisualization canvas').last()).toBeVisible({ timeout: 60_000 })
 }
 
@@ -78,15 +80,9 @@ test.describe('SQL editor axis labels', () => {
         await page.getByText('Right Y-axis').click()
         await page.getByTestId('data-visualization-right-y-axis-label-input').fill('People')
 
-        const saveRequestPromise = page.waitForResponse(
-            (response) =>
-                /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
-                response.request().method() === 'PATCH',
-            { timeout: 60_000 }
-        )
-
-        await page.getByRole('button', { name: 'Update insight' }).click()
-        await expect((await saveRequestPromise).ok()).toBe(true)
+        await page.getByTestId('sql-editor-save-options-button').click()
+        await page.getByRole('menuitem', { name: 'Update insight' }).click()
+        await expect(page).toHaveURL(/\/insights\//, { timeout: 60_000 })
 
         await goToSavedSqlInsight(page, insightShortId)
 
