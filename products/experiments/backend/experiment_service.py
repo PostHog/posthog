@@ -2488,9 +2488,7 @@ class ExperimentService:
         experiment.end_date = timezone.now()
         experiment.conclusion = conclusion
         experiment.conclusion_comment = conclusion_comment
-        self._bump_version_and_save(
-            experiment, update_fields=["end_date", "conclusion", "conclusion_comment"]
-        )
+        self._bump_version_and_save(experiment, update_fields=["end_date", "conclusion", "conclusion_comment"])
 
         self._report_experiment_ended(
             experiment, request=request, open_cleanup_pr=open_cleanup_pr, repository=repository
@@ -2758,10 +2756,7 @@ class ExperimentService:
         # transaction that holds both locks acquires them experiment-then-flag and can't
         # deadlock. Held until this @transaction.atomic method commits.
         locked_version = (
-            Experiment.objects.select_for_update()
-            .filter(pk=experiment.pk)
-            .values_list("version", flat=True)
-            .first()
+            Experiment.objects.select_for_update().filter(pk=experiment.pk).values_list("version", flat=True).first()
             or 0
         )
 

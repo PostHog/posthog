@@ -502,9 +502,19 @@ describe('experimentLogic', () => {
         })
     })
     describe('optimistic concurrency', () => {
+        let getSpy: jest.SpyInstance | undefined
+
         beforeEach(() => {
             jest.spyOn(api, 'update')
             api.update.mockClear()
+        })
+
+        afterEach(() => {
+            // The conflict test stubs api.get. Left in place it also answers the
+            // query polling later describe blocks rely on, so restore it here
+            // rather than at the end of the test, where a failed assertion skips it.
+            getSpy?.mockRestore()
+            getSpy = undefined
         })
 
         it('sends version and original_experiment from the unmodified snapshot on update', async () => {
@@ -558,7 +568,7 @@ describe('experimentLogic', () => {
                 data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
             })
             const fresh = { ...experiment, version: 5, name: 'renamed by someone else' } as Experiment
-            jest.spyOn(api, 'get').mockResolvedValue(fresh)
+            getSpy = jest.spyOn(api, 'get').mockResolvedValue(fresh)
 
             await expectLogic(logic, () => {
                 logic.actions.updateExperiment({ description: 'stale write' })
