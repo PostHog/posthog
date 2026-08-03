@@ -24,8 +24,11 @@ from rest_framework.response import Response
 
 from posthog.schema import RecordingsQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
@@ -1436,9 +1439,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        estimate = estimate_scanner_session_volume(
-            team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
-        )
+        try:
+            estimate = estimate_scanner_session_volume(
+                team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
+            )
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            # A bad filter (e.g. a semver wildcard on a non-version value) is the caller's problem,
+            # not a server error. Surface the actual reason as a 400 instead of a generic 500.
+            raise serializers.ValidationError(str(e), getattr(e, "code_name", None))
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])
 

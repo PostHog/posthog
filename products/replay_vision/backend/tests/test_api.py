@@ -2469,11 +2469,28 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         [
             ("sampling_rate_above_one", {"sampling_rate": 1.5}),
             ("sampling_rate_negative", {"sampling_rate": -0.1}),
+            (
+                "semver_wildcard_non_version_value",
+                {
+                    "query": {
+                        "properties": [
+                            {
+                                "type": "event",
+                                "key": "$app_version",
+                                "value": "not-a-version",
+                                "operator": "semver_wildcard",
+                            }
+                        ]
+                    }
+                },
+            ),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
+        # The semver_wildcard case guards against a HogQL QueryError (raised while compiling the filter,
+        # before ClickHouse is ever touched) escaping as an unhandled 500 instead of a 400.
         resp = self.client.post(self.estimate_url, data=payload, format="json")
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 400, resp.json())
 
     def test_estimate_counts_only_in_window_sessions(self) -> None:
         for index in range(3):
