@@ -609,6 +609,9 @@ depends_on = [
     "products.engineering_analytics",
     "products.signals",
     "products.skills",
+    # Facade-only (enforced by stamphog's [[interfaces]] block): the inbox trigger queues
+    # hosted Stamphog reviews and registers the toggle resolver hook.
+    "products.stamphog",
     "products.tasks",
 ]
 layer = "modules"
@@ -710,6 +713,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
+    "products.exports",
     "products.feature_flags",
     "products.ai_observability",
     "products.mcp_store",

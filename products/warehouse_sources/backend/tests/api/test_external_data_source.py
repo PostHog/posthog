@@ -2591,6 +2591,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
+                    "user_access_level": "manager",
                 }
             ],
         )

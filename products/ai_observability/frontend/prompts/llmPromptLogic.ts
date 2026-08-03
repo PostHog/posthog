@@ -76,6 +76,46 @@ export interface PromptLogicProps {
 export interface PromptFormValues {
     name: string
     prompt: string
+    // The config JSON as editor text; '' means no config and publishes null.
+    config: string
+}
+
+export function formatPromptConfig(config: LLMPrompt['config'] | undefined): string {
+    return config == null ? '' : JSON.stringify(config, null, 2)
+}
+
+// Sorted keys so comparisons match Postgres jsonb, which doesn't preserve key order:
+// a reordered-but-equal config must not be presented as a change the server won't store.
+function canonicalizeJson(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(canonicalizeJson)
+    }
+    if (typeof value === 'object' && value !== null) {
+        const record = value as Record<string, unknown>
+        return Object.fromEntries(
+            Object.keys(record)
+                .sort()
+                .map((key) => [key, canonicalizeJson(record[key])])
+        )
+    }
+    return value
+}
+
+export function parsePromptConfig(text: string): { config: Record<string, unknown> | null; error?: string } {
+    const trimmed = text.trim()
+    if (!trimmed) {
+        return { config: null }
+    }
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(trimmed)
+    } catch {
+        return { config: null, error: 'Configuration must be valid JSON' }
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return { config: null, error: 'Configuration must be a JSON object, e.g. {"model": "your-model-name"}' }
+    }
+    return { config: parsed as Record<string, unknown> }
 }
 
 export interface ResolvedLLMPrompt extends LLMPrompt {
@@ -91,7 +131,12 @@ export function isPrompt(prompt: LLMPrompt | ResolvedLLMPrompt | PromptFormValue
 const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
     name: '',
     prompt: '',
+    config: '',
 }
+
+// Seeded into the empty editor when "Add configuration" is clicked, so users see the
+// expected shape instead of a blank JSON editor.
+const STARTER_PROMPT_CONFIG = '{\n  "model": "your-model-name",\n  "temperature": 0.7\n}'
 
 const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 const PROMPT_VERSIONS_LIMIT = 50
@@ -174,6 +219,8 @@ export interface llmPromptLogicValues {
         value: number
     }>
     defaultRelatedTracesQuery: DataTableNode | null
+    isConfigChanged: boolean
+    isConfigEditorVisible: boolean
     isDiffVisible: boolean
     isEditMode: boolean
     isHistoricalVersion: boolean
@@ -280,6 +327,9 @@ export interface llmPromptLogicActions {
     openPublishReview: () => {
         value: true
     }
+    removeConfig: () => {
+        value: true
+    }
     removeLabel: (labelName: string) => {
         labelName: string
     }
@@ -346,6 +396,9 @@ export interface llmPromptLogicActions {
     setVersionsLoading: (versionsLoading: boolean) => {
         versionsLoading: boolean
     }
+    showConfigEditor: () => {
+        value: true
+    }
     submitPromptForm: () => {
         value: boolean
     }
@@ -386,6 +439,7 @@ export interface llmPromptLogicMeta {
             prompt: PromptFormValues | ResolvedLLMPrompt | null,
             isNewPrompt: boolean
         ) => boolean
+        isConfigChanged: (promptForm: PromptFormValues, prompt: PromptFormValues | ResolvedLLMPrompt | null) => boolean
         nextVersion: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => number | null
         promptVariables: (promptForm: PromptFormValues) => string[]
         breadcrumbs: (
@@ -468,6 +522,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         toggleMarkdownRendering: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
+        showConfigEditor: true,
+        removeConfig: true,
         cancelEditing: true,
         setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
         requestPublish: true,
@@ -544,6 +600,18 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 toggleOutlineExpanded: (state) => !state,
             },
         ],
+        // Once shown, the config editor stays visible for the editing session even if the
+        // text is emptied (clearing the text is how a config gets removed). Resets on
+        // mode changes and reloads so view mode starts collapsed again.
+        isConfigEditorVisible: [
+            false,
+            {
+                showConfigEditor: () => true,
+                removeConfig: () => false,
+                setMode: () => false,
+                loadPromptSuccess: () => false,
+            },
+        ],
         publishConflict: [
             null as PublishConflict | null,
             {
@@ -611,9 +679,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             defaults: DEFAULT_PROMPT_FORM_VALUES,
             options: { showErrorsOnTouch: true },
 
-            errors: ({ name, prompt }) => ({
+            errors: ({ name, prompt, config }) => ({
                 name: validatePromptName(name),
                 prompt: !prompt?.trim() ? 'Prompt content is required' : undefined,
+                config: parsePromptConfig(config ?? '').error,
             }),
 
             submit: async (formValues) => {
@@ -622,10 +691,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 try {
                     let savedPrompt: LLMPrompt
 
+                    const parsedConfig = parsePromptConfig(formValues.config).config
+
                     if (isNew) {
                         savedPrompt = (await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), {
                             name: formValues.name,
                             prompt: formValues.prompt,
+                            ...(parsedConfig ? { config: parsedConfig } : {}),
                         })) as unknown as LLMPrompt
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success('Prompt created successfully')
@@ -648,6 +720,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             props.promptName,
                             {
                                 prompt: formValues.prompt,
+                                // Always sent: the form is the source of truth, and null clears a
+                                // previously set config (omitting the key would carry it forward).
+                                config: parsedConfig,
                                 base_version: currentPrompt.latest_version,
                                 ...(versionDescription ? { version_description: versionDescription } : {}),
                             }
@@ -743,9 +818,32 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 isNewPrompt: boolean
             ): boolean => {
                 if (isNewPrompt) {
-                    return !!promptForm.name.trim() || !!promptForm.prompt.trim()
+                    return !!promptForm.name.trim() || !!promptForm.prompt.trim() || !!promptForm.config.trim()
                 }
-                return isPrompt(prompt) ? promptForm.prompt !== prompt.prompt : false
+                if (!isPrompt(prompt)) {
+                    return false
+                }
+                return (
+                    promptForm.prompt !== prompt.prompt ||
+                    promptForm.config.trim() !== formatPromptConfig(prompt.config).trim()
+                )
+            },
+        ],
+
+        isConfigChanged: [
+            (s) => [s.promptForm, s.prompt],
+            (promptForm: PromptFormValues, prompt: PromptFormValues | ResolvedLLMPrompt | null): boolean => {
+                if (!isPrompt(prompt)) {
+                    return false
+                }
+                const parsed = parsePromptConfig(promptForm.config)
+                if (parsed.error) {
+                    return true
+                }
+                return (
+                    JSON.stringify(canonicalizeJson(parsed.config)) !==
+                    JSON.stringify(canonicalizeJson(prompt.config ?? null))
+                )
             },
         ],
 
@@ -1171,10 +1269,26 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
         },
 
+        showConfigEditor: () => {
+            if (!values.promptForm.config.trim()) {
+                actions.setPromptFormValue('config', STARTER_PROMPT_CONFIG)
+            }
+        },
+
+        // Only clears the form: the stored config goes away when the version is published,
+        // and the review modal shows that as a config change first.
+        removeConfig: () => {
+            actions.setPromptFormValue('config', '')
+        },
+
         requestPublish: () => {
-            // New prompts publish directly (v1, nothing to diff against); an empty form
-            // goes through submit so kea-forms surfaces the validation errors.
-            if (values.isNewPrompt || !values.promptForm.prompt?.trim()) {
+            // New prompts publish directly (v1, nothing to diff against); an empty form or
+            // invalid config goes through submit so kea-forms surfaces the validation errors.
+            if (
+                values.isNewPrompt ||
+                !values.promptForm.prompt?.trim() ||
+                parsePromptConfig(values.promptForm.config).error
+            ) {
                 actions.submitPromptForm()
                 return
             }
@@ -1378,6 +1492,7 @@ function getPromptFormDefaults(prompt: LLMPrompt): PromptFormValues {
     return {
         name: prompt.name,
         prompt: prompt.prompt,
+        config: formatPromptConfig(prompt.config),
     }
 }
 

@@ -310,6 +310,11 @@ class WorkflowRunDetail:
     run_attempt: int
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # The PR whose merge produced this run's head commit: the merged PR whose merge commit is this
+    # head SHA, falling back to the commit subject's `(#NNNN)` suffix. None when neither resolves.
+    # This is the only PR attribution a default-branch push has, since its `pull_requests`
+    # association is empty by then, so consumers read `pr_number` first and fall back to this (SPEC §6).
+    commit_pr_number: int | None
 
 
 @dataclass(frozen=True)

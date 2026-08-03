@@ -66,6 +66,19 @@ impl K8sAwareness {
         Ok(pod_info)
     }
 
+    /// Start watching a controller known by reference — the entry point
+    /// for consumers that learn controllers from member registrations
+    /// rather than pod-name discovery (the coordinator sees each pod's
+    /// self-reported controller ref and has no pod of its own to
+    /// discover from). Idempotent: an already-watched controller is a
+    /// no-op.
+    pub async fn watch_controller(
+        &self,
+        controller: &ControllerRef,
+    ) -> Result<(), K8sAwarenessError> {
+        self.ensure_watching(controller).await
+    }
+
     /// Classify why a member is departing based on its controller's current intent.
     ///
     /// Returns `DepartureReason::Unknown` if the controller isn't being watched

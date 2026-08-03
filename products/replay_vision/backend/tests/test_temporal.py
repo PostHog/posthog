@@ -1370,7 +1370,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_loads_every_page_until_source_is_exhausted(self) -> None:
-        # No event cap: when a page reports `has_more`, keep paging and load the whole session.
+        # Below the row cap, a page reporting `has_more` keeps paging and loads the whole session.
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
@@ -1398,6 +1398,46 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert mock_obj.get_events.call_count == 2  # paged through both, not capped at one page
         assert len(stored.events.rows) == 3  # every event from both pages
+        assert stored.events_truncated is False
+
+    @pytest.mark.asyncio
+    async def test_stops_paging_at_the_row_cap_and_marks_the_result_truncated(self) -> None:
+        # Eligibility caps active seconds, not event count, so an instrumentation loop can page forever
+        # and blow up worker memory, the Redis blob, and the events index. The prompt has to say so, or
+        # the model reads a missing late event as "nothing happened".
+        scanner = await sync_to_async(_make_scanner)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        cols = ["event", "timestamp", "$session_id"]
+
+        # Distinct per page: the cap counts raw rows, before `_process_events` dedups them.
+        def _page(offset: int) -> list[tuple]:
+            return [("$autocapture", start, f"s-{offset + i}") for i in range(4)]
+
+        mock_obj = self._make_session_replay_events_mock(
+            metadata, [(cols, _page(0), True), (cols, _page(4), True), (cols, _page(8), True)]
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+                return_value=mock_obj,
+            ),
+            patch("products.replay_vision.backend.temporal.activities.fetch_session_events._MAX_TOTAL_EVENT_ROWS", 6),
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
+        assert stored is not None
+        # Two pages of 4 reach 8 rows, past the cap of 6: it stops there rather than draining the source.
+        assert mock_obj.get_events.call_count == 2
+        assert len(stored.events.rows) == 6
+        assert stored.events_truncated is True
 
     @pytest.mark.asyncio
     async def test_stops_paging_once_no_more(self) -> None:

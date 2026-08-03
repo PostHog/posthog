@@ -97,6 +97,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
         navigation=[entry.model_dump() for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
+        events_truncated=llm_inputs.events_truncated,
     )
     video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
 

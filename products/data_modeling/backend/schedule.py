@@ -155,7 +155,9 @@ def _short_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: st
     """
     interval_mins = int(interval.total_seconds() // 60)
     num_windows = 60 // interval_mins
-    base_min = _deterministic_int(entity_id, "minute") % interval_mins
+    # The interval must participate in the salt: with a shared salt, a coarser tier's fire
+    # minutes are always a subset of every finer tier's, so all tiers of a DAG fire together.
+    base_min = _deterministic_int(entity_id, f"minute-{interval_mins}") % interval_mins
     mins = [(base_min + i * interval_mins) % 60 for i in range(num_windows)]
     return ScheduleSpec(
         calendars=[
@@ -181,7 +183,9 @@ def _medium_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: s
     """
     interval_hours = int(interval.total_seconds() // 3600)
     num_windows = 24 // interval_hours
-    base_hour = _deterministic_int(entity_id, "hour") % interval_hours
+    # Interval in the salt keeps tiers of one DAG de-aligned from each other (and the plain
+    # "hour" salt of the weekly/monthly specs).
+    base_hour = _deterministic_int(entity_id, f"hour-{interval_hours}") % interval_hours
     hours = [(base_hour + i * interval_hours) % 24 for i in range(num_windows)]
     return ScheduleSpec(
         calendars=[

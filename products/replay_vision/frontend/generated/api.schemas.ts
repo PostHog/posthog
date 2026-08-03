@@ -385,6 +385,14 @@ export interface RunActionResponseApi {
 }
 
 /**
+ * The shape every Replay Vision error response uses, so generated clients read one key.
+ */
+export interface ReplayVisionErrorApi {
+    /** Human-readable explanation of why the request was refused. */
+    detail: string
+}
+
+/**
  * * `running` - Running
  * * `completed` - Completed
  * * `failed` - Failed
@@ -1583,11 +1591,11 @@ export type VisionObservationsListParams = {
 
 export type VisionObservationsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**
@@ -1686,11 +1694,11 @@ export type VisionScannersImpactRetrieveParams = {
 
 export type VisionScannersObservationsListParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**
@@ -1737,11 +1745,11 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**
@@ -1780,11 +1788,11 @@ export type VisionScannersObservationsRetrieveParams = {
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string
     /**
