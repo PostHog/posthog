@@ -12,12 +12,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, FunnelsQuery, HogQLQuery, TrendsQuery
 
-from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -42,18 +41,6 @@ MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
 # HogQLQuery carries fields that would let a caller bypass team query controls (a raw ClickHouse
 # passthrough, an arbitrary DB connection). A metric definition may only set these.
 _HOGQL_ALLOWED_KEYS = {"kind", "query", "values"}
-
-
-class _TableReferenceCollector(TraversingVisitor):
-    """Collects the identifiers used directly as FROM/JOIN targets in a parsed HogQL query."""
-
-    def __init__(self) -> None:
-        self.tables: set[str] = set()
-
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        if isinstance(node.table, ast.Field):
-            self.tables.add(".".join(str(part) for part in node.table.chain))
-        super().visit_join_expr(node)
 
 
 def _fail(error: str, hint: str) -> NoReturn:
@@ -153,9 +140,8 @@ def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple
         capture_exception(e)
         _fail("Unexpected error resolving the query.", "Simplify the query and try again.")
 
-    collector = _TableReferenceCollector()
-    collector.visit(ast_node)
-    return definition, sorted(collector.tables)
+    # get_table_names subtracts CTE names, so a WITH alias never lands in referenced_table_names.
+    return definition, sorted(get_table_names(ast_node))
 
 
 def _validate_schema_model(definition: dict, model_class: type[BaseModel]) -> tuple[dict, list[str]]:

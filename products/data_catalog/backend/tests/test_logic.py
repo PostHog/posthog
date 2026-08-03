@@ -114,11 +114,19 @@ class TestMetricUpdate(BaseTest):
 
 
 class TestValidateMetricDefinition(BaseTest):
-    def test_valid_hogql_extracts_referenced_tables(self) -> None:
-        _, tables = validate_metric_definition(
-            {"kind": "HogQLQuery", "query": "select count() from events"}, self.team, self.user
-        )
-        assert tables == ["events"]
+    @parameterized.expand(
+        [
+            ("plain", "select count() from events", ["events"]),
+            (
+                "cte_excluded",
+                "with monthly as (select count() as c from events) select c from monthly join persons on 1 = 1",
+                ["events", "persons"],
+            ),
+        ]
+    )
+    def test_valid_hogql_extracts_referenced_tables(self, _name: str, query: str, expected: list[str]) -> None:
+        _, tables = validate_metric_definition({"kind": "HogQLQuery", "query": query}, self.team, self.user)
+        assert tables == expected
 
     def test_insight_viz_node_is_unwrapped(self) -> None:
         canonical, _ = validate_metric_definition(
