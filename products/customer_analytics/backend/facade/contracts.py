@@ -80,6 +80,7 @@ class AccountProperties:
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,8 @@ class AccountChannelSummaryView:
     period_end: datetime
     content: str
     message_count: int
+    # [{author, sent_at, permalink}] per covered message — metadata only, never text.
+    messages: list[dict]
     generated_at: datetime
 
 
@@ -394,6 +397,7 @@ class CustomPropertyDefinitionView:
     # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
     group_type_index: int | None = None
     is_big_number: bool = False
+    is_canonical: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None

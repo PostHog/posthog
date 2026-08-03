@@ -36,6 +36,7 @@ import { savedPrewarmCreate } from 'products/web_analytics/frontend/generated/ap
 
 import type { TeamPublicType, TeamType } from '../../../../types'
 import type { SessionPlayerModalContext } from '../../../session-recordings/player/modal/sessionPlayerModalLogic'
+import type { PagePreflight } from '../../components/heatmapsBrowserLogic'
 import { HeatmapCreationContext, heatmapLogic } from './heatmapLogic'
 
 export type HeatmapCreationStep = 'page' | 'background' | 'review'
@@ -193,6 +194,8 @@ export interface heatmapCreationLogicValues {
     isDisplayUrlValid: boolean // heatmapLogic
     loading: boolean // heatmapLogic
     type: HeatmapType // heatmapLogic
+    currentPagePreflight: PagePreflight | null // heatmapsBrowserLogic
+    preflightMessage: string | null // heatmapsBrowserLogic
     modalContext: SessionPlayerModalContext // sessionPlayerModalLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     analyticsBackgroundType: HeatmapType | 'recording'
@@ -239,6 +242,22 @@ export interface heatmapCreationLogicActions {
     setType: (type: HeatmapType) => {
         type: HeatmapType
     } // heatmapLogic
+    checkPagePreflight: (url: string | null) => {
+        url: string | null
+    } // heatmapsBrowserLogic
+    checkPagePreflightSuccess: (
+        pagePreflight: PagePreflight | null,
+        payload?:
+            | {
+                  url: string | null
+              }
+            | undefined
+    ) => {
+        pagePreflight: PagePreflight | null
+        payload?: {
+            url: string | null
+        }
+    } // heatmapsBrowserLogic
     setReplayIframeData: (replayIframeData: ReplayIframeData | null) => {
         replayIframeData: ReplayIframeData | null
     } // heatmapsBrowserLogic
@@ -387,6 +406,8 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
             ['modalContext'],
             featureFlagLogic,
             ['featureFlags'],
+            heatmapsBrowserLogic,
+            ['currentPagePreflight', 'preflightMessage'],
         ],
         actions: [
             heatmapLogic({ id: 'new' }),
@@ -394,7 +415,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
             authorizedUrlsLogic,
             ['addUrl'],
             heatmapsBrowserLogic,
-            ['setReplayIframeData'],
+            ['setReplayIframeData', 'checkPagePreflight', 'checkPagePreflightSuccess'],
             sessionPlayerModalLogic,
             ['completeHeatmapBackgroundSelection'],
         ],
@@ -667,6 +688,22 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 if (pageAccess === 'login') {
                     actions.setType('screenshot')
                 }
+            },
+            setType: ({ type }) => {
+                if (type === 'iframe') {
+                    actions.checkPagePreflight(values.displayUrl)
+                }
+            },
+            checkPagePreflightSuccess: () => {
+                const preflight = values.currentPagePreflight
+                if (!preflight) {
+                    return
+                }
+                posthog.capture('in-app heatmap creation framing checked', {
+                    framing: preflight.framing,
+                    blocked_by: preflight.blocked_by,
+                    http_status: preflight.http_status,
+                })
             },
             resetForPageChange: () => {
                 actions.setType('screenshot')

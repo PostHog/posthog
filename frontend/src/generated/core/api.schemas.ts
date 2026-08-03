@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -3732,6 +3734,11 @@ export interface UserGitHubIntegrationItemApi {
     repository_selection?: string | null
     /** Installation account metadata from GitHub. */
     account?: UserGitHubAccountApi | null
+    /**
+     * The connected user's own GitHub login (distinct from the installation account).
+     * @nullable
+     */
+    github_login?: string | null
     /** True when this installation id matches a team-level GitHub integration on the active project. */
     uses_shared_installation: boolean
     /** When this integration row was created. */

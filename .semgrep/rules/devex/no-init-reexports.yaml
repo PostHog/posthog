@@ -64,7 +64,7 @@ rules:
               - 'posthog/clickhouse/metrics/__init__.py'
               - 'posthog/clickhouse/traces/__init__.py'
               - 'posthog/dags/common/__init__.py'
-              - 'posthog/ducklake/verification/__init__.py'
+              - 'products/managed_warehouse/backend/logic/verification/__init__.py'
               - 'posthog/helpers/__init__.py'
               - 'posthog/hogql_queries/insights/funnels/__init__.py'
               - 'posthog/plugins/__init__.py'

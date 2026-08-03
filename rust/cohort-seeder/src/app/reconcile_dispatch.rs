@@ -18,7 +18,7 @@ use crate::kafka::producer::{
 };
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::completion::{read_planning_stamp, CompletionStoreError};
-use crate::store::runs::{load_reconcile_run, ReconcileRun, ReconcileRunError, RunStatus};
+use crate::store::runs::{load_reconcile_run, ReconcileRun, ReconcileRunError, RunKind, RunStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionRequirement {
@@ -142,7 +142,9 @@ pub async fn prepare_reconcile_dispatch(
     let progress = PgChunkStore::new(pool.clone())
         .chunk_progress(run_id)
         .await?;
-    let planning_proven = read_planning_stamp(pool, run_id).await?.is_some();
+    let planning_proven = read_planning_stamp(pool, run_id, RunKind::Behavioral)
+        .await?
+        .is_some();
     validate_completion(run_id, progress.remaining(), planning_proven, completion)?;
     let prepared = PreparedReconcileDispatch {
         run,

@@ -4,12 +4,14 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 
+import { PushIdentityVerificationField } from '../PushIdentityVerificationField'
 import { APNSSetupModalLogicProps, apnsSetupModalLogic } from './apnsSetupModalLogic'
 
 export const APNSSetupModal = (props: APNSSetupModalLogicProps): JSX.Element => {
-    const { isApnsIntegrationSubmitting } = useValues(apnsSetupModalLogic(props))
-    const { submitApnsIntegration } = useActions(apnsSetupModalLogic(props))
+    const { isApnsIntegrationSubmitting, apnsIntegration, signingKeyFileError } = useValues(apnsSetupModalLogic(props))
+    const { submitApnsIntegration, setSigningKeyFiles } = useActions(apnsSetupModalLogic(props))
 
     return (
         <LemonModal
@@ -29,12 +31,29 @@ export const APNSSetupModal = (props: APNSSetupModalLogicProps): JSX.Element => 
                         </Link>{' '}
                         under Certificates, Identifiers & Profiles &gt; Keys.
                     </p>
-                    <LemonField name="signingKey" label="Signing key (.p8)">
-                        <LemonTextArea
-                            placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-                            minRows={4}
+                    <div className="flex flex-col gap-2">
+                        <LemonField
+                            name="signingKey"
+                            label="Signing key (.p8)"
+                            help="Paste the contents of the key file, or upload the .p8 you downloaded from Apple."
+                        >
+                            <LemonTextArea
+                                placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                                minRows={4}
+                            />
+                        </LemonField>
+                        <LemonFileInput
+                            accept=".p8"
+                            multiple={false}
+                            onChange={setSigningKeyFiles}
+                            callToAction={
+                                <LemonButton type="secondary" size="small">
+                                    Upload .p8 file
+                                </LemonButton>
+                            }
                         />
-                    </LemonField>
+                        {signingKeyFileError && <p className="text-danger text-xs mb-0">{signingKeyFileError}</p>}
+                    </div>
                     <LemonField name="keyId" label="Key ID">
                         <LemonInput type="text" placeholder="ABC123DEFG" />
                     </LemonField>
@@ -53,6 +72,7 @@ export const APNSSetupModal = (props: APNSSetupModalLogicProps): JSX.Element => 
                             fullWidth
                         />
                     </LemonField>
+                    <PushIdentityVerificationField mode={apnsIntegration.identityVerification} />
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"

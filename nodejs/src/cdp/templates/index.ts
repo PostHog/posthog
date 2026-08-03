@@ -18,6 +18,7 @@ import { template as linearTemplate } from './_destinations/linear/linear.templa
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
+import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
@@ -54,6 +55,10 @@ import { template as piiHashingTemplate } from './_transformations/pii-hashing/p
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
+import { template as logDefaultTemplate } from './_transformations_log/default/default.template'
+import { template as logDropBySeverityTemplate } from './_transformations_log/drop-by-severity/drop-by-severity.template'
+import { template as logPiiScrubTemplate } from './_transformations_log/pii-scrub/pii-scrub.template'
+import { template as logRedactAttributesTemplate } from './_transformations_log/redact-attributes/redact-attributes.template'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
@@ -67,6 +72,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     googleAdsTemplate,
     linkedinAdsTemplate,
     microsoftAdsTemplate,
+    openaiAdsTemplate,
     redditAdsTemplate,
     twilioTemplate,
     whatsappTemplate,
@@ -108,6 +114,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     filterPropertiesTemplate,
     hashPropertiesTemplate,
     urlNormalizationTemplate,
+]
+
+export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [
+    logDefaultTemplate,
+    logPiiScrubTemplate,
+    logDropBySeverityTemplate,
+    logRedactAttributesTemplate,
 ]
 
 export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
@@ -159,6 +172,7 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
+    ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
     ...NATIVE_HOG_FUNCTIONS,

@@ -74,7 +74,7 @@ class ReplayObservation(UUIDModel):
     triggered_by = models.CharField(
         max_length=16,
         choices=ObservationTrigger.choices,
-        help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, or a retry of a failed observation.",
+        help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, or a retry of a failed or ineligible observation.",
     )
     triggered_by_user = models.ForeignKey(
         "posthog.User",

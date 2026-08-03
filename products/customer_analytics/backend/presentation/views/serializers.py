@@ -89,6 +89,7 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "zendesk_id": {"type": "string", "nullable": True},
         "slack_channel_id": {"type": "string", "nullable": True},
         "usage_dashboard_link": {"type": "string", "nullable": True},
+        "metabase_link": {"type": "string", "nullable": True},
     },
 }
 
@@ -175,7 +176,7 @@ class AccountSerializer(DataclassSerializer):
         help_text=(
             "Typed account properties: assignment fields (csm, account_executive, account_owner) "
             "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
+            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty "
             "object. Unknown keys are rejected."
         ),
     )
@@ -307,6 +308,14 @@ class AccountNoteSerializer(DataclassSerializer):
         fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
+class ChannelSummaryMessageSerializer(serializers.Serializer):
+    """Metadata for one message a channel summary covered — never the message text."""
+
+    author = serializers.CharField(read_only=True, help_text="Display name of the message author.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="When the message was sent.")
+    permalink = serializers.CharField(read_only=True, help_text="Slack permalink to the message.")
+
+
 class AccountChannelSummarySerializer(DataclassSerializer):
     """An AI summary of one closed period of the account's bound Slack channel (read-only)."""
 
@@ -327,6 +336,11 @@ class AccountChannelSummarySerializer(DataclassSerializer):
     message_count = serializers.IntegerField(
         read_only=True, help_text="Number of channel messages the summary covered."
     )
+    messages = ChannelSummaryMessageSerializer(
+        many=True,
+        read_only=True,
+        help_text="The messages the summary covered, in transcript order — metadata only, no message text.",
+    )
     generated_at = serializers.DateTimeField(read_only=True, help_text="When the summary was generated.")
 
     class Meta:
@@ -340,6 +354,7 @@ class AccountChannelSummarySerializer(DataclassSerializer):
             "period_end",
             "content",
             "message_count",
+            "messages",
             "generated_at",
         ]
 
@@ -658,6 +673,13 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         allow_null=True,
         help_text="The data-warehouse view-sync binding feeding this property, or null when values are set manually.",
     )
+    is_canonical = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when PostHog writes this property itself. Its name and display type are fixed — "
+            "an update changing either is rejected."
+        ),
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -692,6 +714,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "target_type",
             "group_type_index",
             "is_big_number",
+            "is_canonical",
             "options",
             "source",
             "created_at",
