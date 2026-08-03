@@ -22,7 +22,8 @@ _MAX_FIELD_PATH_LENGTH = 500
 # Array filters only look at the first _MAX_ARRAY_INDICES_TO_CHECK elements of each array. Each
 # `[]` marker in a field path multiplies the number of generated index permutations by that number,
 # and every permutation costs a path string plus a Q object, so capping the product keeps a deeply
-# nested path from exhausting the worker's memory before any SQL runs.
+# nested path from exhausting the worker's memory before any SQL runs. The cap is 5 ** 3, which
+# lets a path nest three arrays and rejects a fourth.
 _MAX_ARRAY_INDICES_TO_CHECK = 5
 _MAX_INDEXED_PATHS = 125
 
