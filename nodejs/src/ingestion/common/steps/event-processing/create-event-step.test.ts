@@ -328,6 +328,8 @@ describe('create-event-step', () => {
                 ['a team outside the allowlist', 1, '$feature_flag_called', 'test'],
                 ['a boolean response', 2, '$feature_flag_called', true],
                 ['a stringified boolean response', 2, '$feature_flag_called', 'true'],
+                ['an empty response', 2, '$feature_flag_called', ''],
+                ['a missing response', 2, '$feature_flag_called', undefined],
                 ['a different event', 2, '$pageview', 'test'],
             ])('does not duplicate %s', async (_, teamId, event, response) => {
                 const step = createCreateEventStep(EVENTS_OUTPUT, '2')
