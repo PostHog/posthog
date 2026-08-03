@@ -312,7 +312,9 @@ async function buildCanvas(project) {
                 const cssPath = `assets/${path.posix.basename(entry).replace(/\.[^.]+$/, '')}-${sha256(css).slice(0, 10)}.css`
                 files.push(artifact(cssPath, css))
                 const stylesheet = `<link rel="stylesheet" href="./${cssPath}" />`
-                html = html.includes('</head>') ? html.replace('</head>', `${stylesheet}</head>`) : `${stylesheet}${html}`
+                html = html.includes('</head>')
+                    ? html.replace('</head>', `${stylesheet}</head>`)
+                    : `${stylesheet}${html}`
             }
         }
         platformCss = await buildPlatformStyles(project)
