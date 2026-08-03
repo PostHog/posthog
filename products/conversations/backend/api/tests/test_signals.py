@@ -218,6 +218,10 @@ class TestTicketMessageSignals(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["event_name"] == "$conversation_private_message_sent"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
+        # The note body must never reach the event stream: analytics events are
+        # team-scoped and bypass ticket-level access controls
+        assert "message_content" not in call_kwargs["properties"]
+        assert "Private note" not in str(call_kwargs["properties"])
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_private_ai_message_emits_no_event(self, mock_capture, mock_on_commit):

@@ -526,13 +526,14 @@ def capture_ticket_assigned(
 def _capture_team_message(
     ticket: Ticket,
     message_id: str,
-    message_content: str,
+    message_content: str | None,
     author: User | None,
     event_name: str,
 ) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
-    properties["message_content"] = (message_content or "")[:1000]
+    if message_content is not None:
+        properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
@@ -562,7 +563,6 @@ def capture_message_sent(
 def capture_private_message_sent(
     ticket: Ticket,
     message_id: str,
-    message_content: str,
     author: User | None = None,
 ) -> None:
     """Team member sent a private internal note on a ticket.
@@ -570,8 +570,11 @@ def capture_private_message_sent(
     Deliberately a separate event from `$conversation_message_sent`: existing
     workflows trigger on that event to notify customers, and private notes must
     never flow through those.
+
+    The note body is deliberately omitted. Analytics events are queryable by any
+    project member, so including it would bypass ticket-level access controls.
     """
-    _capture_team_message(ticket, message_id, message_content, author, "$conversation_private_message_sent")
+    _capture_team_message(ticket, message_id, None, author, "$conversation_private_message_sent")
 
 
 def capture_message_received(ticket: Ticket, message_id: str, message_content: str) -> None:
