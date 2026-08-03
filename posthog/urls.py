@@ -31,7 +31,6 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from products.canvas.backend.presentation.artifacts import canvas_artifact
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
@@ -49,6 +48,7 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
+from products.canvas.backend.presentation.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
