@@ -466,12 +466,17 @@ def _build_slim_template_image() -> modal.Image:
 
 
 def _build_canvas_template_image() -> modal.Image:
-    builder_dir = Path(settings.BASE_DIR) / "common" / "canvas-builder"
+    # The builder script and its platform manifest are baked in beside the
+    # npm dependencies, so a build only ships its project payload into the
+    # sandbox. node resolves /scripts/node_modules from the script's parent.
+    builder_dir = Path(settings.CANVAS_BUILDER_DIR)
     return (
         _build_slim_template_image()
         .add_local_file(str(builder_dir / "package.json"), "/scripts/package.json", copy=True)
         .add_local_file(str(builder_dir / "package-lock.json"), "/scripts/package-lock.json", copy=True)
         .run_commands("npm ci --prefix /scripts --omit=dev --no-audit --no-fund")
+        .add_local_file(str(builder_dir / "build.mjs"), "/scripts/canvas-builder/build.mjs", copy=True)
+        .add_local_file(str(builder_dir / "manifest.json"), "/scripts/canvas-builder/manifest.json", copy=True)
     )
 
 

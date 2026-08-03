@@ -31,7 +31,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.canvas_artifacts import canvas_artifact
+from products.canvas.backend.presentation.artifacts import canvas_artifact
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView

@@ -1,0 +1,747 @@
+"""Source-version and build lifecycle for canvases.
+
+The relational rows (`CanvasSourceVersion`, `CanvasBuild`) are the control
+plane; content lives in object storage:
+
+- serialized source projects under a private, content-addressed key
+  (``canvas_source/…``) — never served from the user-content origin;
+- built artifact files under an immutable per-build prefix
+  (``canvas_artifact/…``).
+
+Publishing is upload-then-commit: the source object is uploaded before the
+canvas row's transaction inserts the version/build rows and advances the
+current-source pointer, so a conflicting transaction leaves at most an
+unreferenced upload for the retention sweep — never a partially published
+version. Deduplication is content-addressed but never crosses a canvas (a
+shared object identity across tenants would leak that identical source
+exists elsewhere).
+"""
+
+import gzip
+import json
+import shutil
+import hashlib
+import subprocess
+from datetime import timedelta
+from typing import Any
+from uuid import UUID
+
+from django.conf import settings
+from django.db import connection, transaction
+from django.db.models import Q
+from django.utils import timezone
+
+import structlog
+from prometheus_client import Counter, Gauge, Histogram
+
+from posthog.models.scoping import team_scope
+from posthog.storage import object_storage
+
+from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
+from products.canvas.backend.source import SYNTHETIC_INDEX_HTML, has_errors, validate_source_project
+
+logger = structlog.get_logger(__name__)
+
+MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM = 20
+MAX_BUILD_ATTEMPTS = 3
+
+CANVAS_BUILD_OUTCOMES = Counter(
+    "posthog_canvas_build_outcomes_total", "Canvas build terminal outcomes", ["outcome", "code"]
+)
+CANVAS_BUILD_QUEUE_SECONDS = Histogram(
+    "posthog_canvas_build_queue_seconds", "Time a canvas build waits before execution"
+)
+CANVAS_BUILD_DURATION_SECONDS = Histogram(
+    "posthog_canvas_build_duration_seconds", "End-to-end canvas build latency", ["outcome"]
+)
+CANVAS_BUILD_ARTIFACT_BYTES = Histogram(
+    "posthog_canvas_build_artifact_bytes", "Total emitted bytes for successful canvas builds"
+)
+CANVAS_BUILD_SWEEP_OUTCOMES = Counter(
+    "posthog_canvas_build_sweep_total", "Stuck canvas builds handled by the sweeper", ["outcome"]
+)
+CANVAS_BUILD_ACTIVE = Gauge("posthog_canvas_builds_active", "Canvas builds currently queued or building")
+
+
+CANVAS_BUILDER_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "NODE_ENV": "production"}
+
+
+class CanvasBuildCapacityExceeded(Exception):
+    """The team already has the maximum number of in-flight builds."""
+
+
+class CanvasVersionConflict(Exception):
+    """A guarded publish was based on a version that is no longer the head."""
+
+    def __init__(self, current_version_id: str | None) -> None:
+        super().__init__("The canvas changed since it was read.")
+        self.current_version_id = current_version_id
+
+
+def node_executable() -> str:
+    """Resolve node against the worker's own PATH.
+
+    The builder child gets a sanitized env so it never inherits credentials,
+    which also means it cannot resolve `node` itself — outside the production
+    image (flox, homebrew, CI toolcaches) node lives nowhere near that minimal
+    PATH, so the interpreter has to be resolved here and passed absolute.
+    """
+    resolved = shutil.which("node") or shutil.which("node", path=CANVAS_BUILDER_ENV["PATH"])
+    if resolved is None:
+        raise RuntimeError("node is not on the canvas builder's PATH")
+    return resolved
+
+
+def _run_local_builder(project: dict[str, Any]) -> dict[str, Any]:
+    process = subprocess.run(
+        [node_executable(), "--max-old-space-size=256", str(CANVAS_BUILDER_DIR / "build.mjs")],
+        input=json.dumps({"project": project}, separators=(",", ":")),
+        capture_output=True,
+        text=True,
+        timeout=45,
+        check=False,
+        cwd=CANVAS_BUILDER_DIR,
+        env=CANVAS_BUILDER_ENV,
+    )
+    if process.returncode != 0:
+        raise RuntimeError(f"canvas builder exited with {process.returncode}: {(process.stderr or '')[-500:]}")
+    result = json.loads(process.stdout)
+    if not isinstance(result, dict):
+        raise ValueError("canvas builder returned an invalid response")
+    return result
+
+
+def _run_sandbox_builder(project: dict[str, Any]) -> dict[str, Any]:
+    from products.tasks.backend.facade.sandbox import (  # noqa: PLC0415 — sandbox provisioning is heavyweight; keep it off this module's import path
+        SandboxConfig,
+        SandboxTemplate,
+        get_sandbox_class,
+    )
+
+    config = SandboxConfig(
+        name="canvas-build",
+        template=SandboxTemplate.CANVAS_BUILD,
+        default_execution_timeout_seconds=45,
+        ttl_seconds=90,
+        memory_gb=0.5,
+        cpu_cores=1,
+        disk_size_gb=1,
+        block_network=True,
+        environment_variables=None,
+        metadata={"workload": "canvas-build"},
+    )
+    # The builder script, its manifest, and node_modules are baked into the
+    # CANVAS_BUILD image — only the project payload crosses into the sandbox.
+    with get_sandbox_class().create(config) as sandbox:
+        input_write = sandbox.write_file(
+            "/tmp/canvas-build-input.json", json.dumps({"project": project}, separators=(",", ":")).encode()
+        )
+        if input_write.exit_code != 0:
+            raise RuntimeError("canvas sandbox input upload failed")
+        process = sandbox.execute(
+            "node --max-old-space-size=256 /scripts/canvas-builder/build.mjs < /tmp/canvas-build-input.json",
+            timeout_seconds=45,
+        )
+        if process.exit_code != 0:
+            raise RuntimeError(f"canvas sandbox builder exited with {process.exit_code}: {process.stderr[-500:]}")
+        result = json.loads(process.stdout)
+        if not isinstance(result, dict):
+            raise ValueError("canvas sandbox builder returned an invalid response")
+        return result
+
+
+def run_cloud_builder(project: dict[str, Any]) -> dict[str, Any]:
+    if settings.DEBUG or settings.TEST:
+        return _run_local_builder(project)
+    return _run_sandbox_builder(project)
+
+
+def _valid_artifact_path(value: str) -> bool:
+    segments = value.split("/")
+    return (
+        bool(value)
+        and not value.startswith("/")
+        and "\\" not in value
+        and all(segment not in {"", ".", ".."} for segment in segments)
+        and not any(character in value for character in "\r\n\0")
+    )
+
+
+def validate_builder_output(
+    result: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    limits = contract_limits()
+    if result.get("contractVersion") != 1 or result.get("status") != "ready":
+        raise ValueError("canvas builder did not return a ready contract")
+    files = result.get("files")
+    manifest = result.get("manifest")
+    diagnostics = result.get("diagnostics")
+    if not isinstance(files, list) or not isinstance(manifest, dict) or not isinstance(diagnostics, list):
+        raise ValueError("canvas builder omitted artifacts, manifest, or diagnostics")
+    if len(files) > limits["maxArtifactFiles"]:
+        raise ValueError("canvas artifact manifest has too many files")
+    seen: set[str] = set()
+    emitted_metadata: dict[str, tuple[str, int]] = {}
+    total = 0
+    for artifact in files:
+        if not isinstance(artifact, dict):
+            raise ValueError("canvas builder emitted an invalid artifact")
+        path = artifact.get("path")
+        content = artifact.get("content")
+        digest = artifact.get("contentHash")
+        size = artifact.get("sizeBytes")
+        if (
+            not isinstance(path, str)
+            or not _valid_artifact_path(path)
+            or path in seen
+            or not isinstance(content, str)
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+        ):
+            raise ValueError("canvas builder emitted an invalid artifact")
+        encoded = content.encode("utf-8")
+        if hashlib.sha256(encoded).hexdigest() != digest or len(encoded) != size:
+            raise ValueError("canvas artifact integrity does not match its manifest")
+        if size > limits["maxArtifactFileBytes"]:
+            raise ValueError("canvas artifact exceeds the per-file size limit")
+        seen.add(path)
+        emitted_metadata[path] = (digest, size)
+        total += size
+    if total > limits["maxArtifactTotalBytes"]:
+        raise ValueError("canvas build exceeds the total artifact size limit")
+    assets = manifest.get("assets")
+    if not isinstance(assets, list) or {asset.get("path") for asset in assets if isinstance(asset, dict)} != seen:
+        raise ValueError("canvas artifact manifest does not match emitted files")
+    for asset in assets:
+        if not isinstance(asset, dict):
+            raise ValueError("canvas artifact manifest metadata is invalid")
+        path = asset.get("path")
+        if not isinstance(path, str) or emitted_metadata.get(path) != (
+            asset.get("contentHash"),
+            asset.get("sizeBytes"),
+        ):
+            raise ValueError("canvas artifact manifest metadata does not match emitted files")
+    entry = manifest.get("entryHtml")
+    if not isinstance(entry, str) or entry not in seen:
+        raise ValueError("canvas build does not contain its entry HTML")
+    return files, manifest, diagnostics[:500]
+
+
+# Retention policy: every referenced source version is kept for the canvas's
+# lifetime; artifacts are bounded.
+FAILED_BUILD_RETENTION = timedelta(hours=24)
+SUCCESSFUL_BUILD_RETENTION = timedelta(days=30)
+BUILD_LEASE_DURATION = timedelta(minutes=5)
+# A queued build no worker has claimed after this long is presumed lost
+# (dropped broker message) and re-delivered by the sweeper.
+STALE_QUEUED_REDELIVERY_AFTER = timedelta(minutes=5)
+# A queued build still unclaimed after this long is failed outright — the
+# queue is not coming back for it, and it must not hold a capacity slot.
+STALE_QUEUED_FAILURE_AFTER = timedelta(hours=6)
+
+
+def serialize_source_project(project: dict[str, Any]) -> tuple[bytes, str, int]:
+    """Canonical serialization: (gzip payload, hex sha256 of the canonical JSON, size)."""
+    canonical = json.dumps(project, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    return gzip.compress(canonical, mtime=0), digest, len(canonical)
+
+
+def source_object_key(team_id: int, canvas_id: str | UUID, source_hash: str) -> str:
+    return f"canvas_source/team_{team_id}/{canvas_id}/{source_hash}.json.gz"
+
+
+def artifact_object_prefix(team_id: int, canvas_id: str | UUID, build_id: str | UUID) -> str:
+    return f"canvas_artifact/team_{team_id}/{canvas_id}/{build_id}"
+
+
+def upload_source_project(team_id: int, canvas_id: str | UUID, project: dict[str, Any]) -> tuple[str, str, int]:
+    """Upload the serialized project (idempotent — the key is content-addressed).
+
+    Returns (object key, source hash, canonical size). Raises
+    ObjectStorageError when storage is unavailable — a publish cannot proceed
+    without its source of record.
+    """
+    payload, digest, size = serialize_source_project(project)
+    key = source_object_key(team_id, canvas_id, digest)
+    object_storage.write(key, payload, extras={"ContentType": "application/gzip"})
+    return key, digest, size
+
+
+def read_source_project(version: CanvasSourceVersion) -> dict[str, Any]:
+    payload = object_storage.read_bytes(version.source_object_key)
+    if payload is None:
+        raise object_storage.ObjectStorageError(f"source object {version.source_object_key} is missing")
+    canonical = gzip.decompress(payload)
+    digest = hashlib.sha256(canonical).hexdigest()
+    if digest != version.source_hash:
+        raise object_storage.ObjectStorageError(
+            f"source object {version.source_object_key} failed integrity verification"
+        )
+    return json.loads(canonical)
+
+
+def current_source_project(canvas: Canvas) -> tuple[dict[str, Any], str | None]:
+    """The canvas's head source project and version id.
+
+    Reads the stored head version when one exists; a canvas that predates the
+    relational lifecycle (or has never been published) is presented as a
+    synthetic single-file project.
+    """
+    if canvas.current_source_version_id:
+        version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=canvas.current_source_version_id)
+        return read_source_project(version), str(version.id)
+    from products.canvas.backend.source import synthetic_source_project  # noqa: PLC0415
+
+    return synthetic_source_project(canvas.legacy_code), None
+
+
+def _lock_team_build_capacity(team_id: int) -> None:
+    """Serialize team-wide capacity checks inside the current transaction.
+
+    Publishes race on different canvas rows, so a row lock cannot guard the
+    per-team cap — a transaction-scoped advisory lock can.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"canvas_build_cap:{team_id}"])
+
+
+def _assert_build_capacity(team_id: int) -> None:
+    active = CanvasBuild.objects.for_team(team_id).filter(status__in=CanvasBuild.ACTIVE_STATUSES).count()
+    if active >= MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM:
+        raise CanvasBuildCapacityExceeded
+
+
+def _queue_build(version: CanvasSourceVersion) -> CanvasBuild:
+    """Create a queued build for the version and supersede older queued builds.
+
+    Must run inside a transaction holding the canvas row lock and the team
+    capacity advisory lock; enqueues the worker on commit.
+    """
+    build = CanvasBuild.objects.create(
+        team_id=version.team_id,
+        canvas_id=version.canvas_id,
+        source_version=version,
+        status=CanvasBuild.STATUS_QUEUED,
+    )
+    CanvasBuild.objects.for_team(version.team_id).filter(
+        canvas_id=version.canvas_id, status=CanvasBuild.STATUS_QUEUED
+    ).exclude(id=build.id).update(
+        status=CanvasBuild.STATUS_FAILED,
+        diagnostics=[
+            {
+                "severity": "warning",
+                "code": "superseded",
+                "message": "A newer canvas source version was published before this build started.",
+            }
+        ],
+        finished_at=timezone.now(),
+    )
+    transaction.on_commit(lambda: _enqueue_build(build))
+    return build
+
+
+def _enqueue_build(build: CanvasBuild) -> None:
+    from products.canvas.backend.tasks import process_canvas_build  # noqa: PLC0415 — avoids a task/service import cycle
+
+    process_canvas_build.delay(build.team_id, str(build.id))
+
+
+def publish_source_project(
+    canvas: Canvas,
+    *,
+    project: dict[str, Any],
+    prompt: str | None,
+    name: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by_id: int | None,
+) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
+    """Publish a validated project as the canvas's new head version.
+
+    Upload-then-commit: the immutable source object goes up before the
+    transaction, so a conflicting publish leaves at most an unreferenced
+    upload. Returns (canvas, version, build, first_publish). Raises
+    CanvasVersionConflict, CanvasBuildCapacityExceeded, or ObjectStorageError.
+    """
+    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
+
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+        current_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+        expected = str(expected_version_id) if expected_version_id else None
+        if has_expected_version and current_id != expected:
+            raise CanvasVersionConflict(current_id)
+
+        _lock_team_build_capacity(canvas.team_id)
+        _assert_build_capacity(canvas.team_id)
+
+        first_publish = canvas.current_source_version_id is None and not (canvas.legacy_code or "").strip()
+        version = CanvasSourceVersion.objects.create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            parent_version_id=canvas.current_source_version_id,
+            source_hash=digest,
+            source_object_key=key,
+            source_size=size,
+            task_id=task_id,
+            prompt=prompt or None,
+            created_by_id=created_by_id,
+        )
+        build = _queue_build(version)
+
+        canvas.current_source_version = version
+        # A real version now exists; the pre-relational fallback is obsolete.
+        canvas.legacy_code = None
+        update_fields = ["current_source_version", "legacy_code", "updated_at"]
+        if name and name.strip() and name.strip() != canvas.name:
+            canvas.name = name.strip()
+            update_fields.append("name")
+        canvas.save(update_fields=update_fields)
+
+    return canvas, version, build, first_publish
+
+
+def revert_to_version(canvas: Canvas, version_id: str | UUID) -> tuple[Canvas, CanvasBuild]:
+    """Move the canvas's head back to an existing version and rebuild it.
+
+    Raises CanvasSourceVersion.DoesNotExist for a version that isn't this
+    canvas's, and CanvasBuildCapacityExceeded when the team cap is reached.
+    """
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+        version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=version_id, canvas_id=canvas.id)
+        _lock_team_build_capacity(canvas.team_id)
+        _assert_build_capacity(canvas.team_id)
+        canvas.current_source_version = version
+        canvas.save(update_fields=["current_source_version", "updated_at"])
+        build = _queue_build(version)
+    return canvas, build
+
+
+def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBuild:
+    """Apply a lifecycle action (retry, pin, unpin, cancel) to one build.
+
+    Raises CanvasBuild.DoesNotExist for a build that isn't this canvas's,
+    ValueError for an action the build's state doesn't allow, and
+    CanvasBuildCapacityExceeded when a retry would exceed the team cap.
+    """
+    now = timezone.now()
+    with transaction.atomic(), team_scope(canvas.team_id):
+        build = CanvasBuild.objects.for_team(canvas.team_id).select_for_update().get(pk=build_id, canvas_id=canvas.id)
+        if action == "pin" or action == "unpin":
+            build.pinned = action == "pin"
+            build.save(update_fields=["pinned"])
+        elif action == "retry":
+            if build.status != CanvasBuild.STATUS_FAILED:
+                raise ValueError("Only failed builds can be retried.")
+            _lock_team_build_capacity(canvas.team_id)
+            _assert_build_capacity(canvas.team_id)
+            build.status = CanvasBuild.STATUS_QUEUED
+            build.diagnostics = []
+            build.finished_at = None
+            build.lease_expires_at = None
+            build.save(update_fields=["status", "diagnostics", "finished_at", "lease_expires_at"])
+            transaction.on_commit(lambda: _enqueue_build(build))
+        elif action == "cancel":
+            lease_lapsed = build.lease_expires_at is not None and build.lease_expires_at < now
+            if build.status != CanvasBuild.STATUS_QUEUED and not (
+                build.status == CanvasBuild.STATUS_BUILDING and lease_lapsed
+            ):
+                raise ValueError("Only queued (or lease-expired) builds can be cancelled.")
+            _finish_failed(
+                build,
+                [{"severity": "warning", "code": "cancelled", "message": "The build was cancelled."}],
+            )
+        else:
+            raise ValueError(f"Unknown build action: {action}")
+    return build
+
+
+def run_canvas_build(team_id: int, build_id: str) -> None:
+    """The cloud build worker body.
+
+    Validates the recorded source project, uploads the immutable artifact
+    files, and marks the build ready — advancing the canvas's live pointer
+    only if this build's source version is still the canvas's current head. A
+    failed build records diagnostics and leaves the last-known-good build
+    untouched. Idempotent: a re-delivered task for a finished build is a no-op.
+    """
+    with transaction.atomic():
+        build = (
+            CanvasBuild.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id=build_id)
+            .select_related("source_version")
+            .first()
+        )
+        if build is None:
+            logger.warning("canvas_build_missing", build_id=build_id)
+            return
+        if build.status not in CanvasBuild.ACTIVE_STATUSES:
+            return
+        now = timezone.now()
+        if build.status == CanvasBuild.STATUS_BUILDING and build.lease_expires_at and build.lease_expires_at > now:
+            return
+        build.status = CanvasBuild.STATUS_BUILDING
+        build.attempt_count += 1
+        build.lease_expires_at = now + BUILD_LEASE_DURATION
+        build.save(update_fields=["status", "attempt_count", "lease_expires_at"])
+        CANVAS_BUILD_QUEUE_SECONDS.observe(max(0, (now - build.created_at).total_seconds()))
+
+    try:
+        project = read_source_project(build.source_version)
+    except object_storage.ObjectStorageError as error:
+        _finish_failed(
+            build,
+            [
+                {
+                    "severity": "error",
+                    "code": "source_unreadable",
+                    "message": f"could not load the source project: {error}",
+                }
+            ],
+        )
+        return
+
+    diagnostics = validate_source_project(project)
+    if has_errors(diagnostics):
+        _finish_failed(build, diagnostics)
+        return
+
+    project_files = dict(project["files"])
+    project_files.setdefault(project.get("entryHtml", "index.html"), SYNTHETIC_INDEX_HTML)
+    project = {**project, "files": project_files}
+    try:
+        result = run_cloud_builder(project)
+        if result.get("status") != "ready":
+            builder_diagnostics = result.get("diagnostics")
+            _finish_failed(build, builder_diagnostics[:500] if isinstance(builder_diagnostics, list) else [])
+            return
+        files, manifest, diagnostics = validate_builder_output(result)
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, RuntimeError, ValueError) as error:
+        logger.warning(
+            "canvas_build_process_failed",
+            build_id=str(build.id),
+            error_type=type(error).__name__,
+            error=str(error)[:500],
+        )
+        _finish_failed(
+            build,
+            [{"severity": "error", "code": "build_unavailable", "message": "The canvas build service is unavailable."}],
+        )
+        return
+
+    prefix = artifact_object_prefix(build.team_id, build.canvas_id, build.id)
+    manifest_assets = {asset["path"]: asset for asset in manifest["assets"]}
+    uploaded_keys: list[str] = []
+    try:
+        for artifact in files:
+            content_type = _artifact_content_type(artifact["path"])
+            key = f"{prefix}/{artifact['path']}"
+            object_storage.write(
+                key,
+                artifact["content"].encode("utf-8"),
+                extras={"ContentType": content_type, "CacheControl": "private, max-age=31536000, immutable"},
+            )
+            uploaded_keys.append(key)
+            manifest_assets[artifact["path"]]["contentType"] = content_type
+    except object_storage.ObjectStorageError:
+        if uploaded_keys:
+            object_storage.delete_objects(uploaded_keys)
+        _finish_failed(
+            build,
+            [{"severity": "error", "code": "artifact_upload_failed", "message": "Artifact storage is unavailable."}],
+        )
+        return
+    integrity = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    # Second transaction: mark ready and advance the live pointer only while
+    # this build is still eligible (its source version is still the head).
+    with transaction.atomic():
+        canvas = Canvas.objects.for_team(team_id).select_for_update().get(pk=build.canvas_id)
+        build.status = CanvasBuild.STATUS_READY
+        build.artifact_object_prefix = prefix
+        build.integrity = integrity
+        build.manifest = manifest
+        build.diagnostics = diagnostics
+        build.finished_at = timezone.now()
+        build.lease_expires_at = None
+        build.save(
+            update_fields=[
+                "status",
+                "artifact_object_prefix",
+                "integrity",
+                "manifest",
+                "diagnostics",
+                "finished_at",
+                "lease_expires_at",
+            ]
+        )
+        if canvas.current_source_version_id == build.source_version_id:
+            canvas.published_build = build
+            canvas.save(update_fields=["published_build", "updated_at"])
+    CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()
+    CANVAS_BUILD_DURATION_SECONDS.labels(outcome="ready").observe(
+        max(0, (build.finished_at - build.created_at).total_seconds())
+    )
+    CANVAS_BUILD_ARTIFACT_BYTES.observe(sum(asset["sizeBytes"] for asset in manifest["assets"]))
+
+
+def _artifact_content_type(path: str) -> str:
+    if path.endswith(".html"):
+        return "text/html; charset=utf-8"
+    if path.endswith(".js"):
+        return "text/javascript; charset=utf-8"
+    if path.endswith(".css"):
+        return "text/css; charset=utf-8"
+    if path.endswith(".json"):
+        return "application/json; charset=utf-8"
+    return "application/octet-stream"
+
+
+def _finish_failed(build: CanvasBuild, diagnostics: list[dict[str, Any]]) -> None:
+    logger.warning(
+        "canvas_build_failed",
+        build_id=str(build.id),
+        codes=[diagnostic.get("code") for diagnostic in diagnostics][:20],
+    )
+    build.status = CanvasBuild.STATUS_FAILED
+    build.diagnostics = diagnostics
+    build.finished_at = timezone.now()
+    build.lease_expires_at = None
+    build.save(update_fields=["status", "diagnostics", "finished_at", "lease_expires_at"])
+    code = str(diagnostics[0].get("code", "unknown")) if diagnostics else "unknown"
+    CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code=code).inc()
+    CANVAS_BUILD_DURATION_SECONDS.labels(outcome="failed").observe(
+        max(0, (build.finished_at - build.created_at).total_seconds())
+    )
+
+
+def sweep_canvas_builds() -> dict[str, int]:
+    """Recover builds stuck in flight; returns per-outcome counts.
+
+    Two ways a build wedges without ever reaching a terminal state, each
+    permanently occupying one of the team's capacity slots:
+
+    - the worker died mid-build (OOM, deploy) — its lease lapses and nothing
+      re-drives the row;
+    - the broker dropped the enqueue message — the row stays ``queued`` and no
+      worker ever claims it.
+
+    Lease-lapsed builds are requeued while attempts remain, else failed.
+    Unclaimed queued builds are re-delivered, and failed outright once
+    they're old enough that the queue clearly isn't coming back for them.
+    """
+    now = timezone.now()
+    counts = {"requeued": 0, "failed": 0, "redelivered": 0}
+
+    with transaction.atomic():
+        expired = (
+            CanvasBuild.objects.unscoped()
+            .select_for_update(skip_locked=True)
+            .filter(status=CanvasBuild.STATUS_BUILDING, lease_expires_at__lt=now)[:200]
+        )
+        for build in expired:
+            if build.attempt_count >= MAX_BUILD_ATTEMPTS:
+                _finish_failed(
+                    build,
+                    [
+                        {
+                            "severity": "error",
+                            "code": "build_lease_expired",
+                            "message": "The build worker stopped responding and the build ran out of attempts.",
+                        }
+                    ],
+                )
+                counts["failed"] += 1
+            else:
+                build.status = CanvasBuild.STATUS_QUEUED
+                build.lease_expires_at = None
+                build.save(update_fields=["status", "lease_expires_at"])
+                transaction.on_commit(lambda stuck=build: _enqueue_build(stuck))
+                counts["requeued"] += 1
+
+    with transaction.atomic():
+        stale_queued = (
+            CanvasBuild.objects.unscoped()
+            .select_for_update(skip_locked=True)
+            .filter(status=CanvasBuild.STATUS_QUEUED, created_at__lt=now - STALE_QUEUED_REDELIVERY_AFTER)[:200]
+        )
+        for build in stale_queued:
+            if build.created_at < now - STALE_QUEUED_FAILURE_AFTER:
+                _finish_failed(
+                    build,
+                    [
+                        {
+                            "severity": "error",
+                            "code": "build_stuck",
+                            "message": "The build was never picked up by a worker.",
+                        }
+                    ],
+                )
+                counts["failed"] += 1
+            else:
+                # Re-delivery is idempotent: the worker claims rows under a
+                # row lock and no-ops on anything already claimed or finished.
+                transaction.on_commit(lambda stuck=build: _enqueue_build(stuck))
+                counts["redelivered"] += 1
+
+    for outcome, count in counts.items():
+        if count:
+            CANVAS_BUILD_SWEEP_OUTCOMES.labels(outcome=outcome).inc(count)
+    CANVAS_BUILD_ACTIVE.set(CanvasBuild.objects.unscoped().filter(status__in=CanvasBuild.ACTIVE_STATUSES).count())
+    return counts
+
+
+def cleanup_canvas_builds() -> int:
+    """Apply the artifact retention policy; returns the number of builds pruned.
+
+    Keeps, per canvas: the active (published) build, the most recent other
+    successful build (instant rollback), and every pinned build. Other ready
+    builds lose their artifacts after 30 days (they remain rebuildable from
+    the retained source); failed builds lose theirs after 24 hours. Source
+    versions are never pruned — history, undo, and rebuilds depend on them.
+    """
+    now = timezone.now()
+    pruned = 0
+    stale = (
+        CanvasBuild.objects.unscoped()
+        .filter(pinned=False, artifact_object_prefix__isnull=False)
+        .filter(
+            Q(status=CanvasBuild.STATUS_FAILED, finished_at__lt=now - FAILED_BUILD_RETENTION)
+            | Q(status=CanvasBuild.STATUS_READY, finished_at__lt=now - SUCCESSFUL_BUILD_RETENTION)
+        )
+        .select_related("canvas")
+        .order_by("canvas_id", "-created_at")
+    )
+    protected: dict[str, set[str]] = {}
+    for build in stale.iterator(chunk_size=500):
+        canvas_key = str(build.canvas_id)
+        if canvas_key not in protected:
+            keep = {str(build.canvas.published_build_id) if build.canvas.published_build_id else None}
+            rollback = (
+                CanvasBuild.objects.unscoped()
+                .filter(canvas_id=build.canvas_id, status=CanvasBuild.STATUS_READY)
+                .exclude(id__in=[identifier for identifier in keep if identifier])
+                .order_by("-created_at")
+                .values_list("id", flat=True)
+                .first()
+            )
+            keep.add(str(rollback) if rollback else None)
+            protected[canvas_key] = {identifier for identifier in keep if identifier}
+        if str(build.id) in protected[canvas_key]:
+            continue
+
+        assets = (build.manifest or {}).get("assets", [])
+        keys = [f"{build.artifact_object_prefix}/{asset['path']}" for asset in assets]
+        if keys:
+            object_storage.delete_objects(keys)
+        build.artifact_object_prefix = None
+        build.save(update_fields=["artifact_object_prefix"])
+        pruned += 1
+    return pruned

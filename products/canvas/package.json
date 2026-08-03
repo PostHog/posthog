@@ -1,0 +1,8 @@
+{
+    "name": "@posthog/products-canvas",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
+    "dependencies": {},
+    "devDependencies": {}
+}

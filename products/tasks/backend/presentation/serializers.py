@@ -26,6 +26,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
+    ChannelInstructionsDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     TaskActivityDTO,
@@ -1457,6 +1458,7 @@ class ChannelSerializer(DataclassSerializer):
             "repositories",
             "created_at",
             "created_by",
+            "starred",
         ]
 
 
@@ -1516,6 +1518,48 @@ class ChannelUpdateSerializer(serializers.Serializer):
                     {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
                 )
         return attrs
+
+
+class ChannelInstructionsSerializer(DataclassSerializer):
+    """Response shape for a channel's CONTEXT.md instructions version."""
+
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = ChannelInstructionsDTO
+        fields = ["channel", "content", "version", "created_at", "created_by"]
+
+
+class ChannelInstructionsWriteSerializer(serializers.Serializer):
+    """Request body for publishing a new instructions version."""
+
+    content = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=100_000,
+        help_text="The complete markdown instructions (CONTEXT.md) for the channel.",
+    )
+    base_version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no "
+            "instructions yet). A stale base is rejected with 409; omit to publish unguarded."
+        ),
+    )
+
+
+class ChannelContextGenerationSerializer(serializers.Serializer):
+    """The task currently generating this channel's CONTEXT.md, or null."""
+
+    task_id = serializers.UUIDField(allow_null=True)
+
+
+class ChannelStarWriteSerializer(serializers.Serializer):
+    """Request body for starring/unstarring a channel for the requesting user."""
+
+    starred = serializers.BooleanField()
 
 
 class TaskThreadMessageSerializer(DataclassSerializer):

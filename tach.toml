@@ -82,6 +82,7 @@ depends_on = [
     "products.approvals",
     "products.batch_exports",
     "products.business_knowledge",
+    "products.canvas",
     "products.cdp",
     "products.conversations",
     "products.customer_analytics",
@@ -738,6 +739,27 @@ depends_on = [
     "products.slack_app",
 ]
 layer = "modules"
+
+[[modules]]
+path = "products.canvas"
+depends_on = [
+    "posthog",
+    # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
+    "products.tasks",
+]
+layer = "modules"
+
+# Canvas's public surface: routes + presentation for the API layer, tasks for
+# the Celery registrations posthog/tasks/scheduled.py imports.
+[[interfaces]]
+expose = [
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+    "backend\\.tasks.*",
+]
+from = [
+    "products.canvas",
+]
 
 [[modules]]
 path = "products.tracing"

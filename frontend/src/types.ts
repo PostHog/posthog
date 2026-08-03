@@ -5736,6 +5736,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_import',
     'batch_import_support',
     'business_knowledge',
+    'canvas',
     'clickhouse_test_cluster_perf',
     'cohort',
     'comment',
