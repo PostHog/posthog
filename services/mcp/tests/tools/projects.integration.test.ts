@@ -148,9 +148,11 @@ describe('Projects', { concurrent: false }, () => {
         const updateTool = updatePropertyDefinitionTool()
 
         beforeAll(async () => {
-            // Ensure the $browser property definition exists before running update tests.
-            // In a fresh test environment no events have been ingested, so property
-            // definitions don't exist yet. We create one via the API if missing.
+            // The $browser property definition is seeded by the CI workflow's demo-data step.
+            // property_definitions has no create action (PropertyDefinitionViewSet omits
+            // CreateModelMixin), so a fallback POST here would 403 rather than heal a missing
+            // definition -- fail loudly instead so a genuinely missing definition reads as a
+            // real bug rather than a confusing 403 further down the suite.
             const searchResult = await context.api.request<{ results: { name: string }[] }>({
                 method: 'GET',
                 path: `/api/projects/${TEST_PROJECT_ID}/property_definitions/`,
@@ -158,11 +160,9 @@ describe('Projects', { concurrent: false }, () => {
             })
             const exists = searchResult.results.some((def) => def.name === '$browser')
             if (!exists) {
-                await context.api.request({
-                    method: 'POST',
-                    path: `/api/projects/${TEST_PROJECT_ID}/property_definitions/`,
-                    body: { name: '$browser', type: 1, is_numerical: false },
-                })
+                throw new Error(
+                    `$browser property definition not found for project ${TEST_PROJECT_ID}. It should be seeded by the CI workflow's "Create API key and extract test IDs" step.`
+                )
             }
         })
 

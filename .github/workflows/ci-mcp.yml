@@ -593,7 +593,7 @@ jobs:
                   import django, os
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
-                  from posthog.models import Organization, Team, User, EventDefinition
+                  from posthog.models import Organization, Team, User, EventDefinition, PropertyDefinition
                   from posthog.models.personal_api_key import PersonalAPIKey
                   from posthog.models.utils import hash_key_value
                   org = Organization.objects.first()
@@ -608,6 +608,11 @@ jobs:
                   # Ensure common event definitions exist for MCP integration tests
                   for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
                       EventDefinition.objects.get_or_create(name=event_name, team=team)
+                  # Ensure common property definitions exist for MCP integration tests
+                  for property_name in ['\$browser']:
+                      PropertyDefinition.objects.get_or_create(
+                          name=property_name, type=PropertyDefinition.Type.EVENT, team=team
+                      )
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
