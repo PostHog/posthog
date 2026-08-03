@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use personhog_coordination::pod::HandoffHandler;
 use personhog_leader::fencing::{FenceGuard, FencedChangelogProducers, FencedProduceError};
+use personhog_leader::inflight::InflightTracker;
 use personhog_proto::personhog::types::v1::Person;
 use tokio::time::sleep;
 
@@ -76,6 +77,7 @@ fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelo
         Duration::from_secs(10),
         BROKER_TXN_TIMEOUT,
         window,
+        window + Duration::from_secs(5),
     )
 }
 
@@ -89,6 +91,7 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
         Duration::from_secs(10),
         BROKER_TXN_TIMEOUT,
         Duration::from_millis(5),
+        Duration::from_secs(5),
     )
 }
 
@@ -728,4 +731,145 @@ async fn a_repeated_resume_does_not_fence_the_window_the_first_one_admitted() {
         result.is_ok(),
         "a retried resume must not fence the window the first one admitted, got {result:?}"
     );
+}
+/// A drain that arrives while the window's commit is already running must
+/// wait for it.
+///
+/// At that point the gate reads idle in every field but `committing`: the
+/// window is closed to joiners and no sends are outstanding, yet
+/// `commit_transaction` is still mid round trip. A settle that asked only
+/// whether the window was open would return there and let the drain ack,
+/// handing the successor a partition whose last records are still racing
+/// its `init_transactions` — the race settling exists to end.
+#[tokio::test]
+async fn a_drain_waits_for_a_commit_that_is_already_running() {
+    let topic = format!("fence_settle_mid_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    producers.acquire(0).await.expect("acquire the fence");
+
+    // The gate a commit in flight leaves behind.
+    producers.begin_committing_for_test(0);
+
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+    let draining = tokio::spawn(async move { handler.drain_partition_inflight(0).await });
+    sleep(Duration::from_millis(300)).await;
+    assert!(
+        !draining.is_finished(),
+        "the drain acked while this window's commit was still in flight"
+    );
+
+    producers.finish_committing_for_test(0);
+    tokio::time::timeout(Duration::from_secs(10), draining)
+        .await
+        .expect("the drain must return once the commit finishes")
+        .expect("the drain task must not panic")
+        .expect("the drain must not fail");
+}
+
+/// A resume records the fence it took itself, not only the one warming
+/// left behind.
+///
+/// A handoff cancelled after the drain reaches `resume_partition` with no
+/// mark — the drain retires it — so this resume acquires. A convergence
+/// torn down before `apply` files the resume runs the same one again, and
+/// without a mark of its own that retry re-acquires, bumping the epoch out
+/// from under everything the first resume just admitted.
+#[tokio::test]
+async fn a_resume_that_took_the_fence_itself_does_not_take_it_again() {
+    let topic = format!("fence_resume_own_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers_with_window(
+        &topic,
+        Duration::from_secs(10),
+    ));
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+
+    producers.acquire(0).await.expect("seed the topic");
+    // Handed away, then cancelled: the drain retires the mark and the
+    // resume has to take the fence — and record it — on its own.
+    handler
+        .drain_partition_inflight(0)
+        .await
+        .expect("the drain must not fail");
+    handler.resume_partition(0).await.expect("first resume");
+
+    let writing = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    sleep(Duration::from_millis(300)).await;
+
+    handler.resume_partition(0).await.expect("retried resume");
+
+    let result = writing.await.expect("the write task must not panic");
+    assert!(
+        result.is_ok(),
+        "a resume must record the fence it took itself, or the retry fences the window it \
+         admitted, got {result:?}"
+    );
+}
+
+/// The drain closes admissions before it waits, not after.
+///
+/// Waiting first leaves a window where a request admitted during the wait
+/// acks after the count reached zero — a write landing above the watermark
+/// the successor's warm is about to read, which is the loss the drain
+/// exists to prevent.
+#[tokio::test]
+async fn the_drain_refuses_new_writes_while_it_is_still_waiting() {
+    let topic = format!("fence_drain_order_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    let inflight = Arc::new(InflightTracker::new());
+    producers.acquire(0).await.expect("acquire the fence");
+
+    let handler = common::test_handoff_handler_with_inflight(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&inflight),
+    );
+    // One request in flight, so the drain cannot get past its wait.
+    let seat = inflight.begin(0);
+    let draining = tokio::spawn(async move { handler.drain_partition_inflight(0).await });
+    sleep(Duration::from_millis(200)).await;
+
+    assert!(
+        inflight.try_begin(0).is_none(),
+        "the drain admitted a write while it was still waiting for the last one"
+    );
+
+    drop(seat);
+    tokio::time::timeout(Duration::from_secs(10), draining)
+        .await
+        .expect("the drain must finish once its last request leaves")
+        .expect("the drain task must not panic")
+        .expect("the drain must not fail");
+}
+
+/// Releasing a partition retires its fresh-fence mark.
+///
+/// The mark says "this convergence already holds the epoch". Left behind
+/// across a release — which drops the producer — a later resume trusts it,
+/// skips the acquire, and re-admits writes to a partition with no fence
+/// installed at all.
+#[tokio::test]
+async fn releasing_a_partition_retires_its_fresh_fence_mark() {
+    let topic = format!("fence_release_mark_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+
+    producers.acquire(0).await.expect("seed the topic");
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("seed record");
+    handler.warm_partition(0).await.expect("warm the partition");
+    handler
+        .release_partition(0)
+        .await
+        .expect("release the partition");
+    handler.resume_partition(0).await.expect("resume it again");
+
+    producers
+        .produce(0, &test_person(2))
+        .await
+        .expect("a resume after a release must take the fence again");
 }

@@ -263,6 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.fencing_txn_timeout(),
             config.fencing_broker_txn_timeout(),
             Duration::from_millis(config.fencing_window_ms),
+            config.fencing_settle_budget(),
         )))
     } else {
         None

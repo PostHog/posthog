@@ -652,7 +652,8 @@ impl PodHandle {
                         Error::invalid_state(format!(
                             "self-fence drain timed out for partition {partition}"
                         ))
-                    })?
+                    })??;
+                Ok::<u32, Error>(partition)
             });
         }
         // Failures are collected rather than propagated. This runs
@@ -662,9 +663,12 @@ impl PodHandle {
         // other partition still served by a pod with no lease, which is
         // the zombie this function exists to prevent.
         let mut failures: Vec<String> = Vec::new();
+        let mut quiesced: HashSet<u32> = HashSet::new();
         while let Some(joined) = drains.join_next().await {
             match joined {
-                Ok(Ok(())) => {}
+                Ok(Ok(partition)) => {
+                    quiesced.insert(partition);
+                }
                 Ok(Err(e)) => failures.push(e.to_string()),
                 Err(e) => failures.push(format!("self-fence drain panicked: {e}")),
             }
@@ -673,7 +677,17 @@ impl PodHandle {
         // Phase 2: with nothing in flight anywhere, release each
         // partition (dropping cache and serving authority) and clear
         // the local ownership state.
+        // Only the partitions that actually quiesced. Release unfences and
+        // drops the cache without waiting, so releasing one whose drain
+        // was cut off mid-flight lets a write admitted before the lease
+        // was lost ack after the replacement owner has warmed — the very
+        // ordering Phase 1 exists to establish. A partition left fenced
+        // and unreleased stays that way until the process restarts,
+        // which is the outcome its drain timing out already implies.
         for partition in held {
+            if !quiesced.contains(&partition) {
+                continue;
+            }
             if let Err(e) = self.handler.release_partition(partition).await {
                 failures.push(format!("release of partition {partition}: {e}"));
             }

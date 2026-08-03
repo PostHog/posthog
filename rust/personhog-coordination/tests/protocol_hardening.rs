@@ -22,10 +22,11 @@ use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
     revoke_lease_of_key, start_coordinator, start_coordinator_named,
-    start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_flaky_resume,
-    start_pod_with_lease_ttl, start_pod_with_stuck_drain, start_router_with_lease_ttl, store_at,
-    test_store, test_store_with_prefix, wait_for_condition, CutoverEvent, FlakyProxy, HandoffEvent,
-    MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL, WAIT_TIMEOUT,
+    start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_failing_release,
+    start_pod_with_flaky_resume, start_pod_with_lease_ttl, start_pod_with_stuck_drain,
+    start_router_with_lease_ttl, store_at, test_store, test_store_with_prefix, wait_for_condition,
+    wait_for_condition_named, CutoverEvent, FlakyProxy, HandoffEvent, MockCutoverHandler,
+    MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -3238,17 +3239,35 @@ async fn a_stuck_drain_does_not_strand_the_other_partitions_on_lease_loss() {
 
     // Partition 0's drain succeeds and 1's never will, so 0 must still
     // be given up.
-    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
-        let events = Arc::clone(&events);
-        async move {
-            events
-                .lock()
-                .await
-                .iter()
-                .any(|e| matches!(e, HandoffEvent::Released(0)))
-        }
-    })
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "partition 0 to be released despite partition 1's drain refusing",
+        || {
+            let events = Arc::clone(&events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::Released(0)))
+            }
+        },
+    )
     .await;
+
+    // And 1 must not be. Release unfences and drops the cache without
+    // waiting, so releasing a partition whose drain never quiesced lets
+    // a write admitted before the lease was lost ack after the
+    // replacement owner has warmed.
+    assert!(
+        !events
+            .lock()
+            .await
+            .iter()
+            .any(|e| matches!(e, HandoffEvent::Released(1))),
+        "a partition whose drain never quiesced must stay held, not be released"
+    );
 
     cancel.cancel();
 }
@@ -3295,17 +3314,143 @@ async fn a_failed_drain_still_leaves_a_partition_that_can_be_resumed() {
     // Cancel the handoff. The pod is serving again, so it must resume —
     // which it can only do if the failed drain was still recorded.
     put_handoff(&store, 0, None, "stuck-pod-1", HandoffPhase::Complete).await;
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "the partition to resume, which needs the failed drain to have been recorded as fenced",
+        || {
+            let events = Arc::clone(&events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::Resumed(0)))
+            }
+        },
+    )
+    .await;
+
+    cancel.cancel();
+}
+
+/// A release that fails must not stop the pod giving up the rest.
+///
+/// Phase 2 is the point of self-fencing: it drops each partition's cache
+/// and serving authority. Returning on the first release failure leaves
+/// every partition after it in the loop still served by a pod with no
+/// lease — the same zombie the drain phase collects its failures to
+/// avoid, one phase later.
+#[tokio::test]
+async fn a_failing_release_does_not_stop_the_pod_giving_up_the_rest() {
+    let (store, prefix) = test_store_with_prefix("failing-release-fence").await;
+    let cancel = CancellationToken::new();
+    let (pod, attempts) =
+        start_pod_with_failing_release(Arc::clone(&store), "failing-rel-0", 5, cancel.clone());
+
+    let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
-        let events = Arc::clone(&events);
+        let store = Arc::clone(&check_store);
         async move {
-            events
-                .lock()
+            store
+                .list_pods()
                 .await
-                .iter()
-                .any(|e| matches!(e, HandoffEvent::Resumed(0)))
+                .map(|pods| pods.iter().any(|p| p.pod_name == "failing-rel-0"))
+                .unwrap_or(false)
         }
     })
     .await;
+
+    for partition in [0, 1] {
+        put_handoff(
+            &store,
+            partition,
+            None,
+            "failing-rel-0",
+            HandoffPhase::Warming,
+        )
+        .await;
+    }
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            let seen = events.lock().await;
+            [0u32, 1u32].iter().all(|p| {
+                seen.iter()
+                    .any(|e| matches!(e, HandoffEvent::Warmed(w) if w == p))
+            })
+        }
+    })
+    .await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/failing-rel-0")).await;
+
+    // Both partitions must be asked, not just whichever the release loop
+    // reached first. Polled by hand rather than through
+    // `wait_for_condition` so the failure names what was missing instead
+    // of reporting a bare timeout.
+    let mut tried = Vec::new();
+    for _ in 0..(WAIT_TIMEOUT.as_millis() / POLL_INTERVAL.as_millis()) {
+        tried = attempts.lock().await.clone();
+        if tried.contains(&0) && tried.contains(&1) {
+            break;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+    assert!(
+        tried.contains(&0) && tried.contains(&1),
+        "a failed release must not strand the partitions after it; only {tried:?} of [0, 1] \
+         were ever attempted"
+    );
+
+    cancel.cancel();
+}
+
+/// A self-fence that could not finish must refuse in-place recovery.
+///
+/// The pod's serving state no longer matches what it owns — a partition
+/// it could neither drain nor release still has its cache and its
+/// authority. Starting a fresh session on top of that is the zombie the
+/// fence exists to prevent, so the run has to end and let the process
+/// restart clear it. Reporting the failure is what sets that flag; the
+/// release loop above runs first precisely so the report is not what
+/// stops it.
+#[tokio::test]
+async fn a_self_fence_that_could_not_finish_refuses_in_place_recovery() {
+    let (store, prefix) = test_store_with_prefix("poisoned-self-fence").await;
+    let cancel = CancellationToken::new();
+    let mut pod =
+        start_pod_with_stuck_drain(Arc::clone(&store), "poisoned-pod-0", 0, 5, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "poisoned-pod-0"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    put_handoff(&store, 0, None, "poisoned-pod-0", HandoffPhase::Warming).await;
+    let events = Arc::clone(&pod.events);
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/poisoned-pod-0")).await;
+
+    let run = pod.join_handle.take().expect("the pod is running");
+    let outcome = tokio::time::timeout(WAIT_TIMEOUT, run)
+        .await
+        .expect("a pod whose self-fence failed must stop rather than start a new session")
+        .expect("the pod task must not panic");
+    assert!(
+        outcome.is_err(),
+        "a pod that could not give up a partition must end its run, not recover in place"
+    );
 
     cancel.cancel();
 }

@@ -772,9 +772,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // never settled. The router still needs the ownership
                 // answer, but the version cannot be handed back: the
                 // commit may have succeeded on an attempt librdkafka
-                // re-issued internally. Deliberately not settled, and the
-                // cache entry goes so a retry re-derives rather than
-                // building on a version whose fate is in doubt.
+                // re-issued internally.
                 Err(e @ FencedProduceError::FencedUncertain(_)) => {
                     // Deliberately not settled: the partition moved and
                     // the window's own outcome never came back, so the
@@ -809,15 +807,13 @@ impl PersonHogLeader for PersonHogLeaderService {
                     )));
                 }
                 // The commit's outcome is unknown, so this pod cannot
-                // say whether the record became visible — and its cached
-                // version is exactly what makes a retry dangerous. A
-                // caller retrying against a cache still holding the
-                // pre-write version would produce a second record at the
-                // same version as the one that may already have
-                // committed, and the writer's strict guard keeps
-                // whichever arrived first. Dropping the entry forces the
-                // retry to re-derive its version from the changelog,
-                // where the doubt is resolved.
+                // say whether the record became visible. A caller
+                // retrying against a cache still holding the pre-write
+                // version would produce a second record at the same
+                // version as the one that may already have committed,
+                // and the writer's strict guard keeps whichever arrived
+                // first — which the floor prevents by holding the
+                // version spent.
                 Err(e @ FencedProduceError::Indeterminate(_)) => {
                     // Deliberately not settled: whether the record exists
                     // is exactly what is unknown, so the version stays

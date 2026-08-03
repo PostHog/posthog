@@ -445,6 +445,21 @@ impl Config {
     /// broker abort a window this pod is still legitimately filling, and
     /// the resulting epoch bump reads exactly like a fence from a real
     /// successor.
+    /// Ceiling on the drain's wait for an open window to commit.
+    ///
+    /// The wait exists to catch a committer about to fire anyway — it
+    /// sleeps for the window, then commits — so a long budget only helps
+    /// when the commit is retrying, which is the case where the
+    /// successor's abort is the right answer regardless. Capped because
+    /// the pre-revoke self-fence allows three seconds for a whole drain:
+    /// the broker's own patience reaches 7.5s at the production lease,
+    /// so a budget derived from the lease alone would truncate on every
+    /// shutdown with an open window and report a failed drain.
+    pub fn fencing_settle_budget(&self) -> Duration {
+        self.fencing_broker_txn_timeout()
+            .min(Duration::from_secs(2))
+    }
+
     pub fn fencing_broker_txn_timeout(&self) -> Duration {
         // Every transaction-timeout-bounded call the window can make, not
         // just the first: a commit that retries, or a commit followed by
@@ -795,6 +810,26 @@ mod fencing_timescale_tests {
     /// during a deploy. Nothing asserted on its budget, and tying it to
     /// the write path's once already shortened it by a quarter as a side
     /// effect of re-budgeting writes.
+    /// The pre-revoke self-fence allows three seconds for a whole drain,
+    /// and the drain is `wait_until_empty` *then* this wait. A budget
+    /// that ate the whole allowance would turn every shutdown with an
+    /// open window into a reported drain failure.
+    #[test]
+    fn settling_fits_inside_the_shutdown_fence_bound() {
+        for lease_ttl in [21, 30, 60, 300, 3599] {
+            let config = fenced(lease_ttl);
+            if config.validate_fencing_timescales().is_err() {
+                continue;
+            }
+            assert!(
+                config.fencing_settle_budget() < Duration::from_secs(3),
+                "LEASE_TTL={lease_ttl}: settle budget {:?} does not leave the drain room \
+                 inside the self-fence's three-second allowance",
+                config.fencing_settle_budget()
+            );
+        }
+    }
+
     #[test]
     fn acquisition_keeps_its_own_budget() {
         for lease_ttl in [21, 30, 60, 300] {

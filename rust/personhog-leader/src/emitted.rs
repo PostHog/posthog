@@ -282,6 +282,23 @@ mod tests {
         );
     }
 
+    /// The complement: a second unresolved emission has to move the floor
+    /// forward. Leaving it where the first one put it hands the second
+    /// write's version back for reuse, and the writer's first-wins guard
+    /// then keeps whichever record arrived first — discarding the acked
+    /// one.
+    #[test]
+    fn a_later_emission_raises_the_floor_it_finds() {
+        let versions = Arc::new(EmittedVersions::new(8));
+        versions.raise_for_test(0, key(1), 5);
+        versions.raise_for_test(0, key(1), 7);
+        assert_eq!(
+            versions.floor_for(0, &key(1), 0),
+            7,
+            "a later unresolved emission must raise the floor"
+        );
+    }
+
     /// A floor is only cleared by a later successful write for the same
     /// person, so persons written once and abandoned leave entries
     /// nothing collects — and a client can manufacture exactly that by

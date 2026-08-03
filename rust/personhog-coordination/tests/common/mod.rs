@@ -75,6 +75,33 @@ where
     panic!("condition not met within {timeout:?}");
 }
 
+/// `wait_for_condition` with a description of what is being waited on.
+///
+/// A bare timeout reports "condition not met", which names nothing —
+/// and for tests whose whole assertion *is* the wait, that is the entire
+/// failure message. Worth using wherever the timeout is the assertion
+/// rather than a setup step. (`#[track_caller]` would be the zero-churn
+/// answer, but it is a no-op on async fns.)
+#[allow(dead_code)]
+pub async fn wait_for_condition_named<F, Fut>(
+    timeout: Duration,
+    interval: Duration,
+    what: &str,
+    f: F,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if f().await {
+            return;
+        }
+        tokio::time::sleep(interval).await;
+    }
+    panic!("timed out after {timeout:?} waiting for {what}");
+}
+
 // ── Component builders ──────────────────────────────────────────
 
 pub fn start_coordinator(
@@ -347,6 +374,90 @@ pub fn start_pod_with_stuck_drain(
         events,
         join_handle: Some(join_handle),
     }
+}
+
+/// A handler whose `release_partition` always fails, recording every
+/// partition it was asked to give up before it does.
+///
+/// Failing for *every* partition is what makes the attempt log
+/// order-independent: the release loop walks a `HashSet`, so a handler
+/// that failed for only one would prove nothing when that one happened to
+/// be walked last.
+pub struct FailingReleaseHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    attempts: Arc<Mutex<Vec<u32>>>,
+}
+
+#[async_trait]
+impl HandoffHandler for FailingReleaseHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.attempts.lock().await.push(partition);
+        Err(personhog_coordination::error::Error::invalid_state(
+            format!("release refuses for partition {partition}"),
+        ))
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose every release fails, alongside the log of which
+/// partitions it was asked to release.
+pub fn start_pod_with_failing_release(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    lease_ttl: i64,
+    cancel: CancellationToken,
+) -> (PodHandles, Arc<Mutex<Vec<u32>>>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    let handler = FailingReleaseHandler {
+        events: Arc::clone(&events),
+        attempts: Arc::clone(&attempts),
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl,
+            heartbeat_interval: Duration::from_secs((lease_ttl / 5).max(1) as u64),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    (
+        PodHandles {
+            events,
+            join_handle: Some(join_handle),
+        },
+        attempts,
+    )
 }
 
 /// Start a pod whose warm_partition blocks forever. Useful for testing

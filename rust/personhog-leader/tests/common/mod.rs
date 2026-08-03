@@ -618,6 +618,32 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
         Duration::from_secs(10),
         BROKER_TXN_TIMEOUT,
         Duration::from_millis(5),
+        Duration::from_secs(5),
+    )
+}
+
+/// A handoff handler sharing an inflight tracker with the caller, for
+/// the drain's own admission fence.
+#[allow(dead_code)]
+pub fn test_handoff_handler_with_inflight(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+    inflight: Arc<personhog_leader::inflight::InflightTracker>,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    let mut warming = test_warming_config("test", KAFKA_BOOTSTRAP);
+    warming.topic = topic.to_string();
+    personhog_leader::coordination::LeaderHandoffHandler::new(
+        Arc::new(PartitionedCache::new(1 << 20)),
+        inflight,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        warming,
+        Arc::new(personhog_leader::warming::WarmClientPools::new(
+            &test_kafka_config(),
+            "test",
+            "personhog-writer",
+        )),
+        Some(fenced),
+        Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     )
 }
 

@@ -363,6 +363,11 @@ pub struct FencedChangelogProducers {
     broker_txn_timeout: Duration,
     /// How long an open window admits joiners before committing.
     window: Duration,
+    /// Ceiling on the drain's wait for an open window to commit. Set
+    /// well under the pre-revoke self-fence's allowance for a whole
+    /// drain, so a shutdown with an open window does not truncate here
+    /// and report a failed drain.
+    settle_budget: Duration,
     partitions: DashMap<u32, Arc<PartitionFence>>,
     /// Outcomes a test stages for the next produce on a partition.
     ///
@@ -382,6 +387,7 @@ impl FencedChangelogProducers {
         commit_timeout: Duration,
         broker_txn_timeout: Duration,
         window: Duration,
+        settle_budget: Duration,
     ) -> Self {
         Self {
             kafka,
@@ -390,6 +396,7 @@ impl FencedChangelogProducers {
             commit_timeout,
             broker_txn_timeout,
             window,
+            settle_budget,
             partitions: DashMap::new(),
             #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
@@ -471,12 +478,25 @@ impl FencedChangelogProducers {
     /// completed.
     pub async fn settle(&self, partition: u32) {
         let Some(fence) = self.installed(partition) else {
+            // A write that met a condemned producer already gave the
+            // fence up, which is the ordinary shape after a condemnation
+            // — recorded rather than silent, or the series has no
+            // denominator.
+            counter!("personhog_leader_fence_settle_total", "outcome" => "absent").increment(1);
             return;
         };
-        // The broker abandons a window it has not heard the end of after
-        // this long, so waiting past it cannot learn anything the
-        // successor's init will not settle for us.
-        let waited = timeout(self.broker_txn_timeout, async {
+        // Bounded well under the broker's own patience for the window.
+        // The wait exists to catch a committer that is about to fire
+        // anyway — it sleeps for the window, five milliseconds by
+        // default, then commits — so seconds of budget only help when
+        // the commit is retrying, which is the case where the
+        // successor's abort is the right answer regardless. The cap
+        // matters because the pre-revoke self-fence allows three seconds
+        // for a whole drain: a budget derived from the lease alone
+        // reaches 7.5s at the production TTL, so every shutdown with an
+        // open window would truncate here and report a failed drain.
+        let budget = self.settle_budget;
+        let waited = timeout(budget, async {
             loop {
                 // Register before inspecting, or a close landing between
                 // the two is lost and this waits on a wakeup already
@@ -1177,6 +1197,12 @@ async fn commit_window_after(
 pub fn preregister_fencing_metrics(partitions: u32) {
     for outcome in ["ok", "error"] {
         counter!("personhog_leader_fence_init_total", "outcome" => outcome).increment(0);
+    }
+    // Settling fires only during handoffs, so every one of its samples
+    // lands in a deploy window — the case this preregistration exists
+    // for.
+    for outcome in ["settled", "timeout", "unusable", "absent"] {
+        counter!("personhog_leader_fence_settle_total", "outcome" => outcome).increment(0);
     }
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
