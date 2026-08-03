@@ -70,14 +70,30 @@ describe('app onError', () => {
 
     it('sets an HttpOnly cookie for a valid port-forward auth URL', async () => {
         const redis = {} as unknown as Redis
-        const { app } = createApp(redis, makeConfig(), [])
+        const { app } = createApp(
+            redis,
+            makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
+            []
+        )
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ token: 'tok' }))
 
-        const res = await app.request('/v1/ports/forward-123/auth/?token=tok')
+        const res = await app.request('/v1/ports/forward-123/auth/?ticket=ticket-123')
 
         expect(res.status).toBe(302)
         expect(res.headers.get('Location')).toBe('/v1/ports/forward-123/')
         expect(res.headers.get('Set-Cookie')).toContain('ph_task_port_forward=tok')
         expect(res.headers.get('Set-Cookie')).toContain('HttpOnly')
+        expect(fetchMock).toHaveBeenCalledWith(
+            'http://django/internal/tasks/port-forward/exchange-ticket/',
+            expect.objectContaining({
+                body: JSON.stringify({ ticket: 'ticket-123' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Agent-Proxy-Secret': 'secret',
+                },
+            })
+        )
+        fetchMock.mockRestore()
     })
 
     it('resolves and proxies an authenticated port-forward request to the sandbox agent server', async () => {
@@ -107,7 +123,14 @@ describe('app onError', () => {
                 )
                 expect(init).not.toBeUndefined()
                 expect(((init as RequestInit).headers as Headers).get('Authorization')).toBe('Bearer sandbox-jwt')
-                return new Response('ok', { status: 201, headers: { 'X-Test': 'yes' } })
+                return new Response('ok', {
+                    status: 201,
+                    headers: {
+                        Location: '/login',
+                        'Service-Worker-Allowed': '/',
+                        'X-Test': 'yes',
+                    },
+                })
             })
 
         const res = await app.request('/v1/ports/forward-123/some/path?x=1', {
@@ -116,6 +139,8 @@ describe('app onError', () => {
 
         expect(res.status).toBe(201)
         expect(await res.text()).toBe('ok')
+        expect(res.headers.get('Location')).toBe('/v1/ports/forward-123/login')
+        expect(res.headers.get('Service-Worker-Allowed')).toBeNull()
         expect(res.headers.get('X-Test')).toBe('yes')
         expect(fetchMock).toHaveBeenNthCalledWith(
             1,
@@ -128,6 +153,35 @@ describe('app onError', () => {
             })
         )
         expect(fetchMock).toHaveBeenCalledTimes(2)
+        fetchMock.mockRestore()
+    })
+
+    it('rejects resolved port-forward targets outside allowed sandbox hosts', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
+            []
+        )
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+            Response.json({
+                run_id: 'run-123',
+                task_id: 'task-abc',
+                team_id: 42,
+                forward_id: 'forward-123',
+                port: 8000,
+                sandbox_url: 'http://169.254.169.254',
+                connection_token: 'sandbox-jwt',
+            })
+        )
+
+        const res = await app.request('/v1/ports/forward-123/', {
+            headers: { Authorization: 'Bearer tok' },
+        })
+
+        expect(res.status).toBe(502)
+        expect(await res.json()).toEqual({ error: 'Port forward target is not available' })
+        expect(fetchMock).toHaveBeenCalledTimes(1)
         fetchMock.mockRestore()
     })
 })

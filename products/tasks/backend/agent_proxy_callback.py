@@ -16,6 +16,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunErrorResponseSerializer,
     TaskRunPortForwardResolveRequestSerializer,
     TaskRunPortForwardResolveResponseSerializer,
+    TaskRunPortForwardTicketExchangeRequestSerializer,
+    TaskRunPortForwardTicketExchangeResponseSerializer,
 )
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
@@ -181,3 +183,39 @@ def agent_proxy_port_forward_resolve(request) -> JsonResponse:
     if resolved is None:
         return JsonResponse({"error": "Port forward not found"}, status=404)
     return JsonResponse(TaskRunPortForwardResolveResponseSerializer(resolved).data)
+
+
+@extend_schema(
+    tags=["task-runs"],
+    request=TaskRunPortForwardTicketExchangeRequestSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=TaskRunPortForwardTicketExchangeResponseSerializer,
+            description="Port-forward JWT",
+        ),
+        400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request body"),
+        403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid agent-proxy secret"),
+        404: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Ticket not found or expired"),
+    },
+    summary="Exchange task-run port-forward preview ticket",
+    description="Internal endpoint called by agent-proxy to exchange a short-lived preview ticket for a JWT.",
+)
+def agent_proxy_port_forward_exchange_ticket(request) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    if secret_response := _validate_agent_proxy_secret(request):
+        return secret_response
+
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON body"}, status=400)
+
+    serializer = TaskRunPortForwardTicketExchangeRequestSerializer(data=body)
+    if not serializer.is_valid():
+        return JsonResponse({"error": "Invalid request body", "detail": serializer.errors}, status=400)
+
+    token = tasks_facade.exchange_task_run_port_forward_ticket(serializer.validated_data["ticket"])
+    if token is None:
+        return JsonResponse({"error": "Ticket not found"}, status=404)
+    return JsonResponse(TaskRunPortForwardTicketExchangeResponseSerializer({"token": token}).data)

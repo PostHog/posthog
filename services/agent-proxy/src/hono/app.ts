@@ -170,8 +170,13 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
 
     // -- Authenticated task-run port previews --
     app.get('/v1/ports/:forwardId/auth/', async (c) => {
-        const token = c.req.query('token') ?? ''
+        const ticket = c.req.query('ticket') ?? ''
         const { forwardId } = c.req.param() as { forwardId: string }
+        const token = await exchangePortForwardTicket(config, ticket)
+        if (token === null) {
+            return c.json({ error: 'Invalid port forward ticket' }, 401)
+        }
+
         let claims: TaskPortForwardTokenPayload
         try {
             claims = await validateTaskPortForwardToken(token, publicKeys)
@@ -216,7 +221,10 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return c.json({ error: 'Resolved port forward does not match token' }, 403)
         }
 
-        const upstreamUrl = buildSandboxPortUrl(c.req.url, forwardId, resolved)
+        const upstreamUrl = buildSandboxPortUrl(c.req.url, forwardId, resolved, config)
+        if (upstreamUrl === null) {
+            return c.json({ error: 'Port forward target is not available' }, 502)
+        }
         const headers = filteredProxyHeaders(c.req.raw.headers)
         headers.set('Authorization', `Bearer ${resolved.connection_token}`)
 
@@ -231,7 +239,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return new Response(upstream.body, {
                 status: upstream.status,
                 statusText: upstream.statusText,
-                headers: filteredResponseHeaders(upstream.headers),
+                headers: filteredResponseHeaders(upstream.headers, forwardId, resolved),
             })
         } catch (err) {
             logger.warn('port_forward:upstream_unreachable', {
@@ -305,6 +313,27 @@ interface ResolvedPortForward {
     sandbox_connect_token?: string | null
 }
 
+async function exchangePortForwardTicket(config: Config, ticket: string): Promise<string | null> {
+    if (!ticket || !config.djangoCallbackBaseUrl) {
+        logger.warn('port_forward:ticket_exchange_unconfigured')
+        return null
+    }
+    const response = await fetch(`${config.djangoCallbackBaseUrl}/internal/tasks/port-forward/exchange-ticket/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Agent-Proxy-Secret': config.agentProxyCallbackSecret,
+        },
+        body: JSON.stringify({ ticket }),
+    })
+    if (!response.ok) {
+        logger.warn('port_forward:ticket_exchange_failed', { status: response.status })
+        return null
+    }
+    const payload = (await response.json()) as { token?: unknown }
+    return typeof payload.token === 'string' && payload.token ? payload.token : null
+}
+
 async function resolvePortForward(config: Config, token: string): Promise<ResolvedPortForward | null> {
     if (!config.djangoCallbackBaseUrl) {
         logger.warn('port_forward:resolve_unconfigured')
@@ -325,11 +354,21 @@ async function resolvePortForward(config: Config, token: string): Promise<Resolv
     return (await response.json()) as ResolvedPortForward
 }
 
-function buildSandboxPortUrl(requestUrl: string, forwardId: string, resolved: ResolvedPortForward): string {
+function buildSandboxPortUrl(
+    requestUrl: string,
+    forwardId: string,
+    resolved: ResolvedPortForward,
+    config: Config
+): string | null {
+    const sandboxBaseUrl = parseAllowedSandboxUrl(resolved.sandbox_url, config)
+    if (sandboxBaseUrl === null) {
+        logger.warn('port_forward:invalid_sandbox_url', { forwardId, run: resolved.run_id })
+        return null
+    }
     const incoming = new URL(requestUrl)
     const prefix = `/v1/ports/${forwardId}`
     const suffix = incoming.pathname.startsWith(prefix) ? incoming.pathname.slice(prefix.length) || '/' : '/'
-    const target = new URL(`${resolved.sandbox_url.replace(/\/$/, '')}/ports/${resolved.port}${suffix}`)
+    const target = new URL(`/ports/${resolved.port}${suffix}`, sandboxBaseUrl)
     incoming.searchParams.forEach((value, key) => {
         target.searchParams.append(key, value)
     })
@@ -337,6 +376,35 @@ function buildSandboxPortUrl(requestUrl: string, forwardId: string, resolved: Re
         target.searchParams.set('_modal_connect_token', resolved.sandbox_connect_token)
     }
     return target.toString()
+}
+
+function parseAllowedSandboxUrl(rawUrl: string, config: Config): URL | null {
+    let url: URL
+    try {
+        url = new URL(rawUrl)
+    } catch {
+        return null
+    }
+    if (url.protocol === 'https:' && url.hostname.endsWith('.modal.run')) {
+        return url
+    }
+    const isLocalHost = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+    if (url.protocol === 'http:' && isLocalHost && isLocalDjangoCallback(config.djangoCallbackBaseUrl)) {
+        return url
+    }
+    return null
+}
+
+function isLocalDjangoCallback(rawUrl: string): boolean {
+    if (!rawUrl) {
+        return true
+    }
+    try {
+        const url = new URL(rawUrl)
+        return url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+    } catch {
+        return false
+    }
 }
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -367,14 +435,36 @@ function filteredProxyHeaders(input: Headers): Headers {
     return headers
 }
 
-function filteredResponseHeaders(input: Headers): Headers {
+function filteredResponseHeaders(input: Headers, forwardId: string, resolved: ResolvedPortForward): Headers {
     const headers = new Headers()
     input.forEach((value, key) => {
         const normalized = key.toLowerCase()
-        if (HOP_BY_HOP_HEADERS.has(normalized)) {
+        if (HOP_BY_HOP_HEADERS.has(normalized) || normalized === 'service-worker-allowed') {
+            return
+        }
+        if (normalized === 'location') {
+            headers.set(key, rewritePortForwardLocation(value, forwardId, resolved))
             return
         }
         headers.set(key, value)
     })
     return headers
+}
+
+function rewritePortForwardLocation(value: string, forwardId: string, resolved: ResolvedPortForward): string {
+    const prefix = `/v1/ports/${forwardId}`
+    if (value.startsWith('/') && !value.startsWith('//')) {
+        return `${prefix}${value}`
+    }
+    let location: URL
+    try {
+        location = new URL(value)
+    } catch {
+        return value
+    }
+    const isLoopback = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    if (!isLoopback || (location.port && Number(location.port) !== resolved.port)) {
+        return value
+    }
+    return `${prefix}${location.pathname}${location.search}${location.hash}`
 }

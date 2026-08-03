@@ -1904,6 +1904,14 @@ class TaskRunPortForwardResolveRequestSerializer(serializers.Serializer):
     token = serializers.CharField(help_text="Task port-forward JWT presented by the agent-proxy")
 
 
+class TaskRunPortForwardTicketExchangeRequestSerializer(serializers.Serializer):
+    ticket = serializers.CharField(help_text="Short-lived opaque preview ticket presented by the agent-proxy")
+
+
+class TaskRunPortForwardTicketExchangeResponseSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="Task port-forward JWT exchanged server-side by the agent-proxy")
+
+
 class TaskRunPortForwardResolveResponseSerializer(DataclassSerializer):
     class Meta:
         dataclass = TaskRunPortForwardResolveDTO

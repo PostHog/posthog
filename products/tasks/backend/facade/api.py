@@ -18,6 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import hashlib
 import logging
+import secrets
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -160,6 +161,7 @@ __all__ = [
     "delete_task_automation",
     "edit_task_run_living_artifact",
     "complete_idle_local_task_run",
+    "exchange_task_run_port_forward_ticket",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
@@ -303,13 +305,20 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
     )
 
 
-def _task_run_port_forward_preview_url(port_forward: TaskRunPortForward, *, token: str | None = None) -> str | None:
+_PORT_FORWARD_AUTH_TICKET_TTL_SECONDS = 60
+
+
+def _task_run_port_forward_auth_ticket_cache_key(ticket: str) -> str:
+    return f"task_run_port_forward_auth_ticket:{ticket}"
+
+
+def _task_run_port_forward_preview_url(port_forward: TaskRunPortForward, *, ticket: str | None = None) -> str | None:
     base_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
     if not base_url:
         return None
     path = f"{base_url.rstrip('/')}/v1/ports/{port_forward.id}/"
-    if token:
-        return f"{base_url.rstrip('/')}/v1/ports/{port_forward.id}/auth/?token={token}"
+    if ticket:
+        return f"{base_url.rstrip('/')}/v1/ports/{port_forward.id}/auth/?ticket={ticket}"
     return path
 
 
@@ -1896,6 +1905,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "repositories",
         "verified_pr_urls",
         "sandbox_id",
+        "sandbox_url",
+        "sandbox_connect_token",
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
@@ -2027,6 +2038,24 @@ def get_task_run_port_forward(
     return _task_run_port_forward_to_dto(port_forward) if port_forward else None
 
 
+def _validate_port_forward_sandbox_url(sandbox_url: object) -> str | None:
+    if not isinstance(sandbox_url, str) or not sandbox_url:
+        return "No active sandbox for this task run"
+    try:
+        parsed = urlparse(sandbox_url)
+    except ValueError:
+        return "Invalid sandbox URL"
+
+    hostname = parsed.hostname
+    if settings.DEBUG and parsed.scheme == "http" and hostname in {"localhost", "127.0.0.1"}:
+        return None
+    if parsed.scheme != "https":
+        return "Invalid sandbox URL"
+    if hostname is None or not hostname.endswith(".modal.run"):
+        return "Invalid sandbox URL"
+    return None
+
+
 def _validate_port_forward_target(run: TaskRun, port: int) -> str | None:
     if port < 1 or port > 65535:
         return "Port must be between 1 and 65535"
@@ -2034,9 +2063,7 @@ def _validate_port_forward_target(run: TaskRun, port: int) -> str | None:
         return "Only cloud task runs can expose ports"
     if run.is_terminal:
         return "Cannot expose ports for a completed task run"
-    if not (run.state or {}).get("sandbox_url"):
-        return "No active sandbox for this task run"
-    return None
+    return _validate_port_forward_sandbox_url((run.state or {}).get("sandbox_url"))
 
 
 def create_task_run_port_forward(
@@ -2130,7 +2157,36 @@ def create_task_run_port_forward_token(
         user_id=user_id,
         distinct_id=distinct_id,
     )
-    return token, _task_run_port_forward_preview_url(port_forward, token=token)
+    ticket = secrets.token_urlsafe(32)
+
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415
+
+    get_tasks_cache().set(
+        _task_run_port_forward_auth_ticket_cache_key(ticket),
+        token,
+        timeout=_PORT_FORWARD_AUTH_TICKET_TTL_SECONDS,
+    )
+    return token, _task_run_port_forward_preview_url(port_forward, ticket=ticket)
+
+
+def exchange_task_run_port_forward_ticket(ticket: str) -> str | None:
+    """Exchange a short-lived preview URL ticket for the port-forward JWT.
+
+    The reusable JWT must not be placed in the browser URL: query strings are commonly
+    retained by load balancers, WAFs, CDN logs, and browser history. The preview URL carries
+    only this opaque ticket, which the agent-proxy exchanges server-side and then stores in
+    an HttpOnly path-scoped cookie.
+    """
+    if not ticket:
+        return None
+
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415
+
+    cache = get_tasks_cache()
+    cache_key = _task_run_port_forward_auth_ticket_cache_key(ticket)
+    token = cache.get(cache_key)
+    cache.delete(cache_key)
+    return token if isinstance(token, str) and token else None
 
 
 def resolve_task_run_port_forward(token: str) -> contracts.TaskRunPortForwardResolveDTO | None:
@@ -2172,8 +2228,9 @@ def resolve_task_run_port_forward(token: str) -> contracts.TaskRunPortForwardRes
         return None
 
     sandbox_url = (run.state or {}).get("sandbox_url")
-    if not isinstance(sandbox_url, str) or not sandbox_url:
+    if _validate_port_forward_sandbox_url(sandbox_url) is not None:
         return None
+    assert isinstance(sandbox_url, str)
 
     port_forward.last_accessed_at = django_timezone.now()
     port_forward.save(update_fields=["last_accessed_at", "updated_at"])

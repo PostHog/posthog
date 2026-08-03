@@ -4641,10 +4641,25 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("token", data)
-        self.assertEqual(
-            data["preview_url"],
-            f"https://agent-proxy.example.com/v1/ports/{port_forward.id}/auth/?token={data['token']}",
-        )
+        self.assertIn(f"https://agent-proxy.example.com/v1/ports/{port_forward.id}/auth/?ticket=", data["preview_url"])
+        self.assertNotIn(data["token"], data["preview_url"])
+
+        ticket = data["preview_url"].split("ticket=", 1)[1]
+        with self.settings(DEBUG=True, AGENT_PROXY_CALLBACK_SECRET=""):
+            exchange_response = self.client.post(
+                "/internal/tasks/port-forward/exchange-ticket/",
+                {"ticket": ticket},
+                format="json",
+            )
+            replay_response = self.client.post(
+                "/internal/tasks/port-forward/exchange-ticket/",
+                {"ticket": ticket},
+                format="json",
+            )
+
+        self.assertEqual(exchange_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(exchange_response.json()["token"], data["token"])
+        self.assertEqual(replay_response.status_code, status.HTTP_404_NOT_FOUND)
 
         public_key = get_sandbox_jwt_public_key()
         decoded = jwt.decode(
@@ -4963,6 +4978,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "github_credential_source": "caller_token",
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
+                "sandbox_url": "https://real-sandbox.modal.run",
+                "sandbox_connect_token": "real-connect-token",
                 "sandbox_cpu_cores": 2,
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
@@ -5002,6 +5019,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source": "server_integration",
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
+                    "sandbox_url": "http://169.254.169.254/latest/meta-data",
+                    "sandbox_connect_token": "attacker-connect-token",
                     "sandbox_cpu_cores": 128,
                     "sandbox_memory_gb": 512,
                     "sandbox_ttl_seconds": 86400,
@@ -5042,6 +5061,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
         assert run.state["sandbox_id"] == "sb-real"
+        assert run.state["sandbox_url"] == "https://real-sandbox.modal.run"
+        assert run.state["sandbox_connect_token"] == "real-connect-token"
         assert run.state["sandbox_cpu_cores"] == 2
         assert run.state["sandbox_memory_gb"] == 8
         assert run.state["sandbox_ttl_seconds"] == 1800
@@ -5075,6 +5096,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source",
                     "agent_otel_telemetry_enabled",
                     "sandbox_id",
+                    "sandbox_url",
+                    "sandbox_connect_token",
                     "use_modal_directory_resume_snapshots",
                     "use_modal_vm_sandbox",
                     "snapshot_external_id",
@@ -5098,6 +5121,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert run.state["sandbox_url"] == "https://real-sandbox.modal.run"  # protected key survives removal
+        assert run.state["sandbox_connect_token"] == "real-connect-token"  # protected key survives removal
         assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal

@@ -76,7 +76,11 @@ from products.slack_app.backend.views import (
 from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
-from products.tasks.backend.facade.agent_proxy import agent_proxy_callback, agent_proxy_port_forward_resolve
+from products.tasks.backend.facade.agent_proxy import (
+    agent_proxy_callback,
+    agent_proxy_port_forward_exchange_ticket,
+    agent_proxy_port_forward_resolve,
+)
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
@@ -565,6 +569,10 @@ urlpatterns = [
     path(
         "internal/tasks/port-forward/resolve/",
         csrf_exempt(agent_proxy_port_forward_resolve),
+    ),
+    path(
+        "internal/tasks/port-forward/exchange-ticket/",
+        csrf_exempt(agent_proxy_port_forward_exchange_ticket),
     ),
     # Internal SQLV2 run result callback (auth: signed callback token)
     path(
