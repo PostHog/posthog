@@ -407,7 +407,6 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     @property
     def endpoint_path(self) -> str:
         """Return the API endpoint path for this endpoint."""
-        # team_id, not team.id: the FK dereference costs a query per endpoint when listing.
         return f"/api/projects/{self.team_id}/endpoints/{self.name}/run"
 
     def has_query_changed(self, new_query: dict[str, Any]) -> bool:

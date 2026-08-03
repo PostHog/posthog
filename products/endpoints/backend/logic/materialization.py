@@ -102,7 +102,6 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             "saved_query_id": str(version.saved_query.id),
         }
     else:
-        # Runs per endpoint when listing, so one unanalyzable query must not fail the whole page.
         try:
             can_mat, reason = version.can_materialize()
         except Exception as e:

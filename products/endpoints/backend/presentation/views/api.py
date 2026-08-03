@@ -275,10 +275,8 @@ class EndpointViewSet(
 
     @staticmethod
     def _with_serialization_prefetches(queryset):
-        """Without this, _serialize costs four extra queries per endpoint.
-
-        Tags are already prefetched by TaggedItemViewSetMixin.filter_queryset; adding them
-        here raises a lookup conflict.
+        """Tags are prefetched by TaggedItemViewSetMixin.filter_queryset; repeating them here
+        raises a lookup conflict.
         """
         return queryset.select_related("created_by").prefetch_related(
             Prefetch("versions", queryset=EndpointVersion.objects.select_related("saved_query")),
