@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
@@ -26,9 +26,9 @@ function makeTrendsQuery(daysOfWeek: IsoDayOfWeek[] | null = null): TrendsQuery 
     }
 }
 
-function makeFunnelsStepsQuery(daysOfWeek: IsoDayOfWeek[] | null = null): FunnelsQuery {
+function makeLifecycleQuery(daysOfWeek: IsoDayOfWeek[] | null = null): LifecycleQuery {
     return {
-        kind: NodeKind.FunnelsQuery,
+        kind: NodeKind.LifecycleQuery,
         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
         dateRange: { date_from: '-7d', daysOfWeek },
     }
@@ -56,7 +56,7 @@ describe('InsightQuillDateFilter', () => {
         cleanup()
     })
 
-    function setupAndRender(query: TrendsQuery | FunnelsQuery): void {
+    function setupAndRender(query: TrendsQuery | LifecycleQuery): void {
         vizDataLogic.actions.updateQuerySource(query)
 
         render(
@@ -72,7 +72,7 @@ describe('InsightQuillDateFilter', () => {
         setupAndRender(makeTrendsQuery([1, 2, 3, 4, 5]))
         expect(vizDataLogic.values.dateRange?.daysOfWeek).toEqual([1, 2, 3, 4, 5])
 
-        vizDataLogic.actions.updateQuerySource(makeFunnelsStepsQuery([1, 2, 3, 4, 5]))
+        vizDataLogic.actions.updateQuerySource(makeLifecycleQuery([1, 2, 3, 4, 5]))
 
         await waitFor(() => {
             expect(vizDataLogic.values.dateRange?.daysOfWeek ?? null).toBeNull()

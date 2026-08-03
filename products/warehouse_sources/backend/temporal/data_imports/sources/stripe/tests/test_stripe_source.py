@@ -66,13 +66,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
+    StripeTransientError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
     _is_non_list_stripe_response,
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
     _scrub_client_secrets,
+    check_endpoint_permissions,
     get_rows,
+    validate_credentials as validate_stripe_credentials,
 )
 
 _COMPLETE_LIST_BODY = b'{\n  "object": "list",\n  "data": [],\n  "has_more": false\n}'
@@ -281,6 +284,25 @@ class TestStripeSource:
         assert pasted_secret not in message
         assert message.startswith("Stripe rejected the API key.")
 
+    def test_validate_credentials_transient_error_returns_retry_message(self):
+        # A Stripe-side 5xx during the probe is transient and unrelated to the key. The user must
+        # get a retry hint, not Stripe's internal text reported as a permanent validation failure.
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+            side_effect=StripeTransientError("Error while communicating with one of our backends. Sorry about that!"),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert "try again" in message.lower()
+        assert "one of our backends" not in message
+        assert "validation failed" not in message.lower()
+
     @pytest.mark.parametrize(
         "body,expected",
         [
@@ -396,6 +418,39 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
         ):
             rows.extend(table.to_pylist())
     return rows
+
+
+class TestValidateCredentialsTransientClassification:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            stripe_lib.APIError("Error while communicating with one of our backends. Sorry about that!"),
+            stripe_lib.APIConnectionError("Unexpected error communicating with Stripe."),
+            stripe_lib.RateLimitError("Too many requests."),
+        ],
+    )
+    def test_probe_backend_failure_raises_transient_not_validation(self, error):
+        # These are Stripe-unavailable failures, not credential problems: the probe must raise
+        # StripeTransientError so the caller offers a retry rather than a validation failure.
+        def boom(params=None):
+            raise error
+
+        resource = StripeResource(method=boom)
+        with patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
+            with pytest.raises(StripeTransientError):
+                validate_stripe_credentials("rk_live_x", endpoints=None)
+
+    def test_check_endpoint_permissions_records_transient_without_raising(self):
+        # The schema-selection permissions map must stay whole during a Stripe outage: a transient
+        # error is recorded as the endpoint's reason, not raised out of check_endpoint_permissions.
+        def boom(params=None):
+            raise stripe_lib.APIError("Error while communicating with one of our backends. Sorry about that!")
+
+        resource = StripeResource(method=boom)
+        with patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
+            results = check_endpoint_permissions("rk_live_x", [CUSTOMER_RESOURCE_NAME])
+
+        assert results[CUSTOMER_RESOURCE_NAME] is not None
 
 
 class TestStripeNestedResourceGetRows:

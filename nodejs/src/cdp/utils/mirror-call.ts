@@ -52,3 +52,14 @@ export async function mirrorCall(
         }
     })
 }
+
+/** Runs Redis and its Valkey shadow in parallel while keeping Redis authoritative. */
+export async function mirrorCallWithPrimary<T>(
+    label: string,
+    primaryCall: () => Promise<T>,
+    mirrorCallFactory: () => Promise<unknown> | undefined,
+    timeoutMs?: number
+): Promise<T> {
+    const [primary] = await Promise.all([primaryCall(), mirrorCall(label, mirrorCallFactory, timeoutMs)])
+    return primary
+}

@@ -35,6 +35,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
@@ -964,6 +965,24 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
 
+    def test_list_date_range_bounds_use_project_timezone(self) -> None:
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        # 05:00 UTC is 21:00 the previous day in Pacific; 20:00 UTC is 12:00 the same day.
+        previous_day = self._create_observation(session_id="pacific-previous-day")
+        ReplayObservation.objects.filter(pk=previous_day.pk).update(created_at=datetime(2026, 3, 3, 5, 0, tzinfo=UTC))
+        same_day = self._create_observation(session_id="pacific-same-day")
+        ReplayObservation.objects.filter(pk=same_day.pk).update(created_at=datetime(2026, 3, 3, 20, 0, tzinfo=UTC))
+
+        base_url = self.observations_url(str(self.scanner.id))
+        resp = self.client.get(f"{base_url}?date_from=2026-03-03&date_to=2026-03-03")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-same-day"])
+
+        resp = self.client.get(f"{base_url}?date_from=2026-03-02&date_to=2026-03-02")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-previous-day"])
+
     def test_retrieve_with_filters_resolves_object_and_scopes_neighbors_only(self) -> None:
         observation = self._create_observation(session_id="s-pending")
         self._create_observation(session_id="s-other")
@@ -1670,7 +1689,7 @@ class TestObserveAction(_VisionAPITestCase):
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
-        self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
+        self.assertEqual(kwargs["execution_timeout"], APPLY_SCANNER_EXECUTION_TIMEOUT)
         inputs = args[1]
         self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")
@@ -2050,7 +2069,47 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(inputs.triggered_by, ObservationTrigger.RETRY)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
 
-    def test_retry_rejects_non_failed_statuses(
+    def test_retry_accepts_ineligible_observation(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Ineligibility can be a timing artifact (snapshots that finished ingesting after the scan), and the
+        # UNIQUE(scanner, session_id) row would otherwise lock the session out of this scanner forever.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="sess-ineligible",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.INELIGIBLE,
+            error_reason="no_snapshots:No snapshots after processing",
+            completed_at=timezone.now(),
+        )
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        args, _kwargs = start_workflow.call_args
+        self.assertEqual(args[1].triggered_by, ObservationTrigger.RETRY)
+
+    def test_retry_keeps_row_when_ai_consent_is_off(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The replacement workflow fails closed at create time when consent is off, so letting the retry
+        # delete the row first would leave the recording looking unscanned with no way to get a row back.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-no-consent")
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+        start_workflow.assert_not_called()
+
+    def test_retry_rejects_non_terminal_statuses(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
@@ -2058,8 +2117,8 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         cases = [
             (ObservationStatus.SUCCEEDED, timezone.now()),
-            (ObservationStatus.INELIGIBLE, timezone.now()),
             (ObservationStatus.PENDING, None),
+            (ObservationStatus.RUNNING, None),
         ]
         for status_value, completed_at in cases:
             with self.subTest(status=status_value):
@@ -2069,7 +2128,7 @@ class TestRetryActions(_VisionAPITestCase):
                     scanner_snapshot=_snapshot_for(self.scanner),
                     triggered_by=ObservationTrigger.SCHEDULE,
                     status=status_value,
-                    error_reason="kind:msg" if status_value == ObservationStatus.INELIGIBLE else "",
+                    error_reason="",
                     completed_at=completed_at,
                 )
 
