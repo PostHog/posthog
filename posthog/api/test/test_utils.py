@@ -349,6 +349,13 @@ class TestUtils(BaseTest):
             ("bare wildcard matches any host", ["https://*"], "attacker.test", True),
             ("several wildcards in one entry", ["https://*.*.example.com"], "a.b.c.example.com", True),
             ("wildcard inside a label", ["https://app*.example.com"], "app-eu.example.com", True),
+            ("wildcard inside a label may match nothing", ["https://foo*bar.example.com"], "foobar.example.com", True),
+            (
+                "literals between wildcards must appear in order",
+                ["https://a*b*c.example.com"],
+                "acb.example.com",
+                False,
+            ),
             ("prefix and suffix may not overlap", ["https://a*a.com"], "a.com", False),
             ("trailing literal still has to match", ["https://*.example.com"], "a.example.com.attacker.test", False),
             ("leading literal still has to match", ["https://app.*.com"], "notapp.eu.com", False),
