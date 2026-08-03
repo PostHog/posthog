@@ -10,9 +10,13 @@ import re
 import time
 import asyncio
 import functools
+from collections import Counter
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID
+
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -28,7 +32,8 @@ from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.conversation import function_calls, run_tool_loop
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -47,6 +52,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     TextSegment,
 )
+from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
@@ -119,7 +125,8 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
             sync_to_async(_load_team_name)(inputs.team_id),
             _load_llm_inputs(inputs.observation_id),
         )
-    scanner = scanner_from_snapshot(snapshot)
+    scanner: BaseScanner = scanner_from_snapshot(snapshot)
+    scanner = await _inject_known_freeform_tags(scanner, inputs)
 
     preamble_text = scanner.preamble(
         team_name=team_name,
@@ -186,6 +193,71 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     if trailing:
         segments.append(TextSegment(value=trailing))
     return "".join(plain_parts), segments
+
+
+# Bounds for the known-freeform-tags prompt context: a recent window so tags that stopped being emitted
+# (renamed, promoted into the vocabulary, off-topic) age out, a row cap to bound the read, and a tag cap
+# to bound prompt size.
+_KNOWN_FREEFORM_TAGS_DAYS = 30
+_KNOWN_FREEFORM_TAGS_MAX_ROWS = 300
+_KNOWN_FREEFORM_TAGS_MAX = 30
+# Stored tags are model output derived from untrusted recording content, and this path echoes them into
+# future scan instructions. Real tag identifiers are a few short words (the suggestion flow asks for <= 4);
+# anything longer is more likely a smuggled instruction than a label, so cap both characters and words.
+_KNOWN_FREEFORM_TAG_MAX_LENGTH = 60
+_KNOWN_FREEFORM_TAG_MAX_WORDS = 5
+
+
+def _is_taglike(slug: str) -> bool:
+    return (
+        0 < len(slug) <= _KNOWN_FREEFORM_TAG_MAX_LENGTH
+        and len(re.split(r"[_-]", slug)) <= _KNOWN_FREEFORM_TAG_MAX_WORDS
+    )
+
+
+async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
+    """Give a freeform-emitting classifier the freeform tags it recently coined, so it reuses established
+    names instead of inventing synonyms per scan. Best effort: a lookup failure must not fail the scan."""
+    if not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
+        return scanner
+    try:
+        known = await sync_to_async(_load_known_freeform_tags)(inputs.observation_id, inputs.team_id)
+    except Exception:
+        logger.warning("replay_vision.call_scanner_provider.known_freeform_tags_failed", exc_info=True)
+        return scanner
+    if not known:
+        return scanner
+    return scanner.model_copy(update={"known_freeform_tags": known})
+
+
+def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
+    """Freeform tags this observation's scanner emitted on recent recordings, most frequent first."""
+    scanner_id = (
+        ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
+        .values_list("scanner_id", flat=True)
+        .first()
+    )
+    if scanner_id is None:
+        return []
+    recent = (
+        ReplayObservation.objects.filter(
+            team_id=team_id,
+            scanner_id=scanner_id,
+            status=ObservationStatus.SUCCEEDED,
+            created_at__gte=timezone.now() - timedelta(days=_KNOWN_FREEFORM_TAGS_DAYS),
+        )
+        .order_by("-created_at")
+        .values_list("scanner_result__model_output__tags_freeform", flat=True)[:_KNOWN_FREEFORM_TAGS_MAX_ROWS]
+    )
+    counts: Counter[str] = Counter()
+    for tags in recent:
+        if not isinstance(tags, list):
+            continue
+        # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
+        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
+    # Alphabetical tie-break so equal-count tags keep a stable order across scans.
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
