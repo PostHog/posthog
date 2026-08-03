@@ -3609,7 +3609,8 @@ class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
 
     def test_days_of_week_filters_time_to_convert_viz(self):
         # Only user_monday's conversion survives a Mondays-only filter; user_saturday's
-        # entrance and conversion are on an excluded day
+        # entrance and conversion are on an excluded day. user_saturday converts in 5 hours
+        # (vs. user_monday's 1 hour) so an unfiltered run would report a different average.
         journeys_for(
             {
                 "user_monday": [
@@ -3618,7 +3619,7 @@ class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "user_saturday": [
                     {"event": "step one", "timestamp": datetime(2021, 6, 12, 10)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 11)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 15)},
                 ],
             },
             self.team,
@@ -3641,7 +3642,7 @@ class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        # a single one-hour conversion: average conversion time is 3600 seconds
+        # user_saturday is filtered out; only user_monday's one-hour conversion survives
         self.assertEqual(results.average_conversion_time, 3600)
 
 
