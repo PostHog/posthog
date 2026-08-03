@@ -28,6 +28,9 @@ import type { VariantFunnelMeta } from './types'
 /** Step label at index 0 — the frontend-only step that precedes the backend's step numbering. */
 const EXPOSURE_STEP_LABEL = 'Experiment exposure'
 
+/** Floor for the plot region so a tall step footer can't squeeze the bars out of the chart. */
+const MIN_PLOT_HEIGHT = 200
+
 export interface ExperimentFunnelChartProps {
     result: NewExperimentQueryResponse
     experiment: Experiment
@@ -109,7 +112,10 @@ export function ExperimentFunnelChart({
     )
 
     const config = useMemo(
-        () => ({ legend: { show: series.length > 1, hiddenKeys, onToggleSeries } }),
+        () => ({
+            legend: { show: series.length > 1, hiddenKeys, onToggleSeries },
+            chartMinHeight: MIN_PLOT_HEIGHT,
+        }),
         [series.length, hiddenKeys, onToggleSeries]
     )
 
@@ -133,7 +139,7 @@ export function ExperimentFunnelChart({
     }
 
     return (
-        <div className="h-96">
+        <div className="h-96 flex flex-col">
             <FunnelChart<VariantFunnelMeta>
                 steps={steps}
                 series={series}
