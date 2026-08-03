@@ -5,6 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, S
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
@@ -397,8 +398,9 @@ class TestBingAdsSource:
         # any non-retryable pattern, or a transient blip would disable the schema.
         error_message = "Failed to generate ad_performance_report report: Exception: (400, 'Bad Request')"
 
-        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
-        assert not any(pattern in error_message for pattern in self.source.get_non_retryable_errors())
+        # Assert through the same case-insensitive matcher production classification uses.
+        assert error_message_matches(error_message, self.source.get_retryable_errors())
+        assert not error_message_matches(error_message, self.source.get_non_retryable_errors())
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
