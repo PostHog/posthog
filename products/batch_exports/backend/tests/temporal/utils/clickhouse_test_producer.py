@@ -27,8 +27,8 @@ from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue
 from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,

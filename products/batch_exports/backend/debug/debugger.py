@@ -23,6 +23,7 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
+    BatchExportField,
     BatchExportModel,
     BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
@@ -42,7 +43,6 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder
 from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
-from products.batch_exports.backend.temporal.spmc import BatchExportField
 from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
