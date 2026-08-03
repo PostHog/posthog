@@ -2709,6 +2709,26 @@ class TestTicketViewParamFilter(APIBaseTest):
 
         assert self._list_ids(view=view.short_id) == {str(open_high.id)}
 
+    def test_invalid_stored_list_entry_keeps_valid_entries(self):
+        # One bad legacy entry must narrow to the valid rest, not drop the whole
+        # key and widen the view to all statuses.
+        open_ticket = self._create_ticket(status=Status.OPEN)
+        self._create_ticket(status=Status.RESOLVED)
+        view = self._create_view({"status": ["open", "bogus_legacy_status"]})
+
+        assert self._list_ids(view=view.short_id) == {str(open_ticket.id)}
+
+    def test_stored_tags_all_key_is_not_applied(self):
+        # tagsAll is a param-only key: the app can't render it, so a stored view
+        # carrying one (written via the raw round-trip) must not apply it either.
+        tagged = self._create_ticket()
+        tag = Tag.objects.create(name="urgent", team_id=self.team.id)
+        tagged.tagged_items.create(tag=tag)
+        untagged = self._create_ticket()
+        view = self._create_view({"tagsAll": ["urgent"]})
+
+        assert self._list_ids(view=view.short_id) == {str(tagged.id), str(untagged.id)}
+
     def test_invalid_param_value_does_not_clear_view_filter(self):
         open_ticket = self._create_ticket(status=Status.OPEN)
         self._create_ticket(status=Status.RESOLVED)

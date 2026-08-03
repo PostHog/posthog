@@ -192,12 +192,6 @@ class TicketViewFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).",
     )
-    tagsAll = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        help_text="Tag names the ticket must all carry (AND). Applied on top of tags/tagsMatch, "
-        "so both an any-of and an all-of constraint can be active at once.",
-    )
     tagsExclude = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -226,16 +220,38 @@ class TicketViewFiltersSerializer(serializers.Serializer):
     )
 
 
+def _salvage_list_entries(key: str, value: Any) -> list[Any] | None:
+    """Keep the individually-valid entries of an errored list value, so one bad legacy
+    entry narrows the filter to the valid rest instead of dropping the key (widening)."""
+    field = TicketViewFiltersSerializer().fields.get(key)
+    if not isinstance(field, serializers.ListField) or not isinstance(value, list):
+        return None
+    valid_entries = []
+    for entry in value:
+        try:
+            field.child.run_validation(entry)
+        except serializers.ValidationError:
+            continue
+        valid_entries.append(entry)
+    return valid_entries or None
+
+
 def parse_stored_view_filters(stored: Any) -> dict[str, Any]:
     """Leniently validate a stored TicketView.filters blob into the canonical shape.
 
     Stored blobs predate write validation, so a legacy value must not make the view
-    unusable: offending keys are dropped and the rest still apply."""
+    unusable: invalid list entries and offending keys are dropped and the rest still
+    apply."""
     if not isinstance(stored, dict):
         return {}
     serializer = TicketViewFiltersSerializer(data=stored)
     if not serializer.is_valid():
-        cleaned = {key: value for key, value in stored.items() if key not in serializer.errors}
+        cleaned: dict[str, Any] = {}
+        for key, value in stored.items():
+            if key not in serializer.errors:
+                cleaned[key] = value
+            elif (salvaged := _salvage_list_entries(key, value)) is not None:
+                cleaned[key] = salvaged
         serializer = TicketViewFiltersSerializer(data=cleaned)
         serializer.is_valid()
     return dict(serializer.validated_data)
@@ -324,7 +340,10 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
         tags = _decode_json_tag_list(tags_all_param)
         if tags:
             # Separate key from tags/tagsMatch so tags= and tags_all= compose (AND)
-            # instead of the later param clobbering the earlier one.
+            # instead of the later param clobbering the earlier one. Deliberately NOT
+            # part of the saved-view serializer contract: the app can't render a
+            # tagsAll filter, so a view holding one would behave differently in the
+            # app than via ?view=.
             filters["tagsAll"] = tags
 
     tags_exclude_param = params.get("tags_exclude")

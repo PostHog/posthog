@@ -431,6 +431,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         if search:
             self._search_path = "ticket_number" if is_ticket_number_search(search) else "text"
 
+        # Hide tickets the user has been explicitly denied object-level access to (list action only).
+        queryset = self._filter_queryset_by_access_level(queryset)
+
         user = cast("User", self.request.user) if self.request.user and self.request.user.is_authenticated else None
         return apply_ticket_filters(queryset, filters, team=self.team, user=user)
 
