@@ -6229,6 +6229,151 @@
             "order": 36,
             "last_refresh": "2026-07-27T11:14:51.078174Z",
             "is_cached": true
+        },
+        {
+            "id": 90000001,
+            "text": {
+                "body": "## Repeated values across properties\n\nQuery kind names repeat under `query_type` (tiles above) and `kind`; `true`/`false` repeat under `cache_hit` and `retried`. Each value keeps one color across tiles."
+            },
+            "layouts": {
+                "sm": {
+                    "x": 0,
+                    "y": 77,
+                    "w": 12,
+                    "h": 2,
+                    "minW": 1,
+                    "minH": 1
+                }
+            }
+        },
+        {
+            "id": 90000002,
+            "insight": {
+                "name": "Query failures by kind",
+                "description": "`kind` re-uses the query type names — its values should copy the query_type tile colors, incl. a pinned one.",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {
+                            "date_from": "-14d"
+                        },
+                        "interval": "day",
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "query failed",
+                                "math": "total"
+                            }
+                        ],
+                        "breakdownFilter": {
+                            "breakdowns": [
+                                {
+                                    "property": "kind",
+                                    "type": "event"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": false
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "x": 0,
+                    "y": 79,
+                    "w": 4,
+                    "h": 5,
+                    "minW": 1,
+                    "minH": 1
+                }
+            }
+        },
+        {
+            "id": 90000003,
+            "insight": {
+                "name": "Query volume by cache hit",
+                "description": "true/false under `cache_hit` — on one tile per property, they only qualify for a dashboard color counted across properties.",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {
+                            "date_from": "-14d"
+                        },
+                        "interval": "day",
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "query executed",
+                                "math": "total"
+                            }
+                        ],
+                        "breakdownFilter": {
+                            "breakdowns": [
+                                {
+                                    "property": "cache_hit",
+                                    "type": "event"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": false
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "x": 4,
+                    "y": 79,
+                    "w": 4,
+                    "h": 5,
+                    "minW": 1,
+                    "minH": 1
+                }
+            }
+        },
+        {
+            "id": 90000004,
+            "insight": {
+                "name": "Request failures by retried",
+                "description": "true/false under `retried`, mirroring the cache-hit tile.",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {
+                            "date_from": "-14d"
+                        },
+                        "interval": "day",
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "client_request_failure",
+                                "math": "total"
+                            }
+                        ],
+                        "breakdownFilter": {
+                            "breakdowns": [
+                                {
+                                    "property": "retried",
+                                    "type": "event"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": false
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "x": 8,
+                    "y": 79,
+                    "w": 4,
+                    "h": 5,
+                    "minW": 1,
+                    "minH": 1
+                }
+            }
         }
     ],
     "tags": [],

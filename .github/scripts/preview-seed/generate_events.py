@@ -14,6 +14,11 @@ window). Breakdown VALUES are exact prod values (incl. cross-tile shared
 exception messages — the palette-exhaustion repro depends on that overlap);
 volumes are scaled down ~3 orders.
 
+Two shapes exist purely for the cross-property color test (values repeated under a
+second breakdown property): "query failed" carries QUERY_TYPES names under `kind`,
+and client_request_failure carries a `retried` boolean mirroring `cache_hit`. The
+matching tiles live at the bottom of dashboard-fixture.json.
+
 Idempotent: wipes previously generated rows (distinct_id 'synth-%') first.
 """
 
@@ -147,6 +152,16 @@ FAILURES = {
     ),
 }
 
+# (kind, per_day) — repeats QUERY_TYPES values under a second property (`kind`) for the
+# cross-property color test; HogQLQuery/EventsQuery appear only here (single-property values).
+QUERY_FAILURES = [
+    ("TrendsQuery", 18),
+    ("HogQLQuery", 11),
+    ("FunnelsQuery", 7),
+    ("RetentionQuery", 4),
+    ("EventsQuery", 3),
+]
+
 # (browser, per-day, p50 dropped_frames, p95 dropped_frames)
 BROWSERS = [
     ("Chrome", 86, 1, 899),
@@ -246,6 +261,10 @@ for day in range(DAYS):
                     backend_pool,
                 )
 
+    for kind, per_day in QUERY_FAILURES:
+        for _ in range(per_day):
+            emit("query failed", day, {"kind": kind}, backend_pool)
+
     for ctx, msgs in EXCEPTIONS.items():
         for i, (msg, per_day, _) in enumerate(msgs):
             for _ in range(per_day):
@@ -286,6 +305,8 @@ for day in range(DAYS):
                     {
                         "pathname": api_path,
                         "status": status,
+                        # true/false repeat under cache_hit — cross-property boolean color test
+                        "retried": rng.random() < 0.25,
                         "$pathname": PATHNAMES["ins"],
                         "$current_url": f"https://{HOST}{PATHNAMES['ins']}",
                     },
