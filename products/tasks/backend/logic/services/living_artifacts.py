@@ -23,6 +23,8 @@ import requests
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.event_usage import groups
+from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
@@ -910,6 +912,14 @@ def deliver_pending_slack_file_artifacts(
     image_files = [f for f in pending_files if f[2].startswith("image/")]
     other_files = [f for f in pending_files if not f[2].startswith("image/")]
 
+    # (artifact, failure_reason or None, delivery_mode) for chart artifacts only —
+    # export_asset_id marks an image as chart-endpoint output.
+    chart_outcomes: list[tuple[TaskArtifact, str | None, str | None]] = []
+
+    def _record_chart(artifact: TaskArtifact, failure_reason: str | None, delivery_mode: str | None = None) -> None:
+        if artifact.export_asset_id is not None:
+            chart_outcomes.append((artifact, failure_reason, delivery_mode))
+
     image_cards: list[_SlackImageCard] = []
     for artifact, version_payload, content_type in image_files:
         # Slack fetches the image from the url in the card — nothing to upload. An artifact
@@ -927,12 +937,15 @@ def deliver_pending_slack_file_artifacts(
                 artifact_id=str(artifact.id),
                 missing_scopes=[SLACK_FILE_SCOPE],
             )
+            _record_chart(artifact, "missing_scope")
             continue
         if time.monotonic() >= deadline:
             logger.warning("task_artifact.slack_post_budget_exhausted", artifact_id=str(artifact.id))
+            _record_chart(artifact, "budget_exhausted")
             continue
         payload = _read_pending_slack_file_bytes(artifact, version_payload)
         if payload is None:
+            _record_chart(artifact, "payload_missing")
             continue
         try:
             file_id, file_response = _upload_slack_file(
@@ -940,6 +953,7 @@ def deliver_pending_slack_file_artifacts(
             )
         except Exception:
             logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
+            _record_chart(artifact, "upload_failed")
             continue
         image_cards.append(_SlackImageCard(artifact, version_payload, file_id=file_id, file_response=file_response))
 
@@ -947,6 +961,8 @@ def deliver_pending_slack_file_artifacts(
         # Only cards that actually reached the thread are delivered — an unposted image
         # is invisible (it uploaded with no channel share), so marking it delivered
         # would lose it permanently instead of leaving it pending for the next relay.
+        delivered_artifact_ids: set[UUID] = set()
+
         def _mark_card_delivered(card: _SlackImageCard) -> None:
             if _mark_slack_file_artifact_delivered(
                 artifact=card.artifact,
@@ -955,6 +971,8 @@ def deliver_pending_slack_file_artifacts(
                 file_response=card.file_response,
             ):
                 result.delivered_count += 1
+                delivered_artifact_ids.add(card.artifact.id)
+                _record_chart(card.artifact, None, "url" if card.image_url else "file_upload")
 
         result.answer_posted = _post_composed_answer_message(
             slack,
@@ -964,6 +982,9 @@ def deliver_pending_slack_file_artifacts(
             mark_delivered=_mark_card_delivered,
             deadline=deadline,
         )
+        for card in image_cards:
+            if card.artifact.id not in delivered_artifact_ids:
+                _record_chart(card.artifact, "message_not_posted")
     elif answer_sections is not None:
         # Compose was requested but every image upload failed: the answer text must
         # still land — and before the non-image shares below, to keep thread order.
@@ -1005,7 +1026,35 @@ def deliver_pending_slack_file_artifacts(
         ):
             result.delivered_count += 1
 
+    _capture_chart_delivery_events(run, chart_outcomes)
     return result
+
+
+def _capture_chart_delivery_events(run: TaskRun, outcomes: list[tuple[TaskArtifact, str | None, str | None]]) -> None:
+    """Emit one analytics event per chart delivery attempt. Runs in the Temporal
+    worker, where the global posthoganalytics client drops events — hence the
+    scoped client."""
+    if not outcomes:
+        return
+    try:
+        team = run.team
+        with ph_scoped_capture() as capture:
+            for artifact, failure_reason, delivery_mode in outcomes:
+                capture(
+                    distinct_id=str(artifact.created_by.distinct_id if artifact.created_by else team.uuid),
+                    event="task_chart_slack_delivery_failed" if failure_reason else "task_chart_slack_delivered",
+                    properties={
+                        "artifact_id": str(artifact.id),
+                        "task_id": str(artifact.task_id),
+                        "run_id": str(run.id),
+                        "export_asset_id": artifact.export_asset_id,
+                        "delivery_mode": delivery_mode,
+                        "failure_reason": failure_reason,
+                    },
+                    groups=groups(team.organization, team),
+                )
+    except Exception:
+        logger.warning("task_artifact.chart_delivery_capture_failed", task_run_id=str(run.id), exc_info=True)
 
 
 def _pending_slack_file_queryset(run: TaskRun) -> QuerySet[TaskArtifact]:
@@ -1095,7 +1144,7 @@ def _post_composed_answer_message(
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
     # deterministically as invalid_blocks, so go straight to the per-card path.
     if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
-        fallback_text = sections[0] if sections else image_cards[0].artifact.name
+        fallback_text = sections[0] if sections else _artifact_display_title(image_cards[0].artifact)
         try:
             _post_blocks_with_processing_retry(
                 slack,
@@ -1122,7 +1171,7 @@ def _post_composed_answer_message(
                 slack,
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
-                text=card.artifact.name,
+                text=_artifact_display_title(card.artifact),
                 blocks=_chart_card_blocks(card),
                 attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
                 deadline=deadline,
@@ -1216,15 +1265,22 @@ def _is_posthog_origin_url(url: str) -> bool:
     return candidate.scheme == expected.scheme and candidate.netloc == expected.netloc
 
 
+def _artifact_display_title(artifact: TaskArtifact) -> str:
+    # The artifact name is a filename (the chart endpoint appends .png); Slack titles
+    # and notification previews are display copy, so drop the extension there.
+    return os.path.splitext(artifact.name)[0] or artifact.name
+
+
 def _chart_card_blocks(card: _SlackImageCard) -> list[dict[str, Any]]:
     artifact = card.artifact
     metadata = artifact.metadata or {}
+    title = _artifact_display_title(artifact)
     if card.image_url is not None:
-        image_block: dict[str, Any] = {"type": "image", "image_url": card.image_url, "alt_text": artifact.name}
+        image_block: dict[str, Any] = {"type": "image", "image_url": card.image_url, "alt_text": title}
     else:
-        image_block = {"type": "image", "slack_file": {"id": card.file_id}, "alt_text": artifact.name}
+        image_block = {"type": "image", "slack_file": {"id": card.file_id}, "alt_text": title}
     blocks: list[dict[str, Any]] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{_escape_slack_mrkdwn_text(artifact.name)}*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{_escape_slack_mrkdwn_text(title)}*"}},
         image_block,
     ]
     posthog_url = metadata.get("posthog_url")
