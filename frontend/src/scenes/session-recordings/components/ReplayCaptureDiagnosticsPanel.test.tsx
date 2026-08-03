@@ -70,7 +70,9 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
                 />
             )
 
-            expect(screen.getByText('Unable to determine why this recording is missing')).toBeInTheDocument()
+            expect(
+                screen.getByText('Diagnostic signals did not match a known capture-failure pattern')
+            ).toBeInTheDocument()
         })
 
         it('renders trigger pending headline', () => {
@@ -101,10 +103,10 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             expect(hrefs.some((h) => h?.includes('troubleshooting'))).toBe(true)
         })
 
-        it('renders unknown headline for empty properties', () => {
+        it('renders no_data headline for empty properties', () => {
             render(<ReplayCaptureDiagnosticsPanel eventProperties={{}} />)
 
-            expect(screen.getByText('Unable to determine why this recording is missing')).toBeInTheDocument()
+            expect(screen.getByText('No diagnostic data for this session')).toBeInTheDocument()
         })
 
         it('renders reason list items', () => {
@@ -185,7 +187,9 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-789" />)
 
-            expect(screen.getByText('Unable to determine why this recording is missing')).toBeInTheDocument()
+            expect(
+                screen.getByText('Diagnostic signals did not match a known capture-failure pattern')
+            ).toBeInTheDocument()
         })
     })
 })
