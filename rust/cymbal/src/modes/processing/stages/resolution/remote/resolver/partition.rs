@@ -48,13 +48,22 @@ pub(super) fn partition_batch(
 
 fn prepare_remote_event(
     batch_index: usize,
-    evt: ExceptionEvent<Parsed>,
+    mut evt: ExceptionEvent<Parsed>,
 ) -> Result<RemoteEvent, UnhandledError> {
     let exception_jsons: Vec<Vec<u8>> = evt
         .exception_list
         .iter()
         .map(|exc| serde_json::to_vec(exc).map_err(UnhandledError::from))
         .collect::<Result<_, _>>()?;
+    let legacy_exception_jsons = evt
+        .take_legacy_order_exception_list()
+        .map(|exceptions| {
+            exceptions
+                .iter()
+                .map(|exc| serde_json::to_vec(exc).map_err(UnhandledError::from))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
     let metadata = if evt.debug_images.is_empty() {
         Vec::new()
     } else {
@@ -67,6 +76,7 @@ fn prepare_remote_event(
         batch_index,
         evt,
         exception_jsons,
+        legacy_exception_jsons,
         metadata,
     })
 }

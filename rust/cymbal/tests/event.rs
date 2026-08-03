@@ -205,7 +205,7 @@ impl TestHarness {
                     .body(Body::from(serde_json::to_vec(&events).unwrap()))
                     .unwrap()
             },
-            Arc::new(Self::create_s3_mock()),
+            Arc::new(MockS3Client::new()),
             |config| {
                 config.remote_resolution_host = "127.0.0.1".to_string();
                 config.remote_resolution_port = addr.port();

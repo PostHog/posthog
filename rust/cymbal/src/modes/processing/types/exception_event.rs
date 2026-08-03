@@ -23,6 +23,8 @@ pub type PipelineItem<S> = Result<ExceptionEvent<S>, EventError>;
 #[derive(Debug, Clone)]
 pub struct Parsed {
     pub(crate) client_fingerprint: Option<String>,
+    pub(crate) legacy_order_exception_list: Option<ExceptionList>,
+    pub(crate) legacy_order_resolved: Option<ExceptionList>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,7 @@ impl ResolvedMetadata {
 pub struct Resolved {
     pub(crate) metadata: ResolvedMetadata,
     pub(crate) client_fingerprint: Option<String>,
+    pub(crate) legacy_order_resolved: Option<ExceptionList>,
 }
 
 #[derive(Debug, Clone)]
@@ -191,11 +194,20 @@ impl ExceptionEvent<Parsed> {
         self.exception_list = exception_list;
     }
 
+    pub(crate) fn take_legacy_order_exception_list(&mut self) -> Option<ExceptionList> {
+        self.state.legacy_order_exception_list.take()
+    }
+
+    pub(crate) fn set_legacy_order_resolved(&mut self, exception_list: ExceptionList) {
+        self.state.legacy_order_resolved = Some(exception_list);
+    }
+
     pub(crate) fn into_resolved(self) -> ExceptionEvent<Resolved> {
         let metadata = ResolvedMetadata::from_exception_list(&self.exception_list);
         self.map_state(|state| Resolved {
             metadata,
             client_fingerprint: state.client_fingerprint,
+            legacy_order_resolved: state.legacy_order_resolved,
         })
     }
 }
@@ -207,6 +219,10 @@ impl ExceptionEvent<Resolved> {
 
     pub(crate) fn client_fingerprint(&self) -> Option<&str> {
         self.state.client_fingerprint.as_deref()
+    }
+
+    pub(crate) fn take_legacy_order_resolved(&mut self) -> Option<ExceptionList> {
+        self.state.legacy_order_resolved.take()
     }
 
     pub(crate) fn into_fingerprinted(
@@ -518,7 +534,8 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
 
         let lib = raw.other.get("$lib").and_then(Value::as_str);
         let lib_version = raw.other.get("$lib_version").and_then(Value::as_str);
-        normalize_wire_order(&mut raw.exception_list, lib, lib_version);
+        let legacy_order_exception_list =
+            normalize_wire_order(&mut raw.exception_list, lib, lib_version);
 
         Ok(ExceptionEvent {
             uuid: event.uuid,
@@ -531,6 +548,8 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             proposed_issue_description: raw.issue_description,
             state: Parsed {
                 client_fingerprint: raw.fingerprint,
+                legacy_order_exception_list,
+                legacy_order_resolved: None,
             },
         })
     }
@@ -583,6 +602,7 @@ mod tests {
                     handled: false,
                 },
                 client_fingerprint: Some("client-fingerprint".to_string()),
+                legacy_order_resolved: None,
             },
         }
     }

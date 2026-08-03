@@ -10,6 +10,7 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
 mod utils;
 
 // One test per binary: common_posthog::init configures a process-wide global
@@ -41,7 +42,12 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
         .await
         .expect("posthog init");
 
-    let config = ProcessingConfig::init_with_defaults().unwrap();
+    let (addr, _) = common::spawn_stub_server(common::ServerBehavior::Happy).await;
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.remote_resolution_host = "127.0.0.1".to_string();
+    config.remote_resolution_port = addr.port();
+    config.resolver.internal_api_secret = "test-secret".to_string();
+    config.remote_resolution_subscribe_tick_hint_ms = 25;
     let app_ctx = AppContext::new(&config, db.clone(), Arc::new(MockRedisClient::new()))
         .await
         .unwrap();

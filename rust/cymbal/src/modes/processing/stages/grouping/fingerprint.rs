@@ -37,7 +37,7 @@ impl FingerprintGenerator {
 
     async fn generate(
         &self,
-        input: ExceptionEvent<Resolved>,
+        mut input: ExceptionEvent<Resolved>,
         ctx: GroupingStage,
     ) -> Result<ExceptionEvent<Fingerprinted>, UnhandledError> {
         // Selection order:
@@ -73,7 +73,9 @@ impl FingerprintGenerator {
             .get("$lib")
             .and_then(Value::as_str)
             .map(str::to_string);
-        let legacy_list = legacy_wire_order(lib.as_deref(), input.exception_list());
+        let legacy_list = input
+            .take_legacy_order_resolved()
+            .or_else(|| legacy_wire_order(lib.as_deref(), input.exception_list()));
         let (version, fingerprint) =
             select_automatic_fingerprint(&input, legacy_list.as_ref(), &ctx).await?;
         if version.is_legacy() {
