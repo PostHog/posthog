@@ -502,20 +502,29 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     }
 
     const resourceMeta = this.resourceMetaCache.get(resourceUri);
+    // The spec carries `ui.csp`/`ui.permissions` alongside the HTML on the read
+    // response; the listing-derived cache is only a fallback for servers that
+    // also advertise them at registration time. Reading the listing alone meant
+    // a server that sends `_meta` on read only got the restrictive default CSP,
+    // which blocks the app's own script and stylesheet and renders a blank frame.
+    const readUi = (textContent as McpResourceUiMeta)._meta?.ui;
+    const listUi = resourceMeta?._meta?.ui;
+    const csp = readUi?.csp ?? listUi?.csp;
+    const permissions = readUi?.permissions ?? listUi?.permissions;
 
     const resource: McpUiResource = {
       uri: resourceUri,
       name: resourceMeta?.name,
       mimeType: UI_MIME_TYPE,
-      csp: resourceMeta?._meta?.ui?.csp,
-      permissions: resourceMeta?._meta?.ui?.permissions,
+      csp,
+      permissions,
       html: textContent.text,
       serverName,
     };
 
     // A failed warm-up with no known metadata may have produced a CSP-less
     // copy; leave it uncached so a later fetch can attach the real CSP.
-    const cacheable = warmed || resourceMeta !== undefined;
+    const cacheable = warmed || resourceMeta !== undefined || csp !== undefined;
     if (cacheable) {
       this.resourceCache.set(resourceUri, resource);
     }

@@ -121,7 +121,14 @@ const UI_MIME_TYPE = "text/html;profile=mcp-app";
 const REVIEW_URI = "ui://posthog/loops-review.html";
 const REVIEW_CSP = { connectDomains: ["https://us.posthog.com"] };
 
-function makeClient() {
+const UI_META = { ui: { csp: REVIEW_CSP } };
+type UiMeta = typeof UI_META;
+
+/**
+ * Servers may advertise a resource's CSP at registration (`resources/list`), on
+ * the read response, or both — `cspOn` picks which one this client does.
+ */
+function makeClient(cspOn: "list" | "read" = "list") {
   return {
     close: vi.fn(async () => {}),
     listTools: vi.fn(async () => ({
@@ -134,10 +141,22 @@ function makeClient() {
       ],
     })),
     listResources: vi.fn(async () => ({
-      resources: [{ uri: REVIEW_URI, _meta: { ui: { csp: REVIEW_CSP } } }],
+      resources: [
+        {
+          uri: REVIEW_URI,
+          ...(cspOn === "list" ? { _meta: UI_META } : {}),
+        } as { uri: string; _meta?: UiMeta },
+      ],
     })),
     readResource: vi.fn(async ({ uri }: { uri: string }) => ({
-      contents: [{ uri, mimeType: UI_MIME_TYPE, text: "<html></html>" }],
+      contents: [
+        {
+          uri,
+          mimeType: UI_MIME_TYPE,
+          text: "<html></html>",
+          ...(cspOn === "read" ? { _meta: UI_META } : {}),
+        } as { uri: string; mimeType: string; text: string; _meta?: UiMeta },
+      ],
     })),
   };
 }
@@ -318,15 +337,21 @@ describe("McpAppsService lazy discovery", () => {
     expect(resource?.html).toBe("<html></html>");
   });
 
-  it("attaches discovered CSP metadata on direct URI fetches", async () => {
-    service.setConfigResolver(async (name) => {
-      service.addServerConfigs([config(name)]);
-    });
-    connectClient(service);
+  it.each([
+    ["the resource listing", "list"],
+    ["the read response", "read"],
+  ] as const)(
+    "attaches CSP metadata advertised on %s to direct URI fetches",
+    async (_label, cspOn) => {
+      service.setConfigResolver(async (name) => {
+        service.addServerConfigs([config(name)]);
+      });
+      connectClient(service, makeClient(cspOn));
 
-    const resource = await service.getUiResourceByUri("posthog", REVIEW_URI);
-    expect(resource?.csp).toEqual(REVIEW_CSP);
-  });
+      const resource = await service.getUiResourceByUri("posthog", REVIEW_URI);
+      expect(resource?.csp).toEqual(REVIEW_CSP);
+    },
+  );
 
   it("returns an uncached resource when the metadata warm-up fails", async () => {
     service.setServerConfigs([config("posthog")]);
