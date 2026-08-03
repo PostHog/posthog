@@ -45,8 +45,6 @@ describe('MetricsSeriesChart', () => {
         expect(screen.getByText(expected)).toBeInTheDocument()
     })
 
-    // The legend replaced a hand-rolled one that hid itself below two series; a legend over a lone
-    // line just steals plot height.
     it.each([
         ['hides the legend for a single series', 1, false],
         ['shows the legend once there are two', 2, true],
