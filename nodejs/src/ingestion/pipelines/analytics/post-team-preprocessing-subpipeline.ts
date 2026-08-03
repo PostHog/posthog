@@ -23,7 +23,6 @@ import {
     createValidateEventSchemaStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
@@ -57,7 +56,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     flagCalledPersonlessDefaultTeams: string
     personlessWritesDisabledTeams: string
     hogTransformer: HogTransformer
-    cdpHogWatcherSampleRate: number
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -86,7 +84,6 @@ export function createPostTeamPreprocessingSubpipeline<
         flagCalledPersonlessDefaultTeams,
         personlessWritesDisabledTeams,
         hogTransformer,
-        cdpHogWatcherSampleRate,
     } = config
 
     return (
@@ -143,7 +140,5 @@ export function createPostTeamPreprocessingSubpipeline<
                     },
                 }
             )
-            // Prefetch hog functions for all teams in the batch
-            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )
 }

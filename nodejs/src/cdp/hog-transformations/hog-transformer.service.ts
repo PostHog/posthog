@@ -1,4 +1,4 @@
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
 import { HogTransformationResult, HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -14,7 +14,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
-import { CdpCoreServicesConfig, createCdpReaderRedisPool, createCdpValkeyShadowPools } from '../cdp-services'
+import { CdpCoreServicesConfig } from '../cdp-services'
 import { HogExecutorService, MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -28,20 +28,19 @@ import { EmailTrackingCodeSigner } from '../services/messaging/helpers/tracking-
 import { PushNotificationService } from '../services/messaging/push-notification.service'
 import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
-import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
-import { mirrorCall } from '../utils/mirror-call'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
 export interface HogTransformerConfig {
     siteUrl: string
-    hogWatcherSampleRate: number
     hogRustVmExecutionEnabled: boolean
     mmdbFileLocation: string
 }
+
+const HOG_TRANSFORMATION_TIMEOUT_MS = 550
 
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
@@ -65,12 +64,6 @@ export const hogTransformationCompleted = new Counter({
     labelNames: ['type'],
 })
 
-export const hogWatcherLatency = new Histogram({
-    name: 'hog_watcher_latency_seconds',
-    help: 'Time spent in HogWatcher operations in seconds during ingestion',
-    labelNames: ['operation'],
-})
-
 export const hogTransformationPendingInvocationResults = new Gauge({
     name: 'hog_transformation_pending_invocation_results',
     help: 'Number of invocation results accumulated and waiting to be processed. High values indicate memory accumulation.',
@@ -87,7 +80,6 @@ export interface TransformationResult extends HogTransformationResult {
 }
 
 export class HogTransformerService implements HogTransformer {
-    private cachedStates: Record<string, HogWatcherState> = {}
     private invocationResults: CyclotronJobInvocationResult[] = []
     private cachedGeoIp?: GeoIp
     private cachedTransformationFunctions?: ReturnType<typeof getTransformationFunctions>
@@ -96,8 +88,6 @@ export class HogTransformerService implements HogTransformer {
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
         private hogExecutor: HogExecutorService,
-        private hogWatcher: HogWatcherService,
-        private hogWatcherMirror: HogWatcherService | null,
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private pluginExecutor: LegacyPluginExecutorService,
         private geoipService: GeoIPService,
@@ -123,23 +113,9 @@ export class HogTransformerService implements HogTransformer {
         this.invocationResults = []
         hogTransformationPendingInvocationResults.set(0)
 
-        const shouldRunHogWatcher = Math.random() < this.config.hogWatcherSampleRate
-
         this.hogFunctionMonitoringService.queueInvocationResults(results)
 
-        await Promise.allSettled([
-            this.hogFunctionMonitoringService.flush(),
-
-            shouldRunHogWatcher
-                ? this.hogWatcher.observeResults(results).catch((error) => {
-                      logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
-                  })
-                : Promise.resolve(),
-
-            shouldRunHogWatcher
-                ? mirrorCall('hog-watcher.observeResults', () => this.hogWatcherMirror?.observeResults(results))
-                : Promise.resolve(),
-        ])
+        await this.hogFunctionMonitoringService.flush()
     }
 
     private async getTransformationFunctions() {
@@ -212,33 +188,10 @@ export class HogTransformerService implements HogTransformer {
         const transformationsFailed: string[] = []
         const transformationsSkipped: string[] = []
 
-        const shouldRunHogWatcher = Math.random() < this.config.hogWatcherSampleRate
-
         // Create globals once and update the event properties after each transformation
         const globals = this.createInvocationGlobals(event)
 
         for (const hogFunction of teamHogFunctions) {
-            // Check if function is in a degraded state, but only if hogwatcher is enabled
-            if (shouldRunHogWatcher) {
-                const functionState = this.cachedStates[hogFunction.id]
-
-                // If the function is in a degraded state, skip it
-                if (functionState && functionState === HogWatcherState.disabled) {
-                    this.hogFunctionMonitoringService.queueAppMetric(
-                        {
-                            team_id: event.team_id,
-                            app_source_id: hogFunction.id,
-                            metric_kind: 'failure',
-                            metric_name: 'disabled_permanently',
-                            count: 1,
-                        },
-                        'hog_function'
-                    )
-                    continue
-                }
-            }
-
-            // Create identifier after the disabled check passes to avoid string allocation for skipped functions
             const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
             // Create filterGlobals for each iteration - it references globals.event.properties
@@ -430,53 +383,43 @@ export class HogTransformerService implements HogTransformer {
             asyncFunctionsNames: [],
         })
     }
-
-    public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
-        const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
-        const [states] = await Promise.all([
-            this.hogWatcher.getEffectiveStates(functionIds),
-            mirrorCall('hog-watcher.getEffectiveStates', () => this.hogWatcherMirror?.getEffectiveStates(functionIds)),
-        ])
-        timer()
-
-        // Save only the state enum value to cache
-        Object.entries(states).forEach(([id, state]) => {
-            this.cachedStates[id] = state.state
-        })
-    }
-
-    public clearHogFunctionStates(functionIds?: string[]): void {
-        if (functionIds) {
-            // Clear specific function states
-            functionIds.forEach((id) => {
-                delete this.cachedStates[id]
-            })
-        } else {
-            // Clear all states if no IDs provided
-            this.cachedStates = {}
-        }
-    }
-
-    public async prefetchTransformationStatesForTeams(teamIds: number[]): Promise<void> {
-        this.clearHogFunctionStates()
-        if (teamIds.length === 0) {
-            return
-        }
-        const teamHogFunctionIds = await this.hogFunctionManager.getHogFunctionIdsForTeams(teamIds, ['transformation'])
-        const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
-        if (allHogFunctionIds.length > 0) {
-            await this.fetchAndCacheHogFunctionStates(allHogFunctionIds)
-        }
-    }
 }
 
 /**
  * Config needed by the HogTransformer when running inside ingestion.
- * This is CdpCoreServicesConfig (CDP redis, watcher, monitoring, encryption, etc.)
- * plus the ingestion-specific sample rates from CommonConfig.
+ * Ingestion shares the transformation execution and monitoring settings, but
+ * deliberately excludes CDP's Redis, Valkey, and HogWatcher infrastructure.
  */
-export type HogTransformerServiceConfig = CdpCoreServicesConfig &
-    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
+export type HogTransformerServiceConfig = Omit<
+    CdpCoreServicesConfig,
+    | 'CDP_REDIS_HOST'
+    | 'CDP_REDIS_PORT'
+    | 'CDP_REDIS_PASSWORD'
+    | 'CDP_REDIS_READER_HOST'
+    | 'CDP_REDIS_READER_PORT'
+    | 'CDP_VALKEY_HOST'
+    | 'CDP_VALKEY_PORT'
+    | 'CDP_VALKEY_PASSWORD'
+    | 'CDP_VALKEY_READER_HOST'
+    | 'CDP_VALKEY_READER_PORT'
+    | 'CDP_VALKEY_TLS'
+    | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
+    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
+    | 'CDP_WATCHER_HOG_COST_TIMING'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
+    | 'CDP_WATCHER_ASYNC_COST_TIMING'
+    | 'CDP_WATCHER_SEND_EVENTS'
+    | 'CDP_WATCHER_BUCKET_SIZE'
+    | 'CDP_WATCHER_REFILL_RATE'
+    | 'CDP_WATCHER_TTL'
+    | 'CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS'
+    | 'CDP_WATCHER_THRESHOLD_DEGRADED'
+    | 'CDP_WATCHER_STATE_LOCK_TTL'
+    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
+    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+> &
+    Pick<CommonConfig, 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -493,18 +436,10 @@ export function createHogTransformerService(
     deps: HogTransformerServiceDeps
 ): HogTransformerService {
     const redis = createRedisV2PoolFromConfig({
-        connection: config.CDP_REDIS_HOST
-            ? {
-                  url: config.CDP_REDIS_HOST,
-                  options: { port: config.CDP_REDIS_PORT, password: config.CDP_REDIS_PASSWORD },
-                  name: 'hog-transformer-redis',
-              }
-            : { url: config.REDIS_URL, name: 'hog-transformer-redis-fallback' },
+        connection: { url: config.REDIS_URL, name: 'hog-transformer-redis' },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
-    const redisReader = createCdpReaderRedisPool(config, redis, 'hog-transformer-redis')
-    const valkeyShadow = createCdpValkeyShadowPools(config, 'hog-transformer-redis')
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
@@ -546,7 +481,7 @@ export function createHogTransformerService(
     )
     const hogExecutor = new HogExecutorService(
         {
-            hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+            hogCostTimingUpperMs: HOG_TRANSFORMATION_TIMEOUT_MS,
             googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
@@ -560,46 +495,15 @@ export function createHogTransformerService(
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(deps.monitoringOutputs)
-    const hogWatcherConfig = {
-        hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
-        hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-        hogCostTiming: config.CDP_WATCHER_HOG_COST_TIMING,
-        asyncCostTimingLowerMs: config.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
-        asyncCostTimingUpperMs: config.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
-        asyncCostTiming: config.CDP_WATCHER_ASYNC_COST_TIMING,
-        sendEvents: config.CDP_WATCHER_SEND_EVENTS,
-        bucketSize: config.CDP_WATCHER_BUCKET_SIZE,
-        refillRate: config.CDP_WATCHER_REFILL_RATE,
-        ttl: config.CDP_WATCHER_TTL,
-        automaticallyDisableFunctions: config.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
-        thresholdDegraded: config.CDP_WATCHER_THRESHOLD_DEGRADED,
-        stateLockTtl: config.CDP_WATCHER_STATE_LOCK_TTL,
-        observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
-        observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
-    }
-    const hogWatcher = new HogWatcherService(deps.teamManager, hogWatcherConfig, redis, redisReader)
-    // sendEvents:false on the mirror so we don't double-emit billable team events.
-    const hogWatcherMirror: HogWatcherService | null = valkeyShadow
-        ? new HogWatcherService(
-              deps.teamManager,
-              { ...hogWatcherConfig, sendEvents: false },
-              valkeyShadow.writer,
-              valkeyShadow.reader
-          )
-        : null
-
     return new HogTransformerService(
         hogFunctionManager,
         hogExecutor,
-        hogWatcher,
-        hogWatcherMirror,
         hogFunctionMonitoringService,
         pluginExecutor,
         deps.geoipService,
         redis,
         {
             siteUrl: config.SITE_URL,
-            hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
             mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }

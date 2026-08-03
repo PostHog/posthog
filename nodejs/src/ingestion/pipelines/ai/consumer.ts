@@ -67,8 +67,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT'
         | 'AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY'
         | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
-    > &
-    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+    >
 
 /** Outputs the AI pipeline emits to. The same instance backs the hog transformer's
  * monitoring (app_metrics + log_entries), wired up server-side. */
@@ -195,7 +194,6 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             overflowRedirectService: container.overflowRedirectService,
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
-            cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
             topHog: container.topHog,
