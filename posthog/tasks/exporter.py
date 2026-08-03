@@ -11,7 +11,11 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import USER_QUERY_ERRORS, classify_failure_type
+from products.exports.backend.tasks.failure_handler import (
+    USER_QUERY_ERRORS,
+    InvalidExportContext,
+    classify_failure_type,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -118,6 +122,8 @@ def export_asset_direct(
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
         elif exported_asset.export_format == ExportedAsset.ExportFormat.JSONL:
+            if not exported_asset.is_dataset_export:
+                raise InvalidExportContext("JSONL exports require a dataset export context.")
             from products.ai_observability.backend.dataset_export import (  # noqa: PLC0415 because this keeps product-specific code off the generic task import path
                 export_dataset_jsonl,
             )

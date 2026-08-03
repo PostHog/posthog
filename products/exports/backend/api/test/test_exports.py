@@ -35,6 +35,7 @@ from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.api import DATASET_EXPORT_KIND, STUCK_EXPORT_MESSAGE
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
@@ -589,14 +590,18 @@ class TestExports(APIBaseTest):
         dataset_export = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.JSONL,
-            export_context={"dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5", "dataset_revision": 1},
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
+                "dataset_revision": 1,
+            },
             created_by=self.user,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertNotIn(str(dataset_export.id), {result["id"] for result in response.json()["results"]})
+        self.assertNotIn(dataset_export.id, {result["id"] for result in response.json()["results"]})
 
     @parameterized.expand(
         [
@@ -608,7 +613,11 @@ class TestExports(APIBaseTest):
         dataset_export = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.JSONL,
-            export_context={"dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5", "dataset_revision": 1},
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
+                "dataset_revision": 1,
+            },
             created_by=self.user,
             content=b"{}\n",
         )
@@ -616,6 +625,21 @@ class TestExports(APIBaseTest):
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=dataset_export.id))
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_dataset_id_metadata_does_not_hide_an_ordinary_export(self) -> None:
+        ordinary_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"dataset_id": "caller-metadata"},
+            created_by=self.user,
+            content=b"png",
+        )
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/exports/{ordinary_export.id}")
+        list_response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        self.assertIn(ordinary_export.id, {result["id"] for result in list_response.json()["results"]})
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
@@ -670,8 +694,7 @@ class TestExports(APIBaseTest):
         results_by_id = {result["id"]: result for result in results}
 
         stuck_result = results_by_id[stuck_export.id]
-        self.assertIsNotNone(stuck_result["exception"])
-        self.assertIn(f"Export failed without throwing an exception", stuck_result["exception"])
+        self.assertEqual(stuck_result["exception"], STUCK_EXPORT_MESSAGE)
 
         recent_result = results_by_id[recent_export.id]
         self.assertIsNone(recent_result["exception"])
@@ -710,8 +733,7 @@ class TestExports(APIBaseTest):
         result = response.json()
 
         # Check that the stuck export appears to have an exception in the response
-        self.assertIsNotNone(result["exception"])
-        self.assertIn(f"Export failed without throwing an exception", result["exception"])
+        self.assertEqual(result["exception"], STUCK_EXPORT_MESSAGE)
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()

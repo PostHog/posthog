@@ -180,13 +180,13 @@ class TestExportedAssetFilename(APIBaseTest):
         )
         assert asset.filename == "power-users-50-rollout-2024-06-15-103000.csv"
 
-    @freeze_time("2024-06-15T10:30:00Z")
     @parameterized.expand(
         [
             (ExportedAsset.ExportFormat.XLSX, "xlsx"),
             (ExportedAsset.ExportFormat.JSONL, "jsonl"),
         ]
     )
+    @freeze_time("2024-06-15T10:30:00Z")
     def test_tabular_format_extension(self, export_format: str, expected_extension: str) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -197,6 +197,18 @@ class TestExportedAssetFilename(APIBaseTest):
 
 
 class TestDirectContentResponse(APIBaseTest):
+    def test_serves_empty_content(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            content=b"",
+        )
+
+        response = get_content_response(asset)
+
+        assert response.status_code == 200
+        assert response.content == b""
+
     @parameterized.expand(
         [
             ("bounded_png_serves_bytes", ExportedAsset.ExportFormat.PNG, 200),

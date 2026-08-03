@@ -1,9 +1,11 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 from datetime import timedelta
+from typing import Literal
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
+from django.utils.timezone import now
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -11,12 +13,19 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.slo.types import SloConfig
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
-from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
+from products.exports.backend.models.exported_asset import (
+    DATASET_EXPORT_KIND,
+    ExportedAsset,
+    get_content_response,
+    save_content_from_file as _save_content_from_file,
+)
+from products.exports.backend.tasks.failure_handler import InvalidExportContext as InvalidExportContext
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +36,33 @@ JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
 EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
+EXPORT_STATUS_GRACE_PERIOD = timedelta(seconds=30)
+STUCK_EXPORT_MESSAGE = "This export took too long to finish. Try again. If it keeps failing, contact support."
+
+
+def _export_stuck_after(*, export_format: str, export_context: dict[str, object] | None) -> timedelta:
+    if export_format == JSONL_EXPORT_FORMAT and (export_context or {}).get("kind") == DATASET_EXPORT_KIND:
+        return EXPORT_WORKFLOW_TIMEOUT + EXPORT_STATUS_GRACE_PERIOD
+    return timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME) + EXPORT_STATUS_GRACE_PERIOD
+
+
+def get_export_asset_effective_exception(asset: ExportedAsset) -> str | None:
+    if asset.exception:
+        return asset.exception
+    if asset.has_content:
+        return None
+    stuck_after = _export_stuck_after(export_format=asset.export_format, export_context=asset.export_context)
+    if asset.created_at < now() - stuck_after:
+        return STUCK_EXPORT_MESSAGE
+    return None
+
+
+def get_export_asset_status(asset: ExportedAsset) -> Literal["pending", "complete", "failed"]:
+    if get_export_asset_effective_exception(asset):
+        return "failed"
+    if asset.has_content:
+        return "complete"
+    return "pending"
 
 
 def start_export_asset_workflow(
@@ -97,6 +133,15 @@ def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
 
 def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
     return get_content_response(asset, download=download)
+
+
+def save_export_asset_content_from_file(
+    *,
+    asset: ExportedAsset,
+    file_path: str,
+    max_database_bytes: int | None = None,
+) -> None:
+    _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
 
 
 def _validate_adhoc_export_context(export_context: dict) -> None:

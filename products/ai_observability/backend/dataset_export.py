@@ -11,14 +11,15 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
-from products.exports.backend.models.exported_asset import ExportedAsset, save_content_from_file
+from products.exports.backend.facade.api import ExportedAsset, InvalidExportContext, save_export_asset_content_from_file
 
 DATASETS_FEATURE_FLAG = "llm-analytics-datasets"
 DATASET_EXPORT_DATABASE_FALLBACK_BYTES = 50_000_000
+MAX_DATASET_EXPORT_MEGABYTES = 250
+MAX_DATASET_EXPORT_BYTES = MAX_DATASET_EXPORT_MEGABYTES * 1_000_000
 
 
-class DatasetExportError(Exception):
-    pass
+DatasetExportError = InvalidExportContext
 
 
 def _isoformat(value: datetime | None) -> str | None:
@@ -30,14 +31,9 @@ def _export_row(version: DatasetItemVersion, *, selected_revision: DatasetRevisi
     return {
         "dataset_id": str(selected_revision.dataset_id),
         "dataset_revision": selected_revision.revision,
-        "dataset_revision_id": str(selected_revision.id),
         "item_id": str(item.id),
         "client_item_id": item.client_item_id,
-        "version_id": str(version.id),
         "version": version.version,
-        "version_dataset_revision": version.dataset_revision.revision,
-        "version_dataset_revision_id": str(version.dataset_revision_id),
-        "archived": version.archived,
         "input": version.input,
         "expected_output": version.expected_output,
         "source_output": version.source_output,
@@ -45,10 +41,6 @@ def _export_row(version: DatasetItemVersion, *, selected_revision: DatasetRevisi
         "source_trace_id": version.source_trace_id,
         "source_event_id": version.source_event_id,
         "source_timestamp": _isoformat(version.source_timestamp),
-        "item_created_at": _isoformat(item.created_at),
-        "version_created_at": _isoformat(version.created_at),
-        "item_created_by_id": item.created_by_id,
-        "version_created_by_id": version.created_by_id,
     }
 
 
@@ -60,7 +52,7 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
     except (KeyError, TypeError, ValueError) as error:
         raise DatasetExportError("The dataset export configuration is invalid.") from error
 
-    if revision < 1 or asset.created_by is None:
+    if not asset.is_dataset_export or revision < 1 or asset.created_by is None:
         raise DatasetExportError("The dataset export configuration is invalid.")
 
     dataset = Dataset.objects.for_team(asset.team_id, canonical=True).filter(id=dataset_id).first()
@@ -93,26 +85,34 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
             revision=revision,
             archived=False,
         )
-        .select_related("dataset_item", "dataset_revision")
+        .select_related("dataset_item")
         .order_by("dataset_item__created_at", "dataset_item_id")
     )
 
     file_path: str | None = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".jsonl", delete=False) as export_file:
+        total_bytes = 0
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".jsonl", delete=False) as export_file:
             file_path = export_file.name
             for version in versions.iterator(chunk_size=50):
-                export_file.write(
+                line = (
                     json.dumps(
                         _export_row(version, selected_revision=selected_revision),
                         ensure_ascii=False,
                         separators=(",", ":"),
                     )
-                )
-                export_file.write("\n")
-        save_content_from_file(
-            asset,
-            file_path,
+                    + "\n"
+                ).encode("utf-8")
+                total_bytes += len(line)
+                if total_bytes > MAX_DATASET_EXPORT_BYTES:
+                    raise DatasetExportError(
+                        f"The dataset export is larger than {MAX_DATASET_EXPORT_MEGABYTES} MB. "
+                        "Reduce the number or size of items and try again."
+                    )
+                export_file.write(line)
+        save_export_asset_content_from_file(
+            asset=asset,
+            file_path=file_path,
             max_database_bytes=DATASET_EXPORT_DATABASE_FALLBACK_BYTES,
         )
     finally:

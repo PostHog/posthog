@@ -40,9 +40,15 @@ export interface DatasetItemModalProps {
     loadError?: ApiError | null
     versions?: DatasetItemReadApi[]
     versionsLoading?: boolean
+    versionsLoadError?: ApiError | null
+    versionsCount?: number
+    versionsPage?: number
+    versionsPageSize?: number
     canRestoreVersions?: boolean
     restoringVersion?: number | null
     onRestoreVersion?: (version: number) => void
+    onVersionsPageChange?: (page: number) => void
+    onRetryVersions?: () => void
     onRetry?: () => void
     onUnarchive?: () => void
     unarchiving?: boolean
@@ -61,9 +67,15 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
     loadError,
     versions = [],
     versionsLoading = false,
+    versionsLoadError,
+    versionsCount = 0,
+    versionsPage = 1,
+    versionsPageSize = 25,
     canRestoreVersions = false,
     restoringVersion,
     onRestoreVersion,
+    onVersionsPageChange,
+    onRetryVersions,
     onRetry,
     onUnarchive,
     unarchiving = false,
@@ -102,7 +114,9 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                                     ? readOnly
                                         ? 'Dataset item'
                                         : 'Edit dataset item'
-                                    : 'New dataset item')}
+                                    : loading || loadError
+                                      ? 'Dataset item'
+                                      : 'New dataset item')}
                         </h3>
                         {storedDatasetItem?.archived && <LemonTag type="muted">Archived</LemonTag>}
                         {storedDatasetItem && (
@@ -153,9 +167,15 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                                         currentItem={storedDatasetItem}
                                         versions={versions}
                                         loading={versionsLoading}
+                                        loadError={versionsLoadError}
+                                        count={versionsCount}
+                                        page={versionsPage}
+                                        pageSize={versionsPageSize}
                                         canRestore={canRestoreVersions}
                                         restoringVersion={restoringVersion}
                                         onRestore={onRestoreVersion}
+                                        onPageChange={onVersionsPageChange}
+                                        onRetry={onRetryVersions}
                                     />
                                 </>
                             )}
@@ -206,20 +226,44 @@ function DatasetItemHistory({
     currentItem,
     versions,
     loading,
+    loadError,
+    count,
+    page,
+    pageSize,
     canRestore,
     restoringVersion,
     onRestore,
+    onPageChange,
+    onRetry,
 }: {
     currentItem: DatasetItemReadApi
     versions: DatasetItemReadApi[]
     loading: boolean
+    loadError?: ApiError | null
+    count: number
+    page: number
+    pageSize: number
     canRestore: boolean
     restoringVersion?: number | null
     onRestore?: (version: number) => void
+    onPageChange?: (page: number) => void
+    onRetry?: () => void
 }): JSX.Element {
     if (loading) {
         return <LemonSkeleton active className="h-16 w-full" />
     }
+
+    if (loadError) {
+        return (
+            <LemonBanner type="error" action={onRetry ? { children: 'Try again', onClick: onRetry } : undefined}>
+                {loadError.detail || "Couldn't load item history. Try again."}
+            </LemonBanner>
+        )
+    }
+
+    const pageCount = Math.ceil(count / pageSize)
+    const pageStart = (page - 1) * pageSize + 1
+    const pageEnd = Math.min(page * pageSize, count)
 
     return (
         <div className="flex flex-col gap-2">
@@ -272,6 +316,31 @@ function DatasetItemHistory({
                         ),
                     }))}
                 />
+            )}
+            {pageCount > 1 && onPageChange && (
+                <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted">
+                        {pageStart}-{pageEnd} of {count} versions
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => onPageChange(page - 1)}
+                            disabledReason={page <= 1 ? 'No previous page' : undefined}
+                        >
+                            Previous
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => onPageChange(page + 1)}
+                            disabledReason={page >= pageCount ? 'No next page' : undefined}
+                        >
+                            Next
+                        </LemonButton>
+                    </div>
+                </div>
             )}
         </div>
     )

@@ -54,7 +54,13 @@ import { AccessControlLevel, AccessControlResourceType, type UserBasicType } fro
 
 import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { truncateValue } from '../utils'
-import { DatasetLogicProps, DatasetTab, isDataset, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
+import {
+    DATASET_ITEM_VERSIONS_PER_PAGE,
+    DatasetLogicProps,
+    DatasetTab,
+    isDataset,
+    aiObservabilityDatasetLogic,
+} from './aiObservabilityDatasetLogic'
 import { DatasetItemModal } from './DatasetItemModal'
 import { datasetsApi } from './datasetsApi'
 import { EditDatasetForm } from './EditDatasetForm'
@@ -100,6 +106,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         setFilters,
         setDatasetFormValue,
         triggerDatasetItemModal,
+        sceneMounted,
         onUnmount,
     } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
@@ -135,8 +142,9 @@ export function AIObservabilityDatasetScene(): JSX.Element {
 
     // TRICKY: Scene logic is not unmounted. Workaround.
     useEffect(() => {
+        sceneMounted()
         return () => onUnmount()
-    }, [onUnmount])
+    }, [onUnmount, sceneMounted])
 
     if (isDatasetMissing) {
         return <NotFound object="dataset" />
@@ -370,9 +378,11 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         isDatasetItemModalOpen,
         selectedDatasetItem,
         selectedDatasetItemLoadError,
-        datasetItemDetailsLoading,
-        datasetItemVersions,
+        selectedDatasetItemDetailsLoading,
+        selectedDatasetItemVersions,
         datasetItemVersionsLoading,
+        datasetItemVersionsLoadError,
+        datasetItemVersionsPage,
         restoringDatasetItemVersion,
         archivingDatasetItemId,
         canEditDataset,
@@ -380,6 +390,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         isHistoricalRevision,
         filters,
         datasetExport,
+        datasetExportLoading,
         datasetExportLoadError,
         datasetExportErrorOperation,
     } = useValues(aiObservabilityDatasetLogic)
@@ -388,6 +399,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         loadDatasetItemDetails,
         restoreDatasetItem,
         restoreDatasetItemVersion,
+        loadDatasetItemVersions,
         setFilters,
         exportDataset,
         loadDatasetExport,
@@ -449,10 +461,12 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                                 ? {
                                       children: 'Check again',
                                       onClick: () => loadDatasetExport({ exportId: datasetExport.id }),
+                                      loading: datasetExportLoading,
                                   }
                                 : {
                                       children: 'Try again',
                                       onClick: () => exportDataset(filters.revision ?? undefined),
+                                      loading: datasetExportLoading,
                                   }
                         }
                     >
@@ -469,6 +483,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                         action={{
                             children: 'Try again',
                             onClick: () => exportDataset(filters.revision ?? undefined),
+                            loading: datasetExportLoading,
                         }}
                     >
                         {datasetExport.exception || "Couldn't create the dataset export. Try again."}
@@ -498,13 +513,31 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                 displayBulkCreationButton
                 readOnly={selectedItemReadOnly}
                 readOnlyReason={selectedItemReadOnlyReason}
-                loading={datasetItemDetailsLoading}
+                loading={selectedDatasetItemDetailsLoading}
                 loadError={selectedDatasetItemLoadError}
-                versions={datasetItemVersions.results}
+                versions={selectedDatasetItemVersions.results}
                 versionsLoading={datasetItemVersionsLoading}
+                versionsLoadError={datasetItemVersionsLoadError}
+                versionsCount={selectedDatasetItemVersions.count}
+                versionsPage={datasetItemVersionsPage}
+                versionsPageSize={DATASET_ITEM_VERSIONS_PER_PAGE}
                 canRestoreVersions={canEditDataset && !selectedDatasetItem?.archived}
                 restoringVersion={restoringDatasetItemVersion}
                 onRestoreVersion={restoreDatasetItemVersion}
+                onVersionsPageChange={
+                    selectedDatasetItem
+                        ? (page) => loadDatasetItemVersions({ itemId: selectedDatasetItem.id, page })
+                        : undefined
+                }
+                onRetryVersions={
+                    selectedDatasetItem
+                        ? () =>
+                              loadDatasetItemVersions({
+                                  itemId: selectedDatasetItem.id,
+                                  page: datasetItemVersionsPage,
+                              })
+                        : undefined
+                }
                 onRetry={
                     searchParams.item
                         ? () =>
@@ -530,6 +563,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
         archivingDatasetItemId,
         datasetItems,
         datasetItemsLoading,
+        datasetItemsLoadError,
         datasetRevisionsLoading,
         pagination,
         filters,
@@ -716,6 +750,12 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                     isRefreshing={datasetItemsLoading}
                 />
             </div>
+
+            {datasetItemsLoadError && (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadDatasetItems(false) }}>
+                    {datasetItemsLoadError.detail || "Couldn't load dataset items. Try again."}
+                </LemonBanner>
+            )}
 
             <LemonDivider className="my-4" />
 

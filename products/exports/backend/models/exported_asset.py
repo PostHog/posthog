@@ -28,6 +28,7 @@ PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 MAX_AGE_CONTENT = 86400  # 1 day
 EXPORTED_ASSET_PURPOSE_RENDER = "render"
 EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
+DATASET_EXPORT_KIND = "dataset"
 
 SEVEN_DAYS = timedelta(days=7)
 SIX_MONTHS = timedelta(days=180)
@@ -174,9 +175,16 @@ class ExportedAsset(models.Model):
             return "recording"
         if ctx.get("heatmap_url"):
             return "heatmap"
-        if ctx.get("dataset_id"):
-            return "dataset"
+        if self.is_dataset_export:
+            return DATASET_EXPORT_KIND
         return "unknown"
+
+    @property
+    def is_dataset_export(self) -> bool:
+        return (
+            self.export_format == self.ExportFormat.JSONL
+            and (self.export_context or {}).get("kind") == DATASET_EXPORT_KIND
+        )
 
     @property
     def is_session_recording_export(self) -> bool:
@@ -269,9 +277,9 @@ def get_content_response(asset: ExportedAsset, download: bool = False, direct: b
             return HttpResponseRedirect(presigned_url)
 
     content = asset.content
-    if not content and asset.content_location:
+    if content is None and asset.content_location:
         content = object_storage.read_bytes(asset.content_location)
-    if not content:
+    if content is None:
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)

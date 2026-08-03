@@ -538,15 +538,6 @@ export interface DatasetExportCreateApi {
     revision?: number
 }
 
-export interface DatasetExportContextApi {
-    /** Dataset included in the export. */
-    readonly dataset_id: string
-    /** Pinned dataset revision. */
-    readonly dataset_revision: number
-    /** Base name used for the generated file. */
-    readonly filename: string
-}
-
 export type DatasetExportReadStatusEnumApi =
     (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
 
@@ -559,22 +550,6 @@ export const DatasetExportReadStatusEnumApi = {
 export interface DatasetExportReadApi {
     /** Export ID used to check status and download the file. */
     readonly id: number
-    /**
-     * Dashboard associated with the export, always null for datasets.
-     * @nullable
-     */
-    readonly dashboard: number | null
-    /**
-     * Insight associated with the export, always null for datasets.
-     * @nullable
-     */
-    readonly insight: number | null
-    /** MIME type of the generated JSONL file. */
-    readonly export_format: string
-    /** Pinned dataset and revision used by the export. */
-    readonly export_context: DatasetExportContextApi
-    /** Whether the generated file is ready to download. */
-    readonly has_content: boolean
     /** Current export state: pending, complete, or failed. */
     readonly status: DatasetExportReadStatusEnumApi
     /** Immutable dataset revision included in the export. */

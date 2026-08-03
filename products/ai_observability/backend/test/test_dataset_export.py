@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.storage import object_storage
+
 from products.ai_observability.backend.dataset_export import DatasetExportError, export_dataset_jsonl
 from products.ai_observability.backend.dataset_service import (
     DatasetItemMutationResult,
@@ -14,10 +16,19 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAsset
 
 
 class TestDatasetExport(APIBaseTest):
+    @staticmethod
+    def _read_asset_content(asset: ExportedAsset) -> bytes:
+        if asset.content is not None:
+            return bytes(asset.content)
+        assert asset.content_location is not None
+        content = object_storage.read_bytes(asset.content_location)
+        assert content is not None
+        return content
+
     def _create_dataset_and_item(self) -> tuple[Dataset, DatasetItemMutationResult]:
         dataset = create_dataset(team=self.team, created_by=self.user, name="Support answers")
         result = create_dataset_item(
@@ -55,6 +66,7 @@ class TestDatasetExport(APIBaseTest):
             created_by=self.user,
             export_format=ExportedAsset.ExportFormat.JSONL,
             export_context={
+                "kind": DATASET_EXPORT_KIND,
                 "dataset_id": str(dataset.id),
                 "dataset_revision": pinned_revision,
                 "filename": f"{dataset.name}-r{pinned_revision}",
@@ -71,8 +83,7 @@ class TestDatasetExport(APIBaseTest):
         export_dataset_jsonl(asset)
 
         asset.refresh_from_db()
-        assert asset.content is not None
-        rows = [json.loads(line) for line in bytes(asset.content).decode().splitlines()]
+        rows = [json.loads(line) for line in self._read_asset_content(asset).decode().splitlines()]
         expected_items = sorted(
             [first_result.item, second_result.item],
             key=lambda item: (item.created_at, str(item.id)),
@@ -82,14 +93,74 @@ class TestDatasetExport(APIBaseTest):
         first_row = next(row for row in rows if row["item_id"] == str(first_result.item.id))
         self.assertEqual(first_row["input"], {"question": "Updated"})
         self.assertEqual(first_row["expected_output"], {"answer": ["Keep", "nested", "JSON"]})
-        self.assertEqual(first_row["version_id"], str(updated_first.version.id))
+        self.assertEqual(first_row["version"], updated_first.version.version)
         self.assertEqual(first_row["dataset_revision"], pinned_revision)
-        self.assertEqual(first_row["dataset_revision_id"], str(second_result.version.dataset_revision_id))
-        self.assertEqual(first_row["version_dataset_revision"], updated_first.version.dataset_revision.revision)
-        self.assertEqual(first_row["version_dataset_revision_id"], str(updated_first.version.dataset_revision_id))
         self.assertEqual(first_row["client_item_id"], "support-1")
-        self.assertFalse(first_row["archived"])
-        self.assertNotIn("item_updated_at", first_row)
+        self.assertEqual(
+            set(first_row),
+            {
+                "dataset_id",
+                "dataset_revision",
+                "item_id",
+                "client_item_id",
+                "version",
+                "input",
+                "expected_output",
+                "source_output",
+                "metadata",
+                "source_trace_id",
+                "source_event_id",
+                "source_timestamp",
+            },
+        )
+
+    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_enabled", return_value=True)
+    def test_empty_snapshot_exports_an_empty_file(self, _feature_flag: object) -> None:
+        dataset, result = self._create_dataset_and_item()
+        archived = archive_dataset_item(
+            team_id=self.team.id,
+            dataset_id=dataset.id,
+            item_id=result.item.id,
+            created_by=self.user,
+            base_version=1,
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": str(dataset.id),
+                "dataset_revision": archived.version.dataset_revision.revision,
+            },
+        )
+
+        export_dataset_jsonl(asset)
+
+        asset.refresh_from_db()
+        self.assertTrue(asset.has_content)
+        self.assertEqual(self._read_asset_content(asset), b"")
+
+    @patch("products.ai_observability.backend.dataset_export.MAX_DATASET_EXPORT_BYTES", 1)
+    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_enabled", return_value=True)
+    def test_export_stops_when_the_jsonl_size_limit_is_reached(self, _feature_flag: object) -> None:
+        dataset, _result = self._create_dataset_and_item()
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": str(dataset.id),
+                "dataset_revision": 1,
+            },
+        )
+
+        with self.assertRaisesRegex(DatasetExportError, "Reduce the number or size of items"):
+            export_dataset_jsonl(asset)
+
+        asset.refresh_from_db()
+        self.assertFalse(asset.has_content)
 
     @parameterized.expand(
         [
@@ -109,7 +180,11 @@ class TestDatasetExport(APIBaseTest):
             team=self.team,
             created_by=self.user,
             export_format=ExportedAsset.ExportFormat.JSONL,
-            export_context={"dataset_id": str(dataset.id), "dataset_revision": 1},
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": str(dataset.id),
+                "dataset_revision": 1,
+            },
         )
 
         with (

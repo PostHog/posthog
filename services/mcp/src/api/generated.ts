@@ -21620,15 +21620,6 @@ export namespace Schemas {
       Persons: 'persons',
     } as const;
 
-    export interface DatasetExportContext {
-      /** Dataset included in the export. */
-      readonly dataset_id: string;
-      /** Pinned dataset revision. */
-      readonly dataset_revision: number;
-      /** Base name used for the generated file. */
-      readonly filename: string;
-    }
-
     export interface DatasetExportCreate {
       /**
          * Dataset revision to export. Defaults to the latest revision when the export is created.
@@ -21654,22 +21645,6 @@ export namespace Schemas {
     export interface DatasetExportRead {
       /** Export ID used to check status and download the file. */
       readonly id: number;
-      /**
-         * Dashboard associated with the export, always null for datasets.
-         * @nullable
-         */
-      readonly dashboard: number | null;
-      /**
-         * Insight associated with the export, always null for datasets.
-         * @nullable
-         */
-      readonly insight: number | null;
-      /** MIME type of the generated JSONL file. */
-      readonly export_format: string;
-      /** Pinned dataset and revision used by the export. */
-      readonly export_context: DatasetExportContext;
-      /** Whether the generated file is ready to download. */
-      readonly has_content: boolean;
       /** Current export state: pending, complete, or failed. */
       readonly status: DatasetExportReadStatusEnum;
       /** Immutable dataset revision included in the export. */

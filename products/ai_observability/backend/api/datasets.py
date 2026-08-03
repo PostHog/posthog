@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from typing import NoReturn, cast
 from uuid import UUID
 
@@ -43,6 +42,7 @@ from products.ai_observability.backend.api.dataset_exports import (
     create_dataset_export,
     get_dataset_export,
 )
+from products.ai_observability.backend.api.dataset_serializers import StrictDatasetSerializer
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.dataset_queries import (
     consistent_dataset_item_versions,
@@ -64,7 +64,7 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
-from products.exports.backend.facade.api import get_export_asset_content_response
+from products.exports.backend.facade.api import get_export_asset_content_response, get_export_asset_effective_exception
 
 
 def _json_value_schema(*, nullable: bool = False) -> dict[str, object]:
@@ -124,13 +124,8 @@ class JSONObjectField(serializers.JSONField):
         return cast(dict[str, JSONValue], value)
 
 
-class DatasetMutationSerializer(serializers.Serializer):
-    def to_internal_value(self, data: object) -> dict[str, object]:
-        if isinstance(data, Mapping):
-            unknown_fields = sorted(set(data) - set(self.fields))
-            if unknown_fields:
-                raise serializers.ValidationError({field: ["This field is not supported."] for field in unknown_fields})
-        return cast(dict[str, object], super().to_internal_value(data))
+class DatasetMutationSerializer(StrictDatasetSerializer):
+    pass
 
 
 class DatasetConflictResponseSerializer(serializers.Serializer):
@@ -889,8 +884,9 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         )
         if asset is None:
             raise Http404("Dataset export not found.")
-        if asset.exception:
-            return Response({"detail": asset.exception}, status=status.HTTP_409_CONFLICT)
+        effective_exception = get_export_asset_effective_exception(asset)
+        if effective_exception:
+            return Response({"detail": effective_exception}, status=status.HTTP_409_CONFLICT)
         if not asset.has_content:
             return Response(
                 {"detail": "The export is still being prepared."},

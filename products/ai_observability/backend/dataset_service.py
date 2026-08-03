@@ -336,6 +336,7 @@ def _create_item_version(
     version_number: int,
     archived: bool,
     content: _DatasetItemContent,
+    reserve_restore_slot: bool = False,
 ) -> DatasetItemVersion:
     if item.team_id != dataset.team_id or item.dataset_id != dataset.id:
         raise DatasetIntegrityError("Dataset item has inconsistent ownership.")
@@ -348,15 +349,22 @@ def _create_item_version(
         )
         .count()
     )
-    if current_count >= MAX_VERSIONS_PER_ITEM:
+    version_limit = MAX_VERSIONS_PER_ITEM - int(reserve_restore_slot)
+    if current_count >= version_limit:
+        detail = (
+            f"This dataset item cannot be archived because the last version slot is reserved for restoring it. "
+            f"The limit is {MAX_VERSIONS_PER_ITEM}. Create a new item to continue."
+            if reserve_restore_slot
+            else (
+                f"No more versions can be added to this dataset item. The limit is {MAX_VERSIONS_PER_ITEM}. "
+                "Create a new item to continue."
+            )
+        )
         raise DatasetLimitExceeded(
             resource="dataset_item_versions",
             current_count=current_count,
             limit=MAX_VERSIONS_PER_ITEM,
-            detail=(
-                f"No more versions can be added to this dataset item. The limit is {MAX_VERSIONS_PER_ITEM}. "
-                "Create a new item to continue."
-            ),
+            detail=detail,
         )
 
     revision = _create_revision(dataset=dataset, created_by=created_by)
@@ -669,6 +677,7 @@ def archive_dataset_item(
         version_number=current_version.version + 1,
         archived=True,
         content=_DatasetItemContent.from_version(current_version),
+        reserve_restore_slot=True,
     )
     return DatasetItemMutationResult(item=item, version=version)
 

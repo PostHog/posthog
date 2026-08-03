@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import RestrictedError
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,7 +16,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.facade.api import DATASET_EXPORT_KIND, STUCK_EXPORT_MESSAGE, ExportedAsset
 
 
 class TestDatasetsApi(APIBaseTest):
@@ -176,7 +179,7 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(archived_retry_response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(archived_retry_response.data["code"], "client_item_id_conflict")
-        self.assertEqual(archived_retry_response.data["current_item_id"], first_response.data["id"])
+        self.assertEqual(str(archived_retry_response.data["current_item_id"]), first_response.data["id"])
         self.assertEqual(
             DatasetItem.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
             1,
@@ -833,37 +836,89 @@ class TestDatasetsApi(APIBaseTest):
             1,
         )
 
+    def test_archive_reserves_the_final_version_slot_for_restore(self) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+
+        with patch("products.ai_observability.backend.dataset_service.MAX_VERSIONS_PER_ITEM", 2):
+            response = self.client.post(
+                f"{self.items_url}{item['id']}/archive/",
+                {"base_version": 1},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            response.data,
+            {
+                "code": "limit_reached",
+                "detail": "This dataset item cannot be archived because the last version slot is reserved for restoring it. The limit is 2. Create a new item to continue.",
+                "resource": "dataset_item_versions",
+                "current_count": 1,
+                "limit": 2,
+            },
+        )
+        self.assertEqual(DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(), 1)
+        current_item = self.client.get(f"{self.items_url}{item['id']}/")
+        self.assertEqual(current_item.status_code, status.HTTP_200_OK)
+        self.assertFalse(current_item.data["archived"])
+        self.assertEqual(current_item.data["version"], 1)
+
+    def test_restore_can_use_the_reserved_final_version_slot(self) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+
+        with patch("products.ai_observability.backend.dataset_service.MAX_VERSIONS_PER_ITEM", 3):
+            archive_response = self.client.post(
+                f"{self.items_url}{item['id']}/archive/",
+                {"base_version": 1},
+                format="json",
+            )
+            restore_response = self.client.post(
+                f"{self.items_url}{item['id']}/restore/",
+                {"base_version": 2},
+                format="json",
+            )
+
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(restore_response.data["archived"])
+        self.assertEqual(restore_response.data["version"], 3)
+        self.assertEqual(
+            DatasetItemVersion.objects.for_team(self.team.id).filter(dataset_item_id=item["id"]).count(),
+            3,
+        )
+
     def test_dataset_list_caps_requested_page_size(self) -> None:
-        with patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 101):
-            for index in range(101):
+        with patch("products.ai_observability.backend.api.datasets.DatasetPagination.max_limit", 2):
+            for index in range(3):
                 create_dataset(
                     team=self.team,
                     created_by=self.user,
                     name=f"Dataset {index}",
                 )
-
-        response = self.client.get(self.datasets_url, {"limit": 10_000})
+            response = self.client.get(self.datasets_url, {"limit": 10_000})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["count"], 101)
-        self.assertEqual(len(response.data["results"]), 100)
+        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(len(response.data["results"]), 2)
 
     def test_dataset_item_list_caps_requested_page_size(self) -> None:
         dataset = self._create_dataset()
-        for index in range(26):
-            self._create_item(dataset["id"], input=index)
-
-        response = self.client.get(
-            self.items_url,
-            {"dataset": dataset["id"], "limit": 10_000},
-        )
+        with patch("products.ai_observability.backend.api.datasets.DatasetItemPagination.max_limit", 2):
+            for index in range(3):
+                self._create_item(dataset["id"], input=index)
+            response = self.client.get(
+                self.items_url,
+                {"dataset": dataset["id"], "limit": 10_000},
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["count"], 26)
-        self.assertEqual(len(response.data["results"]), 25)
+        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(len(response.data["results"]), 2)
 
     @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
-    def test_dataset_export_pins_revision_and_scopes_status_and_content(self, _start_workflow: object) -> None:
+    def test_dataset_export_pins_revision_and_scopes_status_and_content(self, start_workflow: MagicMock) -> None:
         dataset = self._create_dataset()
         first_item = self._create_item(dataset["id"], input={"question": "First"})
 
@@ -876,7 +931,12 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(create_response.data["status"], "pending")
         self.assertEqual(create_response.data["dataset_revision"], first_item["dataset_revision"])
-        self.assertEqual(create_response.data["export_context"]["dataset_revision"], first_item["dataset_revision"])
+        self.assertEqual(
+            set(create_response.data),
+            {"id", "status", "dataset_revision", "filename", "created_at", "expires_after", "exception"},
+        )
+
+        self.assertEqual(start_workflow.call_count, 1)
 
         self._create_item(dataset["id"], input={"question": "Later"})
         export_id = create_response.data["id"]
@@ -892,6 +952,7 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(pending_content_response.status_code, status.HTTP_409_CONFLICT)
 
         asset = ExportedAsset.objects.get(id=export_id)
+        self.assertEqual(asset.export_context["kind"], DATASET_EXPORT_KIND)
         asset.content = b'{"input":{"question":"First"}}\n'
         asset.save(update_fields=["content"])
         content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
@@ -899,6 +960,43 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(content_response.status_code, status.HTTP_200_OK)
         self.assertEqual(content_response.content, asset.content)
         self.assertIn("attachment", content_response["Content-Disposition"])
+
+    def test_dataset_export_rejects_unknown_request_fields(self) -> None:
+        dataset = self._create_dataset()
+        self._create_item(dataset["id"])
+
+        response = self.client.post(
+            f"{self.datasets_url}{dataset['id']}/exports/",
+            {"revison": 1},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is not supported.",
+                "attr": "revison",
+            },
+        )
+
+    @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
+    def test_dataset_export_reports_a_stuck_workflow_as_failed(self, _start_workflow: MagicMock) -> None:
+        dataset = self._create_dataset()
+        self._create_item(dataset["id"])
+        create_response = self.client.post(f"{self.datasets_url}{dataset['id']}/exports/", {}, format="json")
+        export_id = create_response.data["id"]
+        ExportedAsset.objects.filter(id=export_id).update(created_at=now() - timedelta(minutes=36))
+
+        status_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/")
+        content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
+
+        self.assertEqual(status_response.data["status"], "failed")
+        self.assertEqual(status_response.data["exception"], STUCK_EXPORT_MESSAGE)
+        self.assertEqual(content_response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(content_response.data, {"detail": STUCK_EXPORT_MESSAGE})
 
     def test_dataset_export_rejects_an_invalid_export_id(self) -> None:
         dataset = self._create_dataset()

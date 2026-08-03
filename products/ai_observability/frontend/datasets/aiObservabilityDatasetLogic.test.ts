@@ -9,7 +9,11 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import { CodeEnumApi } from '../generated/api.schemas'
-import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
+import type {
+    DatasetExportReadApi,
+    DatasetItemReadApi as DatasetItem,
+    DatasetReadApi as Dataset,
+} from '../generated/api.schemas'
 import { DatasetFormValues, DatasetLogicProps, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
@@ -102,17 +106,8 @@ describe('aiObservabilityDatasetLogic', () => {
     }
 
     const mockDatasetsApi = jest.mocked(datasetsApi)
-    const mockDatasetExport = {
+    const mockDatasetExport: DatasetExportReadApi = {
         id: 123,
-        dashboard: null,
-        insight: null,
-        export_format: 'application/x-ndjson',
-        export_context: {
-            dataset_id: mockDataset.id,
-            dataset_revision: 7,
-            filename: 'test-dataset',
-        },
-        has_content: true,
         status: 'complete' as const,
         dataset_revision: 7,
         filename: 'test-dataset.jsonl',
@@ -426,6 +421,7 @@ describe('aiObservabilityDatasetLogic', () => {
         it('starts an export pinned to the selected revision', async () => {
             const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
             logic.mount()
+            logic.actions.sceneMounted()
 
             await expectLogic(logic, () => logic.actions.exportDataset(7)).toFinishAllListeners()
 
@@ -449,6 +445,59 @@ describe('aiObservabilityDatasetLogic', () => {
 
             expect(logic.values.datasetExport).toEqual(mockDatasetExport)
             expect(logic.values.datasetExportErrorOperation).toBe('create')
+        })
+
+        it('stops polling when the scene unmounts', async () => {
+            const pendingExport = {
+                ...mockDatasetExport,
+                status: 'pending' as const,
+            }
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+
+            try {
+                mockDatasetsApi.getExport.mockClear()
+                logic.actions.sceneMounted()
+                logic.actions.handleDatasetExport(pendingExport)
+
+                expect(logic.cache.disposables.registry.has('dataset-export-poll')).toBe(true)
+
+                logic.actions.onUnmount()
+                jest.advanceTimersByTime(2_000)
+
+                expect(logic.cache.disposables.registry.has('dataset-export-poll')).toBe(false)
+                expect(mockDatasetsApi.getExport).not.toHaveBeenCalled()
+            } finally {
+                logic.unmount()
+                jest.useRealTimers()
+            }
+        })
+
+        it('resumes a pending export when the scene mounts again', async () => {
+            const pendingExport: DatasetExportReadApi = {
+                ...mockDatasetExport,
+                status: 'pending',
+            }
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.exportDatasetSuccess(pendingExport)
+                logic.actions.onUnmount()
+                mockDatasetsApi.getExport.mockClear()
+
+                logic.actions.sceneMounted()
+                jest.advanceTimersByTime(2_000)
+
+                expect(mockDatasetsApi.getExport).toHaveBeenCalledWith(mockDataset.id, pendingExport.id)
+            } finally {
+                logic.unmount()
+                jest.useRealTimers()
+            }
         })
     })
 
@@ -633,7 +682,7 @@ describe('aiObservabilityDatasetLogic', () => {
 
     describe('filter functionality', () => {
         let logic: ReturnType<typeof aiObservabilityDatasetLogic.build>
-        const props: DatasetLogicProps = { datasetId: 'existing-dataset-id' }
+        const props: DatasetLogicProps = { datasetId: mockDataset.id }
 
         beforeEach(() => {
             mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
@@ -712,7 +761,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(mockDatasetsApi.listItems).toHaveBeenCalledWith({
-                    dataset: 'existing-dataset-id',
+                    dataset: mockDataset.id,
                     offset: 25,
                     limit: 25,
                     archived: false,
@@ -726,7 +775,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(mockDatasetsApi.listItems).toHaveBeenCalledWith({
-                    dataset: 'existing-dataset-id',
+                    dataset: mockDataset.id,
                     offset: 50,
                     limit: 25,
                     archived: false,
@@ -743,10 +792,28 @@ describe('aiObservabilityDatasetLogic', () => {
 
                 expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(initialCallCount) // Should not increase
             })
+
+            it('clears old rows and keeps the load error when a filter request fails', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.loadDatasetItemsSuccess({ results: [mockDatasetItem1], count: 1 })
+                mockDatasetsApi.listItems.mockRejectedValue(new ApiError('Could not load items', 500))
+                silenceKeaLoadersErrors()
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.setFilters({ revision: 7 }, false)
+                    }).toFinishAllListeners()
+                } finally {
+                    resumeKeaLoadersErrors()
+                }
+
+                expect(logic.values.datasetItems).toEqual({ results: [], count: 0 })
+                expect(logic.values.datasetItemsLoadError?.status).toBe(500)
+            })
         })
 
         describe('dataset item modal and URL state', () => {
-            it('opens modal when dataset item is selected from data', () => {
+            it('opens modal when dataset item details load', () => {
                 const mockDatasetItems = {
                     results: [mockDatasetItem1, mockDatasetItem2],
                     count: 2,
@@ -754,8 +821,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 }
 
                 logic.actions.loadDatasetItemsSuccess(mockDatasetItems)
-                logic.actions.setSelectedDatasetItem(mockDatasetItem1)
-                logic.actions.triggerDatasetItemModal(true)
+                logic.actions.loadDatasetItemDetailsSuccess(mockDatasetItem1, { itemId: mockDatasetItem1.id })
 
                 expect(logic.values.selectedDatasetItem).toEqual(mockDatasetItem1)
                 expect(logic.values.isDatasetItemModalOpen).toBe(true)
@@ -769,8 +835,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 }
 
                 logic.actions.loadDatasetItemsSuccess(mockDatasetItems)
-                logic.actions.setSelectedDatasetItem(mockDatasetItem1)
-                logic.actions.triggerDatasetItemModal(true)
+                logic.actions.loadDatasetItemDetailsSuccess(mockDatasetItem1, { itemId: mockDatasetItem1.id })
 
                 await expectLogic(logic, () => {
                     logic.actions.closeModalAndRefetchDatasetItems(false)
@@ -781,13 +846,17 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('refetches dataset items when requested on modal close', async () => {
-                const initialCallCount = mockDatasetsApi.listItems.mock.calls.length
+                const initialItemCallCount = mockDatasetsApi.listItems.mock.calls.length
+                const initialDatasetCallCount = mockDatasetsApi.getDataset.mock.calls.length
+                const initialRevisionCallCount = mockDatasetsApi.listRevisions.mock.calls.length
 
                 await expectLogic(logic, () => {
                     logic.actions.closeModalAndRefetchDatasetItems(true)
                 }).toFinishAllListeners()
 
-                expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(initialCallCount + 1)
+                expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(initialItemCallCount + 1)
+                expect(mockDatasetsApi.getDataset).toHaveBeenCalledTimes(initialDatasetCallCount + 1)
+                expect(mockDatasetsApi.listRevisions).toHaveBeenCalledTimes(initialRevisionCallCount + 1)
             })
         })
 
@@ -803,7 +872,7 @@ describe('aiObservabilityDatasetLogic', () => {
 
             it('handles URL with item parameter via urlToAction', async () => {
                 // Test that urlToAction responds to URL changes with item parameter
-                const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
                 await expectLogic(logic, () => {
                     router.actions.push(datasetUrl, { item: 'item-1', page: '1' })
@@ -815,8 +884,120 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(logic.values.isDatasetItemModalOpen).toBe(true)
             })
 
+            it('rejects a deep-linked item from another dataset', async () => {
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+                mockDatasetsApi.getItem.mockResolvedValue({ ...mockDatasetItem1, dataset: 'another-dataset' })
+                silenceKeaLoadersErrors()
+
+                try {
+                    await expectLogic(logic, () => {
+                        router.actions.push(datasetUrl, { item: mockDatasetItem1.id })
+                    }).toFinishAllListeners()
+                } finally {
+                    resumeKeaLoadersErrors()
+                }
+
+                expect(logic.values.selectedDatasetItem).toBe(null)
+                expect(logic.values.selectedDatasetItemLoadError?.status).toBe(404)
+            })
+
+            it('ignores an item error after the modal closes', async () => {
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+                let rejectItemRequest: (error: ApiError) => void = () => undefined
+                mockDatasetsApi.getItem.mockReturnValueOnce(
+                    new Promise((_, reject) => {
+                        rejectItemRequest = reject
+                    })
+                )
+
+                router.actions.push(datasetUrl, { item: mockDatasetItem1.id })
+                expect(logic.values.selectedDatasetItemDetailsLoading).toBe(true)
+
+                router.actions.push(datasetUrl)
+                logic.actions.triggerDatasetItemModal(true)
+                expect(logic.values.selectedDatasetItemDetailsLoading).toBe(false)
+
+                rejectItemRequest(new ApiError('Could not load item', 500))
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.selectedDatasetItemLoadError).toBe(null)
+                expect(logic.values.isDatasetItemModalOpen).toBe(true)
+            })
+
+            it('does not show another item history after a history request fails', async () => {
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+                mockDatasetsApi.listItemVersions.mockResolvedValueOnce({
+                    results: [mockDatasetItem1],
+                    count: 1,
+                })
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { item: mockDatasetItem1.id })
+                }).toFinishAllListeners()
+
+                expect(logic.values.selectedDatasetItemVersions.results).toEqual([mockDatasetItem1])
+
+                mockDatasetsApi.listItemVersions.mockRejectedValueOnce(new ApiError('Could not load history', 500))
+                silenceKeaLoadersErrors()
+                try {
+                    await expectLogic(logic, () => {
+                        router.actions.push(datasetUrl, { item: mockDatasetItem2.id })
+                    }).toFinishAllListeners()
+                } finally {
+                    resumeKeaLoadersErrors()
+                }
+
+                expect(logic.values.selectedDatasetItem).toEqual(mockDatasetItem2)
+                expect(logic.values.selectedDatasetItemVersions).toEqual({ results: [], count: 0 })
+                expect(logic.values.datasetItemVersionsLoadError?.status).toBe(500)
+            })
+
+            it('paginates item history 25 versions at a time', async () => {
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { item: mockDatasetItem1.id })
+                }).toFinishAllListeners()
+
+                expect(mockDatasetsApi.listItemVersions).toHaveBeenLastCalledWith(mockDatasetItem1.id, {
+                    limit: 25,
+                    offset: 0,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadDatasetItemVersions({ itemId: mockDatasetItem1.id, page: 2 })
+                }).toFinishAllListeners()
+
+                expect(mockDatasetsApi.listItemVersions).toHaveBeenLastCalledWith(mockDatasetItem1.id, {
+                    limit: 25,
+                    offset: 25,
+                })
+            })
+
+            it('does not restore a history row that belongs to another item', async () => {
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { item: mockDatasetItem2.id })
+                }).toFinishAllListeners()
+
+                logic.actions.loadDatasetItemVersionsSuccess(
+                    { results: [{ ...mockDatasetItem1, version: 2 }], count: 1 },
+                    { itemId: mockDatasetItem2.id, page: 1 }
+                )
+
+                await expectLogic(logic, () => {
+                    logic.actions.restoreDatasetItemVersion(2)
+                }).toFinishAllListeners()
+
+                expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
+                expect(lemonToast.error).toHaveBeenCalledWith(
+                    "Couldn't find that item version. Reload the history and try again."
+                )
+            })
+
             it('clears a deep-linked item error when the item is removed from the URL', async () => {
-                const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
                 silenceKeaLoadersErrors()
 
                 try {
@@ -840,7 +1021,7 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('sets filters from URL parameters via urlToAction', async () => {
-                const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
                 await expectLogic(logic, () => {
                     router.actions.push(datasetUrl, { page: '3', limit: '25' })
@@ -856,7 +1037,7 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('loads an exact revision and archived items from URL state', async () => {
-                const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
                 await expectLogic(logic, () => {
                     router.actions.push(datasetUrl, {
@@ -869,7 +1050,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(logic.values.filters).toMatchObject({ archived: true, revision: 12 })
                 expect(mockDatasetsApi.getItem).toHaveBeenCalledWith('item-1', 12)
                 expect(mockDatasetsApi.listItems).toHaveBeenLastCalledWith({
-                    dataset: 'existing-dataset-id',
+                    dataset: mockDataset.id,
                     offset: 0,
                     limit: 25,
                     archived: true,
@@ -878,7 +1059,7 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('sets active tab from URL parameters via urlToAction', async () => {
-                const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
                 await expectLogic(logic, () => {
                     router.actions.push(datasetUrl, { tab: 'metadata', page: '1' })
@@ -889,9 +1070,7 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('closes modal and clears state when closeModalAndRefetchDatasetItems is called', async () => {
-                // Set up initial state with modal open
-                logic.actions.setSelectedDatasetItem(mockDatasetItem1)
-                logic.actions.triggerDatasetItemModal(true)
+                logic.actions.loadDatasetItemDetailsSuccess(mockDatasetItem1, { itemId: mockDatasetItem1.id })
 
                 // Close modal
                 await expectLogic(logic, () => {
@@ -904,7 +1083,7 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('handles complete workflow: URL -> modal -> close', async () => {
-                const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
                 // Step 1: Navigate to URL with item parameter
                 await expectLogic(logic, () => {

@@ -25,14 +25,17 @@ from posthog.models.organization import Organization
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-from products.exports.backend.facade.api import start_export_asset_workflow
+from products.exports.backend.facade.api import (
+    DATASET_EXPORT_KIND,
+    get_export_asset_effective_exception,
+    start_export_asset_workflow,
+)
 from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
 from products.product_analytics.backend.models.insight import Insight
 
@@ -87,19 +90,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
     def to_representation(self, instance):
         """Override to show stuck exports as having an exception."""
         data = super().to_representation(instance)
+        effective_exception = get_export_asset_effective_exception(instance)
+        data["exception"] = effective_exception
 
-        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
-        # has no content, and has no recorded exception)
-        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
-        if (
-            timeout_threshold
-            and instance.created_at < timeout_threshold
-            and not instance.has_content
-            and not instance.exception
-        ):
-            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
-            data["exception"] = timeout_message
-
+        if effective_exception is not None and instance.exception is None:
             distinct_id = (
                 self.context["request"].user.distinct_id
                 if "request" in self.context and self.context["request"].user
@@ -110,7 +104,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 event="export timeout error returned",
                 properties={
                     **instance.get_analytics_metadata(),
-                    "timeout_message": timeout_message,
+                    "timeout_message": effective_exception,
                     "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
                 },
                 groups=groups(instance.team.organization, instance.team),
@@ -438,7 +432,10 @@ class ExportedAssetViewSet(
         exports are readable by project members who pass viewer checks in safely_get_object.
         """
         if self.action == "list":
-            queryset = queryset.filter(created_by=self.request.user).exclude(export_context__has_key="dataset_id")
+            queryset = queryset.filter(created_by=self.request.user).exclude(
+                export_format=ExportedAsset.ExportFormat.JSONL,
+                export_context__kind=DATASET_EXPORT_KIND,
+            )
 
             session_recording_filter = self.request.query_params.get("session_recording_id")
             if session_recording_filter:
@@ -461,7 +458,7 @@ class ExportedAssetViewSet(
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
         export_context = instance.export_context or {}
 
-        if "dataset_id" in export_context:
+        if instance.is_dataset_export:
             raise NotFound()
 
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
