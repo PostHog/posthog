@@ -1,4 +1,14 @@
-import { Attributes, HrTime, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
+import {
+    Attributes,
+    HrTime,
+    Link,
+    SpanContext,
+    SpanKind,
+    SpanStatusCode,
+    TraceFlags,
+    Tracer,
+    trace,
+} from '@opentelemetry/api'
 import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
@@ -44,6 +54,72 @@ function getHighResTimestamp(): HrTime {
     const nanos = Math.round((epochMillis % 1000) * 1_000_000)
     return [seconds, nanos]
 }
+// Cap on how many capture-trace links we attach to a single ingestion batch
+// span. OpenTelemetry's default max links per span is 128; a wide batch can span
+// more distinct capture requests than that.
+const MAX_BATCH_TRACE_LINKS = 128
+
+const batchTraceLinksTruncatedCounter = new Counter({
+    name: 'ingestion_batch_trace_links_truncated_total',
+    help: 'Batches whose distinct capture-trace links exceeded the per-span cap and were truncated',
+})
+
+const INVALID_TRACE_ID = '0'.repeat(32)
+const INVALID_SPAN_ID = '0'.repeat(16)
+// W3C `traceparent`: version "00", 32-hex trace id, 16-hex span id, 2-hex flags.
+const TRACEPARENT_REGEX = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/
+
+/**
+ * Parses a W3C `traceparent` string into a remote {@link SpanContext}, or null
+ * when it is malformed or carries an all-zero (invalid) trace/span id.
+ */
+export function spanContextFromTraceparent(traceparent: string): SpanContext | null {
+    const match = TRACEPARENT_REGEX.exec(traceparent)
+    if (!match) {
+        return null
+    }
+    const [, traceId, spanId, flags] = match
+    if (traceId === INVALID_TRACE_ID || spanId === INVALID_SPAN_ID) {
+        return null
+    }
+    return { traceId, spanId, traceFlags: parseInt(flags, 16), isRemote: true }
+}
+
+/**
+ * Builds OpenTelemetry span links from a batch of W3C `traceparent` strings so a
+ * batch-processing span can reference every capture trace that fed it — the
+ * standard fan-in pattern for a consumer that mixes messages from many upstream
+ * traces. Links are deduped by trace id, restricted to sampled traces (linking
+ * to an unsampled trace dangles), and capped at {@link MAX_BATCH_TRACE_LINKS}.
+ */
+export function linksFromTraceparents(traceparents: Iterable<string>): Link[] {
+    const seen = new Set<string>()
+    const links: Link[] = []
+    let truncated = false
+    for (const traceparent of traceparents) {
+        const spanContext = spanContextFromTraceparent(traceparent)
+        if (!spanContext) {
+            continue
+        }
+        if ((spanContext.traceFlags & TraceFlags.SAMPLED) === 0) {
+            continue
+        }
+        if (seen.has(spanContext.traceId)) {
+            continue
+        }
+        seen.add(spanContext.traceId)
+        if (links.length >= MAX_BATCH_TRACE_LINKS) {
+            truncated = true
+            continue
+        }
+        links.push({ context: spanContext })
+    }
+    if (truncated) {
+        batchTraceLinksTruncatedCounter.inc()
+    }
+    return links
+}
+
 /**
  * Wraps a function in an OpenTelemetry tracing span.
  */
@@ -51,13 +127,14 @@ export function withTracingSpan<T>(
     tracer: Tracer | string,
     name: string,
     attrs: Attributes,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
+    links?: Link[]
 ): Promise<T> {
     const _tracer = typeof tracer === 'string' ? trace.getTracer(tracer) : tracer
     const startHrTime = getHighResTimestamp()
     return _tracer.startActiveSpan(
         name,
-        { kind: SpanKind.CLIENT, attributes: attrs, startTime: startHrTime },
+        { kind: SpanKind.CLIENT, attributes: attrs, startTime: startHrTime, links },
         async (span) => {
             try {
                 const out = await fn()
@@ -81,7 +158,8 @@ export async function withSpan<T>(
     tracer: Tracer | string,
     name: string,
     attrs: Attributes,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
+    links?: Link[]
 ): Promise<T> {
     const stopTimer = instrumentedFnSummary
         .labels({
@@ -91,7 +169,7 @@ export async function withSpan<T>(
         .startTimer()
 
     try {
-        return await withTracingSpan(tracer, name, attrs, fn)
+        return await withTracingSpan(tracer, name, attrs, fn, links)
     } finally {
         stopTimer()
     }
@@ -105,6 +183,8 @@ interface FunctionInstrumentationOptions {
     logExecutionTime?: boolean
     sendException?: boolean
     measureTime?: boolean
+    // OpenTelemetry span links, e.g. the capture traces that fed a Kafka batch.
+    links?: Link[]
 }
 
 /**
@@ -123,6 +203,7 @@ export async function instrumentFn<T>(
     const sendException = (typeof options === 'string' ? undefined : options.sendException) ?? true
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
+    const links = typeof options === 'string' ? undefined : options.links
 
     const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
         instrumentedFunctionTimeout.labels({ function: key }).inc()
@@ -134,7 +215,7 @@ export async function instrumentFn<T>(
         // Skip expensive span creation when tracing is disabled
         const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
             ? await func()
-            : await withSpan('instrumented_function', key, {}, func)
+            : await withSpan('instrumented_function', key, {}, func, links)
         end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)
