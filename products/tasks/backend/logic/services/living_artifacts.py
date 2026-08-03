@@ -1116,8 +1116,10 @@ def _post_composed_answer_message(
 # Section blocks hard-cap at 3000 chars. The relay pre-splits at 2900 before conversion,
 # but the mention prefix and mrkdwn expansion (table column padding, escapes) can push a
 # section past that — re-split after conversion, preferring whitespace so the cut doesn't
-# land inside a converted mrkdwn entity like `<url|text>`.
+# land inside a converted mrkdwn entity like `<url|text>`. Tables convert to fenced blocks,
+# so a cut inside one is closed and reopened to keep each block self-contained.
 _SLACK_SECTION_BLOCK_CHAR_LIMIT = 3000
+_SLACK_CODE_FENCE = "```"
 
 
 def _section_blocks(sections: list[str]) -> list[dict[str, Any]]:
@@ -1131,18 +1133,28 @@ def _section_blocks(sections: list[str]) -> list[dict[str, Any]]:
 def _split_section_text(section: str) -> list[str]:
     pieces: list[str] = []
     remaining = section
-    while len(remaining) > _SLACK_SECTION_BLOCK_CHAR_LIMIT:
-        window = remaining[:_SLACK_SECTION_BLOCK_CHAR_LIMIT]
+    reopen = ""
+    while True:
+        candidate = reopen + remaining
+        if len(candidate) <= _SLACK_SECTION_BLOCK_CHAR_LIMIT:
+            if candidate.strip():
+                pieces.append(candidate)
+            return pieces
+        limit = _SLACK_SECTION_BLOCK_CHAR_LIMIT
+        if candidate[:limit].count(_SLACK_CODE_FENCE) % 2:
+            limit -= len(f"\n{_SLACK_CODE_FENCE}")
+        window = candidate[:limit]
         cut = max(window.rfind("\n"), window.rfind(" "))
         if cut <= 0:
-            cut = _SLACK_SECTION_BLOCK_CHAR_LIMIT
-        piece = remaining[:cut]
+            cut = limit
+        piece = candidate[:cut]
+        remaining = candidate[cut:].lstrip(" \n")
+        reopen = ""
+        if piece.count(_SLACK_CODE_FENCE) % 2:
+            piece += f"\n{_SLACK_CODE_FENCE}"
+            reopen = f"{_SLACK_CODE_FENCE}\n"
         if piece.strip():
             pieces.append(piece)
-        remaining = remaining[cut:].lstrip(" \n")
-    if remaining.strip():
-        pieces.append(remaining)
-    return pieces
 
 
 def _post_thread_text(slack: Any, *, mapping: Any, text: str) -> bool:

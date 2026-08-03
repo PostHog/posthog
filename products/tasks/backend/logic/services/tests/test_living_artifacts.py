@@ -4,7 +4,7 @@ from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -15,6 +15,7 @@ from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
+    _SLACK_CODE_FENCE,
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
@@ -548,6 +549,7 @@ class TestLivingArtifacts(TestCase):
         slack_integration.missing_scopes.return_value = {"files:write"}
         mock_integration_for_mapping.return_value = slack_integration
 
+    @override_settings(SITE_URL="http://localhost:8010")
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_file_adapter_allows_url_backed_chart_images_without_file_scope(
@@ -569,6 +571,9 @@ class TestLivingArtifacts(TestCase):
 
         self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
         self.assertEqual(artifact.location["delivery_status"], "pending")
+        # Delivery reads image_url straight off the row, so the scope bypass is only safe
+        # if creation actually persisted it.
+        self.assertEqual(artifact.metadata["image_url"], "http://localhost:8010/exporter/export-1.png?token=abc")
 
     @parameterized.expand(
         [
@@ -758,6 +763,7 @@ class TestLivingArtifacts(TestCase):
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
 
 
+@override_settings(SITE_URL="http://localhost:8010")
 class TestChartCardBlockBuilders(SimpleTestCase):
     @parameterized.expand(
         [
@@ -792,6 +798,19 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             text = block["text"]["text"]
             self.assertLessEqual(len(text), 3000)
             self.assertEqual(set(text.split(" ")), {"word"})
+
+    def test_oversized_fenced_section_is_closed_and_reopened_around_the_split(self):
+        # Tables convert to fenced blocks before this re-split, so a cut inside one would
+        # leave an unclosed fence in one block and a stray closer in the next.
+        table = "| cell | cell |\n" * 250
+        blocks = _section_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"])
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            text = block["text"]["text"]
+            self.assertLessEqual(len(text), 3000)
+            self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
+            self.assertTrue(text.startswith(_SLACK_CODE_FENCE))
+            self.assertTrue(text.endswith(_SLACK_CODE_FENCE))
 
     def test_untrusted_image_url_falls_back_to_uploaded_file_reference(self):
         artifact = TaskArtifact(name="Chart", metadata={"image_url": "https://attacker.example/fake.png"})

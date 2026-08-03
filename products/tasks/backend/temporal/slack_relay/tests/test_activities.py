@@ -3,7 +3,7 @@ from typing import ClassVar
 import unittest
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -364,6 +364,7 @@ class TestRelaySlackMessage(TestCase):
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    @override_settings(SITE_URL="http://localhost:8010")
     def test_chart_composes_single_message_with_answer_image_and_button(
         self,
         _mock_delete_progress,
@@ -430,6 +431,63 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(artifact.location["delivery_status"], "delivered")
         self.assertNotIn("slack_file_id", artifact.versions[0])
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
+
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
+        return_value=True,
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    @override_settings(SITE_URL="http://localhost:8010")
+    def test_chart_without_image_url_uploads_privately_then_references_the_file(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+        mock_integration_for_mapping,
+        mock_read_bytes,
+        _mock_requests_post,
+        _mock_flag,
+        _mock_living_artifacts_flag,
+    ):
+        artifact, _storage_path = self._create_pending_slack_file_artifact(
+            name="Signups by week",
+            filename="signups.v1.png",
+            content_type="image/png",
+            metadata={"posthog_url": "http://localhost:8010/project/1/insights/abc123"},
+        )
+        slack = self._mock_slack_upload(mock_integration_for_mapping, title="Signups by week")
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        mock_read_bytes.return_value = b"png bytes"
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-chart-upload",
+                text="Here's the trend.",
+            )
+        )
+
+        # Sharing the upload to the channel would make Slack materialize a second copy
+        # alongside the image block in the composed message.
+        complete_payload = slack.api_call.call_args_list[1].kwargs["data"]
+        self.assertNotIn("channel_id", complete_payload)
+        self.assertNotIn("thread_ts", complete_payload)
+
+        slack.chat_postMessage.assert_called_once()
+        _answer_block, _header_block, image_block, _actions_block = slack.chat_postMessage.call_args.kwargs["blocks"]
+        self.assertEqual(image_block, {"type": "image", "slack_file": {"id": "F123"}, "alt_text": "Signups by week"})
+        mock_post.assert_not_called()
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
+        self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
+        self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
 
     @patch(
         "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
