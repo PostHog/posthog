@@ -27,7 +27,7 @@ import {
   readPrUrls,
 } from "@posthog/shared";
 import { unzipSync } from "fflate";
-import { Hono, type Context } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
 import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
