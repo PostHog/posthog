@@ -72,7 +72,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         self.assertEqual(response.content, content)
         self.assertEqual(response["Content-Disposition"], "inline")
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(response["Content-Security-Policy"].split(";")[0], "default-src 'none'")
+        self.assertEqual(response["Content-Security-Policy"].split(";")[0], "sandbox allow-scripts")
         with self.assertRaises(Http404):
             canvas_artifact(RequestFactory().get("/"), token or "", "source.ts")
         read_bytes.assert_called_once()
@@ -113,6 +113,19 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
     )
     def test_production_artifacts_are_not_served_from_the_application_origin(self) -> None:
+        build = MagicMock(team_id=1, canvas_id="canvas", id="build")
+        token = create_canvas_artifact_token(build)
+
+        with self.assertRaises(Http404):
+            canvas_artifact(RequestFactory().get("/", HTTP_HOST="app.example"), token or "", "index.html")
+
+    @override_settings(
+        DEBUG=True,
+        TEST=False,
+        CANVAS_ARTIFACT_SIGNING_KEYS=["a-development-signing-key-at-least-32-bytes"],
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
+    )
+    def test_configured_origin_is_enforced_in_debug(self) -> None:
         build = MagicMock(team_id=1, canvas_id="canvas", id="build")
         token = create_canvas_artifact_token(build)
 

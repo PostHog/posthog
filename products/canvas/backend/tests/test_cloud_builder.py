@@ -97,6 +97,14 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("port?.postMessage", runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
 
+    def test_runtime_bounds_host_side_effects(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        self.assertIn('url.protocol!=="https:"', runtime)
+        self.assertIn('url.hostname.endsWith(".posthog.com")', runtime)
+        self.assertIn("serialized.length>16384", runtime)
+
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {
@@ -125,6 +133,13 @@ class TestCanvasCloudBuilder(SimpleTestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["diagnostics"][0]["code"], "import_not_declared")
+
+    def test_rejects_prototype_chain_package_imports(self) -> None:
+        for specifier in ("constructor", "toString", "__proto__"):
+            result = run_cloud_builder(self._project(f'import value from "{specifier}"; void value'))
+
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["diagnostics"][0]["code"], "import_not_declared")
 
     def test_builds_binary_assets_and_module_workers(self) -> None:
         payload = self._project(

@@ -65,6 +65,20 @@ class CanvasAPIBaseTest(APIBaseTest):
 
 
 class TestCanvasCrud(CanvasAPIBaseTest):
+    def test_missing_user_only_sees_public_channels(self):
+        with team_scope(self.team.id):
+            public = Channel.objects.create(team=self.team, name="public")
+            personal = Channel.objects.create(
+                team=self.team,
+                name="me",
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=None,
+            )
+            visible_ids = set(Channel.objects.filter(Channel.visible_to_q(None)).values_list("id", flat=True))
+
+        assert public.id in visible_ids
+        assert personal.id not in visible_ids
+
     def test_create_lists_and_filters_by_channel(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):

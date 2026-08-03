@@ -7,13 +7,12 @@ origin. Access is capability-based — a signed, time-boxed token minted for the
 authenticated client is the only credential, so the artifact origin itself
 holds no cookies or sessions.
 
-Integrity is verified when artifacts are written (the build worker checks
-every file against its manifest hash before upload); serving trusts the
-private bucket and uses the manifest hash as the response ETag instead of
-re-hashing per request.
+Integrity is verified when artifacts are written and again when they are read
+from object storage. The manifest hash is also used as the response ETag.
 """
 
 import time
+import hashlib
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -99,10 +98,9 @@ def _read_token(token: str) -> dict[str, Any]:
 
 @xframe_options_exempt
 def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> HttpResponse:
-    if not (settings.DEBUG or settings.TEST):
-        configured_host = _configured_artifact_host()
-        if configured_host is None or request.get_host().lower() != configured_host:
-            raise Http404
+    configured_host = _configured_artifact_host()
+    if settings.CANVAS_ARTIFACT_ORIGIN and (configured_host is None or request.get_host().lower() != configured_host):
+        raise Http404
     claims = _read_token(token)
     team_id = claims.get("team_id")
     if not isinstance(team_id, int) or isinstance(team_id, bool):
@@ -114,7 +112,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404 from None
     build = (
         CanvasBuild.objects.for_team(team_id)
-        .filter(id=build_id, canvas_id=canvas_id, status=CanvasBuild.STATUS_READY)
+        .filter(id=build_id, canvas_id=canvas_id, canvas__deleted=False, status=CanvasBuild.STATUS_READY)
         .first()
     )
     if build is None or not build.artifact_object_prefix or not isinstance(build.manifest, dict):
@@ -143,7 +141,11 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
     except object_storage.ObjectStorageError:
         raise Http404 from None
-    if content is None or len(content) != asset.get("sizeBytes"):
+    if (
+        content is None
+        or len(content) != asset.get("sizeBytes")
+        or hashlib.sha256(content).hexdigest() != asset["contentHash"]
+    ):
         raise Http404
     response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"

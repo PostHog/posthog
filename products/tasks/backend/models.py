@@ -81,6 +81,8 @@ class Channel(TeamScopedRootMixin):
         filtering another model's queryset (e.g. ``"channel"``); empty filters
         ``Channel`` rows directly."""
         prefix = f"{relation}__" if relation else ""
+        if user_id is None:
+            return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL})
         return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL}) | models.Q(
             **{f"{prefix}created_by_id": user_id}
         )

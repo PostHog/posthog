@@ -59,7 +59,7 @@ class TestCanvasArtifacts(APIBaseTest):
         assert response.status_code == 200
         assert response.content == CONTENT
         assert response["ETag"] == f'"{self.content_hash}"'
-        assert "default-src 'none'" in response["Content-Security-Policy"]
+        assert response["Content-Security-Policy"].startswith("sandbox allow-scripts; default-src 'none'")
         assert response["Cache-Control"] == "private, max-age=31536000, immutable"
         # The sandboxed iframe's opaque origin fetches module scripts in CORS
         # mode; without this the entry bundle is blocked and the canvas
@@ -93,6 +93,15 @@ class TestCanvasArtifacts(APIBaseTest):
 
     def test_size_mismatch_404s(self):
         self.read_bytes.return_value = CONTENT + b"tampered"
+        assert self.client.get(self._url()).status_code == 404
+
+    def test_content_hash_mismatch_404s(self):
+        self.read_bytes.return_value = b"<html>no</html>"
+        assert len(self.read_bytes.return_value) == len(CONTENT)
+        assert self.client.get(self._url()).status_code == 404
+
+    def test_deleted_canvas_build_404s(self):
+        Canvas.objects.unscoped().filter(id=self.canvas.id).update(deleted=True)
         assert self.client.get(self._url()).status_code == 404
 
     def test_object_storage_source_keys_never_serve(self):
