@@ -77,6 +77,7 @@ interface LoopFormProps {
   loop?: LoopSchemas.Loop;
   variant?: "wizard" | "embedded";
   onCancel?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onSaved?: (loop: LoopSchemas.Loop) => void;
 }
 
@@ -84,6 +85,7 @@ export function LoopForm({
   loop,
   variant = "wizard",
   onCancel,
+  onDirtyChange,
   onSaved,
 }: LoopFormProps) {
   const isEdit = !!loop;
@@ -106,10 +108,20 @@ export function LoopForm({
   const [showAdvanced, setShowAdvanced] = useState(
     () => !!(loop && (loop.model || loop.reasoning_effort)),
   );
+  const initialValues = useMemo(
+    () => (loop ? normalizeLoopFormValues(loopToFormValues(loop)) : null),
+    [loop],
+  );
+  const isDirty =
+    !!initialValues && JSON.stringify(values) !== JSON.stringify(initialValues);
 
   useEffect(() => {
     if (!loop) useLoopDraftStore.getState().setPrefill(null);
   }, [loop]);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   // Contexts are a channels surface; hide the attachment UI when channels are
   // off, unless this loop is already attached so the link stays visible and

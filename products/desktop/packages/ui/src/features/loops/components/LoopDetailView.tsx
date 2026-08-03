@@ -76,8 +76,13 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
   const deleteLoop = useDeleteLoop();
   const runLoop = useRunLoop(loopId);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState<
+    "back" | "summary" | null
+  >(null);
   const [runNowPending, setRunNowPending] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [editDirty, setEditDirty] = useState(false);
 
   const runsQuery = useLoopRuns(loopId);
   const runs = runsQuery.data ?? [];
@@ -204,6 +209,49 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
     });
   };
 
+  const leavePage = () => {
+    if (hasLoopListOrigin && canGoBackInHistory()) {
+      goBackInHistory();
+      return;
+    }
+    navigateToLoops();
+  };
+
+  const requestLeaveEdit = (action: "back" | "summary") => {
+    if (isEditing && editDirty) {
+      setPendingLeaveAction(action);
+      setDiscardOpen(true);
+      return;
+    }
+    if (action === "back") {
+      leavePage();
+    } else {
+      setIsEditing(false);
+      setEditDirty(false);
+    }
+  };
+
+  const discardChanges = () => {
+    const action = pendingLeaveAction;
+    setDiscardOpen(false);
+    setPendingLeaveAction(null);
+    setEditDirty(false);
+    setIsEditing(false);
+    if (action === "back") {
+      leavePage();
+    }
+  };
+
+  useEffect(() => {
+    if (!isEditing || !editDirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isEditing, editDirty]);
+
   if (isLoading) {
     return (
       <div className="mx-auto w-full max-w-5xl px-8 py-8">
@@ -227,13 +275,7 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
           <Button
             variant="link-muted"
             size="sm"
-            onClick={() => {
-              if (hasLoopListOrigin && canGoBackInHistory()) {
-                goBackInHistory();
-                return;
-              }
-              navigateToLoops();
-            }}
+            onClick={() => requestLeaveEdit("back")}
             className="w-fit px-0"
           >
             <ArrowLeftIcon size={15} />
@@ -277,13 +319,30 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
               >
                 Run now
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEditing((editing) => !editing)}
+              <Flex
+                align="center"
+                gap="2"
+                className={`rounded-(--radius-2) border px-2.5 py-1.5 ${
+                  isEditing
+                    ? "border-(--accent-7) bg-(--accent-3)"
+                    : "border-border"
+                }`}
               >
-                {isEditing ? "View summary" : "Edit"}
-              </Button>
+                <Text className="font-medium text-[12.5px] text-gray-12">
+                  Edit mode
+                </Text>
+                <Switch
+                  checked={isEditing}
+                  aria-label="Edit mode"
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      setIsEditing(true);
+                      return;
+                    }
+                    requestLeaveEdit("summary");
+                  }}
+                />
+              </Flex>
               <Button
                 variant="destructive"
                 size="sm"
@@ -309,9 +368,11 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
           <LoopForm
             loop={loop}
             variant="embedded"
-            onCancel={() => setIsEditing(false)}
+            onDirtyChange={setEditDirty}
+            onCancel={() => requestLeaveEdit("summary")}
             onSaved={() => {
               setIsEditing(false);
+              setEditDirty(false);
               toast.success("Loop updated");
             }}
           />
@@ -391,6 +452,32 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
               onClick={handleDelete}
             >
               Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <Text color="gray" className="text-[13px]">
+                This loop has edits that haven't been saved. Leaving edit mode
+                will discard them.
+              </Text>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={
+                <Button variant="outline" size="sm">
+                  Keep editing
+                </Button>
+              }
+            />
+            <Button variant="destructive" size="sm" onClick={discardChanges}>
+              Discard changes
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,6 +1,7 @@
 import {
   CalendarBlank,
   Clock,
+  DotsThreeVertical,
   GithubLogo,
   Globe,
   Plus,
@@ -34,7 +35,7 @@ import {
   formatScheduleTimestamp,
   systemTimezone,
 } from "@posthog/ui/primitives/timezone";
-import { Box, Checkbox, Flex, IconButton, Text } from "@radix-ui/themes";
+import { Box, Checkbox, Flex, Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 import {
   compileCronSchedule,
@@ -248,16 +249,37 @@ function TriggerCard({
           disabled={disabled}
           aria-label={trigger.enabled ? "Disable trigger" : "Enable trigger"}
         />
-        <IconButton
-          variant="ghost"
-          color="gray"
-          size="1"
-          aria-label="Remove trigger"
-          disabled={disabled}
-          onClick={onRemove}
-        >
-          <Trash size={15} />
-        </IconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="link-muted"
+                size="sm"
+                disabled={disabled}
+                aria-label="Trigger actions"
+                className="text-gray-10"
+              >
+                <DotsThreeVertical size={16} weight="bold" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+            <DropdownMenuItem
+              onClick={onRemove}
+              render={
+                <ItemMenuItem size="xs" className="w-full text-(--red-11)">
+                  <ItemMedia variant="icon" className="mt-2 ml-2">
+                    <Trash size={15} />
+                  </ItemMedia>
+                  <ItemContent variant="menuItem">
+                    <ItemTitle>Remove trigger</ItemTitle>
+                  </ItemContent>
+                </ItemMenuItem>
+              }
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Flex>
 
       <Box
