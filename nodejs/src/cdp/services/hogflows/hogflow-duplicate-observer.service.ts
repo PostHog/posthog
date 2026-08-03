@@ -5,7 +5,7 @@ import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFlow } from '../../types'
-import { mirrorCallWithPrimary } from '../../utils/mirror-call'
+import { mirrorCompare } from '../../utils/mirror-call'
 
 const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
 
@@ -47,10 +47,11 @@ export class HogFlowDuplicateObserverService {
 
         let duplicate = false
         try {
-            const existingId = await mirrorCallWithPrimary(
+            const existingId = await mirrorCompare(
                 'hog-flow-duplicate-observer.observe',
                 () => this.redis!.useClient({ name: 'hogflow-observe', failOpen: true }, setNxGet),
-                () => this.redisMirror?.useClient({ name: 'hogflow-observe-mirror', failOpen: true }, setNxGet)
+                () => this.redisMirror?.useClient({ name: 'hogflow-observe-mirror', failOpen: true }, setNxGet),
+                (primary, mirror) => Boolean(primary) === Boolean(mirror)
             )
             if (existingId && existingId !== invocation.id) {
                 duplicate = true

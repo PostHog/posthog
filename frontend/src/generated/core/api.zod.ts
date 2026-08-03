@@ -9860,10 +9860,10 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -9951,10 +9951,10 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10039,10 +10039,10 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10261,10 +10261,10 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10352,10 +10352,10 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10443,10 +10443,10 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10531,10 +10531,10 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10619,10 +10619,10 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10707,10 +10707,10 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10795,10 +10795,10 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10883,10 +10883,10 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()

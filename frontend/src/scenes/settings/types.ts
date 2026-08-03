@@ -190,6 +190,7 @@ export type SettingId =
     | 'logs-metric-rules'
     | 'logs-pii-scrub'
     | 'logs-retention'
+    | 'logs-retention-rules'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
     | 'mcp-hints'
