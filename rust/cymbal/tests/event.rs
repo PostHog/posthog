@@ -505,6 +505,8 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
         mechanism_type: None,
         source: None,
         synthetic: None,
+        exception_id: None,
+        parent_id: None,
     });
     let input = make_event_with_options(vec![exception], None, Some(true));
 
@@ -529,6 +531,48 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
         .functions()
         .iter()
         .any(|function| function == "onClick"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn preserves_exception_chain_ids(db: PgPool) {
+    let harness = TestHarness::new(db);
+    // (type, message, mechanism type, exception_id, parent_id)
+    let chain: [(&str, &str, &str, u32, Option<u32>); 3] = [
+        ("RuntimeException", "outermost", "generic", 0, None),
+        ("IllegalStateException", "the cause", "chained", 1, Some(0)),
+        ("IOException", "also thrown", "suppressed", 2, Some(0)),
+    ];
+    let exceptions = chain
+        .iter()
+        .map(|(kind, message, mechanism_type, exception_id, parent_id)| {
+            let mut exception = make_exception(kind, message);
+            exception.mechanism = Some(Mechanism {
+                handled: Some(false),
+                mechanism_type: Some(mechanism_type.to_string()),
+                source: None,
+                synthetic: None,
+                exception_id: Some(*exception_id),
+                parent_id: *parent_id,
+            });
+            exception
+        })
+        .collect();
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&make_event(exceptions)).await;
+
+    assert!(status.is_success());
+    let stored = &body.first_event().as_ref().unwrap().properties["$exception_list"];
+    for (index, (_, _, mechanism_type, exception_id, parent_id)) in chain.iter().enumerate() {
+        let mechanism = &stored[index]["mechanism"];
+        assert_eq!(mechanism["type"], json!(mechanism_type));
+        assert_eq!(mechanism["handled"], json!(false));
+        assert_eq!(mechanism["exception_id"], json!(exception_id));
+        // An unset parent_id must stay absent rather than serialize as null.
+        assert_eq!(
+            mechanism.get("parent_id"),
+            parent_id.map(Into::into).as_ref()
+        );
+    }
 }
 
 // Frame resolution tests

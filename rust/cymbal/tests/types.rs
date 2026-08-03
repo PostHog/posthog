@@ -3,9 +3,9 @@ use std::str::FromStr;
 use common_types::ClickHouseEvent;
 use cymbal::{
     frames::{Frame, RawFrame},
-    types::{RawExceptionProperties, Stacktrace},
+    types::{Mechanism, RawExceptionProperties, Stacktrace},
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 
 #[test]
 fn serde_passthrough() {
@@ -143,4 +143,27 @@ fn php_exceptions() {
     assert_eq!(context.after[1].line, "    return [$e, $throwLine];");
     assert_eq!(frames[1].mangled_name, "<unknown>");
     assert_eq!(frames[1].resolved_name, None);
+}
+
+#[test]
+fn mechanism_chain_ids_round_trip() {
+    let chained = json!({
+        "handled": false,
+        "type": "chained",
+        "exception_id": 1,
+        "parent_id": 0,
+    });
+    let parsed: Mechanism = serde_json::from_value(chained.clone()).unwrap();
+    assert_eq!(parsed.exception_id, Some(1));
+    assert_eq!(parsed.parent_id, Some(0));
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), chained);
+}
+
+#[test]
+fn mechanism_without_chain_ids_stays_absent() {
+    let unchained = json!({ "handled": true, "type": "generic" });
+    let parsed: Mechanism = serde_json::from_value(unchained.clone()).unwrap();
+    assert_eq!(parsed.exception_id, None);
+    assert_eq!(parsed.parent_id, None);
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), unchained);
 }
