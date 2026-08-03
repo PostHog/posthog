@@ -26,6 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.test.test_journeys import journeys_for
 
+from products.product_analytics.backend.hogql_queries.paths_v2.path_item import resolve_step_sources
 from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
 
 DATE_RANGE = DateRange(date_from="2023-03-01", date_to="2023-03-31")
@@ -94,6 +95,14 @@ class TestPathsV2FilterConstraints(SimpleTestCase):
         self.assertIsNone(paths_filter.anchor)
         self.assertIsNone(paths_filter.excludedItems)
         self.assertIsNone(paths_filter.localPathCleaningFilters)
+
+    def test_absent_step_sources_resolve_to_pageviews_preset(self) -> None:
+        # Saved queries may omit stepSources; the frontend preset picker mirrors this default,
+        # so a backend change here would silently relabel them.
+        self.assertEqual(
+            resolve_step_sources(PathsV2Query()),
+            [PathsV2StepSource(event="$pageview", namingProperty="$pathname")],
+        )
 
 
 class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
