@@ -16,7 +16,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -65,6 +65,9 @@ import type { InsightQueryNode } from '../../../queries/schema/schema-general'
 import type { GroupType, GroupTypeIndex } from '../../../types'
 
 const RESULTS_PER_PAGE = 100
+// A load that never resolves (success or failure) would otherwise pin the modal in a loading
+// state forever - self-heal instead of trusting the resolution to always land.
+const LOAD_ACTORS_TIMEOUT = 30000
 
 // Scope session recordings to the funnel's selected breakdown value. Load-bearing:
 // matched_recordings from the backend contains ALL of each actor's session IDs, so we
@@ -333,11 +336,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions: [eventUsageLogic, ['reportPersonsModalViewed', 'reportPersonsModalSearched']],
     })),
 
-    loaders(({ values, actions, props }) => ({
+    loaders(({ values, actions, props, cache }) => ({
         actorsResponse: [
             null as ListActorsResponse | null,
             {
                 loadActors: async ({ url, clear, offset }, breakpoint) => {
+                    cache.actorsAbortController?.abort()
+                    const abortController = new AbortController()
+                    cache.actorsAbortController = abortController
+                    const methodOptions: ApiMethodOptions = { signal: abortController.signal }
+
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -346,7 +354,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         }
                     }
                     if (url && !values.actorsQuery) {
-                        const res = await api.get(url)
+                        const res = await api.get(url, methodOptions)
                         breakpoint()
 
                         if (clear) {
@@ -363,7 +371,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                     offset,
                                 },
                                 { recursion: false }
-                            ) as ActorsQuery
+                            ) as ActorsQuery,
+                            methodOptions
                         )
                         breakpoint()
 
@@ -517,7 +526,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         ],
     })),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setSearchTerm: async ({ search }, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
@@ -557,6 +566,22 @@ export const personsModalLogic = kea<personsModalLogicType>([
             if (values.query && !values.insightActorsQueryOptions) {
                 actions.loadActorsQueryOptions(values.query)
             }
+            // Belt-and-braces: if this request's success/failure action never lands (e.g. a
+            // swallowed kea breakpoint from an overlapping call), don't leave the modal stuck
+            // on "Loading...". Fail it out loud instead so the existing error state offers a retry.
+            cache.disposables.add(() => {
+                const timeoutId = window.setTimeout(() => {
+                    cache.actorsAbortController?.abort()
+                    actions.loadActorsFailure('Request timed out', { error: 'Request timed out' })
+                }, LOAD_ACTORS_TIMEOUT)
+                return () => window.clearTimeout(timeoutId)
+            }, 'loadActorsTimeout')
+        },
+        loadActorsSuccess: () => {
+            cache.disposables.dispose('loadActorsTimeout')
+        },
+        loadActorsFailure: () => {
+            cache.disposables.dispose('loadActorsTimeout')
         },
         updateActorsQuery: ({ query: q }) => {
             if (q && values.query) {
@@ -867,8 +892,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
         ],
     }),
 
-    afterMount(({ actions, props }) => {
-        actions.loadActors({ url: props.url })
+    afterMount(({ actions, props, cache }) => {
+        // Guard against a redundant loadActors dispatch: propsChanged can already have kicked
+        // off a load for this exact url before this logic finished mounting (kea applies new
+        // props - and fires propsChanged - as soon as a re-render passes them, which can race
+        // ahead of the afterMount effect). Two concurrent loads for the same params leave one
+        // of them permanently "stale" - kea silently drops its success/failure when it lands.
+        if (cache.lastLoadedUrl !== props.url) {
+            cache.lastLoadedUrl = props.url
+            actions.loadActors({ url: props.url })
+        }
 
         actions.reportPersonsModalViewed({
             url: props.url,
@@ -890,8 +923,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
         },
     })),
 
-    propsChanged(({ props, actions }, oldProps) => {
-        if (props.url !== oldProps.url) {
+    propsChanged(({ props, actions, cache }, oldProps) => {
+        if (props.url !== oldProps.url && cache.lastLoadedUrl !== props.url) {
+            cache.lastLoadedUrl = props.url
             actions.loadActors({ url: props.url, clear: true })
         }
     }),

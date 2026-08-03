@@ -139,6 +139,9 @@ export interface DataNodeLogicProps {
 
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
+// A "load more" request that never resolves (success or failure) would otherwise pin the
+// footer button in a loading state forever - self-heal instead of trusting it to always land.
+const LOAD_NEXT_DATA_TIMEOUT = 30000
 
 const concurrencyController = new ConcurrencyController(1)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
@@ -549,6 +552,9 @@ export interface dataNodeLogicActions {
         totalCount: number | null
         payload?: any
     }
+    nextDataLoadTimedOut: () => {
+        value: true
+    }
     resetLoadingTimer: () => {
         value: true
     }
@@ -930,6 +936,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
+        nextDataLoadTimedOut: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -1085,6 +1092,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!values.canLoadNextData || values.dataLoading || !values.nextQuery) {
                         return values.response
                     }
+                    cache.nextDataAbortController?.abort()
+                    const abortController = new AbortController()
+                    cache.nextDataAbortController = abortController
+                    const methodOptions: ApiMethodOptions = { signal: abortController.signal }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
                     if (
@@ -1102,7 +1113,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
-                                undefined,
+                                methodOptions,
                                 props.refresh,
                                 undefined,
                                 undefined,
@@ -1139,7 +1150,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
-                                undefined,
+                                methodOptions,
                                 props.refresh,
                                 undefined,
                                 undefined,
@@ -1228,6 +1239,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => true,
                 loadNextDataSuccess: () => false,
                 loadNextDataFailure: () => false,
+                nextDataLoadTimedOut: () => false,
                 cancelQuery: () => false,
             },
         ],
@@ -1955,6 +1967,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
             actions.resetLoadingTimer()
+            cache.nextDataAbortController?.abort()
+            cache.disposables.dispose('nextDataTimeout')
         },
         loadData: () => {
             actions.collectionNodeLoadData(props.key)
@@ -1973,8 +1987,23 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
         },
+        loadNextData: () => {
+            // Belt-and-braces: if this request's success/failure action never lands (e.g. a
+            // swallowed kea breakpoint from an overlapping call), don't leave the footer stuck.
+            cache.disposables.add(() => {
+                const timeoutId = window.setTimeout(() => actions.nextDataLoadTimedOut(), LOAD_NEXT_DATA_TIMEOUT)
+                return () => window.clearTimeout(timeoutId)
+            }, 'nextDataTimeout')
+        },
         loadNextDataSuccess: ({ response }) => {
+            cache.disposables.dispose('nextDataTimeout')
             props.onData?.(response as Record<string, unknown> | null | undefined)
+        },
+        loadNextDataFailure: () => {
+            cache.disposables.dispose('nextDataTimeout')
+        },
+        nextDataLoadTimedOut: () => {
+            cache.nextDataAbortController?.abort()
         },
         resetLoadingTimer: () => {
             if (values.dataLoading) {

@@ -689,4 +689,42 @@ describe('personsModalLogic', () => {
             expect(logic.values.insightEventsQueryUrl).toBeNull()
         })
     })
+
+    describe('avoiding a double loadActors dispatch on open', () => {
+        const mockActorsQuery = {
+            kind: NodeKind.ActorsQuery,
+            source: {
+                kind: NodeKind.FunnelsActorsQuery,
+                source: { kind: NodeKind.FunnelsQuery, series: [] },
+                funnelStep: -2,
+            },
+            select: ['actor'],
+            orderBy: [],
+        } as any
+
+        it('fires loadActors once, not twice, if props resolve to a new url before the logic mounts', () => {
+            // kea applies new props (and fires propsChanged) as soon as they're passed in, which can
+            // happen before the afterMount effect runs. Previously both fired loadActors for the same
+            // open, and since a stale in-flight call's success/failure is silently dropped by kea's
+            // breakpoint mechanism, one of the two requests would leave actorsResponseLoading stuck.
+            logic = personsModalLogic({ url: '/api/environments/1/persons?a=1', query: mockActorsQuery })
+            const loadActorsSpy = jest.spyOn(logic.actions, 'loadActors')
+
+            personsModalLogic({ url: '/api/environments/1/persons?a=2', query: mockActorsQuery })
+            logic.mount()
+
+            expect(loadActorsSpy).toHaveBeenCalledTimes(1)
+            expect(loadActorsSpy).toHaveBeenCalledWith({ url: '/api/environments/1/persons?a=2', clear: true })
+        })
+
+        it('fires loadActors once on a plain mount with no props race', () => {
+            logic = personsModalLogic({ url: '/api/environments/1/persons?a=1', query: mockActorsQuery })
+            const loadActorsSpy = jest.spyOn(logic.actions, 'loadActors')
+
+            logic.mount()
+
+            expect(loadActorsSpy).toHaveBeenCalledTimes(1)
+            expect(loadActorsSpy).toHaveBeenCalledWith({ url: '/api/environments/1/persons?a=1' })
+        })
+    })
 })

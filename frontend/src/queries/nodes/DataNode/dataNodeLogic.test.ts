@@ -289,6 +289,37 @@ describe('dataNodeLogic', () => {
         })
     })
 
+    it('self-heals a "load more" request whose success/failure action never lands', async () => {
+        // Regression: a stale or otherwise dropped loadNextData call never dispatches
+        // loadNextDataSuccess/Failure, which used to pin the "load more" footer in a loading
+        // state forever (see LoadNext.tsx). nextDataLoading must recover on its own.
+        const results = [
+            [
+                { ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' },
+                'update user properties',
+                '2022-12-24T17:00:41.165000Z',
+            ],
+        ]
+        mockedQuery.mockResolvedValueOnce({ columns: ['*', 'event', 'timestamp'], results, hasMore: true })
+
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*', 'event', 'timestamp'] }),
+        })
+        logic.mount()
+        await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false, canLoadNextData: true })
+
+        jest.useFakeTimers()
+        mockedQuery.mockImplementationOnce(() => new Promise(() => {})) // never resolves
+        logic.actions.loadNextData()
+        await expectLogic(logic).toMatchValues({ nextDataLoading: true })
+
+        jest.advanceTimersByTime(30000)
+        await expectLogic(logic).toDispatchActions(['nextDataLoadTimedOut']).toMatchValues({ nextDataLoading: false })
+
+        jest.useRealTimers()
+    })
+
     it('can load next data for PersonsNode', async () => {
         logic = dataNodeLogic({
             key: testUniqueKey,
