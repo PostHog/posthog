@@ -17,7 +17,7 @@ from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
-from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team, is_person_backfill_trigger_team
+from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
@@ -467,8 +467,9 @@ def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
 
     Separate from the supersede receiver above on purpose. Superseding an invalidated run is a
     correctness obligation to rust/cohort-seeder that has to hold for every realtime team, while
-    creating a replacement run costs a ClickHouse history replay, so it stays behind its own
-    allowlist. Keeping them apart means the expensive half can be off while the cheap half still runs.
+    creating a replacement run costs a ClickHouse history replay, so it stays behind the narrower
+    `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST`. Keeping them apart means the expensive half can be off
+    for a team while the cheap half still runs.
     """
     try:
         if not is_cohort_backfill_trigger_team(instance.team_id):
@@ -493,12 +494,12 @@ def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
 def cohort_person_shape_changed_backfill(sender, instance, **kwargs):
     """Enqueue a person-property backfill run when an allowlisted team creates or edits a cohort.
 
-    The person mirror of `cohort_behavioral_shape_changed_backfill`. A cohort carrying both leaf
-    kinds gets one run of each, on separate debounce keys, because the two seed different stores and
-    stamp different readiness columns.
+    The person mirror of `cohort_behavioral_shape_changed_backfill`, sharing its allowlist. A cohort
+    carrying both leaf kinds gets one run of each, on separate debounce keys, because the two seed
+    different stores and stamp different readiness columns.
     """
     try:
-        if not is_person_backfill_trigger_team(instance.team_id):
+        if not is_cohort_backfill_trigger_team(instance.team_id):
             return
         trigger_kind = _backfill_trigger_kind(
             instance, kwargs, shape_changed=getattr(instance, "_person_shape_changed", False)

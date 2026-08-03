@@ -43,10 +43,5 @@ def is_realtime_cohort_team(team_id: int) -> bool:
 
 
 def is_cohort_backfill_trigger_team(team_id: int) -> bool:
-    """Whether saving a cohort in ``team_id`` should enqueue a behavioral backfill run."""
+    """Whether saving a cohort in ``team_id`` should enqueue backfill runs for it."""
     return _team_in_allowlist(settings.COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST, team_id)
-
-
-def is_person_backfill_trigger_team(team_id: int) -> bool:
-    """Whether saving a cohort in ``team_id`` should enqueue a person-property backfill run."""
-    return _team_in_allowlist(settings.COHORT_PERSON_BACKFILL_TRIGGER_TEAM_ALLOWLIST, team_id)
