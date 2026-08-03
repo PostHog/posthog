@@ -170,7 +170,7 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
     channel_id = (loop.context_target or {}).get("channel_id")
     if not channel_id:
         return None
-    visible = ~Q(channel_type=Channel.ChannelType.PERSONAL) | Q(created_by_id=loop.created_by_id)
+    visible = Channel.visible_to_q(loop.created_by_id)
     exists = (
         Channel.objects.for_team(loop.team_id, canonical=True)
         .filter(Q(id=channel_id, deleted=False) & visible)
@@ -179,10 +179,16 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
     return str(channel_id) if exists else None
 
 
-def _context_canvas_is_visible(loop: Loop, canvas_id: str) -> bool:
+def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
+    """Whether `canvas_id` is a canvas in this team the user may see.
+
+    The Canvas model belongs to the canvas product, which depends on tasks —
+    resolved through the app registry so this soft existence check doesn't
+    create a tasks → canvas import cycle.
+    """
     canvas_model = apps.get_model("canvas", "Canvas")
-    visible = ~Q(channel__channel_type=Channel.ChannelType.PERSONAL) | Q(channel__created_by_id=loop.created_by_id)
-    return canvas_model.objects.for_team(loop.team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
+    visible = Channel.visible_to_q(user_id, relation="channel")
+    return canvas_model.objects.for_team(team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
 
 
 def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:
@@ -678,10 +684,12 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     context_target = loop.context_target if isinstance(loop.context_target, dict) else {}
     outputs = _context_outputs(context_target)
-    if outputs["update_context"]:
-        if _resolve_feed_channel_id(loop) is None:
-            raise ValueError("The loop's context channel is no longer available.")
-    if outputs["canvas_id"] and not _context_canvas_is_visible(loop, outputs["canvas_id"]):
+    resolved_channel_id = (
+        _resolve_feed_channel_id(loop) if outputs["update_context"] or outputs["post_to_feed"] else None
+    )
+    if outputs["update_context"] and resolved_channel_id is None:
+        raise ValueError("The loop's context channel is no longer available.")
+    if outputs["canvas_id"] and not context_canvas_is_visible(loop.team_id, outputs["canvas_id"], loop.created_by_id):
         raise ValueError("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
@@ -689,7 +697,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
     pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
-    feed_channel_id = _resolve_feed_channel_id(loop) if outputs["post_to_feed"] else None
+    feed_channel_id = resolved_channel_id if outputs["post_to_feed"] else None
 
     task = Task.objects.create(
         team_id=loop.team_id,

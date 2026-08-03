@@ -647,25 +647,16 @@ def context_channel_exists(team_id: int, channel_id: str, user_id: int | None) -
     parsed = _parse_uuid(channel_id)
     if parsed is None:
         return False
-    visible = ~Q(channel_type=Channel.ChannelType.PERSONAL) | Q(created_by_id=user_id)
+    visible = Channel.visible_to_q(user_id)
     return Channel.objects.filter(Q(team_id=team_id, id=parsed, deleted=False) & visible).exists()
 
 
 def context_canvas_exists(team_id: int, canvas_id: str, user_id: int | None) -> bool:
-    """Whether `canvas_id` is a canvas in this team (loop context-attach validation).
-
-    The Canvas model belongs to the canvas product, which depends on tasks —
-    resolved through the app registry so this soft existence check doesn't
-    create a tasks → canvas import cycle.
-    """
+    """Whether `canvas_id` is a canvas in this team (loop context-attach validation)."""
     parsed = _parse_uuid(canvas_id)
     if parsed is None:
         return False
-    from django.apps import apps  # noqa: PLC0415
-
-    canvas_model = apps.get_model("canvas", "Canvas")
-    visible = ~Q(channel__channel_type=Channel.ChannelType.PERSONAL) | Q(channel__created_by_id=user_id)
-    return canvas_model.objects.for_team(team_id).filter(Q(id=parsed, deleted=False) & visible).exists()
+    return loop_runs.context_canvas_is_visible(team_id, parsed, user_id)
 
 
 # --- CRUD ---

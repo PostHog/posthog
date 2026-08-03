@@ -37,6 +37,18 @@ from products.tasks.backend.presentation.serializers import (
     TaskThreadMessageWriteSerializer,
 )
 
+# Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
+# PATCH is an alias for clients that can't send PUT.
+PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
+    "request": ChannelInstructionsWriteSerializer,
+    "responses": {200: ChannelInstructionsSerializer},
+    "summary": "Publish channel instructions",
+    "description": (
+        "Publish a new version of the channel's CONTEXT.md instructions. Pass base_version "
+        "(the version you read) so a concurrent edit is rejected with 409 instead of overwritten."
+    ),
+}
+
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
@@ -147,15 +159,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Channel not found")
         return Response(ChannelInstructionsSerializer(instructions).data)
 
-    @extend_schema(
-        request=ChannelInstructionsWriteSerializer,
-        responses={200: ChannelInstructionsSerializer},
-        summary="Publish channel instructions",
-        description=(
-            "Publish a new version of the channel's CONTEXT.md instructions. Pass base_version "
-            "(the version you read) so a concurrent edit is rejected with 409 instead of overwritten."
-        ),
-    )
+    @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
     @instructions.mapping.put
     def publish_instructions(self, request, pk=None, **kwargs):
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
@@ -190,15 +194,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Channel not found")
         return Response(ChannelInstructionsSerializer(published).data)
 
-    @extend_schema(
-        request=ChannelInstructionsWriteSerializer,
-        responses={200: ChannelInstructionsSerializer},
-        summary="Publish channel instructions",
-        description=(
-            "Publish a new version of the channel's CONTEXT.md instructions. Pass base_version "
-            "(the version you read) so a concurrent edit is rejected with 409 instead of overwritten."
-        ),
-    )
+    @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
     @instructions.mapping.patch
     def patch_instructions(self, request, pk=None, **kwargs):
         return self.publish_instructions(request, pk, **kwargs)

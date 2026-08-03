@@ -1,7 +1,9 @@
+import time
 import hashlib
 
 from unittest.mock import MagicMock, patch
 
+from django.core import signing
 from django.http import Http404
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -25,17 +27,13 @@ def _claims(**overrides):
     }
 
 
-class TestCanvasArtifacts(SimpleTestCase):
+class TestCanvasArtifactTokens(SimpleTestCase):
     @override_settings(
         CANVAS_ARTIFACT_SIGNING_KEYS=["new-key-at-least-32-bytes-long", "old-key-at-least-32-bytes-long"]
     )
     def test_tokens_rotate_without_invalidating_existing_urls(self) -> None:
         # A token signed under a retired key still verifies while that key is in
         # the list; new tokens are minted under the first key.
-        import time
-
-        from django.core import signing
-
         bucket = int(time.time() // 3600)
         claims = _claims(bucket=bucket)
         old_token = signing.Signer(key="old-key-at-least-32-bytes-long", salt=ARTIFACT_TOKEN_SALT).sign_object(

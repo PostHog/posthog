@@ -148,14 +148,20 @@ def apply_source_edits(
     return project, diagnostics
 
 
-def _validate_path(path: str) -> str | None:
+def validate_relative_path(path: str, *, restrict_charset: bool = True) -> str | None:
+    """Validate a relative, forward-slash file path; returns the problem or None.
+
+    Source-project paths keep the strict segment charset; artifact paths
+    (``restrict_charset=False``) only reject control characters.
+    """
     if path == "" or path.startswith("/") or "\\" in path:
         return "file paths must be relative, non-empty, and use forward slashes"
-    segments = path.split("/")
-    for segment in segments:
+    if any(character in path for character in "\r\n\0"):
+        return "file paths must not contain control characters"
+    for segment in path.split("/"):
         if segment in ("", ".", ".."):
             return "file paths must not contain empty, '.', or '..' segments"
-        if not _PATH_SEGMENT_RE.match(segment):
+        if restrict_charset and not _PATH_SEGMENT_RE.match(segment):
             return "file path segments may only contain letters, digits, '.', '_', '@', and '-'"
     return None
 
@@ -316,7 +322,7 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
 
     total_bytes = 0
     for path, content in files.items():
-        path_problem = _validate_path(path)
+        path_problem = validate_relative_path(path)
         if path_problem is not None:
             diagnostics.append(diagnostic("error", "invalid_path", path_problem, path=path))
             continue
@@ -332,7 +338,7 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
                 )
             )
     for path, asset in assets.items():
-        path_problem = _validate_path(path)
+        path_problem = validate_relative_path(path)
         if path_problem is not None:
             diagnostics.append(diagnostic("error", "invalid_path", path_problem, path=path))
             continue

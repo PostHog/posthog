@@ -5565,13 +5565,15 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
 
 
 def visible_channels_q(user_id: int | None, *, relation: Literal["", "channel"] = "") -> Q:
-    """The channel-visibility rule as a queryset filter: a personal channel is
-    visible only to its creator. ``relation`` names the join to ``Channel`` when
-    filtering another model's queryset (e.g. ``"channel"``); empty filters
-    ``Channel`` rows directly. Single-object callers use ``get_channel``."""
-    if relation == "channel":
-        return ~Q(channel__channel_type=Channel.ChannelType.PERSONAL) | Q(channel__created_by_id=user_id)
-    return ~Q(channel_type=Channel.ChannelType.PERSONAL) | Q(created_by_id=user_id)
+    """The channel-visibility rule as a queryset filter; see ``Channel.visible_to_q``
+    for the semantics. Exported for cross-product callers filtering channel-joined
+    querysets. Single-object callers use ``get_channel``."""
+    return Channel.visible_to_q(user_id, relation=relation)
+
+
+def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:
+    """Whether ``channel_id`` is a live channel in this team that the user may see."""
+    return Channel.objects.filter(Channel.visible_to_q(user_id), id=channel_id, team_id=team_id, deleted=False).exists()
 
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:

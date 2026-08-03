@@ -157,7 +157,7 @@ function validate(project) {
     return diagnostics
 }
 
-async function bundleEntry(project, entry, externalImports) {
+async function bundleEntry(project, entry) {
     const files = project.files
     const plugin = {
         name: 'canvas-virtual-fs',
@@ -217,7 +217,7 @@ async function bundleEntry(project, entry, externalImports) {
                 if (source === undefined) {
                     return null
                 }
-                const compiled = await bundleEntry(project, args.path, externalImports)
+                const compiled = await bundleEntry(project, args.path)
                 const code = (compiled.outputFiles ?? [])
                     .filter((output) => output.path.endsWith('.js'))
                     .map((output) => output.text)
@@ -284,7 +284,6 @@ async function buildCanvas(project) {
         }
     }
     const files = []
-    const externalImports = new Set()
     let platformCss = ''
     try {
         for (const [reference, kind] of refs) {
@@ -298,7 +297,7 @@ async function buildCanvas(project) {
                     ],
                 }
             }
-            const result = await bundleEntry(project, entry, externalImports)
+            const result = await bundleEntry(project, entry)
             let javascript = ''
             let css = ''
             for (const output of result.outputFiles ?? []) {

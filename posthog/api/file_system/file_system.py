@@ -7,7 +7,6 @@ from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
-import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
@@ -39,8 +38,6 @@ from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import str_to_bool
-
-logger = structlog.get_logger(__name__)
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
@@ -179,7 +176,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
     # Product surface this tree serves. Subclass and override to expose a different surface
-    # (e.g. "desktop") on its own route. The default surface also matches legacy NULL rows.
+    # on its own route. The default surface also matches legacy NULL rows.
     file_system_surface: str = DEFAULT_SURFACE
     # GET /instructions/ and /instructions/versions/ are reads; PUT/PATCH/DELETE on
     # /instructions/ resolve to `publish_instructions` / `delete_instructions` via DRF's
@@ -494,10 +491,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
-    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
-        """A registered-type row with no ref is a data-integrity error we refuse to delete."""
-        return False
-
     def _ensure_can_delete(self, entry: FileSystem) -> None:
         stack: list[FileSystem] = [entry]
         seen: set[str] = set()
@@ -538,7 +531,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not is_file_system_type_registered(current.type):
                 continue
 
-            if remaining == 0 and not current.ref and not self._allow_delete_without_ref(current):
+            if remaining == 0 and not current.ref:
+                # A registered-type row with no ref is a data-integrity error we refuse to delete.
                 raise serializers.ValidationError(
                     {"detail": f"Cannot delete type '{current.type}' without a reference."}
                 )
@@ -576,9 +570,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return deleted_objects
 
         if not entry.ref:
-            if self._allow_delete_without_ref(entry):
-                entry.delete()
-                return deleted_objects
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
 
         entry_path = entry.path

@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.canvas.backend.build_service import run_cloud_builder, validate_builder_output
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
@@ -225,6 +227,41 @@ class TestCanvasCloudBuilder(SimpleTestCase):
 
         with self.assertRaisesMessage(ValueError, "manifest metadata"):
             validate_builder_output(result)
+
+    @parameterized.expand(
+        [
+            ("path_traversal", "assets/../escape.js", False),
+            ("absolute_path", "/etc/passwd", False),
+            ("backslash", "assets\\bundle.js", False),
+            ("control_character", "assets/bundle\n.js", False),
+            ("beyond_source_charset", "assets/bundle name~.js", True),
+        ]
+    )
+    def test_artifact_path_acceptance(self, _name: str, path: str, accepted: bool) -> None:
+        content = "x"
+        digest = hashlib.sha256(content.encode()).hexdigest()
+        result = {
+            "contractVersion": 1,
+            "status": "ready",
+            "diagnostics": [],
+            "files": [
+                {"path": "index.html", "content": content, "contentHash": digest, "sizeBytes": 1},
+                {"path": path, "content": content, "contentHash": digest, "sizeBytes": 1},
+            ],
+            "manifest": {
+                "entryHtml": "index.html",
+                "assets": [
+                    {"path": "index.html", "contentHash": digest, "sizeBytes": 1},
+                    {"path": path, "contentHash": digest, "sizeBytes": 1},
+                ],
+            },
+        }
+
+        if accepted:
+            validate_builder_output(result)
+        else:
+            with self.assertRaisesMessage(ValueError, "invalid artifact"):
+                validate_builder_output(result)
 
     @patch("products.canvas.backend.build_service.subprocess.run")
     def test_builder_has_bounded_process_resources(self, run: Any) -> None:

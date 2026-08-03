@@ -74,6 +74,17 @@ class Channel(TeamScopedRootMixin):
 
     PERSONAL_CHANNEL_NAME = "me"
 
+    @classmethod
+    def visible_to_q(cls, user_id: int | None, *, relation: str = "") -> models.Q:
+        """The channel-visibility rule as a queryset filter: a personal channel is
+        visible only to its creator. ``relation`` names the join to ``Channel`` when
+        filtering another model's queryset (e.g. ``"channel"``); empty filters
+        ``Channel`` rows directly."""
+        prefix = f"{relation}__" if relation else ""
+        return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL}) | models.Q(
+            **{f"{prefix}created_by_id": user_id}
+        )
+
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # db_constraint=False on the team/user FKs: posthog_team and posthog_user are written on

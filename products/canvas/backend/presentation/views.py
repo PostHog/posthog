@@ -124,8 +124,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # invisible (and unwritable) to everyone but its owner, for list and
         # every detail action alike. The create() check alone is not enough —
         # DRF resolves all detail actions off this queryset.
-        user_id = self.request.user.id if isinstance(self.request.user, User) else None
-        queryset = queryset.filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
+        user = self._request_user()
+        queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:
@@ -149,10 +149,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = CanvasCreateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         channel_id = payload.validated_data["channel_id"]
-        user = request.user if isinstance(request.user, User) else None
+        user = self._request_user()
         # The facade's visibility rule, not a bare team filter: filing into
         # someone else's personal channel must be refused here too.
-        if tasks_facade.get_channel(channel_id, self.team_id, user.id if user else None) is None:
+        if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             # Savepoint so losing the is_home uniqueness race doesn't poison
@@ -201,7 +201,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             update_fields.append("pinned_at")
         if "generation_task_id" in data:
             task_id = data["generation_task_id"]
-            user = request.user if isinstance(request.user, User) else None
+            user = self._request_user()
             if task_id is not None and (
                 user is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, user.id)
             ):
@@ -404,7 +404,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
 
-        user = request.user if isinstance(request.user, User) else None
+        user = self._request_user()
+        task_id = self._sandbox_task_id(request)
         try:
             canvas, version, _build, first_publish = build_service.publish_source_project(
                 canvas,
@@ -413,7 +414,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 name=name,
                 has_expected_version=has_expected_version,
                 expected_version_id=expected_version_id,
-                task_id=self._sandbox_task_id(request),
+                task_id=task_id,
                 created_by_id=user.id if user else None,
             )
         except build_service.CanvasVersionConflict as conflict:
@@ -427,7 +428,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if first_publish:
-            self._announce_canvas_created(request, canvas)
+            self._announce_canvas_created(task_id, user, canvas)
 
         return Response(
             {
@@ -519,6 +520,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CanvasBuildSerializer(build).data)
 
+    def _request_user(self) -> User | None:
+        """The requesting real user, or None for anonymous/service principals."""
+        user = self.request.user
+        return user if isinstance(user, User) else None
+
     @staticmethod
     def _request_task_id(request: Request) -> UUID | None:
         """The publishing task's id, when the sandbox stamped one on the call."""
@@ -530,32 +536,29 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _sandbox_task_id(self, request: Request) -> UUID | None:
         """The calling task's id when this is a sandbox-stamped MCP call for a
-        task in this team; None for human/app saves. Same binding rules as the
-        first-publish announcement — the header alone is forgeable, so only
-        sandbox-minted credentials count."""
+        task in this team; None for human/app saves. The task sandbox stamps
+        every MCP call with an X-PostHog-Task-Id header, but the header alone
+        is forgeable, so two checks bind it to a real sandbox run: the request
+        must carry an OAuth token minted under a sandbox app (those tokens are
+        only created server-side), and the task must have been created by the
+        requesting user (the sandbox authenticates with the task creator's
+        credentials)."""
         task_id = self._request_task_id(request)
         if task_id is None or not self._is_sandbox_authenticated(request):
             return None
-        user = request.user if isinstance(request.user, User) else None
+        user = self._request_user()
         if user is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, user.id):
             return None
         return task_id
 
-    def _announce_canvas_created(self, request: Request, canvas: Canvas) -> None:
+    def _announce_canvas_created(self, task_id: UUID | None, user: User | None, canvas: Canvas) -> None:
         """Announce a canvas's first publish in the generating task's thread.
 
-        The task sandbox stamps every MCP call with an X-PostHog-Task-Id header, so
-        a publish is attributable to the task that made it. The header alone is
-        forgeable, so two checks bind the announcement to a real sandbox run: the
-        request must carry an OAuth token minted under a sandbox app (those tokens
-        are only created server-side), and the facade only accepts a task created
-        by the requesting user (the sandbox authenticates with the task creator's
-        credentials). No header (a human or app save) means no announcement.
+        ``task_id`` is the sandbox-bound id from ``_sandbox_task_id``; None (a
+        human or app save) means no announcement.
         """
-        task_id = self._request_task_id(request)
-        if task_id is None or not self._is_sandbox_authenticated(request):
+        if task_id is None:
             return
-        user = request.user if isinstance(request.user, User) else None
         tasks_facade.post_canvas_created_thread_update(
             task_id,
             self.team_id,

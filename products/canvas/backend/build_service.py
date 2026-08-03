@@ -40,7 +40,13 @@ from posthog.storage import object_storage
 
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
-from products.canvas.backend.source import SYNTHETIC_INDEX_HTML, has_errors, validate_source_project
+from products.canvas.backend.source import (
+    SYNTHETIC_INDEX_HTML,
+    diagnostic,
+    has_errors,
+    validate_relative_path,
+    validate_source_project,
+)
 from products.tasks.backend.facade.sandbox import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -175,14 +181,9 @@ def run_cloud_builder(project: dict[str, Any]) -> dict[str, Any]:
 
 
 def _valid_artifact_path(value: str) -> bool:
-    segments = value.split("/")
-    return (
-        bool(value)
-        and not value.startswith("/")
-        and "\\" not in value
-        and all(segment not in {"", ".", ".."} for segment in segments)
-        and not any(character in value for character in "\r\n\0")
-    )
+    # Artifact paths carry builder-emitted names, so the source charset rule
+    # does not apply — only structural safety.
+    return validate_relative_path(value, restrict_charset=False) is None
 
 
 def validate_builder_output(
@@ -332,6 +333,24 @@ def _assert_build_capacity(team_id: int) -> None:
         raise CanvasBuildCapacityExceeded
 
 
+def _claim_canvas_head(canvas: Canvas, *, has_expected_version: bool, expected_version_id: str | UUID | None) -> Canvas:
+    """Lock the canvas row and claim the right to advance its head.
+
+    Enforces the optimistic-version guard and the team build-capacity cap
+    under the row lock plus the team advisory lock. Must run inside a
+    transaction; returns the locked row. Raises CanvasVersionConflict or
+    CanvasBuildCapacityExceeded.
+    """
+    locked = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+    current_id = str(locked.current_source_version_id) if locked.current_source_version_id else None
+    expected = str(expected_version_id) if expected_version_id else None
+    if has_expected_version and current_id != expected:
+        raise CanvasVersionConflict(current_id)
+    _lock_team_build_capacity(locked.team_id)
+    _assert_build_capacity(locked.team_id)
+    return locked
+
+
 def _queue_build(version: CanvasSourceVersion) -> CanvasBuild:
     """Create a queued build for the version and supersede older queued builds.
 
@@ -349,11 +368,9 @@ def _queue_build(version: CanvasSourceVersion) -> CanvasBuild:
     ).exclude(id=build.id).update(
         status=CanvasBuild.STATUS_FAILED,
         diagnostics=[
-            {
-                "severity": "warning",
-                "code": "superseded",
-                "message": "A newer canvas source version was published before this build started.",
-            }
+            diagnostic(
+                "warning", "superseded", "A newer canvas source version was published before this build started."
+            )
         ],
         finished_at=timezone.now(),
     )
@@ -393,27 +410,24 @@ def publish_source_project(
     upload. Returns (canvas, version, build, first_publish). Raises
     CanvasVersionConflict, CanvasBuildCapacityExceeded, or ObjectStorageError.
     """
-    with transaction.atomic(), team_scope(canvas.team_id):
-        current = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+    # Lock-free fail-fast: reject a doomed publish before paying for the
+    # upload. Its answer can go stale before the commit transaction re-checks
+    # authoritatively under locks, so taking them here would only double lock
+    # contention per publish.
+    with team_scope(canvas.team_id):
+        current = Canvas.objects.for_team(canvas.team_id).only("current_source_version_id").get(pk=canvas.pk)
         current_id = str(current.current_source_version_id) if current.current_source_version_id else None
         expected = str(expected_version_id) if expected_version_id else None
         if has_expected_version and current_id != expected:
             raise CanvasVersionConflict(current_id)
-        _lock_team_build_capacity(canvas.team_id)
         _assert_build_capacity(canvas.team_id)
 
     key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
 
     with transaction.atomic(), team_scope(canvas.team_id):
-        canvas = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
-        current_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
-        expected = str(expected_version_id) if expected_version_id else None
-        if has_expected_version and current_id != expected:
-            raise CanvasVersionConflict(current_id)
-
-        _lock_team_build_capacity(canvas.team_id)
-        _assert_build_capacity(canvas.team_id)
-
+        canvas = _claim_canvas_head(
+            canvas, has_expected_version=has_expected_version, expected_version_id=expected_version_id
+        )
         first_publish = canvas.current_source_version_id is None and not (canvas.legacy_code or "").strip()
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
@@ -449,14 +463,8 @@ def revert_to_version(
     canvas's, and CanvasBuildCapacityExceeded when the team cap is reached.
     """
     with transaction.atomic(), team_scope(canvas.team_id):
-        canvas = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
-        current_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
-        expected_id = str(expected_current_version_id) if expected_current_version_id else None
-        if current_id != expected_id:
-            raise CanvasVersionConflict(current_id)
+        canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=version_id, canvas_id=canvas.id)
-        _lock_team_build_capacity(canvas.team_id)
-        _assert_build_capacity(canvas.team_id)
         canvas.current_source_version = version
         canvas.save(update_fields=["current_source_version", "updated_at"])
         build = _queue_build(version)
@@ -500,10 +508,7 @@ def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBui
                 build.status == CanvasBuild.STATUS_BUILDING and lease_lapsed
             ):
                 raise ValueError("Only queued (or lease-expired) builds can be cancelled.")
-            _finish_failed(
-                build,
-                [{"severity": "warning", "code": "cancelled", "message": "The build was cancelled."}],
-            )
+            _finish_failed(build, [diagnostic("warning", "cancelled", "The build was cancelled.")])
             build.refresh_from_db()
         else:
             raise ValueError(f"Unknown build action: {action}")
@@ -544,21 +549,10 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
     try:
         project = read_source_project(build.source_version)
     except object_storage.ObjectStorageError:
-        if build.attempt_count < MAX_BUILD_ATTEMPTS:
-            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
-                status=CanvasBuild.STATUS_QUEUED, lease_expires_at=None
-            )
-            raise
-        error = "source storage remained unavailable after retries"
-        _finish_failed(
+        _requeue_or_fail(
             build,
-            [
-                {
-                    "severity": "error",
-                    "code": "source_unreadable",
-                    "message": f"could not load the source project: {error}",
-                }
-            ],
+            code="source_unreadable",
+            message="could not load the source project: source storage remained unavailable after retries",
         )
         return
 
@@ -603,10 +597,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             # usual causes (node off PATH, builder deps not installed) are
             # actionable. Production stays generic: sandbox stderr is internal.
             message = f"{message} {type(error).__name__}: {str(error)[:300]}"
-        _finish_failed(
-            build,
-            [{"severity": "error", "code": "build_unavailable", "message": message}],
-        )
+        _finish_failed(build, [diagnostic("error", "build_unavailable", message)])
         return
 
     prefix = artifact_object_prefix(build.team_id, build.canvas_id, build.id)
@@ -641,15 +632,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
                 object_storage.delete_objects(uploaded_keys)
             except object_storage.ObjectStorageError:
                 logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id))
-        if build.attempt_count < MAX_BUILD_ATTEMPTS:
-            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
-                status=CanvasBuild.STATUS_QUEUED, lease_expires_at=None
-            )
-            raise
-        _finish_failed(
-            build,
-            [{"severity": "error", "code": "artifact_upload_failed", "message": "Artifact storage is unavailable."}],
-        )
+        _requeue_or_fail(build, code="artifact_upload_failed", message="Artifact storage is unavailable.")
         return
     integrity = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
@@ -734,6 +717,22 @@ def _artifact_content_type(path: str) -> str:
     return "application/octet-stream"
 
 
+def _requeue_or_fail(build: CanvasBuild, *, code: str, message: str) -> None:
+    """Recover from a storage outage mid-build.
+
+    While attempts remain, flips the row back to QUEUED and re-raises the
+    ObjectStorageError being handled (the caller must invoke this from its
+    except block); once attempts are exhausted, fails the build with one
+    error diagnostic.
+    """
+    if build.attempt_count < MAX_BUILD_ATTEMPTS:
+        CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
+            status=CanvasBuild.STATUS_QUEUED, lease_expires_at=None
+        )
+        raise  # noqa: PLE0704 — re-raises the caller's in-flight ObjectStorageError
+    _finish_failed(build, [diagnostic("error", code, message)])
+
+
 def _finish_failed(stale_build: CanvasBuild, diagnostics: list[dict[str, Any]]) -> None:
     with transaction.atomic():
         build = (
@@ -790,11 +789,11 @@ def sweep_canvas_builds() -> dict[str, int]:
                 _finish_failed(
                     build,
                     [
-                        {
-                            "severity": "error",
-                            "code": "build_lease_expired",
-                            "message": "The build worker stopped responding and the build ran out of attempts.",
-                        }
+                        diagnostic(
+                            "error",
+                            "build_lease_expired",
+                            "The build worker stopped responding and the build ran out of attempts.",
+                        )
                     ],
                 )
                 counts["failed"] += 1
@@ -818,13 +817,7 @@ def sweep_canvas_builds() -> dict[str, int]:
             if build.enqueued_at < now - STALE_QUEUED_FAILURE_AFTER:
                 _finish_failed(
                     build,
-                    [
-                        {
-                            "severity": "error",
-                            "code": "build_stuck",
-                            "message": "The build was never picked up by a worker.",
-                        }
-                    ],
+                    [diagnostic("error", "build_stuck", "The build was never picked up by a worker.")],
                 )
                 counts["failed"] += 1
             else:
@@ -851,6 +844,21 @@ def cleanup_canvas_builds() -> int:
     """
     now = timezone.now()
     pruned = 0
+    pending_keys: list[str] = []
+    pending_build_ids: list[UUID] = []
+
+    def flush() -> None:
+        # Clear prefixes only after their batch's delete succeeds — a storage
+        # failure must leave the rows pointing at their (surviving) artifacts.
+        nonlocal pruned
+        if pending_keys:
+            object_storage.delete_objects(pending_keys)
+        if pending_build_ids:
+            CanvasBuild.objects.unscoped().filter(id__in=pending_build_ids).update(artifact_object_prefix=None)
+        pruned += len(pending_build_ids)
+        pending_keys.clear()
+        pending_build_ids.clear()
+
     stale = (
         CanvasBuild.objects.unscoped()
         .filter(pinned=False, artifact_object_prefix__isnull=False)
@@ -884,10 +892,9 @@ def cleanup_canvas_builds() -> int:
             continue
 
         assets = (build.manifest or {}).get("assets", [])
-        keys = [f"{build.artifact_object_prefix}/{asset['path']}" for asset in assets]
-        if keys:
-            object_storage.delete_objects(keys)
-        build.artifact_object_prefix = None
-        build.save(update_fields=["artifact_object_prefix"])
-        pruned += 1
+        pending_keys.extend(f"{build.artifact_object_prefix}/{asset['path']}" for asset in assets)
+        pending_build_ids.append(build.id)
+        if len(pending_keys) >= 1000:
+            flush()
+    flush()
     return pruned
