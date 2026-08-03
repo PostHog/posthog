@@ -6,6 +6,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { PresenceIndicator } from 'lib/components/Presence/PresenceIndicator'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -221,6 +222,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
                     ref={chatPanelRef}
                 >
+                    {ticket && (
+                        <PresenceIndicator
+                            scope="conversations_ticket"
+                            itemId={ticket.id}
+                            noun="this ticket"
+                            className="mb-2"
+                        />
+                    )}
                     {/* Main conversation area */}
                     <ChatView
                         threadExtras={reportTimelineExtras(linkedReports)}

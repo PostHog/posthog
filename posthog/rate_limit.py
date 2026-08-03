@@ -394,6 +394,18 @@ class SustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "4800/hour"
 
 
+class PresenceRateThrottle(UserRateThrottle):
+    # Presence heartbeats come from every tab that has an item open, on a ~10s interval, plus an
+    # extra beat when someone starts or stops composing. Each one is a Redis pipeline and a
+    # PK-indexed user lookup, so this budget exists to stop a runaway client loop rather than to
+    # protect a datastore. Bucketed per user, not per project: a support team legitimately has many
+    # agents on one ticket, but no single person needs more than a handful of tabs. Note the default
+    # burst/sustained throttles only apply to personal API keys, so without this presence would be
+    # unthrottled for session-authenticated browser requests.
+    scope = "presence"
+    rate = "120/minute"
+
+
 class PersonalApiKeyOrUserRateThrottle(PersonalApiKeyRateThrottle):
     """
     Rate limit both personal API key and web-authenticated user requests.

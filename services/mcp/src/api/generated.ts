@@ -2115,6 +2115,18 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
     }
 
+    /**
+     * * `viewing` - viewing
+     * * `composing` - composing
+     */
+    export type ActivityEnum = typeof ActivityEnum[keyof typeof ActivityEnum];
+
+
+    export const ActivityEnum = {
+      Viewing: 'viewing',
+      Composing: 'composing',
+    } as const;
+
     export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -57158,6 +57170,72 @@ export namespace Schemas {
       Postgres: 'Postgres',
     } as const;
 
+    export interface PresenceHeartbeatRequest {
+      /**
+         * The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.
+         * @maxLength 79
+         * @pattern ^[A-Za-z0-9_\-:.]+$
+         */
+      scope: string;
+      /**
+         * Id of the specific object within the scope.
+         * @maxLength 72
+         * @pattern ^[A-Za-z0-9_\-:.]+$
+         */
+      item_id: string;
+      /**
+         * Stable id for this browser tab. One user can be present from several tabs; the UI collapses them into a single viewer.
+         * @maxLength 64
+         * @pattern ^[A-Za-z0-9_\-:.]+$
+         */
+      client_id: string;
+      /** What this client is doing. `composing` means the user is writing something.
+       *
+       * * `viewing` - viewing
+       * * `composing` - composing */
+      activity?: ActivityEnum;
+    }
+
+    export interface PresenceLeaveRequest {
+      /**
+         * The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.
+         * @maxLength 79
+         * @pattern ^[A-Za-z0-9_\-:.]+$
+         */
+      scope: string;
+      /**
+         * Id of the specific object within the scope.
+         * @maxLength 72
+         * @pattern ^[A-Za-z0-9_\-:.]+$
+         */
+      item_id: string;
+      /**
+         * Id of the tab that is leaving.
+         * @maxLength 64
+         * @pattern ^[A-Za-z0-9_\-:.]+$
+         */
+      client_id: string;
+    }
+
+    export interface PresenceViewer {
+      /** Id of the browser tab this viewer is present from. */
+      client_id: string;
+      /** The user who is present. */
+      readonly user: UserBasic;
+      /** What this viewer is doing. `composing` means they are writing something.
+       *
+       * * `viewing` - viewing
+       * * `composing` - composing */
+      activity: ActivityEnum;
+      /** When this viewer last sent a heartbeat. */
+      last_seen_at: string;
+    }
+
+    export interface PresenceListResponse {
+      /** Everyone currently present on the item. */
+      results: PresenceViewer[];
+    }
+
     export interface PreviewInviteRequest {
       /**
          * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
@@ -82527,6 +82605,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PresenceListParams = {
+    /**
+     * Id of the specific object within the scope.
+     * @minLength 1
+     * @maxLength 72
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    item_id: string;
+    /**
+     * The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.
+     * @minLength 1
+     * @maxLength 79
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    scope: string;
     };
 
     export type ProductToursListParams = {

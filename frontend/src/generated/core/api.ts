@@ -66,6 +66,10 @@ import type {
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
+    PresenceHeartbeatRequestApi,
+    PresenceLeaveRequestApi,
+    PresenceListParams,
+    PresenceListResponseApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
     ProjectBackwardCompatApi,
@@ -2532,6 +2536,78 @@ export const notebooksSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getPresenceListUrl = (projectId: string, params: PresenceListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/presence/?${stringifiedParams}`
+        : `/api/projects/${projectId}/presence/`
+}
+
+/**
+ * @summary List who is currently viewing an item
+ */
+export const presenceList = async (
+    projectId: string,
+    params: PresenceListParams,
+    options?: RequestInit
+): Promise<PresenceListResponseApi[]> => {
+    return apiMutator<PresenceListResponseApi[]>(getPresenceListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPresenceHeartbeatCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/presence/heartbeat/`
+}
+
+/**
+ * Call this on an interval while the item is open. Returns the current viewers so a client needs one request per tick rather than a write followed by a read.
+ * @summary Record presence on an item and return who else is here
+ */
+export const presenceHeartbeatCreate = async (
+    projectId: string,
+    presenceHeartbeatRequestApi: PresenceHeartbeatRequestApi,
+    options?: RequestInit
+): Promise<PresenceListResponseApi> => {
+    return apiMutator<PresenceListResponseApi>(getPresenceHeartbeatCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(presenceHeartbeatRequestApi),
+    })
+}
+
+export const getPresenceLeaveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/presence/leave/`
+}
+
+/**
+ * Optional: presence also expires on its own once heartbeats stop.
+ * @summary Stop reporting presence on an item
+ */
+export const presenceLeaveCreate = async (
+    projectId: string,
+    presenceLeaveRequestApi: PresenceLeaveRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPresenceLeaveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(presenceLeaveRequestApi),
     })
 }
 

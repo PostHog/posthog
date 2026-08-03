@@ -18,6 +18,7 @@ import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { presenceLogic } from 'lib/components/Presence/presenceLogic'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
@@ -62,6 +63,15 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+
+/**
+ * The presence logic for this ticket, but only if it's already mounted — i.e. only when the
+ * indicator is actually on screen. `findMounted` rather than building the logic, so a keystroke
+ * never starts heartbeating on its own (and the feature flag gating the indicator gates this too).
+ */
+function ticketPresence(ticketId: string): ReturnType<typeof presenceLogic.findMounted> {
+    return presenceLogic.findMounted({ scope: 'conversations_ticket', itemId: ticketId })
+}
 
 function regionFromUrl(url?: string): Region | undefined {
     if (url) {
@@ -1086,6 +1096,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             }
         },
+        setDraftContent: ({ content }) => {
+            const presence = values.ticket?.id ? ticketPresence(values.ticket.id) : null
+            if (!presence) {
+                return
+            }
+            // Fires per keystroke, but reportTyping is edge-triggered so only the first one costs a
+            // request. An empty draft means they cleared it, so drop straight back to viewing.
+            if (content) {
+                presence.actions.reportTyping()
+            } else {
+                presence.actions.setActivity('viewing')
+            }
+        },
         loadMessages: async () => {
             if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessages([])
@@ -1153,6 +1176,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // after this API call succeeds; the per-message delivery status is the send signal.
                 lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
                 actions.setMessageSending(false)
+                // Clear "replying..." for everyone else now rather than waiting out the decay timer.
+                ticketPresence(values.ticket.id)?.actions.setActivity('viewing')
                 onSuccess?.()
                 if (!isPrivate) {
                     actions.incrementUnreadCustomerCount()

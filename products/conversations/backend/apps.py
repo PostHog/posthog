@@ -8,4 +8,6 @@ class ConversationsConfig(AppConfig):
     verbose_name = "Support"
 
     def ready(self):
-        from . import signals  # noqa: F401
+        from . import presence_access, signals  # noqa: F401
+
+        presence_access.register()

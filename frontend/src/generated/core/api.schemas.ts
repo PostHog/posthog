@@ -3059,6 +3059,83 @@ export interface PaginatedExportedAssetListApi {
 }
 
 /**
+ * * `viewing` - viewing
+ * * `composing` - composing
+ */
+export type ActivityEnumApi = (typeof ActivityEnumApi)[keyof typeof ActivityEnumApi]
+
+export const ActivityEnumApi = {
+    Viewing: 'viewing',
+    Composing: 'composing',
+} as const
+
+export interface PresenceViewerApi {
+    /** Id of the browser tab this viewer is present from. */
+    client_id: string
+    /** The user who is present. */
+    readonly user: UserBasicApi
+    /** What this viewer is doing. `composing` means they are writing something.
+     *
+     * * `viewing` - viewing
+     * * `composing` - composing */
+    activity: ActivityEnumApi
+    /** When this viewer last sent a heartbeat. */
+    last_seen_at: string
+}
+
+export interface PresenceListResponseApi {
+    /** Everyone currently present on the item. */
+    results: PresenceViewerApi[]
+}
+
+export interface PresenceHeartbeatRequestApi {
+    /**
+     * The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.
+     * @maxLength 79
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    scope: string
+    /**
+     * Id of the specific object within the scope.
+     * @maxLength 72
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    item_id: string
+    /**
+     * Stable id for this browser tab. One user can be present from several tabs; the UI collapses them into a single viewer.
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    client_id: string
+    /** What this client is doing. `composing` means the user is writing something.
+     *
+     * * `viewing` - viewing
+     * * `composing` - composing */
+    activity?: ActivityEnumApi
+}
+
+export interface PresenceLeaveRequestApi {
+    /**
+     * The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.
+     * @maxLength 79
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    scope: string
+    /**
+     * Id of the specific object within the scope.
+     * @maxLength 72
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    item_id: string
+    /**
+     * Id of the tab that is leaving.
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    client_id: string
+}
+
+/**
  * * `conversations` - conversations
  * * `error_tracking` - error_tracking
  * * `session_replay` - session_replay
@@ -4128,6 +4205,23 @@ export type FileSystemShortcutListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type PresenceListParams = {
+    /**
+     * Id of the specific object within the scope.
+     * @minLength 1
+     * @maxLength 72
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    item_id: string
+    /**
+     * The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.
+     * @minLength 1
+     * @maxLength 79
+     * @pattern ^[A-Za-z0-9_\-:.]+$
+     */
+    scope: string
 }
 
 export type ProjectSecretApiKeysListParams = {

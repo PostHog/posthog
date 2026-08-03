@@ -54,6 +54,7 @@ from . import (
     organization_personal_api_key,
     personal_api_key,
     posthog_connection,
+    presence,
     project_secret_api_key,
     proxy_record,
     query,
@@ -521,6 +522,14 @@ projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
+    ["project_id"],
+)
+
+
+projects_router.register(
+    r"presence",
+    presence.PresenceViewSet,
+    "project_presence",
     ["project_id"],
 )
 

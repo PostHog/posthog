@@ -9653,6 +9653,84 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Call this on an interval while the item is open. Returns the current viewers so a client needs one request per tick rather than a write followed by a read.
+ * @summary Record presence on an item and return who else is here
+ */
+export const presenceHeartbeatCreateBodyScopeMax = 79
+
+export const presenceHeartbeatCreateBodyScopeRegExp = new RegExp('^[A-Za-z0-9_\\-:.]+$')
+export const presenceHeartbeatCreateBodyItemIdMax = 72
+
+export const presenceHeartbeatCreateBodyItemIdRegExp = new RegExp('^[A-Za-z0-9_\\-:.]+$')
+export const presenceHeartbeatCreateBodyClientIdMax = 64
+
+export const presenceHeartbeatCreateBodyClientIdRegExp = new RegExp('^[A-Za-z0-9_\\-:.]+$')
+export const presenceHeartbeatCreateBodyActivityDefault = `viewing`
+
+export const PresenceHeartbeatCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .string()
+        .max(presenceHeartbeatCreateBodyScopeMax)
+        .regex(presenceHeartbeatCreateBodyScopeRegExp)
+        .describe(
+            'The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.'
+        ),
+    item_id: zod
+        .string()
+        .max(presenceHeartbeatCreateBodyItemIdMax)
+        .regex(presenceHeartbeatCreateBodyItemIdRegExp)
+        .describe('Id of the specific object within the scope.'),
+    client_id: zod
+        .string()
+        .max(presenceHeartbeatCreateBodyClientIdMax)
+        .regex(presenceHeartbeatCreateBodyClientIdRegExp)
+        .describe(
+            'Stable id for this browser tab. One user can be present from several tabs; the UI collapses them into a single viewer.'
+        ),
+    activity: zod
+        .enum(['viewing', 'composing'])
+        .describe('\* `viewing` - viewing\n\* `composing` - composing')
+        .default(presenceHeartbeatCreateBodyActivityDefault)
+        .describe(
+            'What this client is doing. `composing` means the user is writing something.\n\n\* `viewing` - viewing\n\* `composing` - composing'
+        ),
+})
+
+/**
+ * Optional: presence also expires on its own once heartbeats stop.
+ * @summary Stop reporting presence on an item
+ */
+export const presenceLeaveCreateBodyScopeMax = 79
+
+export const presenceLeaveCreateBodyScopeRegExp = new RegExp('^[A-Za-z0-9_\\-:.]+$')
+export const presenceLeaveCreateBodyItemIdMax = 72
+
+export const presenceLeaveCreateBodyItemIdRegExp = new RegExp('^[A-Za-z0-9_\\-:.]+$')
+export const presenceLeaveCreateBodyClientIdMax = 64
+
+export const presenceLeaveCreateBodyClientIdRegExp = new RegExp('^[A-Za-z0-9_\\-:.]+$')
+
+export const PresenceLeaveCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .string()
+        .max(presenceLeaveCreateBodyScopeMax)
+        .regex(presenceLeaveCreateBodyScopeRegExp)
+        .describe(
+            'The kind of object presence is being reported on, e.g. `conversations_ticket` or `FeatureFlag`. Must be a scope that has presence enabled.'
+        ),
+    item_id: zod
+        .string()
+        .max(presenceLeaveCreateBodyItemIdMax)
+        .regex(presenceLeaveCreateBodyItemIdRegExp)
+        .describe('Id of the specific object within the scope.'),
+    client_id: zod
+        .string()
+        .max(presenceLeaveCreateBodyClientIdMax)
+        .regex(presenceLeaveCreateBodyClientIdRegExp)
+        .describe('Id of the tab that is leaving.'),
+})
+
 export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
     products: zod
         .array(
