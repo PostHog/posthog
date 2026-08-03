@@ -33,6 +33,7 @@ import {
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
@@ -156,18 +157,28 @@ function RootLayout() {
     currentProjectId ? `/project/${currentProjectId}` : "/",
   );
 
+  const posthogWebFeedbackSeen = usePostHogWebFeedbackStore((s) => s.hasSeen);
+  const markPostHogWebFeedbackSeen = usePostHogWebFeedbackStore(
+    (s) => s.markSeen,
+  );
+
   // "PostHog Web" opens the feedback modal first and performs its navigation
   // only once the modal is submitted or skipped.
   const handleFeedbackFinished = () => {
     const finishedMode = feedbackMode;
     setFeedbackMode(null);
     if (finishedMode === "posthog-web" && posthogWebUrl) {
+      markPostHogWebFeedbackSeen();
       void openUrlInBrowser(posthogWebUrl);
     }
   };
 
   const handleOpenPostHogWeb = () => {
     track(ANALYTICS_EVENTS.POSTHOG_WEB_OPENED);
+    if (posthogWebFeedbackSeen && posthogWebUrl) {
+      void openUrlInBrowser(posthogWebUrl);
+      return;
+    }
     setFeedbackMode("posthog-web");
   };
   const {
