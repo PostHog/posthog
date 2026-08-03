@@ -4,7 +4,6 @@ import type {
 } from "@agentclientprotocol/sdk";
 import {
   ArrowCounterClockwise,
-  CaretDown,
   Lightning,
   Spinner,
 } from "@phosphor-icons/react";
@@ -312,12 +311,17 @@ export function ReasoningLevelSelector({
     });
   };
 
+  // Both labels can be blank while a config reloads. The trigger has no icon
+  // to fall back on, so it would render as an empty pill announced as
+  // "Reasoning: undefined".
   const triggerAriaLabel =
     modelLabel && effortLabel
       ? `Model and reasoning: ${modelLabel} ${effortLabel}`
       : modelLabel
         ? `Model: ${modelLabel}`
-        : `Reasoning: ${effortLabel}`;
+        : effortLabel
+          ? `Reasoning: ${effortLabel}`
+          : "Model and reasoning";
 
   return (
     <DropdownMenu
@@ -369,11 +373,9 @@ export function ReasoningLevelSelector({
                 {effortLabel}
               </span>
             )}
-            <CaretDown
-              size={10}
-              weight="bold"
-              className="text-muted-foreground"
-            />
+            {!modelLabel && !effortLabel && (
+              <span className="font-medium text-foreground">Model</span>
+            )}
           </Button>
         }
       />

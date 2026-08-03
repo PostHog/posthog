@@ -2,7 +2,7 @@ import type {
   SessionConfigOption,
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
-import { ArrowsClockwise, CaretDown, Spinner } from "@phosphor-icons/react";
+import { ArrowsClockwise, Spinner } from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -108,11 +108,6 @@ export function UnifiedModelSelector({
             aria-label="Model"
           >
             {currentLabel ?? "Model"}
-            <CaretDown
-              size={10}
-              weight="bold"
-              className="text-muted-foreground"
-            />
           </Button>
         }
       />

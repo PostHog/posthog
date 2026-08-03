@@ -1,5 +1,4 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import { CaretDown } from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -127,11 +126,6 @@ export function ModeSelector({
             aria-label="Mode"
           >
             <span>{currentLabel}</span>
-            <CaretDown
-              size={10}
-              weight="bold"
-              className={bypassActive ? undefined : "text-muted-foreground"}
-            />
           </Button>
         }
       />
