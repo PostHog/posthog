@@ -44,10 +44,6 @@ export function GroupsScene(): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
 
-    if (groupTypeIndex === undefined) {
-        throw new Error('groupTypeIndex is undefined')
-    }
-
     if (shouldShowGroupsIntroduction) {
         return (
             <SceneContent>
