@@ -754,6 +754,13 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
     "backend\\.tasks.*",
 ]
 from = [
