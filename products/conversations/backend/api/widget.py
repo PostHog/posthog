@@ -16,6 +16,7 @@ import logging
 
 from django.db.models import F, Q
 
+from prometheus_client import Counter
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
@@ -47,11 +48,17 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
+
+IDENTITY_VERIFICATION_COUNTER = Counter(
+    "conversations_identity_verification_total",
+    "Widget identity verification attempts by outcome and which stored secret matched",
+    labelnames=["outcome", "source"],
+)
 
 
 class IdentityVerificationFailed(Exception):
@@ -69,9 +76,30 @@ class IdentityVerificationNotConfigured(IdentityVerificationFailed):
     # the specific reason is logged server-side for the team's own admins to see.
 
 
+def _identity_secrets(team: Team) -> list[tuple[str, str]]:
+    """(source, secret) pairs to verify a hash against, preferred store first.
+
+    The conversations signing secret is where this credential is moving; the legacy
+    Team.secret_api_token stays a fallback so teams that predate the backfill (or whose
+    row drifted) keep verifying. The rotation backup is accepted too, so hashes signed
+    with the previous secret survive a rotation.
+    """
+    secrets: list[tuple[str, str]] = []
+
+    signing_secret = SigningSecret.objects.for_team(team.id).first()
+    if signing_secret and signing_secret.secret:
+        secrets.append(("signing_secret", signing_secret.secret))
+    if team.secret_api_token:
+        secrets.append(("legacy_token", team.secret_api_token))
+    if team.secret_api_token_backup:
+        secrets.append(("legacy_backup", team.secret_api_token_backup))
+
+    return secrets
+
+
 def _verify_identity(data: dict, team: Team) -> str | None:
     """
-    Verify HMAC identity fields against the team's secret API token.
+    Verify HMAC identity fields against the team's signing secret.
     Returns the verified distinct_id, or None if identity fields not present.
     Raises IdentityVerificationFailed if identity was attempted but failed.
     """
@@ -80,20 +108,19 @@ def _verify_identity(data: dict, team: Team) -> str | None:
     if not distinct_id or not hash_value:
         return None
 
-    if not team.secret_api_token:
-        logger.warning("Identity verification attempted but team has no secret_api_token")
-        raise IdentityVerificationNotConfigured("Team has no secret_api_token")
+    secrets = _identity_secrets(team)
+    if not secrets:
+        logger.warning("Identity verification attempted but team has no signing secret")
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none").inc()
+        raise IdentityVerificationNotConfigured("Team has no signing secret")
 
-    # Accept the backup token during rotation so in-flight verified sessions keep working,
-    # matching the external API's grace period (external.py checks both tokens too).
-    tokens = [team.secret_api_token]
-    if team.secret_api_token_backup:
-        tokens.append(team.secret_api_token_backup)
+    for source, secret in secrets:
+        if verify_identity_hash(distinct_id, hash_value, secret):
+            IDENTITY_VERIFICATION_COUNTER.labels(outcome="verified", source=source).inc()
+            return distinct_id
 
-    if not any(verify_identity_hash(distinct_id, hash_value, token) for token in tokens):
-        raise IdentityVerificationFailed("Invalid identity hash")
-
-    return distinct_id
+    IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none").inc()
+    raise IdentityVerificationFailed("Invalid identity hash")
 
 
 class WidgetMessageView(APIView):

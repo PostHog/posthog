@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 from posthog.models.comment import Comment
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
 
@@ -659,6 +659,37 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    @parameterized.expand(
+        [
+            # The signing secret is where this credential is moving: if the read path stops
+            # consulting it, every migrated team loses verified identity.
+            ("signing_secret_only", True, None),
+            # A stale row (rotation sync missed) must fall back to the legacy token rather
+            # than locking the team out.
+            ("stale_signing_secret_falls_back_to_legacy", False, "test_secret_key_for_hmac"),
+        ]
+    )
+    def test_list_tickets_verifies_against_signing_secret(self, _name, row_matches_hash, legacy_token):
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret=self.secret if row_matches_hash else "a_stale_secret",
+        )
+        self.team.secret_api_token = legacy_token
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
