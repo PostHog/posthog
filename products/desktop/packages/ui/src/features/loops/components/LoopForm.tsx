@@ -283,11 +283,11 @@ export function LoopForm({
       <Flex
         direction="column"
         gap="4"
-        className="rounded-(--radius-2) border border-border bg-(--color-panel-solid) p-4"
+        className="rounded-(--radius-2) border border-border bg-(--gray-1) p-4"
       >
         <Step
           title="Prompt"
-          description="Name it and write the prompt the agent runs on every fire."
+          description="Name it and write the prompt the agent runs each time."
         >
           <Field label="Name" required>
             <TextField.Root
@@ -318,7 +318,7 @@ export function LoopForm({
 
         <Step
           title="When"
-          description="A loop can have several triggers, and any one of them starts a run. With no triggers, you run it yourself from the loop's page."
+          description="Add automatic triggers, or leave this manual-only."
         >
           <LoopTriggerEditor
             triggers={values.triggers}
@@ -332,36 +332,56 @@ export function LoopForm({
 
         <Step
           title="Options"
-          description="Who can see it, what it can work on, and how you hear about runs."
+          description="Visibility, working context, and notifications."
         >
-          <Field
-            label="Visibility"
-            className="max-w-[340px]"
-            hint={
-              values.contextTarget
-                ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
-                : undefined
-            }
-          >
-            <SettingsOptionSelect
-              value={values.visibility}
-              options={VISIBILITY_OPTIONS}
-              disabled={isSubmitting || !!values.contextTarget}
-              size="lg"
-              ariaLabel="Visibility"
-              onValueChange={(value) =>
-                patch({
-                  visibility: value as LoopSchemas.LoopVisibilityEnum,
-                })
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Visibility"
+              hint={
+                values.contextTarget
+                  ? "Channel loops are team-visible."
+                  : undefined
               }
-            />
-          </Field>
+            >
+              <SettingsOptionSelect
+                value={values.visibility}
+                options={VISIBILITY_OPTIONS}
+                disabled={isSubmitting || !!values.contextTarget}
+                size="lg"
+                ariaLabel="Visibility"
+                onValueChange={(value) =>
+                  patch({
+                    visibility: value as LoopSchemas.LoopVisibilityEnum,
+                  })
+                }
+              />
+            </Field>
+
+            <Field
+              label="Base repository"
+              hint={
+                values.repositories.length > 1
+                  ? `${values.repositories.length - 1} more attached.`
+                  : "Optional for report-only loops."
+              }
+            >
+              <LoopRepositoryPicker
+                value={values.repositories[0] ?? null}
+                disabled={isSubmitting}
+                onChange={(repository) =>
+                  setValues((prev) => ({
+                    ...prev,
+                    repositories: repository
+                      ? [repository, ...prev.repositories.slice(1)]
+                      : prev.repositories.slice(1),
+                  }))
+                }
+              />
+            </Field>
+          </div>
 
           {showContextField ? (
-            <Field
-              label="Context"
-              hint="A context is one of the channels in your sidebar. Attach this loop to a channel and its runs show up in that channel's feed; it can also keep the channel's context.md or a canvas up to date."
-            >
+            <Field label="Context" hint="Attach runs to a sidebar channel.">
               <LoopContextFields
                 value={values.contextTarget}
                 disabled={isSubmitting}
@@ -375,32 +395,6 @@ export function LoopForm({
               />
             </Field>
           ) : null}
-
-          <Field
-            label="Base repository"
-            hint={
-              values.repositories.length > 1
-                ? `${values.repositories.length - 1} more ${
-                    values.repositories.length === 2
-                      ? "repository stays"
-                      : "repositories stay"
-                  } attached to this loop.`
-                : "The repository runs check out and work in. Optional. Leave empty for a report-only loop that works purely through connectors."
-            }
-          >
-            <LoopRepositoryPicker
-              value={values.repositories[0] ?? null}
-              disabled={isSubmitting}
-              onChange={(repository) =>
-                setValues((prev) => ({
-                  ...prev,
-                  repositories: repository
-                    ? [repository, ...prev.repositories.slice(1)]
-                    : prev.repositories.slice(1),
-                }))
-              }
-            />
-          </Field>
 
           <Field label="Notifications">
             <LoopNotificationsFields
@@ -460,7 +454,7 @@ export function LoopForm({
           align="center"
           justify="end"
           gap="2"
-          className="sticky bottom-0 z-10 border-border border-t bg-(--color-panel-solid) pt-4"
+          className="sticky bottom-0 z-10 border-border border-t bg-(--gray-1) pt-4"
         >
           <Button
             variant="soft"
