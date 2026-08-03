@@ -67,6 +67,37 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     config.resolver.object_storage_bucket = storage_bucket.clone();
     configure(&mut config);
 
+    ensure_remote_resolution(&mut config, s3_client, db.clone()).await;
+
+    let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
+
+    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
+        .await
+        .unwrap();
+
+    let ctx = Arc::new(app_ctx);
+
+    let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
+
+    let status = res.status();
+
+    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+
+    let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+    // Deserialize the JSON into your struct
+    let body: T = serde_json::from_slice(body_bytes.to_bytes())
+        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
+    (status, body)
+}
+
+async fn ensure_remote_resolution(
+    config: &mut ProcessingConfig,
+    s3_client: Arc<MockS3Client>,
+    db: PgPool,
+) {
     if config.remote_resolution_host.is_empty() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -109,29 +140,6 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
         config.resolver.internal_api_secret = "test-secret".to_string();
         config.remote_resolution_subscribe_tick_hint_ms = 25;
     }
-
-    let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
-
-    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
-        .await
-        .unwrap();
-
-    let ctx = Arc::new(app_ctx);
-
-    let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
-
-    let status = res.status();
-
-    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
-        .await
-        .unwrap();
-
-    let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
-
-    // Deserialize the JSON into your struct
-    let body: T = serde_json::from_slice(body_bytes.to_bytes())
-        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
-    (status, body)
 }
 
 #[allow(dead_code)]
@@ -139,10 +147,12 @@ pub(crate) async fn get_raw_response(
     db: PgPool,
     storage_bucket: String,
     request_factory: impl Fn() -> Request<Body>,
-    _s3_client: Arc<MockS3Client>,
+    s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, String) {
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     config.resolver.object_storage_bucket = storage_bucket.clone();
+
+    ensure_remote_resolution(&mut config, s3_client, db.clone()).await;
 
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
