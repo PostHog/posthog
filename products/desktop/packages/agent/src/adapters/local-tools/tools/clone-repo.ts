@@ -8,6 +8,7 @@ import { resolveGithubToken } from "../../../utils/github-token";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 
 const GIT_TIMEOUT_MS = 10 * 60 * 1000;
+const GITHUB_BASE_URL = "https://github.com/";
 
 const cloneRepoSchema = {
   repo: z
@@ -31,8 +32,12 @@ function fail(text: string): LocalToolResult {
  * Carries the token as an `http.extraHeader` in the child's environment, so it
  * never reaches `.git/config` the way a credential embedded in the remote URL
  * would.
+ *
+ * The header is scoped to `https://github.com/` rather than set globally: an
+ * unscoped one is attached to every HTTP remote git talks to, so a fetch
+ * against a repo whose origin points elsewhere would hand the token over.
  */
-function gitEnv(token: string | undefined): Record<string, string> {
+export function gitEnv(token: string | undefined): Record<string, string> {
   // Repos declaring `filter=lfs` fail outright when git-lfs isn't installed;
   // skipping the smudge filter leaves pointer files instead.
   const env: Record<string, string> = { GIT_LFS_SKIP_SMUDGE: "1" };
@@ -41,21 +46,9 @@ function gitEnv(token: string | undefined): Record<string, string> {
   return {
     ...env,
     GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: "http.extraHeader",
+    GIT_CONFIG_KEY_0: `http.${GITHUB_BASE_URL}.extraHeader`,
     GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basicAuth}`,
   };
-}
-
-function hasHttpCredentials(remoteUrl: string): boolean {
-  try {
-    const url = new URL(remoteUrl);
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      Boolean(url.username || url.password)
-    );
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -99,7 +92,7 @@ export const cloneRepoTool = defineLocalTool({
     const slug = `${parsed.owner}/${parsed.repo}`;
     const repoName = parsed.repo;
     const targetPath = path.join(ctx.cwd, "repos", slug);
-    const cloneUrl = `https://github.com/${slug}.git`;
+    const cloneUrl = `${GITHUB_BASE_URL}${slug}.git`;
 
     const git = (gitArgs: string[], cwd?: string): Promise<GitExecResult> =>
       execGit(gitArgs, { cwd, env, timeoutMs: GIT_TIMEOUT_MS });
@@ -169,13 +162,17 @@ export const cloneRepoTool = defineLocalTool({
     // destination, which the agent would receive as an opaque error.
     if (fs.existsSync(path.join(targetPath, ".git"))) {
       try {
-        // Read the stored value, not `remote get-url`, which resolves any
-        // `url.<base>.insteadOf` rewrite and would hide a persisted credential.
+        // Only this tool writes to `repos/<owner>/<repo>`, so origin should
+        // already be `cloneUrl`. Anything else was retargeted after the clone:
+        // normalize it before the fetch below, both to keep a credential out of
+        // the config and to keep the fetch pointed at the repo we were asked
+        // for. Read the stored value rather than `remote get-url`, which
+        // resolves `url.<base>.insteadOf` and would mask both.
         const originUrl = await run(
           ["config", "--get", "remote.origin.url"],
           targetPath,
         );
-        if (hasHttpCredentials(originUrl)) {
+        if (originUrl !== cloneUrl) {
           await run(["remote", "set-url", "origin", cloneUrl], targetPath);
         }
       } catch (err) {

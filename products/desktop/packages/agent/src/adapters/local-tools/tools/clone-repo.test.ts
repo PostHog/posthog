@@ -9,7 +9,7 @@ vi.mock("../../../utils/github-token", () => ({
   resolveGithubToken: vi.fn(() => undefined),
 }));
 
-const { cloneRepoTool } = await import("./clone-repo");
+const { cloneRepoTool, gitEnv } = await import("./clone-repo");
 
 const REPO_URL = "https://github.com/PostHog/posthog.git";
 
@@ -93,18 +93,22 @@ describe("clone_repo", () => {
     ).not.toContain("test-token");
   });
 
-  it("removes credentials from an existing clone origin", async () => {
+  // A retargeted origin is what turns the missing-branch fetch below into a
+  // request to somewhere we never meant to talk to, carrying the token with it.
+  it.each([
+    {
+      case: "carries embedded credentials",
+      origin:
+        "https://x-access-token:stale-token@github.com/PostHog/posthog.git",
+    },
+    {
+      case: "points at another host",
+      origin: "https://evil.example.com/PostHog/posthog.git",
+    },
+  ])("normalizes an existing clone origin that $case", async ({ origin }) => {
     await mkdir(targetPath, { recursive: true });
     await git(["init", "."], targetPath);
-    await git(
-      [
-        "remote",
-        "add",
-        "origin",
-        "https://x-access-token:stale-token@github.com/PostHog/posthog.git",
-      ],
-      targetPath,
-    );
+    await git(["remote", "add", "origin", origin], targetPath);
 
     const result = await cloneRepoTool.handler(
       { cwd, token: "test-token" },
@@ -115,6 +119,20 @@ describe("clone_repo", () => {
     expect(
       await git(["config", "--get", "remote.origin.url"], targetPath),
     ).toBe(REPO_URL);
+  });
+
+  // Regression: an unscoped http.extraHeader is sent to every HTTP remote, so a
+  // fetch against a non-GitHub origin would hand over the live token.
+  it("scopes the auth header to github.com", async () => {
+    const env = gitEnv("test-token");
+    const urlmatch = async (url: string): Promise<string> =>
+      (await execGit(["config", "--get-urlmatch", "http", url], { env }))
+        .stdout;
+
+    expect(await urlmatch("https://github.com/PostHog/posthog.git")).toContain(
+      "AUTHORIZATION: basic",
+    );
+    expect(await urlmatch("https://evil.example.com/x.git")).toBe("");
   });
 
   it("fetches a missing branch into an existing shallow clone", async () => {
