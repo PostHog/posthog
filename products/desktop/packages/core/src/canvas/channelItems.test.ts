@@ -5,7 +5,7 @@ import {
   type ChannelItemModel,
   filterChannelItems,
 } from "./channelItems";
-import type { DashboardSummary } from "./dashboardSchemas";
+import type { DashboardRecord } from "./dashboardSchemas";
 
 const ME: UserBasic = {
   id: 1,
@@ -25,16 +25,18 @@ const OTHER: UserBasic = {
   email: "grace@posthog.com",
 };
 
-function canvas(over: Partial<DashboardSummary> = {}): DashboardSummary {
+function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
   return {
     id: "d1",
     channelId: "c1",
     name: "Canvas",
     templateId: "freeform",
+    context: "",
+    isHome: false,
     createdAt: 0,
     updatedAt: 1_000,
     ...over,
-  } as DashboardSummary;
+  };
 }
 
 function task(over: Partial<Task> = {}): Task {
