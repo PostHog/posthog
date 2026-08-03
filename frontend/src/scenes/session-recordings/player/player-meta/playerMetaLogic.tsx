@@ -158,6 +158,7 @@ export interface playerMetaLogicValues {
     urls: {
         timestamp: number
         url: string
+        windowId: number
     }[] // sessionRecordingDataCoordinatorLogic
     windowIds: number[] // sessionRecordingDataCoordinatorLogic
     pinnedProperties: string[] // sessionRecordingPinnedPropertiesLogic
