@@ -17,10 +17,13 @@ def list_stale_scanner_estimates_activity() -> list[RefreshScannerEstimateInputs
 
     Disabled scanners are refreshed too so re-enabling one puts an accurate number straight into the
     quota sum. Enabled scanners come first so they can't starve behind a backlog of disabled ones.
+    Ad-hoc scanners are skipped: they have no query to project, so an estimate for them means nothing,
+    and refreshing every one forever would spend a ClickHouse query per past ad-hoc scan.
     """
     cutoff = timezone.now() - ESTIMATE_STALE_AFTER
     rows = (
-        ReplayScanner.objects.filter(Q(estimated_at__isnull=True) | Q(estimated_at__lt=cutoff))
+        ReplayScanner.objects.configured()
+        .filter(Q(estimated_at__isnull=True) | Q(estimated_at__lt=cutoff))
         .order_by("-enabled", F("estimated_at").asc(nulls_first=True))
         .values_list("id", "team_id")[:ESTIMATES_MAX_PER_RUN]
     )

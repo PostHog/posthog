@@ -40,6 +40,6 @@ def readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> li
     if not valid_ids:
         return []
     readable = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
-        ReplayScanner.objects.filter(team_id=team.id, id__in=valid_ids)
+        ReplayScanner.objects.configured().filter(team_id=team.id, id__in=valid_ids)
     )
     return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]

@@ -228,6 +228,9 @@ class TestListStaleScannerEstimatesActivity:
         _set_estimate(fresh, 10, hours_ago=1)
         disabled = _make_scanner(name="disabled", enabled=False)
         _set_estimate(disabled, 10, hours_ago=96)
+        # Ad-hoc scanners have no query to project, and every past ad-hoc scan would otherwise stay
+        # in the backlog forever, costing a ClickHouse query each pass.
+        _make_scanner(name="ad-hoc", enabled=False, ad_hoc_key="deadbeefdeadbeef")
 
         entries = list_stale_scanner_estimates_activity()
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from django.conf import settings
+from django.db.models import QuerySet
 
 import structlog
 import posthoganalytics
@@ -134,7 +135,9 @@ def _sibling_vocabularies(
     seen: set[str] = set()
     vocab: list[str] = []
     try:
-        qs = ReplayScanner.objects.filter(team_id=team.id, scanner_type=ScannerType.CLASSIFIER)
+        qs: QuerySet[ReplayScanner] = ReplayScanner.objects.configured().filter(
+            team_id=team.id, scanner_type=ScannerType.CLASSIFIER
+        )
         if exclude_scanner_id is not None:
             qs = qs.exclude(id=exclude_scanner_id)
         # Only surface tags from scanners the caller is allowed to read — never leak a private scanner's vocabulary.

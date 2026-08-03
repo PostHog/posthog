@@ -1,6 +1,6 @@
 ---
 name: creating-replay-vision-scanners
-description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating observation volume and checking the org's monthly quota before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against a single session on demand (vision-scanners-scan-session)."
+description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating observation volume and checking the org's monthly quota before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, running an existing scanner against a single session on demand (vision-scanners-scan-session), or answering a one-off question about sessions the user already has in hand (vision-scanners-scan-ad-hoc — no scanner needed)."
 ---
 
 # Creating Replay Vision scanners
@@ -15,6 +15,16 @@ That schedule is exactly why creation needs a gut-check: a scanner with a permis
 starts consuming quota automatically and can drain the whole month's budget within its first few sweeps.
 Creation itself does **not** check quota — that protection only kicks in at observation time, by which point
 the budget may already be gone.
+
+## First: is a scanner even the right tool?
+
+A scanner is for questions that should keep being asked. If the user is investigating sessions they already
+have — "watch this onboarding session and tell me what went wrong", "check these ten signups for friction" —
+call `vision-scanners-scan-ad-hoc` with the session ids and a prompt instead. It spends credits per session
+but nothing standing, needs no query or sizing pass, and never appears in the user's scanner list. Don't
+create a throwaway scanner to fake it.
+
+Create a scanner when the question should apply to recordings that haven't happened yet.
 
 ## Core principle: size before you ship
 

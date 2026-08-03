@@ -154,7 +154,7 @@ def _survey_count() -> list[dict[str, int]]:
 
 
 def _replay_vision_scanner_count() -> list[dict[str, int]]:
-    return list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return list(ReplayScanner.objects.configured().values("team_id").annotate(total=Count("id")).order_by("team_id"))
 
 
 def _replay_vision_scanner_active_count() -> list[dict[str, int]]:

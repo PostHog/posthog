@@ -261,7 +261,7 @@ export interface VisionActionApi {
      * @maxLength 255
      */
     name: string
-    /** Scanner whose observations this action operates on. Must belong to the same team. */
+    /** Scanner whose observations this action operates on. Must belong to the same team, and must be one the team configured — the implicit scanners behind ad-hoc scans can't be automated. */
     scanner: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
@@ -328,7 +328,7 @@ export interface PatchedVisionActionApi {
      * @maxLength 255
      */
     name?: string
-    /** Scanner whose observations this action operates on. Must belong to the same team. */
+    /** Scanner whose observations this action operates on. Must belong to the same team, and must be one the team configured — the implicit scanners behind ad-hoc scans can't be automated. */
     scanner?: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
@@ -826,6 +826,8 @@ export interface ReplayScannerApi {
     enabled?: boolean
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
+    /** True when the scanner was minted by an ad-hoc scan rather than configured. Ad-hoc scanners are never scheduled and are left out of the scanner list. */
+    readonly is_ad_hoc: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version: number
     /**
@@ -920,6 +922,8 @@ export interface PatchedReplayScannerApi {
     enabled?: boolean
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
+    /** True when the scanner was minted by an ad-hoc scan rather than configured. Ad-hoc scanners are never scheduled and are left out of the scanner list. */
+    readonly is_ad_hoc?: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version?: number
     /**
@@ -1392,6 +1396,50 @@ export interface CurrentPromptSuggestionApi {
     rated_count: number
     /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
     evaluation_session_cap: number
+}
+
+/**
+ * Body of POST /vision/scanners/ad_hoc_observe/ — a prompt plus the sessions to point it at.
+ */
+export interface AdHocObserveRequestApi {
+    /**
+     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
+    /**
+     * What to look for in these sessions, in plain language — the same instruction a saved scanner carries.
+     * @maxLength 20000
+     */
+    prompt: string
+    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
+    scanner_type?: ScannerTypeEnumApi
+    /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+    scanner_config?: unknown
+    /** Model to scan with; determines what each observation costs in credits.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+    model?: ScannerModelEnumApi
+}
+
+/**
+ * `bulk_observe`'s partial-success shape plus the scanner the prompt resolved to.
+ */
+export interface AdHocObserveResponseApi {
+    /** How many new scans were started. */
+    started: number
+    /** Per-session outcomes, in request order (deduplicated). */
+    results: BulkObserveResultApi[]
+    /** The implicit scanner this config resolved to. Never scheduled and not listed with the team's configured scanners; read its results from `/vision/scanners/{scanner_id}/observations/`. */
+    scanner_id: string
 }
 
 /**

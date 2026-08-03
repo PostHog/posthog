@@ -32,6 +32,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.replay_vision.backend.ad_hoc import get_or_create_ad_hoc_scanner
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -66,6 +67,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
+    ReplayScannerQuerySet,
     SamplingMode,
     ScannerModel,
     ScannerProvider,
@@ -291,6 +293,13 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         help_text="When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
     )
 
+    is_ad_hoc = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the scanner was minted by an ad-hoc scan rather than configured. Ad-hoc scanners are "
+            "never scheduled and are left out of the scanner list."
+        ),
+    )
     scanner_version = serializers.IntegerField(
         read_only=True,
         help_text="Increments on every config-changing save. Observations snapshot this value.",
@@ -357,6 +366,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "model",
             "enabled",
             "emits_signals",
+            "is_ad_hoc",
             "scanner_version",
             "estimated_monthly_observations",
             "credits_per_observation",
@@ -372,6 +382,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         ]
         read_only_fields = [
             "id",
+            "is_ad_hoc",
             "scanner_version",
             "estimated_monthly_observations",
             "credits_per_observation",
@@ -742,6 +753,71 @@ class BulkObserveResponseSerializer(serializers.Serializer):
     )
 
 
+class AdHocObserveRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/ad_hoc_observe/ — a prompt plus the sessions to point it at."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
+        allow_empty=False,
+        max_length=BULK_OBSERVE_MAX_SESSIONS,
+        help_text=(
+            f"Session recording IDs to scan, at most {BULK_OBSERVE_MAX_SESSIONS} per request. Scans start "
+            "until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped "
+            "rather than failing the whole batch."
+        ),
+    )
+    prompt = serializers.CharField(
+        max_length=_MAX_PROMPT_LENGTH,
+        help_text="What to look for in these sessions, in plain language — the same instruction a saved scanner carries.",
+    )
+    scanner_type = serializers.ChoiceField(
+        choices=ScannerType.choices,
+        required=False,
+        default=ScannerType.MONITOR,
+        help_text="What the scan produces. Defaults to monitor, an open-ended observation against the prompt.",
+    )
+    scanner_config = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text=(
+            "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, "
+            "optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` "
+            "field and is rejected here."
+        ),
+    )
+    model = serializers.ChoiceField(
+        choices=ScannerModel.choices,
+        required=False,
+        default=ScannerModel.GEMINI_3_FLASH_PREVIEW,
+        help_text="Model to scan with; determines what each observation costs in credits.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        config = attrs["scanner_config"]
+        if not isinstance(config, dict):
+            raise serializers.ValidationError({"scanner_config": "Scanner configuration must be a JSON object."})
+        if "prompt" in config:
+            raise serializers.ValidationError({"scanner_config": "Set the prompt in `prompt`, not here."})
+        # One config from here on, validated exactly like a saved scanner's — the fingerprint covers it whole.
+        merged = {**config, "prompt": attrs["prompt"]}
+        message = _scanner_config_error_message(ScannerType(attrs["scanner_type"]), merged)
+        if message is not None:
+            raise serializers.ValidationError({"scanner_config": message})
+        attrs["scanner_config"] = merged
+        return attrs
+
+
+class AdHocObserveResponseSerializer(BulkObserveResponseSerializer):
+    """`bulk_observe`'s partial-success shape plus the scanner the prompt resolved to."""
+
+    scanner_id = serializers.UUIDField(
+        help_text=(
+            "The implicit scanner this config resolved to. Never scheduled and not listed with the team's "
+            "configured scanners; read its results from `/vision/scanners/{scanner_id}/observations/`."
+        ),
+    )
+
+
 class EstimateRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config."""
 
@@ -1046,7 +1122,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
     scope_object_read_actions = ["list", "retrieve", "creators", "stats"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "observe", "bulk_observe"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "observe",
+        "bulk_observe",
+        "ad_hoc_observe",
+    ]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerSerializer
     queryset = ReplayScanner.objects.all()
@@ -1072,7 +1156,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             raise PermissionDenied("Configuring a Replay Vision scanner requires session_recording read access.")
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
-        return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
+        queryset = queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
+        # Only the list hides ad-hoc scanners — retrieve and destroy still resolve one by id, so a caller
+        # holding a `scanner_id` from an ad-hoc scan can inspect and clean it up.
+        if self.action == "list":
+            # The mixin hands back a plain QuerySet, so the custom manager's method needs the cast.
+            queryset = cast(ReplayScannerQuerySet, queryset).configured()
+        return queryset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = super().retrieve(request, *args, **kwargs)
@@ -1105,7 +1195,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Mirror the per-resource RBAC the `list` action applies — the dropdown must not leak creator
         # identities for scanners the caller can't see.
         accessible = self.user_access_control.filter_queryset_by_access_level(
-            ReplayScanner.objects.filter(team_id=self.team_id, created_by_id__isnull=False)
+            ReplayScanner.objects.configured().filter(team_id=self.team_id, created_by_id__isnull=False)
         )
         users = User.objects.filter(
             id__in=accessible.values_list("created_by_id", flat=True),
@@ -1117,7 +1207,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def stats(self, request: Request, **kwargs: Any) -> Response:
         """Team-wide scanner counts — independent of list filters, so the overview stays stable."""
         accessible = self.user_access_control.filter_queryset_by_access_level(
-            ReplayScanner.objects.filter(team_id=self.team_id)
+            ReplayScanner.objects.configured().filter(team_id=self.team_id)
         )
         # `.order_by()` so the default ordering doesn't leak into GROUP BY.
         rows = accessible.order_by().values("scanner_type", "enabled").annotate(c=Count("*"))
@@ -1220,40 +1310,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         session_ids = list(dict.fromkeys(body.validated_data["session_ids"]))
         user = cast(User, request.user)
 
-        # "Scan what fits": compute how many NEW scans can start once, up front. The tighter of the
-        # in-flight caps and the remaining monthly quota bounds it; the loser names the skip reason so
-        # the user knows which limit they hit. Decrementing a local counter as we start models each new
-        # in-flight row without re-querying (a started scan consumes exactly one slot).
-        max_starts, skip_reason, team_rows, scanner_rows = self._bulk_observe_headroom(scanner)
-        results: list[dict[str, str]] = []
-        started = 0
-        for session_id in session_ids:
-            if started >= max_starts:
-                results.append({"session_id": session_id, "scan_outcome": skip_reason})
-                continue
-            workflow_id, outcome = start_apply_scanner_workflow(
-                scanner,
-                session_id,
-                triggered_by_user_id=user.id,
-                trigger=ObservationTrigger.ON_DEMAND,
-                # Row counts are this request's snapshot; the atomic claim inside makes racing
-                # requests visible to each other, which the snapshot alone cannot.
-                team_in_flight_rows=team_rows,
-                scanner_in_flight_rows=scanner_rows,
-            )
-            if outcome is WorkflowStartOutcome.STARTED:
-                started += 1
-                results.append({"session_id": session_id, "scan_outcome": "started"})
-            elif outcome is WorkflowStartOutcome.ALREADY_RUNNING:
-                # Already in flight — counted in the caps already, so it consumes no new headroom.
-                results.append({"session_id": session_id, "scan_outcome": "already_running"})
-            elif outcome is WorkflowStartOutcome.CAPPED:
-                # A racing request consumed the remaining slots, so the in-flight cap binds the rest.
-                results.append({"session_id": session_id, "scan_outcome": "skipped_limit"})
-                max_starts = started
-                skip_reason = "skipped_limit"
-            else:
-                results.append({"session_id": session_id, "scan_outcome": "failed"})
+        started, results = self._start_observations(scanner, session_ids, user)
 
         report_user_action(
             user,
@@ -1276,6 +1333,108 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             status=status.HTTP_202_ACCEPTED,
         )
 
+    @extend_schema(
+        request=AdHocObserveRequestSerializer,
+        responses={202: AdHocObserveResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="ad_hoc_observe",
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+    )
+    def ad_hoc_observe(self, request: Request, **kwargs: Any) -> Response:
+        """Scan named sessions against a prompt without configuring a scanner first, for one-off questions.
+
+        The prompt resolves to an implicit scanner, so the same question asked twice reuses the answers it
+        already has, while a different question about the same session gets a fresh scan.
+        """
+        # Observation output exposes recording contents, so this requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Triggering an ad-hoc scan requires session_recording read access.")
+        # The scan sends recordings to an LLM, the same reason scanner creation gates on this.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can run a Replay Vision scan."
+            )
+
+        body = AdHocObserveRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        # Dedup preserving order — the same session twice in one batch would just be a wasted no-op.
+        session_ids = list(dict.fromkeys(body.validated_data["session_ids"]))
+        user = cast(User, request.user)
+
+        scanner = get_or_create_ad_hoc_scanner(
+            team=self.team,
+            user=user,
+            scanner_type=ScannerType(body.validated_data["scanner_type"]),
+            scanner_config=body.validated_data["scanner_config"],
+            model=body.validated_data["model"],
+        )
+        started, results = self._start_observations(scanner, session_ids, user)
+
+        report_user_action(
+            user,
+            "replay_vision_ad_hoc_scan_requested",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "model": scanner.model,
+                "requested": len(session_ids),
+                "started": started,
+            },
+            team=self.team,
+            request=request,
+        )
+        if any(result["scan_outcome"] == "skipped_quota" for result in results):
+            self._report_quota_exhausted(scanner, "ad_hoc")
+        return Response(
+            AdHocObserveResponseSerializer({"scanner_id": scanner.id, "started": started, "results": results}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _start_observations(
+        self, scanner: ReplayScanner, session_ids: list[str], user: User
+    ) -> tuple[int, list[dict[str, str]]]:
+        """Start a scan per session, as many as fit. Returns (started, per-session outcomes).
+
+        "Scan what fits": compute how many NEW scans can start once, up front. The tighter of the
+        in-flight caps and the remaining monthly quota bounds it; the loser names the skip reason so
+        the user knows which limit they hit. Decrementing a local counter as we start models each new
+        in-flight row without re-querying (a started scan consumes exactly one slot).
+        """
+        max_starts, skip_reason, team_rows, scanner_rows = self._observation_headroom(scanner)
+        results: list[dict[str, str]] = []
+        started = 0
+        for session_id in session_ids:
+            if started >= max_starts:
+                results.append({"session_id": session_id, "scan_outcome": skip_reason})
+                continue
+            _, outcome = start_apply_scanner_workflow(
+                scanner,
+                session_id,
+                triggered_by_user_id=user.id,
+                trigger=ObservationTrigger.ON_DEMAND,
+                # Row counts are this request's snapshot; the atomic claim inside makes racing
+                # requests visible to each other, which the snapshot alone cannot.
+                team_in_flight_rows=team_rows,
+                scanner_in_flight_rows=scanner_rows,
+            )
+            if outcome is WorkflowStartOutcome.STARTED:
+                started += 1
+                results.append({"session_id": session_id, "scan_outcome": "started"})
+            elif outcome is WorkflowStartOutcome.ALREADY_RUNNING:
+                # Already in flight — counted in the caps already, so it consumes no new headroom.
+                results.append({"session_id": session_id, "scan_outcome": "already_running"})
+            elif outcome is WorkflowStartOutcome.CAPPED:
+                # A racing request consumed the remaining slots, so the in-flight cap binds the rest.
+                results.append({"session_id": session_id, "scan_outcome": "skipped_limit"})
+                max_starts = started
+                skip_reason = "skipped_limit"
+            else:
+                results.append({"session_id": session_id, "scan_outcome": "failed"})
+        return started, results
+
     def _report_quota_exhausted(self, scanner: ReplayScanner, trigger: str) -> None:
         """A scan was blocked or capped by the org's monthly Replay vision credit limit."""
         report_user_action(
@@ -1290,7 +1449,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             request=self.request,
         )
 
-    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
+    def _observation_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
         """(max_starts, skip_reason, team_rows, scanner_rows): how many new scans can start, the
         reason once that's used up, and the row counts reused by the per-start slot claims."""
         team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()

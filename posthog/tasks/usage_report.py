@@ -2630,7 +2630,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
         "teams_with_replay_vision_scanner_count": list(
-            ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+            ReplayScanner.objects.configured().values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
         "teams_with_replay_vision_scanner_active_count": list(
             ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")

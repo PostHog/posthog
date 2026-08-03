@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AdHocObserveRequestApi,
+    AdHocObserveResponseApi,
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
@@ -967,6 +969,29 @@ export const visionScannersPromptSuggestionsGenerateCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getVisionScannersAdHocObserveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/ad_hoc_observe/`
+}
+
+/**
+ * Scan named sessions against a prompt without configuring a scanner first, for one-off questions.
+ *
+ * The prompt resolves to an implicit scanner, so the same question asked twice reuses the answers it
+ * already has, while a different question about the same session gets a fresh scan.
+ */
+export const visionScannersAdHocObserveCreate = async (
+    projectId: string,
+    adHocObserveRequestApi: AdHocObserveRequestApi,
+    options?: RequestInit
+): Promise<AdHocObserveResponseApi> => {
+    return apiMutator<AdHocObserveResponseApi>(getVisionScannersAdHocObserveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adHocObserveRequestApi),
+    })
 }
 
 export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {

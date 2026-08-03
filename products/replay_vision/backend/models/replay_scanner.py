@@ -54,8 +54,21 @@ def initial_watermark() -> "datetime":
     return timezone.now() - SETTLE_INTERVAL
 
 
+class ReplayScannerQuerySet(models.QuerySet):
+    def configured(self) -> "ReplayScannerQuerySet":
+        """Scanners the team actually configured, excluding the implicit ones ad-hoc scans mint.
+
+        Use this for anything that presents or counts a team's scanners. Reads that follow a
+        scanner *by id* — resolving one to read its observations, editing it, deleting it — must
+        not use it: an ad-hoc scanner stays addressable so its results can be read back.
+        """
+        return self.filter(ad_hoc_key="")
+
+
 class ReplayScanner(UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
+
+    objects = models.Manager.from_queryset(ReplayScannerQuerySet)()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255, help_text="Human-readable name. Unique within the team.")
@@ -91,6 +104,14 @@ class ReplayScanner(UUIDModel):
         help_text="When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
     )
     emits_signals = models.BooleanField(default=False)
+
+    ad_hoc_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Config fingerprint of a scanner minted implicitly by an ad-hoc scan. Empty for configured scanners.",
+    )
 
     scanner_version = models.PositiveIntegerField(
         default=1,
@@ -134,6 +155,13 @@ class ReplayScanner(UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["team", "name"], name="replay_scanner_unique_team_name"),
+            # One implicit scanner per team per fingerprint, so the same ad-hoc question reuses its
+            # observations instead of minting a scanner per request.
+            models.UniqueConstraint(
+                fields=["team", "ad_hoc_key"],
+                condition=~models.Q(ad_hoc_key=""),
+                name="replay_scanner_unique_team_ad_hoc_key",
+            ),
             models.CheckConstraint(
                 condition=models.Q(sampling_rate__gte=0.0) & models.Q(sampling_rate__lte=1.0),
                 name="replay_scanner_sampling_rate_range",
@@ -194,6 +222,11 @@ class ReplayScanner(UUIDModel):
                 super().save(*args, **kwargs)
             return
         super().save(*args, **kwargs)
+
+    @property
+    def is_ad_hoc(self) -> bool:
+        """Minted implicitly by an ad-hoc scan (see `ad_hoc.py`) rather than configured by a user."""
+        return bool(self.ad_hoc_key)
 
     def recordings_query(self) -> "RecordingsQuery":
         """The persisted candidate filter; an empty `query` parses as a bare RecordingsQuery."""

@@ -261,8 +261,11 @@ class VisionActionSerializer(serializers.ModelSerializer):
         help_text="Human-readable action name. Unique within the team.",
     )
     scanner = TeamScopedPrimaryKeyRelatedField(
-        queryset=ReplayScanner.objects.all(),
-        help_text="Scanner whose observations this action operates on. Must belong to the same team.",
+        queryset=ReplayScanner.objects.configured(),
+        help_text=(
+            "Scanner whose observations this action operates on. Must belong to the same team, and must be "
+            "one the team configured — the implicit scanners behind ad-hoc scans can't be automated."
+        ),
     )
     enabled = serializers.BooleanField(
         required=False,

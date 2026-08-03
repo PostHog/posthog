@@ -29,7 +29,9 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
             .describe('Human-readable action name. Unique within the team.'),
         scanner: zod
             .uuid()
-            .describe('Scanner whose observations this action operates on. Must belong to the same team.'),
+            .describe(
+                "Scanner whose observations this action operates on. Must belong to the same team, and must be one the team configured — the implicit scanners behind ad-hoc scans can't be automated."
+            ),
         enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
         is_scanner_digest: zod
             .boolean()
@@ -210,7 +212,9 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
         scanner: zod
             .uuid()
             .optional()
-            .describe('Scanner whose observations this action operates on. Must belong to the same team.'),
+            .describe(
+                "Scanner whose observations this action operates on. Must belong to the same team, and must be one the team configured — the implicit scanners behind ad-hoc scans can't be automated."
+            ),
         enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
         is_scanner_digest: zod
             .boolean()
@@ -680,6 +684,62 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
             "The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config."
         ),
 })
+
+/**
+ * Scan named sessions against a prompt without configuring a scanner first, for one-off questions.
+ *
+ * The prompt resolves to an implicit scanner, so the same question asked twice reuses the answers it
+ * already has, while a different question about the same session gets a fresh scan.
+ */
+export const visionScannersAdHocObserveCreateBodySessionIdsItemMax = 128
+
+export const visionScannersAdHocObserveCreateBodySessionIdsMax = 200
+
+export const visionScannersAdHocObserveCreateBodyPromptMax = 20000
+
+export const visionScannersAdHocObserveCreateBodyScannerTypeDefault = `monitor`
+export const visionScannersAdHocObserveCreateBodyModelDefault = `gemini-3-flash-preview`
+
+export const VisionScannersAdHocObserveCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionScannersAdHocObserveCreateBodySessionIdsItemMax))
+            .max(visionScannersAdHocObserveCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
+            ),
+        prompt: zod
+            .string()
+            .max(visionScannersAdHocObserveCreateBodyPromptMax)
+            .describe(
+                'What to look for in these sessions, in plain language — the same instruction a saved scanner carries.'
+            ),
+        scanner_type: zod
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .describe(
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            )
+            .default(visionScannersAdHocObserveCreateBodyScannerTypeDefault)
+            .describe(
+                'What the scan produces. Defaults to monitor, an open-ended observation against the prompt.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        scanner_config: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
+            ),
+        model: zod
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .describe(
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            )
+            .default(visionScannersAdHocObserveCreateBodyModelDefault)
+            .describe(
+                'Model to scan with; determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/ad_hoc_observe\/ — a prompt plus the sessions to point it at.')
 
 /**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.

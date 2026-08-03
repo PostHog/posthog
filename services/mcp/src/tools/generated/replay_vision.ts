@@ -18,6 +18,7 @@ import {
     VisionObservationsListQueryParams,
     VisionObservationsRetrieveParams,
     VisionObservationsRetrieveQueryParams,
+    VisionScannersAdHocObserveCreateBody,
     VisionScannersAffectedCohortCreateBody,
     VisionScannersAffectedCohortCreateParams,
     VisionScannersCreateBody,
@@ -741,6 +742,38 @@ const visionScannersPromptSuggestionsGenerate = (): ToolBase<
     },
 })
 
+const VisionScannersScanAdHocSchema = VisionScannersAdHocObserveCreateBody
+
+const visionScannersScanAdHoc = (): ToolBase<typeof VisionScannersScanAdHocSchema, unknown> => ({
+    name: 'vision-scanners-scan-ad-hoc',
+    schema: VisionScannersScanAdHocSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionScannersScanAdHocSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_ids !== undefined) {
+            body['session_ids'] = params.session_ids
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.scanner_type !== undefined) {
+            body['scanner_type'] = params.scanner_type
+        }
+        if (params.scanner_config !== undefined) {
+            body['scanner_config'] = params.scanner_config
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/ad_hoc_observe/`,
+            body,
+        })
+        return result
+    },
+})
+
 const VisionScannersScanSessionSchema = VisionScannersObserveCreateParams.omit({ project_id: true }).extend(
     VisionScannersObserveCreateBody.shape
 )
@@ -842,6 +875,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-prompt-suggestions-current': visionScannersPromptSuggestionsCurrent,
     'vision-scanners-prompt-suggestions-dismiss': visionScannersPromptSuggestionsDismiss,
     'vision-scanners-prompt-suggestions-generate': visionScannersPromptSuggestionsGenerate,
+    'vision-scanners-scan-ad-hoc': visionScannersScanAdHoc,
     'vision-scanners-scan-session': visionScannersScanSession,
     'vision-scanners-update': visionScannersUpdate,
 }

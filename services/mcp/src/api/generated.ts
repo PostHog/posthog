@@ -4598,6 +4598,114 @@ export namespace Schemas {
     }
 
     /**
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     */
+    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
+
+
+    export const ScannerTypeEnum = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
+
+    /**
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini35FlashLite: 'gemini-3.5-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini36Flash: 'gemini-3.6-flash',
+    } as const;
+
+    /**
+     * Body of POST /vision/scanners/ad_hoc_observe/ — a prompt plus the sessions to point it at.
+     */
+    export interface AdHocObserveRequest {
+      /**
+         * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
+         * @maxItems 200
+         * @items.maxLength 128
+         */
+      session_ids: string[];
+      /**
+         * What to look for in these sessions, in plain language — the same instruction a saved scanner carries.
+         * @maxLength 20000
+         */
+      prompt: string;
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer */
+      scanner_type?: ScannerTypeEnum;
+      /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+      scanner_config?: unknown;
+      /** Model to scan with; determines what each observation costs in credits.
+       *
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
+       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+      model?: ScannerModelEnum;
+    }
+
+    /**
+     * * `started` - Started
+     * * `already_running` - Already running
+     * * `skipped_limit` - Skipped — in-flight limit reached
+     * * `skipped_quota` - Skipped — monthly credit quota reached
+     * * `failed` - Failed to start
+     */
+    export type ScanOutcomeEnum = typeof ScanOutcomeEnum[keyof typeof ScanOutcomeEnum];
+
+
+    export const ScanOutcomeEnum = {
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+      SkippedLimit: 'skipped_limit',
+      SkippedQuota: 'skipped_quota',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Per-session outcome of a bulk scan trigger.
+     */
+    export interface BulkObserveResult {
+      /** The session recording this outcome is for. */
+      session_id: string;
+      /** 'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached before this session; 'skipped_quota' — the monthly credit quota would be exceeded; 'failed' — the workflow failed to start.
+       *
+       * * `started` - Started
+       * * `already_running` - Already running
+       * * `skipped_limit` - Skipped — in-flight limit reached
+       * * `skipped_quota` - Skipped — monthly credit quota reached
+       * * `failed` - Failed to start */
+      scan_outcome: ScanOutcomeEnum;
+    }
+
+    /**
+     * `bulk_observe`'s partial-success shape plus the scanner the prompt resolved to.
+     */
+    export interface AdHocObserveResponse {
+      /** How many new scans were started. */
+      started: number;
+      /** Per-session outcomes, in request order (deduplicated). */
+      results: BulkObserveResult[];
+      /** The implicit scanner this config resolved to. Never scheduled and not listed with the team's configured scanners; read its results from `/vision/scanners/{scanner_id}/observations/`. */
+      scanner_id: string;
+    }
+
+    /**
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
      * * `slack_file` - slack_file
@@ -12696,40 +12804,6 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       session_ids: string[];
-    }
-
-    /**
-     * * `started` - Started
-     * * `already_running` - Already running
-     * * `skipped_limit` - Skipped — in-flight limit reached
-     * * `skipped_quota` - Skipped — monthly credit quota reached
-     * * `failed` - Failed to start
-     */
-    export type ScanOutcomeEnum = typeof ScanOutcomeEnum[keyof typeof ScanOutcomeEnum];
-
-
-    export const ScanOutcomeEnum = {
-      Started: 'started',
-      AlreadyRunning: 'already_running',
-      SkippedLimit: 'skipped_limit',
-      SkippedQuota: 'skipped_quota',
-      Failed: 'failed',
-    } as const;
-
-    /**
-     * Per-session outcome of a bulk scan trigger.
-     */
-    export interface BulkObserveResult {
-      /** The session recording this outcome is for. */
-      session_id: string;
-      /** 'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached before this session; 'skipped_quota' — the monthly credit quota would be exceeded; 'failed' — the workflow failed to start.
-       *
-       * * `started` - Started
-       * * `already_running` - Already running
-       * * `skipped_limit` - Skipped — in-flight limit reached
-       * * `skipped_quota` - Skipped — monthly credit quota reached
-       * * `failed` - Failed to start */
-      scan_outcome: ScanOutcomeEnum;
     }
 
     /**
@@ -26363,20 +26437,6 @@ export namespace Schemas {
       Focused: 'focused',
       Balanced: 'balanced',
       Comprehensive: 'comprehensive',
-    } as const;
-
-    /**
-     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash
-     */
-    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
-
-
-    export const ScannerModelEnum = {
-      Gemini35FlashLite: 'gemini-3.5-flash-lite',
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini36Flash: 'gemini-3.6-flash',
     } as const;
 
     /**
@@ -45465,22 +45525,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     */
-    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
-
-
-    export const ScannerTypeEnum = {
-      Monitor: 'monitor',
-      Classifier: 'classifier',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
-
-    /**
      * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
      */
     export interface ScannerSnapshot {
@@ -45661,6 +45705,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
+      /** True when the scanner was minted by an ad-hoc scan rather than configured. Ad-hoc scanners are never scheduled and are left out of the scanner list. */
+      readonly is_ad_hoc: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
       /**
@@ -49178,7 +49224,7 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Scanner whose observations this action operates on. Must belong to the same team. */
+      /** Scanner whose observations this action operates on. Must belong to the same team, and must be one the team configured — the implicit scanners behind ad-hoc scans can't be automated. */
       scanner: string;
       /** When false, the scheduler skips this action. */
       enabled?: boolean;
@@ -54711,6 +54757,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
+      /** True when the scanner was minted by an ad-hoc scan rather than configured. Ad-hoc scanners are never scheduled and are left out of the scanner list. */
+      readonly is_ad_hoc?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
       /**
@@ -57059,7 +57107,7 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
-      /** Scanner whose observations this action operates on. Must belong to the same team. */
+      /** Scanner whose observations this action operates on. Must belong to the same team, and must be one the team configured — the implicit scanners behind ad-hoc scans can't be automated. */
       scanner?: string;
       /** When false, the scheduler skips this action. */
       enabled?: boolean;

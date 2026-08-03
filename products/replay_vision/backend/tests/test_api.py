@@ -15,6 +15,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.replay_vision.backend.api.scanners import AdHocObserveRequestSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
@@ -2001,6 +2002,135 @@ class TestBulkObserveAction(_VisionAPITestCase):
             format="json",
         )
         self.assertEqual(too_many.status_code, 400)
+
+
+class TestAdHocObserveValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("prompt_in_scanner_config", {"scanner_config": {"prompt": "elsewhere"}}, "scanner_config"),
+            ("scanner_config_not_an_object", {"scanner_config": "nope"}, "scanner_config"),
+            ("classifier_without_tags", {"scanner_type": ScannerType.CLASSIFIER}, "scanner_config"),
+            ("no_prompt", {"prompt": ""}, "prompt"),
+            ("no_sessions", {"session_ids": []}, "session_ids"),
+        ]
+    )
+    def test_rejects_invalid_body(self, _name: str, overrides: dict[str, Any], expected_key: str) -> None:
+        body = {"session_ids": ["s1"], "prompt": "did onboarding go wrong?", **overrides}
+        serializer = AdHocObserveRequestSerializer(data=body)
+        assert not serializer.is_valid()
+        assert expected_key in serializer.errors
+
+    def test_merges_the_prompt_into_the_config(self) -> None:
+        # The fingerprint is taken over the merged config, so a prompt left un-merged would make every
+        # distinct question collapse onto one scanner (and reuse its answers).
+        serializer = AdHocObserveRequestSerializer(
+            data={
+                "session_ids": ["s1"],
+                "prompt": "did onboarding go wrong?",
+                "scanner_type": ScannerType.SUMMARIZER,
+                "scanner_config": {"length": "short"},
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["scanner_config"] == {
+            "prompt": "did onboarding go wrong?",
+            "length": "short",
+        }
+
+
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
+class TestAdHocObserveAction(_VisionAPITestCase):
+    @property
+    def ad_hoc_url(self) -> str:
+        return f"{self.scanners_url}ad_hoc_observe/"
+
+    def _post(self, **overrides: Any) -> Any:
+        body: dict[str, Any] = {"session_ids": ["sess-1"], "prompt": "did onboarding go wrong?"}
+        body.update(overrides)
+        return self.client.post(self.ad_hoc_url, data=body, format="json")
+
+    def test_mints_an_unscheduled_scanner_and_scans_each_session(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # An ad-hoc scanner that landed enabled (or with sampling left at 1.0) would start sweeping every
+        # recording every 5 minutes off the back of a one-off question.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self._post(session_ids=["sess-1", "sess-2"])
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(body["started"], 2)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "started"])
+        self.assertEqual(start_workflow.call_count, 2)
+        scanner = ReplayScanner.objects.get(id=body["scanner_id"])
+        self.assertTrue(scanner.is_ad_hoc)
+        self.assertFalse(scanner.enabled)
+        self.assertEqual(scanner.sampling_rate, 0.0)
+        self.assertEqual(scanner.query, {})
+        self.assertEqual(scanner.scanner_config, {"prompt": "did onboarding go wrong?"})
+
+    def test_ad_hoc_scanners_stay_out_of_the_configured_list(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Investigating ten sessions must not leave ten scanners cluttering the team's scanner list.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        configured = self._create_scanner()
+        ad_hoc_id = self._post().json()["scanner_id"]
+
+        listed = self.client.get(self.scanners_url).json()
+        stats = self.client.get(f"{self.scanners_url}stats/").json()
+
+        self.assertEqual([s["id"] for s in listed["results"]], [str(configured.id)])
+        self.assertEqual(stats["total"], 1)
+        # Still addressable by id, so its observations can be read back and it can be cleaned up.
+        self.assertEqual(self.client.get(f"{self.scanners_url}{ad_hoc_id}/").status_code, 200)
+
+    def test_same_config_reuses_one_scanner_and_a_different_prompt_does_not(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The fingerprint is what keeps a repeated question from re-billing; if it drifted (or ignored
+        # scanner_config), every call would mint a scanner and rescan sessions already answered.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        first = self._post().json()["scanner_id"]
+        again = self._post(session_ids=["sess-2"]).json()["scanner_id"]
+        other_prompt = self._post(prompt="did they find search?").json()["scanner_id"]
+        other_model = self._post(model=ScannerModel.GEMINI_3_6_FLASH).json()["scanner_id"]
+
+        self.assertEqual(first, again)
+        self.assertNotIn(first, {other_prompt, other_model})
+        self.assertEqual(ReplayScanner.objects.exclude(ad_hoc_key="").count(), 3)
+
+    def test_rejects_the_scan_when_ai_consent_is_off(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The scan ships recordings to an LLM, so it has to fail closed the same way scanner creation does.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self._post()
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertFalse(ReplayScanner.objects.exists())
+        start_workflow.assert_not_called()
+
+    def test_rejects_an_invalid_body(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        # Wiring guard for TestAdHocObserveValidation: the action must actually run that serializer.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        resp = self._post(prompt="")
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(ReplayScanner.objects.exists())
 
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
