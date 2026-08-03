@@ -5223,15 +5223,6 @@ const api = {
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
-        // Feedback note left with the thumbs rating. Never changes the report's state — it carries the
-        // note into the scout steering channel, forwarded to the authoring scout for a scout-authored
-        // report (`forwarded: false` otherwise). Backend: `feedback` action.
-        async submitFeedback(
-            id: SignalReport['id'],
-            data: { sentiment: 'positive' | 'negative'; note: string }
-        ): Promise<{ forwarded: boolean }> {
-            return await new ApiRequest().signalReport(id).withAction('feedback').create({ data })
-        },
         // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).
         async availableReviewers(query?: string): Promise<{ user_uuid: string; name: string; email: string }[]> {
             const response: Record<string, { name: string; email: string }> = await new ApiRequest()

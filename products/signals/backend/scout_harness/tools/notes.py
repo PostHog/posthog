@@ -90,8 +90,8 @@ def list_notes(
 
     `exclude_origins` drops whole classes of note before the cap is applied, so a caller
     who may not see one class still gets a full page of what it may see. The read surface
-    uses it to withhold the report-derived origins (`report_dismissal` / `report_discussion`,
-    which quote report content) from callers without report read access.
+    uses it to withhold the report-derived origins (`report_dismissal` / `report_discussion` /
+    `report_feedback`, which quote report content) from callers without report read access.
     """
     clamped_limit = min(max(limit, 1), MAX_NOTES_LIST_LIMIT)
     qs = SignalScoutNote.objects.filter(team_id=team_id).select_related("created_by")

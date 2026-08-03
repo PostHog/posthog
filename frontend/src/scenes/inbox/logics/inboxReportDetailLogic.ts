@@ -32,6 +32,7 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
+    signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
 } from 'products/signals/frontend/generated/api'
 import type {
@@ -1076,6 +1077,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             if (!values.report || !values.feedbackSentiment || !trimmed) {
                 return
             }
+            // Re-entrancy guard: the send button hides on submit, but a double-click within the same
+            // frame can dispatch this twice before React unmounts it. `leave_note` mints a new row per
+            // call, so a second POST would leave the scout a duplicate steering note — bail before both
+            // the analytics event and the forward fire a second time.
+            if (cache.feedbackNoteSubmitting) {
+                return
+            }
+            cache.feedbackNoteSubmitting = true
             const sentiment = values.feedbackSentiment
             captureInboxReportFeedbackNote({
                 report: values.report,
@@ -1087,7 +1096,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             // the report reads it next run. The analytics event above is the durable record, so a
             // failure here is swallowed rather than surfaced — the note is already captured.
             try {
-                await api.signalReports.submitFeedback(values.report.id, { sentiment, note: trimmed })
+                await signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), values.report.id, {
+                    sentiment,
+                    note: trimmed,
+                })
             } catch {
                 // no-op: forwarding is a convenience on top of the recorded feedback
             }
