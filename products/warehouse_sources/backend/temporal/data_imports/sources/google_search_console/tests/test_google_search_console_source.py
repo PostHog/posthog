@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -298,3 +300,48 @@ def test_validate_credentials_handles_missing_integration():
 
     assert ok is False
     assert "reconnect your Google Search Console account" in (message or "")
+
+
+def _http_error(status_code: int, message: str = "") -> requests.HTTPError:
+    response = mock.MagicMock()
+    response.status_code = status_code
+    return requests.HTTPError(message, response=response)
+
+
+def test_validate_credentials_unexpected_load_error_stays_generic():
+    # An unexpected failure loading the connection (not the deleted-integration case) must not
+    # surface the raw exception, which can embed OAuth tokens or ids.
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
+        side_effect=Exception("boom access_token=secret-abc123"),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "reconnect your Google account" in (message or "")
+    assert "secret-abc123" not in (message or "")
+
+
+@pytest.mark.parametrize(
+    "error,secret",
+    [
+        pytest.param(_http_error(500, "boom access_token=secret-http500"), "secret-http500", id="http_500"),
+        pytest.param(Exception("boom refresh_token=secret-xyz789"), "secret-xyz789", id="unexpected"),
+    ],
+)
+def test_validate_credentials_unexpected_list_sites_error_stays_generic(error, secret):
+    # A non-auth failure listing sites must fall back to a generic message, not leak the raw error.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            side_effect=error,
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "couldn't reach Google Search Console" in (message or "")
+    assert secret not in (message or "")
