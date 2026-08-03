@@ -174,10 +174,21 @@ function isTripwire(file) {
     return TRIPWIRE_MATCHERS.some((re) => re.test(file))
 }
 
+// Tool caches share the directory with the products, so a local run can pick up
+// directories such as .ruff_cache, .pytest_cache, and __pycache__ as products and
+// invent a lane for each. CI never sees them because a fresh checkout has only
+// tracked directories and this job does not run Python, so this keeps a local run
+// consistent with CI rather than fixing a live miscount. Dropping a real product
+// would only ever widen, because an unrecognized product name falls through to
+// ALL, so the filter is safe in the one direction it can be wrong.
+function isProductDirectory(name) {
+    return !name.startsWith('.') && !name.startsWith('__') && name !== 'node_modules'
+}
+
 function listProducts(repoRoot) {
     return fs
         .readdirSync(path.join(repoRoot, 'products'), { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
+        .filter((entry) => entry.isDirectory() && isProductDirectory(entry.name))
         .map((entry) => entry.name)
         .sort()
 }
@@ -275,8 +286,7 @@ function compileContractMatcher(inputs) {
     if (include.length === 0) {
         return null
     }
-    return (relativePath) =>
-        include.some((re) => re.test(relativePath)) && !exclude.some((re) => re.test(relativePath))
+    return (relativePath) => include.some((re) => re.test(relativePath)) && !exclude.some((re) => re.test(relativePath))
 }
 
 // Only products that narrow `backend:contract-check` in their own turbo.json get
@@ -763,6 +773,7 @@ module.exports = {
     buildContext,
     compileContractMatcher,
     globToRegExp,
+    isProductDirectory,
     isTripwire,
     parseCrateDependencies,
     parseCrateName,
