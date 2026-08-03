@@ -49,25 +49,26 @@ from products.batch_exports.backend.service import (
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.metrics import log_query_duration
-from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
+from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel, resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchModel,
     compose_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.common import get_s3_function_call
+from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS,
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+)
+from products.batch_exports.backend.temporal.sql.persons import (
     EXPORT_TO_S3_FROM_PERSONS,
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
-    get_s3_function_call,
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
@@ -93,7 +94,7 @@ def _uses_object_storage_endpoint() -> bool:
 def _get_s3_endpoint_url() -> str:
     """Get the S3 endpoint URL for the Temporal worker.
 
-    When running the stack locally, MinIO runs in Docker but the Temporal workers run outside, so we need to pass in
+    When running the stack locally, the local object storage runs in Docker but the Temporal workers run outside, so we need to pass in
     localhost URL rather than the hostname of the container.
     """
     if _is_local_dev_or_test():
@@ -534,12 +535,12 @@ def _get_clickhouse_s3_staging_folder_url(folder: str) -> str:
     """Get the URL for the S3 staging folder of a given batch export and attempt number.
 
     This is passed to the ClickHouse query as the `s3_folder` parameter.
-    When running the stack locally, ClickHouse and MinIO are both running in Docker so we use the hostname of the
+    When running the stack locally, ClickHouse and the local object storage are both running in Docker so we use the hostname of the
     container.
     """
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
     region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
-    # in these environments this will be a URL for MinIO
+    # in these environments this will be a URL for the local object storage
     if _uses_object_storage_endpoint():
         base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:

@@ -556,5 +556,54 @@ describe('LogsTransformerService', () => {
                 expect.objectContaining({ metric_name: 'disabled_permanently', app_source_id: fn.id, count: 2 })
             )
         })
+
+        it('runs all functions untouched by the watcher when the state read throws', async () => {
+            const watcher = createMockWatcher()
+            watcher.getEffectiveStates.mockRejectedValue(new Error('redis down'))
+            service = withWatcher(watcher, 1)
+            setFunctions([
+                await createFunction(`
+                    let rec := record
+                    rec.body := 'transformed'
+                    return rec
+                `),
+            ])
+
+            const records = [createRecord()]
+            const { recordsDropped } = await service.transformRecords(TEAM_ID, records)
+
+            expect(recordsDropped).toBe(0)
+            expect(records[0].body).toBe('transformed')
+        })
+    })
+
+    describe('fail-open on infrastructure errors', () => {
+        it('passes records through untouched when the function fetch throws', async () => {
+            manager.getHogFunctionsForTeams.mockRejectedValue(new Error('pg down'))
+
+            const records = [createRecord(), createRecord()]
+            const result = await service.transformRecords(TEAM_ID, records)
+
+            expect(result.recordsDropped).toBe(0)
+            expect(records).toHaveLength(2)
+            expect(records[0].body).toBe('user jane@example.com logged in')
+        })
+
+        it('reports no transformations when the id fetch throws', async () => {
+            manager.getHogFunctionIdsForTeams.mockRejectedValue(new Error('pg down'))
+
+            await expect(service.teamHasTransformations(TEAM_ID)).resolves.toBe(false)
+        })
+    })
+
+    it('survives messages with more records than the V8 spread argument limit', async () => {
+        setFunctions([await createFunction('return record')])
+        service = new LogsTransformerService(manager as any, monitoring as any, { ...config, messageBudgetMs: 0 })
+
+        const records = Array.from({ length: 130_000 }, () => createRecord())
+        const result = await service.transformRecords(TEAM_ID, records)
+
+        expect(result.recordsDropped).toBe(0)
+        expect(records).toHaveLength(130_000)
     })
 })

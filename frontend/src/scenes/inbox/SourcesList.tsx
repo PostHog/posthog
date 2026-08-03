@@ -270,7 +270,7 @@ export function SourcesList(): JSX.Element {
             <Source
                 icon={<IconPgAnalyze className="size-5" />}
                 title="pganalyze"
-                description="Postgres performance findings, slow queries, and index recommendations → Signals"
+                description="Postgres performance signals, slow queries, and index recommendations → Signals"
                 variant="available"
                 checked={!!pgAnalyzeIssuesConfig?.enabled}
                 loading={isPgAnalyzeIssuesToggling}
