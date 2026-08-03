@@ -157,34 +157,26 @@ function RootLayout() {
     currentProjectId ? `/project/${currentProjectId}` : "/",
   );
 
-  // The "PostHog web" intercept is a one-time prompt: once it has been
-  // submitted, skipped, or dismissed, going back to PostHog web navigates
-  // straight there without asking again.
   const posthogWebFeedbackSeen = usePostHogWebFeedbackStore((s) => s.hasSeen);
   const markPostHogWebFeedbackSeen = usePostHogWebFeedbackStore(
     (s) => s.markSeen,
   );
-
-  const openPostHogWeb = () => {
-    if (posthogWebUrl) void openUrlInBrowser(posthogWebUrl);
-  };
 
   // "PostHog Web" opens the feedback modal first and performs its navigation
   // only once the modal is submitted or skipped.
   const handleFeedbackFinished = () => {
     const finishedMode = feedbackMode;
     setFeedbackMode(null);
-    if (finishedMode === "posthog-web") {
+    if (finishedMode === "posthog-web" && posthogWebUrl) {
       markPostHogWebFeedbackSeen();
-      openPostHogWeb();
+      void openUrlInBrowser(posthogWebUrl);
     }
   };
 
   const handleOpenPostHogWeb = () => {
     track(ANALYTICS_EVENTS.POSTHOG_WEB_OPENED);
-    // The intercept only runs the first time; afterwards go straight to web.
-    if (posthogWebFeedbackSeen) {
-      openPostHogWeb();
+    if (posthogWebFeedbackSeen && posthogWebUrl) {
+      void openUrlInBrowser(posthogWebUrl);
       return;
     }
     setFeedbackMode("posthog-web");
