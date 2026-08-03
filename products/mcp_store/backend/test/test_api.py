@@ -205,6 +205,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "icon_key",
             "icon_domain",
             "category",
+            "provider",
         }
         results = response.json()["results"]
         assert len(results) >= 1

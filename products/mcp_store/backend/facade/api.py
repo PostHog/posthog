@@ -17,6 +17,8 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
+from products.mcp_store.backend.composio import COMPOSIO_HUB_URL
+from products.mcp_store.backend.composio_session import has_connected_apps
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import (
     MCPServerInstallation,
@@ -108,6 +110,10 @@ def _resolve_name(installation: MCPServerInstallation) -> str:
 
 
 def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
+    if installation.url == COMPOSIO_HUB_URL:
+        # Composio holds the vendor tokens, so readiness is "has the user connected an app?".
+        # Emitting the hub with nothing connected would give agents a server with no tools.
+        return has_connected_apps(installation)
     if installation.auth_type != "oauth":
         return True
     sensitive = installation.sensitive_configuration or {}

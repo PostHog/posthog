@@ -44,9 +44,14 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
+from ..composio import ComposioError, composio_enabled, composio_user_id, ensure_auth_config, start_connection_link
+from ..composio_session import invalidate_session as _invalidate_composio_session
+from ..composio_sync import COMPOSIO_HUB_URL, ensure_hub_template
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     APPROVAL_STATES,
+    PROVIDER_CHOICES,
+    MCPComposioConnection,
     MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
@@ -160,6 +165,10 @@ def _get_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
 
 
+def _get_composio_redirect_uri() -> str:
+    return f"{settings.SITE_URL}/api/mcp_store/composio_redirect/"
+
+
 def _oauth_authorize_response(authorize_url: str, install_source: str) -> HttpResponse:
     if install_source == "posthog-code":
         return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
@@ -207,9 +216,28 @@ class MCPServerTemplateSerializer(serializers.ModelSerializer):
         "render bundled icon assets.",
     )
 
+    provider = serializers.ChoiceField(
+        choices=PROVIDER_CHOICES,
+        read_only=True,
+        help_text="Who serves this server's tools. 'direct' is a hosted MCP server PostHog connects to "
+        "itself; 'composio' is an app reached through Composio's managed auth, which connects with one "
+        "click and needs no per-vendor setup.",
+    )
+
     class Meta:
         model = MCPServerTemplate
-        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "icon_domain", "category"]
+        fields = [
+            "id",
+            "name",
+            "url",
+            "docs_url",
+            "description",
+            "auth_type",
+            "icon_key",
+            "icon_domain",
+            "category",
+            "provider",
+        ]
 
 
 class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -227,7 +255,9 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
         responses={200: OpenApiResponse(response=MCPServerTemplateSerializer(many=True))},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        queryset = MCPServerTemplate.objects.filter(is_active=True).order_by("name")
+        # The Composio hub is the credential every connected app rides on, not an app anyone
+        # installs, so it never appears as a marketplace card.
+        queryset = MCPServerTemplate.objects.filter(is_active=True).exclude(url=COMPOSIO_HUB_URL).order_by("name")
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
@@ -1032,6 +1062,91 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             actor_label=cast(User, request.user).email or "",
         )
 
+    def _composio_hub_installation(self, request: Request) -> MCPServerInstallation:
+        """The single personal installation every Composio app connects through.
+
+        Always personal: a Composio connection is one person's authorization of their own account,
+        and the tool-router session is keyed on that person. Sharing an app with the team is done
+        by granting an agent access to the hub, not by a shared credential row.
+        """
+        hub_template = ensure_hub_template()
+        installation, _ = MCPServerInstallation.objects.get_or_create(
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            url=COMPOSIO_HUB_URL,
+            scope="personal",
+            defaults={
+                "template": hub_template,
+                "display_name": hub_template.name,
+                "description": hub_template.description,
+                "auth_type": "oauth",
+            },
+        )
+        return installation
+
+    def _connect_composio_toolkit(
+        self, request: Request, *, template: MCPServerTemplate, install_source: str
+    ) -> HttpResponse:
+        if not composio_enabled():
+            return Response(
+                {"detail": "Connecting this app isn't available on this instance."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        if not template.composio_toolkit_slug:
+            return Response({"detail": "App is missing its Composio toolkit"}, status=status.HTTP_400_BAD_REQUEST)
+
+        installation = self._composio_hub_installation(request)
+        user = cast(User, request.user)
+
+        # Created before the link so the callback can name the exact row to activate. Composio
+        # preserves query params we put on callback_url and appends its own, so this survives the
+        # round trip and we never have to guess which pending connection came back.
+        connection, _ = MCPComposioConnection.objects.update_or_create(
+            installation=installation,
+            toolkit_slug=template.composio_toolkit_slug,
+            defaults={
+                "team_id": self.team_id,
+                "template": template,
+                "status": "pending",
+                "connected_by": user,
+            },
+        )
+
+        try:
+            auth_config_id = ensure_auth_config(template.composio_toolkit_slug, team_id=self.team_id)
+            link = start_connection_link(
+                user_id=composio_user_id(self.team_id, user.id),
+                auth_config_id=auth_config_id,
+                callback_url=f"{_get_composio_redirect_uri()}?{urlencode({'connection': str(connection.id)})}",
+                team_id=self.team_id,
+            )
+        except ComposioError:
+            logger.exception("Composio connection start failed", toolkit=template.composio_toolkit_slug)
+            connection.status = "failed"
+            connection.save(update_fields=["status", "updated_at"])
+            return Response(
+                {"detail": "Couldn't start the connection. Try again in a moment."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if link.connected_account_id:
+            connection.connected_account_id = link.connected_account_id
+            connection.save(update_fields=["connected_account_id", "updated_at"])
+        link_installation_to_gateway(installation, created_by=user)
+
+        report_user_action(
+            request.user,
+            "mcp_store app connect started",
+            properties={
+                "server_name": template.name,
+                "template_id": str(template.id),
+                "install_source": install_source,
+                "provider": "composio",
+            },
+            team=self.team,
+        )
+        return _oauth_authorize_response(link.redirect_url, install_source)
+
     @validated_request(
         InstallTemplateSerializer,
         responses={
@@ -1058,6 +1173,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if template.provider == "composio":
+            # Composio apps all ride one installation and one gateway registration, so enablement
+            # is checked against the hub rather than this card's marketplace URL.
+            self._require_server_enabled_for_team(COMPOSIO_HUB_URL)
+            return self._connect_composio_toolkit(request, template=template, install_source=install_source)
+
         self._require_server_enabled_for_team(template.url)
 
         lookup = {"team_id": self.team_id, "url": template.url, "scope": scope}
@@ -1846,6 +1968,62 @@ def _installation_name(installation: MCPServerInstallation) -> str:
     if installation.template:
         return installation.template.name
     return installation.url
+
+
+class MCPComposioRedirectViewSet(viewsets.ViewSet):
+    """Public callback Composio returns a user to after they authorize an app.
+
+    The pending `MCPComposioConnection` is named in our own `connection` query param rather than
+    matched on Composio's ids, so a callback can only ever activate the row the flow started from.
+    Ownership is re-checked against the session user: the row records who began the connection, and
+    only that person may complete it.
+    """
+
+    permission_classes: list = []
+    authentication_classes = [SessionAuthentication]
+    throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        connection_id = request.query_params.get("connection")
+        if not connection_id:
+            return Response({"detail": "Missing connection parameter"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            connection = MCPComposioConnection.objects.select_related("installation", "template").get(id=connection_id)
+        except (MCPComposioConnection.DoesNotExist, DjangoValidationError, ValueError):
+            return Response({"detail": "Unknown connection"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not request.user.is_authenticated or connection.connected_by_id != request.user.id:
+            return Response({"detail": "Unknown connection"}, status=status.HTTP_400_BAD_REQUEST)
+
+        installation = connection.installation
+        app_name = connection.template.name if connection.template else connection.toolkit_slug
+        callback_status = (request.query_params.get("status") or "").lower()
+        failed = callback_status in ("failed", "error", "cancelled") or bool(request.query_params.get("error"))
+
+        connection.status = "failed" if failed else "active"
+        if account_id := request.query_params.get("connected_account_id"):
+            connection.connected_account_id = account_id
+        connection.save(update_fields=["status", "connected_account_id", "updated_at"])
+
+        if not failed:
+            # The router session is configured for a fixed toolkit list, so a newly connected app
+            # only becomes reachable once the session is rebuilt. Clearing the fingerprint is what
+            # makes the next agent run pick it up.
+            _invalidate_composio_session(installation)
+
+        report_user_action(
+            cast(User, request.user),
+            "mcp_store app connect finished",
+            properties={"server_name": app_name, "provider": "composio", "success": not failed},
+            team=installation.team,
+        )
+        return MCPOAuthRedirectViewSet._build_oauth_redirect(
+            "posthog",
+            installation,
+            team_id=installation.team_id,
+            error="connection_failed" if failed else None,
+        )
 
 
 class MCPOAuthRedirectViewSet(viewsets.ViewSet):

@@ -981,6 +981,17 @@ export interface InstallTemplateApi {
     return_path?: string
 }
 
+/**
+ * * `direct` - Direct
+ * * `composio` - Composio
+ */
+export type MCPServerProviderEnumApi = (typeof MCPServerProviderEnumApi)[keyof typeof MCPServerProviderEnumApi]
+
+export const MCPServerProviderEnumApi = {
+    Direct: 'direct',
+    Composio: 'composio',
+} as const
+
 export interface MCPServerTemplateApi {
     readonly id: string
     /** @maxLength 200 */
@@ -996,6 +1007,11 @@ export interface MCPServerTemplateApi {
     /** The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time via the logo.dev proxy endpoint. Empty when no brand icon is known. */
     readonly icon_domain: string
     category?: MCPServerCategoryEnumApi
+    /** Who serves this server's tools. 'direct' is a hosted MCP server PostHog connects to itself; 'composio' is an app reached through Composio's managed auth, which connects with one click and needs no per-vendor setup.
+     *
+     * * `direct` - Direct
+     * * `composio` - Composio */
+    readonly provider: MCPServerProviderEnumApi
 }
 
 export interface PaginatedMCPServerTemplateListApi {

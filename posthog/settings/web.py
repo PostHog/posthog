@@ -602,6 +602,9 @@ SPECTACULAR_SETTINGS = {
         "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
         "MCPPolicyPresetEnum": "products.mcp_store.backend.models.POLICY_PRESET_CHOICES",
         "MCPAuditDecisionEnum": "products.mcp_store.backend.models.AUDIT_DECISION_CHOICES",
+        # "provider" is a heavily reused field name across products, so this claims a specific
+        # enum name rather than letting the generic one collide.
+        "MCPServerProviderEnum": "products.mcp_store.backend.models.PROVIDER_CHOICES",
         # Keeps agent_platform's approval-request enum on its pre-collision name now
         # that mcp_store also has a "decision" field.
         "DecisionEnum": ["approve", "reject"],

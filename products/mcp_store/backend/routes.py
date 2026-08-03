@@ -7,6 +7,7 @@ import products.mcp_store.backend.presentation.gateway_views as mcp_gateway
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.root.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
+    routers.root.register(r"mcp_store/composio_redirect", mcp_store.MCPComposioRedirectViewSet, "mcp_composio_redirect")
     # Agent-facing surface: built-in agents authenticate with a short-lived
     # signed token, so this is root-level (the token resolves the team).
     routers.root.register(r"mcp_store/gateway/servers", mcp_agent.MCPGatewayAgentViewSet, "mcp_gateway_agent_servers")

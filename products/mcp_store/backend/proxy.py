@@ -11,11 +11,14 @@ import httpx
 import structlog
 
 from posthog.api.streaming import sse_streaming_response
+from posthog.egress.composio.transport import composio_api_key
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
+from .composio import COMPOSIO_HUB_URL, EXECUTE_TOOL_NAMES, composio_executed_tools
+from .composio_session import has_connected_apps, resolve_session_url
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext
@@ -116,6 +119,11 @@ def send_mcp_request_with_same_origin_redirect(
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
     sensitive = installation.sensitive_configuration or {}
 
+    if installation.url == COMPOSIO_HUB_URL:
+        # The session endpoint authenticates with our own instance-wide key, not a per-user token.
+        # It is added here, server side, and deliberately never handed to a sandbox or a client.
+        return {"x-api-key": composio_api_key()}
+
     if installation.auth_type == "api_key":
         api_key = sensitive.get("api_key")
         if not api_key:
@@ -155,6 +163,17 @@ def validate_installation_auth(
             content_type="application/json",
             status=403,
         )
+
+    if installation.url == COMPOSIO_HUB_URL:
+        # Composio holds the vendor tokens, so there is nothing here to expire or refresh; the
+        # installation is usable exactly when the user has at least one connected app.
+        if not has_connected_apps(installation):
+            return False, HttpResponse(
+                '{"error": "No apps connected"}',
+                content_type="application/json",
+                status=401,
+            )
+        return True, None
 
     sensitive = installation.sensitive_configuration or {}
 
@@ -226,11 +245,51 @@ def _gateway_decision(policy_context: PolicyContext, tool: MCPServerInstallation
     return "auto", False
 
 
+def _evaluate_composio_batch(
+    item: dict[str, Any],
+    tool_name: str,
+    params: dict[str, Any],
+    policy_context: PolicyContext,
+    audit_entries: list[tuple[str, str]] | None,
+) -> dict[str, Any] | None:
+    """Apply policy to the real tools behind a Composio execute call.
+
+    A router execute call names a meta-tool and carries up to 50 real tool slugs in its arguments,
+    so evaluating the meta-tool alone would wave every app tool through under one name. Each slug
+    is resolved individually and the whole call is rejected if any is disallowed — the batch runs
+    in parallel upstream, so there is no partial execution to fall back to.
+    """
+    request_id = item.get("id")
+    slugs = composio_executed_tools(tool_name, params.get("arguments"))
+
+    for slug in slugs:
+        # Composio carries no MCP tool annotations, so the destructive heuristic works off the
+        # slug — which is why toolkit-prefixed names like HUBSPOT_DELETE_CONTACT still match
+        # team rules and presets.
+        resolved = policy_context.resolve(slug, {})
+        if resolved.state == "do_not_use":
+            if audit_entries is not None:
+                audit_entries.append((slug, "blocked"))
+            return _jsonrpc_error(request_id, TOOL_DISABLED_CODE, f"Tool '{slug}' is blocked by team policy")
+        if resolved.state == "needs_approval":
+            if audit_entries is not None:
+                audit_entries.append((slug, "pending"))
+            return _jsonrpc_error(
+                request_id,
+                TOOL_NEEDS_APPROVAL_CODE,
+                f"Tool '{slug}' requires approval before it can be called",
+            )
+        if audit_entries is not None:
+            audit_entries.append((slug, "approved" if resolved.decided_by in ("scope", "legacy") else "auto"))
+    return None
+
+
 def _evaluate_tool_call(
     tools_by_name: dict[str, MCPServerInstallationTool],
     item: dict[str, Any],
     policy_context: PolicyContext | None = None,
     audit_entries: list[tuple[str, str]] | None = None,
+    is_composio: bool = False,
 ) -> dict[str, Any] | None:
     """Check a single JSON-RPC item against the installation's tool approval state.
 
@@ -264,6 +323,9 @@ def _evaluate_tool_call(
             METHOD_NOT_FOUND_CODE,
             f"Tool '{tool_name}' is no longer available on the upstream server",
         )
+
+    if is_composio and policy_context is not None and tool_name in EXECUTE_TOOL_NAMES:
+        return _evaluate_composio_batch(item, tool_name, params, policy_context, audit_entries)
 
     if policy_context is not None:
         decision, blocked = _gateway_decision(policy_context, tool)
@@ -313,6 +375,8 @@ def enforce_tool_approval(
     passed through; unknown tool names return a JSON-RPC method-not-found error
     without hitting the upstream server.
     """
+    is_composio = installation.url == COMPOSIO_HUB_URL
+
     if isinstance(data, list):
         if not any(_is_tools_call(item) for item in data):
             return None
@@ -322,7 +386,7 @@ def enforce_tool_approval(
         any_blocked = False
         any_passthrough = False
         for item in data:
-            blocked = _evaluate_tool_call(tools_by_name, item, policy_context, audit_entries)
+            blocked = _evaluate_tool_call(tools_by_name, item, policy_context, audit_entries, is_composio)
             if blocked is not None:
                 responses.append(blocked)
                 any_blocked = True
@@ -359,7 +423,7 @@ def enforce_tool_approval(
     if not _is_tools_call(data):
         return None
     tools_by_name = {t.tool_name: t for t in installation.tools.all()}
-    blocked = _evaluate_tool_call(tools_by_name, data, policy_context, audit_entries)
+    blocked = _evaluate_tool_call(tools_by_name, data, policy_context, audit_entries, is_composio)
     if blocked is None:
         return None
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
@@ -404,9 +468,20 @@ def proxy_mcp_request(
     gateway_server: MCPGatewayServer | None = None,
     actor_label: str = "",
 ) -> HttpResponseBase:
-    allowed, error = is_url_allowed(installation.url)
+    upstream_url = installation.url
+    if installation.url == COMPOSIO_HUB_URL:
+        resolved = resolve_session_url(installation)
+        if not resolved:
+            return HttpResponse(
+                '{"error": "No apps connected"}',
+                content_type="application/json",
+                status=503,
+            )
+        upstream_url = resolved
+
+    allowed, error = is_url_allowed(upstream_url)
     if not allowed:
-        logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
+        logger.warning("SSRF: blocked proxy request", url=upstream_url, reason=error)
         return HttpResponse(
             json.dumps({"error": f"URL not allowed: {error}"}),
             content_type="application/json",
@@ -475,7 +550,7 @@ def proxy_mcp_request(
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
             client,
             "POST",
-            installation.url,
+            upstream_url,
             content=body,
             headers=headers,
             stream=True,
