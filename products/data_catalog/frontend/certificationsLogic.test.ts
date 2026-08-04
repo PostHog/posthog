@@ -6,6 +6,7 @@ import { expectLogic } from '~/test/keaTestUtils'
 import { certificationsLogic } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
+    dataCatalogCertificationsCreate,
     dataCatalogCertificationsDestroy,
     dataCatalogCertificationsList,
 } from './generated/api'
@@ -93,6 +94,22 @@ describe('certificationsLogic', () => {
         )
         // Badges elsewhere read certification state off the shared schema, so it must be refreshed.
         expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+    })
+
+    it('sends the proposal intent when creating', async () => {
+        ;(dataCatalogCertificationsCreate as jest.Mock).mockResolvedValue(
+            buildCertification({ id: 'cert-3', status: 'proposed' })
+        )
+
+        logic.actions.setNewCertificationForm({ targetName: 'stale_revenue', proposedStatus: 'deprecated' })
+        logic.actions.createCertification()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogCertificationsCreate).toHaveBeenCalledWith('1', {
+            table_name: 'stale_revenue',
+            notes: undefined,
+            proposed_status: 'deprecated',
+        })
     })
 
     it('removes the row when revoking', async () => {

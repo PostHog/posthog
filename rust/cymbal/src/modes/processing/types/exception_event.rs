@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::{
     error::EventError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
+    frames::releases::{ReleaseInfo, ReleaseRecord},
     issue_resolution::Issue,
     langs::native::DebugImage,
     modes::processing::normalization::normalize_wire_order,
@@ -25,6 +26,9 @@ pub struct Parsed {
     pub(crate) client_fingerprint: Option<String>,
     pub(crate) legacy_order_exception_list: Option<ExceptionList>,
     pub(crate) legacy_order_resolved: Option<ExceptionList>,
+    /// The release resolved from the event's `$release_id` or mobile app metadata, if any. Set by
+    /// `EventReleaseResolver` and emitted as `$exception_release` at `into_resolved`.
+    pub(crate) event_release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,16 +38,23 @@ pub struct ResolvedMetadata {
     pub messages: Vec<String>,
     pub functions: Vec<String>,
     pub handled: bool,
+    /// The single release the event resolves to, from its `$release_id` or mobile app metadata.
+    /// Emitted as `$exception_release`.
+    pub release: Option<ReleaseInfo>,
 }
 
 impl ResolvedMetadata {
-    fn from_exception_list(exception_list: &ExceptionList) -> Self {
+    fn from_exception_list(
+        exception_list: &ExceptionList,
+        event_release: Option<&ReleaseRecord>,
+    ) -> Self {
         Self {
             sources: exception_list.get_unique_sources(),
             types: exception_list.get_unique_types(),
             messages: exception_list.get_unique_messages(),
             functions: exception_list.get_unique_functions(),
             handled: exception_list.get_is_handled(),
+            release: event_release.map(ReleaseRecord::to_info),
         }
     }
 }
@@ -202,8 +213,15 @@ impl ExceptionEvent<Parsed> {
         self.state.legacy_order_resolved = Some(exception_list);
     }
 
+    pub(crate) fn set_event_release(&mut self, release: Option<ReleaseRecord>) {
+        self.state.event_release = release;
+    }
+
     pub(crate) fn into_resolved(self) -> ExceptionEvent<Resolved> {
-        let metadata = ResolvedMetadata::from_exception_list(&self.exception_list);
+        let metadata = ResolvedMetadata::from_exception_list(
+            &self.exception_list,
+            self.state.event_release.as_ref(),
+        );
         self.map_state(|state| Resolved {
             metadata,
             client_fingerprint: state.client_fingerprint,
@@ -353,6 +371,12 @@ impl ExceptionEvent<Finalized> {
             serde_json::to_value(metadata.functions).expect("exception functions are serializable"),
         );
         map.insert("$exception_handled".into(), Value::Bool(metadata.handled));
+        if let Some(release) = metadata.release {
+            map.insert(
+                "$exception_release".into(),
+                serde_json::to_value(release).expect("exception release is serializable"),
+            );
+        }
         map.insert(
             "$exception_fingerprint".into(),
             Value::String(fingerprint.value),
@@ -413,6 +437,12 @@ impl<S> ExceptionEvent<S> {
                 .expect("exception functions are serializable"),
         );
         map.insert("$exception_handled".into(), Value::Bool(metadata.handled));
+        if let Some(release) = &metadata.release {
+            map.insert(
+                "$exception_release".into(),
+                serde_json::to_value(release).expect("exception release is serializable"),
+            );
+        }
         if let Some(name) = &self.proposed_issue_name {
             map.insert("$issue_name".into(), Value::String(name.clone()));
         }
@@ -474,6 +504,7 @@ impl<S> ExceptionEvent<S> {
             issue_id,
             other: self.props.clone(),
             handled: metadata.handled,
+            release: metadata.release.clone(),
             types: metadata.types.clone(),
             values: metadata.messages.clone(),
             sources: metadata.sources.clone(),
@@ -524,6 +555,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             "$exception_types",
             "$exception_values",
             "$exception_functions",
+            "$exception_release",
             "$exception_fingerprint_version",
             "$exception_proposed_fingerprint",
             "$exception_fingerprint_record",
@@ -550,6 +582,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
                 client_fingerprint: raw.fingerprint,
                 legacy_order_exception_list,
                 legacy_order_resolved: None,
+                event_release: None,
             },
         })
     }
@@ -600,6 +633,7 @@ mod tests {
                     messages: vec!["boom".to_string()],
                     functions: vec![],
                     handled: false,
+                    release: None,
                 },
                 client_fingerprint: Some("client-fingerprint".to_string()),
                 legacy_order_resolved: None,
@@ -676,5 +710,66 @@ mod tests {
         let rate_limit = linked.rate_limit_rule_properties();
         assert_eq!(rate_limit["$exception_issue_id"], issue.id.to_string());
         assert_eq!(rate_limit["passthrough"], true);
+    }
+
+    fn release_record(hash_id: &str) -> ReleaseRecord {
+        ReleaseRecord {
+            id: Uuid::now_v7(),
+            team_id: 42,
+            hash_id: hash_id.to_string(),
+            created_at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+            version: "1.2.3".to_string(),
+            project: "my-app".to_string(),
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn event_release_populates_the_singular_release() {
+        // The event-level release (from `$release_id` or mobile app metadata) is the sole source of
+        // `$exception_release`; it does not depend on any frame carrying a release.
+        let metadata = ResolvedMetadata::from_exception_list(
+            &ExceptionList::default(),
+            Some(&release_record("hash-abc")),
+        );
+        assert!(metadata.release.is_some());
+    }
+
+    #[test]
+    fn missing_event_release_leaves_the_release_unset() {
+        // Without an event-level release there is nothing to emit; there is no per-frame fallback.
+        let metadata = ResolvedMetadata::from_exception_list(&ExceptionList::default(), None);
+        assert!(metadata.release.is_none());
+    }
+
+    #[test]
+    fn exception_release_emitted_only_when_a_release_resolves() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 42,
+            status: crate::issue_resolution::IssueStatus::Active,
+            name: None,
+            description: None,
+            created_at: chrono::Utc::now(),
+        };
+        let record = release_record("hash-abc");
+        let expected = serde_json::to_value(record.to_info()).unwrap();
+
+        // A resolved release surfaces as `$exception_release` on both the grouping-rule projection
+        // and the derived wire form.
+        let mut resolved = resolved_event();
+        resolved.state.metadata.release = Some(record.to_info());
+        let grouping = resolved.grouping_rule_properties();
+        assert_eq!(grouping["$exception_release"], expected);
+        let fingerprinted =
+            resolved.into_fingerprinted(SelectedFingerprint::manual("fp".to_string()));
+        let wire = serde_json::to_value(fingerprinted.processed_properties(&issue)).unwrap();
+        assert_eq!(wire["$exception_release"], expected);
+
+        // No release resolved: the property is omitted.
+        let mut resolved = resolved_event();
+        resolved.state.metadata.release = None;
+        let grouping = resolved.grouping_rule_properties();
+        assert!(grouping.get("$exception_release").is_none());
     }
 }

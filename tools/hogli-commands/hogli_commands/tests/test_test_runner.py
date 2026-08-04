@@ -86,6 +86,59 @@ class TestDetectTestType:
         assert config.test_type == "jest"
         assert config.command == ["pnpm", "--filter=@posthog/frontend", "exec", "jest", file_path]
 
+    @parameterized.expand(
+        [
+            (
+                "products/desktop/packages/core/src/archive/archiveListView.test.ts",
+                "products/desktop/packages/core",
+                "src/archive/archiveListView.test.ts",
+            ),
+            (
+                "products/desktop/packages/ui/src/shell/logCapture.test.ts",
+                "products/desktop/packages/ui",
+                "src/shell/logCapture.test.ts",
+            ),
+        ]
+    )
+    def test_desktop_test_file_routes_to_package_vitest(self, file_path: str, pkg_dir: str, rel: str) -> None:
+        config = detect_test_type(file_path)
+        assert config.test_type == "vitest"
+        assert config.command == ["pnpm", "--dir", pkg_dir, "exec", "vitest", "run", rel]
+
+    def test_desktop_node_id_adds_test_name_filter(self) -> None:
+        config = detect_test_type("products/desktop/packages/core/src/archive/archiveListView.test.ts::renders rows")
+        assert config.test_type == "vitest"
+        assert config.command == [
+            "pnpm",
+            "--dir",
+            "products/desktop/packages/core",
+            "exec",
+            "vitest",
+            "run",
+            "src/archive/archiveListView.test.ts",
+            "-t",
+            "renders rows",
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "products/desktop/packages/core",
+                ["pnpm", "--dir", "products/desktop/packages/core", "exec", "vitest", "run"],
+            ),
+            (
+                "products/desktop/packages/core/src/archive",
+                ["pnpm", "--dir", "products/desktop/packages/core", "exec", "vitest", "run", "src/archive"],
+            ),
+            ("products/desktop", ["pnpm", "--dir", "products/desktop", "test"]),
+            ("products/desktop/packages", ["pnpm", "--dir", "products/desktop", "test"]),
+        ]
+    )
+    def test_desktop_directories_route_to_vitest_or_turbo(self, dir_path: str, expected_command: list[str]) -> None:
+        config = detect_test_type(dir_path)
+        assert config.test_type == "vitest"
+        assert config.command == expected_command
+
     def test_jest_node_id_adds_test_name_pattern(self) -> None:
         config = detect_test_type("frontend/src/lib/utils.test.ts::some test name")
         assert config.test_type == "jest"

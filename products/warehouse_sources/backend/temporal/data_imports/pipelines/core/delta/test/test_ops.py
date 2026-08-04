@@ -1,16 +1,43 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
+
+from django.test import override_settings
 
 import deltalake
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_MERGE_CONFLICT_RETRIES,
+    delta_merge_spill_kwargs,
     execute_with_conflict_retry,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 
-def _make_logger():
-    return MagicMock(adebug=AsyncMock(), ainfo=AsyncMock(), awarning=AsyncMock(), aerror=AsyncMock())
+class TestDeltaMergeSpillKwargs:
+    # Guards the wiring from settings → delta-rs merge kwargs. A silent break here (renamed setting,
+    # dropped forwarding, or emitting a None kwarg) stops merges spilling to disk and OOMs return.
+    @parameterized.expand(
+        [
+            ("both_unset", None, None, {}),
+            ("only_spill", 6_442_450_944, None, {"max_spill_size": 6_442_450_944}),
+            ("only_temp_dir", None, 51_539_607_552, {"max_temp_directory_size": 51_539_607_552}),
+            (
+                "both_set",
+                6_442_450_944,
+                51_539_607_552,
+                {"max_spill_size": 6_442_450_944, "max_temp_directory_size": 51_539_607_552},
+            ),
+        ]
+    )
+    def test_kwargs_from_settings(
+        self, _case: str, spill: int | None, temp_dir: int | None, expected: dict[str, int]
+    ) -> None:
+        with override_settings(
+            DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES=spill,
+            DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES=temp_dir,
+        ):
+            assert delta_merge_spill_kwargs() == expected
 
 
 class TestExecuteWithConflictRetry:
@@ -25,7 +52,7 @@ class TestExecuteWithConflictRetry:
         table = MagicMock()
         operation_fn = MagicMock(return_value={"num_output_rows": 1})
 
-        result = await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+        result = await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         assert result == {"num_output_rows": 1}
         operation_fn.assert_called_once()
@@ -41,7 +68,7 @@ class TestExecuteWithConflictRetry:
             ]
         )
 
-        result = await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+        result = await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         assert result == {"num_output_rows": 1}
         assert operation_fn.call_count == 2
@@ -57,7 +84,7 @@ class TestExecuteWithConflictRetry:
         )
 
         with pytest.raises(deltalake.exceptions.CommitFailedError):
-            await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         assert operation_fn.call_count == DELTA_MERGE_CONFLICT_RETRIES + 1
         assert table.update_incremental.call_count == DELTA_MERGE_CONFLICT_RETRIES
@@ -68,7 +95,7 @@ class TestExecuteWithConflictRetry:
         operation_fn = MagicMock(side_effect=ValueError("not a commit conflict"))
 
         with pytest.raises(ValueError):
-            await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         operation_fn.assert_called_once()
         table.update_incremental.assert_not_called()
