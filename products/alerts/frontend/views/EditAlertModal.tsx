@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { FunnelVizType } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertStateIndicator, AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
@@ -44,12 +44,59 @@ import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
-import { AlertModalProps, resolveAlertModalProps } from './AlertModalProps'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
 import { buildWizardSteps } from './EditAlertModal/buildWizardSteps'
 import { EditAlertTabs } from './EditAlertModal/EditAlertTabs'
 
+interface AlertModalCommonProps {
+    isOpen: boolean | undefined
+    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
+    onClose?: () => void
+    defaultToAnomalyDetection?: boolean
+    insightName?: string | null
+    useAlertCheckPreview?: boolean
+}
+
+type AlertModalProps = AlertModalCommonProps &
+    (
+        | {
+              alert: AlertType
+              alertId?: never
+              insightId?: never
+              insightShortId?: never
+              insightLogicProps?: never
+          }
+        | {
+              alert?: never
+              alertId?: AlertType['id']
+              insightId: QueryBasedInsightModel['id']
+              insightShortId: InsightShortId
+              insightLogicProps: InsightLogicProps
+          }
+    )
+
+interface ResolvedAlertModalProps extends AlertModalCommonProps {
+    initialAlert?: AlertType
+    alertId?: AlertType['id']
+    insightId: QueryBasedInsightModel['id']
+    insightShortId: InsightShortId
+    insightLogicProps: InsightLogicProps
+}
+
 export function EditAlertModal(props: AlertModalProps): JSX.Element {
+    const resolvedProps: ResolvedAlertModalProps = props.alert
+        ? {
+              ...props,
+              initialAlert: props.alert,
+              alertId: props.alert.id,
+              insightId: props.alert.insight.id,
+              insightShortId: props.alert.insight.short_id,
+              insightLogicProps: {
+                  dashboardItemId: props.alert.insight.short_id,
+                  cachedInsight: props.alert.insight,
+              },
+          }
+        : props
     const {
         initialAlert,
         isOpen,
@@ -62,7 +109,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         defaultToAnomalyDetection,
         insightName,
         useAlertCheckPreview,
-    } = resolveAlertModalProps(props)
+    } = resolvedProps
     const _alertLogic = alertLogic({ alertId })
     const { alert: loadedAlert, alertLoading } = useValues(_alertLogic)
     const alert = initialAlert ?? loadedAlert
