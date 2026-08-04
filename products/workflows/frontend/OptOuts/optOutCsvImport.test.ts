@@ -20,6 +20,19 @@ describe('optOutCsvImport', () => {
             expect(parsed.errors[0]).toContain('No recipient column found')
         })
 
+        // The export quote-prefixes formula-leading identifiers so spreadsheets don't evaluate
+        // them; the round trip only works if parsing strips that escape back off. A quote not
+        // followed by a formula trigger is a real identifier and must survive.
+        it.each([
+            { value: "'=SUM(A1:B1)", expected: '=SUM(A1:B1)' },
+            { value: "'+15551234567", expected: '+15551234567' },
+            { value: "'quoted@example.com", expected: "'quoted@example.com" },
+        ])('unescapes the formula-neutralizing quote prefix in "$value"', ({ value, expected }) => {
+            const parsed = parseOptOutRows([['identifier'], [value]])
+
+            expect(parsed.entries).toEqual([{ identifier: expected, category_key: undefined, row: 2 }])
+        })
+
         it('reads the category column and skips rows missing a recipient, keeping file row numbers', () => {
             const parsed = parseOptOutRows([
                 ['email', 'category_key'],

@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from django.db import transaction
 
+from posthog.security.spreadsheet_safety import sanitize_formula_injection
+
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -98,7 +100,13 @@ class OptOutService:
             writer = csv.writer(_Echo())
             yield writer.writerow(EXPORT_HEADER)
             for identifier, updated_at in opt_outs.iterator(chunk_size=BATCH_SIZE):
-                yield writer.writerow([identifier, export_key, updated_at.isoformat()])
+                yield writer.writerow(
+                    [
+                        sanitize_formula_injection(identifier),
+                        sanitize_formula_injection(export_key),
+                        updated_at.isoformat(),
+                    ]
+                )
 
         return rows()
 

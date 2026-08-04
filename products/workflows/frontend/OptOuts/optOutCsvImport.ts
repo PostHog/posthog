@@ -21,6 +21,15 @@ export interface ParsedOptOutCsv {
     errors: string[]
 }
 
+// The export quote-prefixes cells starting with these so spreadsheets don't evaluate them
+// as formulas (see posthog/security/spreadsheet_safety.py). Reversed here so a file
+// exported from PostHog imports back with the original identifiers.
+const FORMULA_TRIGGER_CHARS = ['=', '+', '-', '@', '\t', '\r']
+
+function unescapeFormulaPrefix(value: string): string {
+    return value.startsWith("'") && FORMULA_TRIGGER_CHARS.includes(value[1]) ? value.slice(1) : value
+}
+
 /** Turn parsed CSV rows (header first) into opt-out entries, mirroring the old server-side rules. */
 export function parseOptOutRows(rows: string[][]): ParsedOptOutCsv {
     if (rows.length === 0) {
@@ -51,7 +60,7 @@ export function parseOptOutRows(rows: string[][]): ParsedOptOutCsv {
         total += 1
         const rowNumber = i + 1
 
-        const identifier = row[identifierIndex]?.trim()
+        const identifier = unescapeFormulaPrefix(row[identifierIndex]?.trim() ?? '')
         if (!identifier) {
             skipped += 1
             if (errors.length < MAX_REPORTED_ERRORS) {

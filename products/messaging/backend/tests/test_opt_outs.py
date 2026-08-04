@@ -138,6 +138,14 @@ class TestOptOuts(APIBaseTest):
         self.assertIn("sam@example.com", marketing_csv)
         self.assertNotIn("ally@example.com", marketing_csv)
 
+    def test_export_neutralizes_formula_leading_identifiers(self):
+        self._bulk([{"identifier": "=SUM(A1:B1)"}, {"identifier": "ally@example.com"}])
+
+        exported = self._export()
+
+        self.assertIn("'=SUM(A1:B1)", exported)
+        self.assertIn("\nally@example.com,", exported)
+
     def test_export_does_not_leak_opt_outs_from_another_team(self):
         other_team = self.create_team_with_organization(self.organization)
         MessageRecipientPreference.objects.create(
