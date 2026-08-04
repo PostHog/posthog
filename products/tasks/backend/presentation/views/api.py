@@ -48,7 +48,6 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
-from products.tasks.backend.client_provenance import get_task_client_provenance
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
@@ -59,6 +58,7 @@ from products.tasks.backend.facade import (
     contracts as tasks_contracts,
 )
 from products.tasks.backend.facade.access import cloud_usage_limit_response, code_access_required_response
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,

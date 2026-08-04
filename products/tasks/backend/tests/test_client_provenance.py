@@ -1,11 +1,13 @@
 from types import SimpleNamespace
+from typing import cast
 
 from parameterized import parameterized
+from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-from products.tasks.backend.client_provenance import get_task_client_provenance
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.models import TaskClientProvenance
 
 
@@ -37,11 +39,11 @@ class TestTaskClientProvenance:
             application=SimpleNamespace(client_id=client_id),
             scope=scope,
         )
-        request = SimpleNamespace(successful_authenticator=authenticator)
+        request = cast(Request, SimpleNamespace(successful_authenticator=authenticator))
 
         provenance = get_task_client_provenance(request)
 
         assert (provenance == TaskClientProvenance.POSTHOG_DESKTOP) is expected_desktop
 
     def test_missing_authentication_provenance_fails_closed(self) -> None:
-        assert get_task_client_provenance(SimpleNamespace()) is None
+        assert get_task_client_provenance(cast(Request, SimpleNamespace())) is None

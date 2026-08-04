@@ -18,11 +18,11 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.tasks.backend.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade import (
     access as tasks_access,
     loops as loops_facade,
 )
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.presentation.serializers_loops import (
     LoopFireRunSerializer,
     LoopPreviewRequestSerializer,
