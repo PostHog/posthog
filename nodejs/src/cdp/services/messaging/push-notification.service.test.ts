@@ -329,11 +329,11 @@ describe('PushNotificationService', () => {
                 if (captured === 'nothing') {
                     // An asset is a snapshot of what a recipient received; a send that reached nobody
                     // has none, and email behaves the same way (it captures only on success).
-                    expect(result.emailAssets).toEqual([])
+                    expect(result.messageAssets).toEqual([])
                     return
                 }
-                expect(result.emailAssets).toHaveLength(1)
-                expect(result.emailAssets[0]).toMatchObject({
+                expect(result.messageAssets).toHaveLength(1)
+                expect(result.messageAssets[0]).toMatchObject({
                     kind: 'push',
                     status: captured,
                     action_id: 'action_push_1',
@@ -365,10 +365,27 @@ describe('PushNotificationService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
-                expect(result.emailAssets).toEqual([])
+                expect(result.messageAssets).toEqual([])
                 expect(result.logs.map((log) => log.message)).toContainEqual(
                     expect.stringContaining('could not be captured')
                 )
+            })
+
+            it('records neither a metric nor an asset for a test send', async () => {
+                // "Run test" really delivers, but it must not show up as a workflow send: email
+                // already skips both, and a test row on the Assets tab reads as a real delivery.
+                respondWith(200)
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.state.actionId = 'action_push_1'
+
+                const result = await serviceWithAssets.executeSendPushNotification(invocation, true)
+
+                expect(result.error).toBeUndefined()
+                expect(result.metrics).toEqual([])
+                expect(result.messageAssets).toEqual([])
+                expect(result.logs.map((log) => log.message)).toContainEqual(expect.stringContaining('accepted by FCM'))
             })
 
             it('captures one asset per notification, not one per delivered channel', async () => {
@@ -384,7 +401,7 @@ describe('PushNotificationService', () => {
 
                 const result = await serviceWithAssets.executeSendPushNotification(invocation)
 
-                expect(result.emailAssets).toHaveLength(1)
+                expect(result.messageAssets).toHaveLength(1)
             })
         })
 

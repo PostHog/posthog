@@ -15,7 +15,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition as repartition_module
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -49,8 +49,8 @@ def _schema(**kwargs):
     return SimpleNamespace(**defaults)
 
 
-def _delta_helper(**kwargs):
-    # Stand-in for DeltaTableHelper; untyped on purpose so callers can pass it to the real signature.
+def _make_table_ref(**kwargs):
+    # Stand-in for DeltaTableRef; untyped on purpose so callers can pass it to the real signature.
     defaults = {
         "get_table_uri": AsyncMock(return_value="s3://bucket/live"),
         "get_storage_options": Mock(return_value={}),
@@ -445,7 +445,7 @@ class TestResumeSwapWithMissingLive:
     (which would strand the markers forever and let the next sync bootstrap an empty table)."""
 
     def test_routes_to_recovery_when_swap_marker_present(self):
-        helper = _delta_helper()
+        table_ref = _make_table_ref()
         schema = _schema(
             id="s1",
             repartition_swap={
@@ -460,18 +460,22 @@ class TestResumeSwapWithMissingLive:
         with patch.object(
             repartition_module, "_resume_swap_with_missing_live", new=AsyncMock(return_value=recovered)
         ) as recover:
-            result = asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger))
+            result = asyncio.run(
+                repartition_table_in_place(table_ref=table_ref, schema=schema, target=target, logger=logger)
+            )
 
         recover.assert_awaited_once()
         assert result == recovered
 
     def test_skips_when_no_swap_marker(self):
-        helper = _delta_helper()
+        table_ref = _make_table_ref()
         schema = _schema(id="s1", repartition_swap=None)
         target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
 
         with patch.object(repartition_module, "_resume_swap_with_missing_live", new=AsyncMock()) as recover:
-            result = asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger))
+            result = asyncio.run(
+                repartition_table_in_place(table_ref=table_ref, schema=schema, target=target, logger=logger)
+            )
 
         recover.assert_not_awaited()
         assert result == {"outcome": "skipped", "reason": "no_delta_table"}
@@ -479,14 +483,14 @@ class TestResumeSwapWithMissingLive:
     def test_recovery_clears_markers_and_skips_when_temp_unrecoverable(self):
         # Both live and a usable temp are lost (temp missing OR its log is corrupt): nothing left to
         # recover, so clear the markers and skip rather than loop on a swap that can never complete.
-        helper = _delta_helper()
+        table_ref = _make_table_ref()
         schema = _schema(id="s1", clear_repartition_swap=Mock(), clear_repartition_pending=Mock())
         target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
 
         with patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=None)):
             result = asyncio.run(
                 repartition_module._resume_swap_with_missing_live(
-                    helper=helper,
+                    table_ref=table_ref,
                     schema=schema,
                     target=target,
                     temp_uri="s3://bucket/live__repartitioned",
@@ -515,12 +519,14 @@ class TestLiveUnreadable:
         ]
     )
     def test_skips_with_live_unreadable_when_not_resuming(self, _name, exc):
-        helper = _delta_helper(get_delta_table=AsyncMock(side_effect=exc))
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(side_effect=exc))
         schema = _schema(id="s1", repartition_swap=None)
         target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
 
         with patch.object(repartition_module, "_resume_swap_with_missing_live", new=AsyncMock()) as recover:
-            result = asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger))
+            result = asyncio.run(
+                repartition_table_in_place(table_ref=table_ref, schema=schema, target=target, logger=logger)
+            )
 
         recover.assert_not_awaited()
         assert result == {"outcome": "skipped", "reason": "live_unreadable"}
@@ -528,7 +534,9 @@ class TestLiveUnreadable:
     def test_routes_to_recovery_when_unreadable_while_resuming(self):
         # A "ready" swap marker means temp was already built and validated, so an unreadable live is the
         # interrupted-swap window: recover from temp rather than skipping (which would strand the marker).
-        helper = _delta_helper(get_delta_table=AsyncMock(side_effect=deltalake.exceptions.DeltaError("corrupt log")))
+        table_ref = _make_table_ref(
+            get_delta_table=AsyncMock(side_effect=deltalake.exceptions.DeltaError("corrupt log"))
+        )
         schema = _schema(
             id="s1",
             repartition_swap={
@@ -543,7 +551,9 @@ class TestLiveUnreadable:
         with patch.object(
             repartition_module, "_resume_swap_with_missing_live", new=AsyncMock(return_value=recovered)
         ) as recover:
-            result = asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger))
+            result = asyncio.run(
+                repartition_table_in_place(table_ref=table_ref, schema=schema, target=target, logger=logger)
+            )
 
         recover.assert_awaited_once()
         assert result == recovered
@@ -604,7 +614,7 @@ class TestPurgeS3Prefix:
                 ]
             )
         )
-        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
         with patch(f"{module}.asyncio.sleep", AsyncMock()):
             asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
         assert s3._find.await_count == 2
@@ -612,7 +622,7 @@ class TestPurgeS3Prefix:
 
     def test_gives_up_after_max_attempts_on_persistent_slowdown(self):
         s3 = _fake_s3(_find=AsyncMock(side_effect=OSError("[Errno 16] Please reduce your request rate.")))
-        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
         with patch(f"{module}.asyncio.sleep", AsyncMock()):
             with pytest.raises(OSError, match="reduce your request rate"):
                 asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
@@ -622,7 +632,7 @@ class TestPurgeS3Prefix:
         # Only the recognized transient substrings should retry — an unrelated OSError (e.g. a real
         # permissions/config problem) must fail fast instead of burning attempts and backoff on it.
         s3 = _fake_s3(_find=AsyncMock(side_effect=OSError("some other unrelated failure")))
-        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
         with patch(f"{module}.asyncio.sleep", AsyncMock()) as mock_sleep:
             with pytest.raises(OSError, match="some other unrelated failure"):
                 asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
@@ -799,7 +809,7 @@ class TestReviveScheduling:
     def _run(self, tmp_path, verified_uri):
         live = str(tmp_path / "live")
         _write_month_partitioned(live, [(1, datetime.datetime(2024, 1, 15))])
-        helper = _delta_helper(
+        table_ref = _make_table_ref(
             get_table_uri=AsyncMock(return_value="s3://bucket/dlt/x/live"),
             get_delta_table=AsyncMock(return_value=deltalake.DeltaTable(live)),
         )
@@ -823,7 +833,9 @@ class TestReviveScheduling:
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
         ):
             return (
-                asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger)),
+                asyncio.run(
+                    repartition_table_in_place(table_ref=table_ref, schema=schema, target=target, logger=logger)
+                ),
                 schema,
             )
 
@@ -886,7 +898,7 @@ class TestResumeWithInvalidTemp:
         live = _write_month_partitioned(
             str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
         )
-        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
         target = RepartitionTarget(
             partition_keys=["created_at"], trigger_reason="resume", partition_mode="datetime", partition_format="day"
         )
@@ -914,7 +926,7 @@ class TestResumeWithInvalidTemp:
         ):
             result = asyncio.run(
                 repartition_table_in_place(
-                    helper=helper, schema=schema, target=target, logger=logger, claim_token="tok"
+                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
                 )
             )
 
@@ -945,7 +957,7 @@ class TestClaimFencing:
         live = _write_month_partitioned(
             str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
         )
-        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
         target = RepartitionTarget(
             partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
         )
@@ -961,7 +973,7 @@ class TestClaimFencing:
             with pytest.raises(RepartitionSupersededError):
                 asyncio.run(
                     repartition_table_in_place(
-                        helper=helper, schema=schema, target=target, logger=logger, claim_token="tok-ours"
+                        table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok-ours"
                     )
                 )
 
@@ -1123,7 +1135,7 @@ class TestClaimFencing:
         live = _write_month_partitioned(
             str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
         )
-        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
         target = RepartitionTarget(
             partition_keys=["created_at"], trigger_reason="resume", partition_mode="datetime", partition_format="day"
         )
@@ -1147,7 +1159,7 @@ class TestClaimFencing:
         ):
             result = asyncio.run(
                 repartition_table_in_place(
-                    helper=helper, schema=schema, target=target, logger=logger, claim_token="tok-ours"
+                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok-ours"
                 )
             )
 

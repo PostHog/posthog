@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import DEFAULT_MAX_TABLE_BYTES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import _purge_s3_prefix
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
@@ -53,9 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 # Coarse → fine. A datetime table that's OOMing steps one tier finer each repartition cycle.
 DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
@@ -515,7 +513,7 @@ async def _rewrite_into_temp(
 
 
 async def repartition_table_in_place(
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     logger: FilteringBoundLogger,
@@ -535,8 +533,8 @@ async def repartition_table_in_place(
     during the rewrite, at most once per `CLAIM_RECHECK_INTERVAL_SECONDS` (raising
     `RepartitionSupersededError` when a newer attempt has taken over).
     """
-    live_uri = await helper.get_table_uri()
-    storage_options = helper.get_storage_options()
+    live_uri = await table_ref.get_table_uri()
+    storage_options = table_ref.get_storage_options()
 
     async def ensure_claim() -> None:
         await _ensure_claim(schema, claim_token)
@@ -552,7 +550,7 @@ async def repartition_table_in_place(
     await ensure_claim()
 
     try:
-        old_delta = await helper.get_delta_table()
+        old_delta = await table_ref.get_delta_table()
     except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
         # Live's `_delta_log` is unreadable (an OOM-crashed merge or interrupted swap). If a swap was
         # already staged we can still recover from temp below; otherwise skip and let the import
@@ -573,7 +571,7 @@ async def repartition_table_in_place(
         # this same early return) and let the next sync bootstrap an empty table over the lost data.
         if resuming:
             return await _resume_swap_with_missing_live(
-                helper=helper,
+                table_ref=table_ref,
                 schema=schema,
                 target=target,
                 temp_uri=temp_uri,
@@ -700,7 +698,7 @@ async def repartition_table_in_place(
     await asyncio.to_thread(schema.stamp_last_repartition_at)
 
     # The cached delta-table object points at the pre-swap files; drop it so callers re-read live.
-    helper.get_delta_table.cache_clear()
+    table_ref.get_delta_table.cache_clear()
 
     await logger.ainfo(
         f"repartition: completed schema_id={schema.id} rows={rows_written} "
@@ -734,7 +732,7 @@ async def repartition_table_in_place(
 
 async def _resume_swap_with_missing_live(
     *,
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     temp_uri: str,
@@ -785,7 +783,7 @@ async def _resume_swap_with_missing_live(
     await asyncio.to_thread(schema.clear_repartition_swap)
     await asyncio.to_thread(schema.clear_repartition_pending)
     await asyncio.to_thread(schema.stamp_last_repartition_at)
-    helper.get_delta_table.cache_clear()
+    table_ref.get_delta_table.cache_clear()
 
     await logger.ainfo(
         f"repartition: recovered from interrupted swap schema_id={schema.id} rows={expected_rows}",
