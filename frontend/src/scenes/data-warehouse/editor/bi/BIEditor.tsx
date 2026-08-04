@@ -21,6 +21,8 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 
 import { ChartDisplayType } from '~/types'
 
+import { editorSizingLogic } from '../editorSizingLogic'
+import { queryDatabaseLogic } from '../sidebar/queryDatabaseLogic'
 import { biEditorLogic } from './biEditorLogic'
 import {
     BIAggregation,
@@ -70,6 +72,8 @@ const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
     const { availableDataSources, config, databaseConnectionId, databaseLoading } = useValues(logic)
+    const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
+    const { locateTable } = useActions(queryDatabaseLogic)
     const {
         addBlankFieldToShelf,
         addFieldToShelf,
@@ -89,7 +93,22 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         <div className="flex h-[42%] min-h-72 shrink-0 flex-col gap-3 overflow-auto border-b bg-primary p-3">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="flex min-w-0 flex-col gap-1">
-                    <LemonLabel>Data source</LemonLabel>
+                    <div className="flex items-center gap-1">
+                        <LemonLabel>Data source</LemonLabel>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            disabledReason={!config.source ? 'Select a data source first' : undefined}
+                            onClick={() => {
+                                if (config.source) {
+                                    setDatabaseTreeCollapsed(false)
+                                    locateTable(config.source.table)
+                                }
+                            }}
+                        >
+                            Locate
+                        </LemonButton>
+                    </div>
                     <LemonSelect
                         value={config.source?.table}
                         options={availableDataSources.map((source) => ({
