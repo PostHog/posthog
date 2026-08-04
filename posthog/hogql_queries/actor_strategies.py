@@ -12,7 +12,6 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
@@ -146,6 +145,10 @@ class PersonStrategy(ActorStrategy):
 
         search = self.query.search.strip() if self.query.search else None
         if search:
+            from posthog.api.person import (
+                PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES,  # noqa: PLC0415 — posthog.api.person imports this module transitively (via actor_base_query), so a module-level import here is circular
+            )
+
             search_param = ast.Constant(value=f"%{search}%")
             display_name_properties = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
             property_exprs = person_display_name_property_exprs(display_name_properties, "properties")
