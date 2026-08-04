@@ -8,7 +8,11 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import {
+    InsightErrorState,
+    StatelessInsightLoadingState,
+    TransientQueryDelaySuggestion,
+} from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -239,7 +243,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                <StatelessInsightLoadingState
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    suggestion={
+                        props.context?.suppressSlowQuerySuggestions ? <TransientQueryDelaySuggestion /> : undefined
+                    }
+                />
             </div>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {

@@ -434,6 +434,14 @@ const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
     <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
 )
 
+/**
+ * Suggestion shown in place of the "reduce the date range" tip when `suppressSlowQuerySuggestions`
+ * is set (e.g. embedded in a PostHog AI chat transcript, where the viewer can't edit the query).
+ */
+export function TransientQueryDelaySuggestion(): JSX.Element {
+    return <p className="text-xs m-0">This can happen when the database is busy. It'll retry automatically.</p>
+}
+
 const SLOW_LOADING_TIME = 15
 
 export function SlowQuerySuggestions({
@@ -517,7 +525,7 @@ export function InsightLoadingState({
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
                 suppressSlowQuerySuggestions ? (
-                    <></>
+                    <TransientQueryDelaySuggestion />
                 ) : personsOnEventsMode === 'person_id_override_properties_joined' ? (
                     <div className="text-xs">
                         You can speed this query up by changing the{' '}
