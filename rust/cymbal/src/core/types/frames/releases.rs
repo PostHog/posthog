@@ -5,12 +5,15 @@ use sha2::{Digest, Sha512};
 use sqlx::Executor;
 use uuid::Uuid;
 
-/// Kept in sync with MAX_METADATA_BYTES in the release API
-/// (products/error_tracking/backend/presentation/views/releases.py). The API rejects larger
-/// metadata on write; rows predating the cap (or written outside it) are clamped at fetch so a
-/// single oversized release can't be amplified into every matching event, and so cache entries
-/// stay small enough for an entry-count budget.
+/// The release API does not bound what a row can hold (`version`/`project`/`metadata` are
+/// unbounded TextField/JSONField columns), but every one of these fields is embedded into every
+/// matching exception event, so a single oversized row would be amplified across the whole event
+/// stream after capture's per-event size limit has already been enforced. Clamping at fetch keeps
+/// events bounded and cache entries small enough for an entry-count budget. 8 KiB of metadata is
+/// ~25x what the CLI writes (a git object), and 255 chars fits any semver, commit SHA, or bundle
+/// identifier many times over.
 pub const MAX_RELEASE_METADATA_BYTES: usize = 8 * 1024;
+pub const MAX_RELEASE_TEXT_CHARS: usize = 255;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseRecord {
@@ -54,7 +57,7 @@ impl ReleaseRecord {
         .fetch_optional(e)
         .await?;
 
-        Ok(row.map(Self::with_clamped_metadata))
+        Ok(row.map(Self::clamped))
     }
 
     pub async fn for_hash<'c, E>(
@@ -78,7 +81,7 @@ impl ReleaseRecord {
         .fetch_optional(e)
         .await?;
 
-        Ok(row.map(Self::with_clamped_metadata))
+        Ok(row.map(Self::clamped))
     }
 
     pub fn to_info(&self) -> ReleaseInfo {
@@ -91,16 +94,25 @@ impl ReleaseRecord {
         }
     }
 
-    /// Drops `metadata` when its serialized form exceeds the cap the API enforces on new writes.
-    /// The `id` survives, so consumers can still fetch the full release.
-    fn with_clamped_metadata(mut self) -> Self {
+    /// Bounds every field this record can carry into an event: `metadata` over the cap the API
+    /// enforces on new writes is dropped, `version`/`project` are truncated. The `id` survives,
+    /// so consumers can still fetch the full release.
+    fn clamped(mut self) -> Self {
         let oversized = self.metadata.as_ref().is_some_and(|metadata| {
             serde_json::to_string(metadata).map_or(true, |s| s.len() > MAX_RELEASE_METADATA_BYTES)
         });
         if oversized {
             self.metadata = None;
         }
+        truncate_chars(&mut self.version, MAX_RELEASE_TEXT_CHARS);
+        truncate_chars(&mut self.project, MAX_RELEASE_TEXT_CHARS);
         self
+    }
+}
+
+fn truncate_chars(value: &mut String, max_chars: usize) {
+    if let Some((byte_index, _)) = value.char_indices().nth(max_chars) {
+        value.truncate(byte_index);
     }
 }
 
@@ -199,14 +211,20 @@ mod tests {
     }
 
     #[test]
-    fn oversized_metadata_is_clamped_but_small_metadata_survives() {
-        // Rows predating the API's write-time cap can hold multi-megabyte metadata; without the
-        // clamp every matching event would embed it, re-opening the amplification the cap closed.
-        let big = record(Some(json!({"git": {"commit_id": "x".repeat(100_000)}})));
-        assert_eq!(big.with_clamped_metadata().metadata, None);
+    fn oversized_fields_are_clamped_but_sane_fields_survive() {
+        // The API does not bound these fields, and each is embedded into every matching event;
+        // without the clamp one oversized release row would inflate the whole event stream.
+        let mut big = record(Some(json!({"git": {"commit_id": "x".repeat(100_000)}})));
+        big.version = "v".repeat(10_000);
+        big.project = "é".repeat(10_000);
+        let clamped = big.clamped();
+        assert_eq!(clamped.metadata, None);
+        assert_eq!(clamped.version.chars().count(), MAX_RELEASE_TEXT_CHARS);
+        assert_eq!(clamped.project.chars().count(), MAX_RELEASE_TEXT_CHARS);
 
         let small_value = json!({"git": {"commit_id": "abc123"}});
-        let small = record(Some(small_value.clone()));
-        assert_eq!(small.with_clamped_metadata().metadata, Some(small_value));
+        let small = record(Some(small_value.clone())).clamped();
+        assert_eq!(small.metadata, Some(small_value));
+        assert_eq!(small.version, "1.0");
     }
 }

@@ -1277,36 +1277,6 @@ class TestErrorTracking(APIBaseTest):
         ]
         assert limited_selects, "expected a LIMIT 2 SELECT on the release table"
 
-    @parameterized.expand(["create", "update"])
-    def test_release_rejects_oversized_metadata(self, method: str) -> None:
-        # Cymbal embeds release metadata into every matching exception event, so an uncapped
-        # value would be amplified across the whole event stream.
-        oversized = {"blob": "x" * (8 * 1024)}
-        if method == "create":
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/error_tracking/releases",
-                data={"version": "1.0.0", "project": "proj", "metadata": oversized},
-                format="json",
-            )
-        else:
-            release = ErrorTrackingRelease.objects.create(team=self.team, hash_id="h", version="1.0.0", project="proj")
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/error_tracking/releases/{release.id}",
-                data={"metadata": oversized},
-                format="json",
-            )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Metadata is too large" in response.json()["detail"]
-
-    def test_release_accepts_small_metadata(self) -> None:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/releases",
-            data={"version": "1.0.0", "project": "proj", "metadata": {"git": {"commit_id": "abc123"}}},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["metadata"] == {"git": {"commit_id": "abc123"}}
-
 
 class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
     def _create_issue(self, fingerprints=None, **kwargs) -> ErrorTrackingIssue:

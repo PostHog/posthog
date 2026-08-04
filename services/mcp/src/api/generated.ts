@@ -26574,7 +26574,7 @@ export namespace Schemas {
     }
 
     /**
-     * Optional free-form metadata object stored alongside the release. Limited to 8 KB of serialized JSON.
+     * Optional free-form metadata object stored alongside the release.
      * @nullable
      */
     export type ErrorTrackingReleaseCreateRequestMetadata = { [key: string]: unknown } | null;
@@ -26591,14 +26591,14 @@ export namespace Schemas {
          */
       hash_id?: string | null;
       /**
-         * Optional free-form metadata object stored alongside the release. Limited to 8 KB of serialized JSON.
+         * Optional free-form metadata object stored alongside the release.
          * @nullable
          */
       metadata?: ErrorTrackingReleaseCreateRequestMetadata;
     }
 
     /**
-     * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+     * Free-form metadata object. Omit to preserve the current value.
      * @nullable
      */
     export type ErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
@@ -26621,7 +26621,7 @@ export namespace Schemas {
          */
       hash_id?: string | null;
       /**
-         * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+         * Free-form metadata object. Omit to preserve the current value.
          * @nullable
          */
       metadata?: ErrorTrackingReleaseUpdateRequestMetadata;
@@ -51654,7 +51654,7 @@ export namespace Schemas {
     }
 
     /**
-     * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+     * Free-form metadata object. Omit to preserve the current value.
      * @nullable
      */
     export type PatchedErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
@@ -51677,7 +51677,7 @@ export namespace Schemas {
          */
       hash_id?: string | null;
       /**
-         * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+         * Free-form metadata object. Omit to preserve the current value.
          * @nullable
          */
       metadata?: PatchedErrorTrackingReleaseUpdateRequestMetadata;

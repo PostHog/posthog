@@ -1389,7 +1389,7 @@ export interface PaginatedErrorTrackingReleaseListApi {
 }
 
 /**
- * Optional free-form metadata object stored alongside the release. Limited to 8 KB of serialized JSON.
+ * Optional free-form metadata object stored alongside the release.
  * @nullable
  */
 export type ErrorTrackingReleaseCreateRequestApiMetadata = { [key: string]: unknown } | null
@@ -1406,14 +1406,14 @@ export interface ErrorTrackingReleaseCreateRequestApi {
      */
     hash_id?: string | null
     /**
-     * Optional free-form metadata object stored alongside the release. Limited to 8 KB of serialized JSON.
+     * Optional free-form metadata object stored alongside the release.
      * @nullable
      */
     metadata?: ErrorTrackingReleaseCreateRequestApiMetadata
 }
 
 /**
- * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+ * Free-form metadata object. Omit to preserve the current value.
  * @nullable
  */
 export type ErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
@@ -1436,14 +1436,14 @@ export interface ErrorTrackingReleaseUpdateRequestApi {
      */
     hash_id?: string | null
     /**
-     * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+     * Free-form metadata object. Omit to preserve the current value.
      * @nullable
      */
     metadata?: ErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
 /**
- * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+ * Free-form metadata object. Omit to preserve the current value.
  * @nullable
  */
 export type PatchedErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
@@ -1466,7 +1466,7 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
      */
     hash_id?: string | null
     /**
-     * Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.
+     * Free-form metadata object. Omit to preserve the current value.
      * @nullable
      */
     metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
