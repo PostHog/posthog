@@ -10,7 +10,7 @@ from django.utils import timezone
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import build_service
-from products.canvas.backend.models import Canvas, CanvasBuild
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
 from products.tasks.backend.models import Channel
@@ -301,3 +301,36 @@ class TestCleanup(BuildServiceBaseTest):
         assert str(aged[2].id) in kept  # newest other ready build (instant rollback)
         assert str(published.id) not in kept  # aged past retention, unprotected
         assert pruned == 1
+
+
+class TestLegacySourcePreservation(BuildServiceBaseTest):
+    def test_first_publish_materializes_legacy_code_as_parent_version(self):
+        legacy = "export default function Legacy() { return null }"
+        Canvas.objects.unscoped().filter(id=self.canvas.id).update(legacy_code=legacy)
+        self.canvas.refresh_from_db()
+
+        canvas, version, _build, first_publish = build_service.publish_source_project(
+            self.canvas,
+            project=synthetic_source_project("export default function Rewrite() { return null }"),
+            prompt="rewrite",
+            name=None,
+            has_expected_version=True,
+            expected_version_id=None,
+            task_id=None,
+            created_by_id=None,
+        )
+
+        head = CanvasSourceVersion.objects.unscoped().get(pk=version.id)
+        assert head.parent_version_id is not None
+        legacy_version = CanvasSourceVersion.objects.unscoped().get(pk=head.parent_version_id)
+        assert build_service.read_source_project(legacy_version) == synthetic_source_project(legacy)
+        assert canvas.current_source_version_id == head.id
+        assert canvas.legacy_code is None
+        assert not first_publish
+
+    def test_publish_on_fresh_canvas_creates_single_root_version(self):
+        self._publish()
+
+        versions = CanvasSourceVersion.objects.unscoped().filter(canvas_id=self.canvas.id)
+        assert versions.count() == 1
+        assert versions.get().parent_version_id is None
