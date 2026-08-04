@@ -59,7 +59,10 @@ export function CertificationsTab(): JSX.Element {
             title: 'Status',
             key: 'status',
             render: (_, certification) => {
-                const tag = STATUS_TAG[certification.status] ?? { label: certification.status, type: 'muted' as const }
+                const tag =
+                    certification.status === 'proposed' && certification.proposed_status === 'deprecated'
+                        ? { label: 'Deprecation proposed', type: 'warning' as const }
+                        : (STATUS_TAG[certification.status] ?? { label: certification.status, type: 'muted' as const })
                 return <LemonTag type={tag.type}>{tag.label}</LemonTag>
             },
         },
@@ -92,7 +95,7 @@ export function CertificationsTab(): JSX.Element {
                                         Certify
                                     </LemonButton>
                                 )}
-                                {certification.status === 'certified' && (
+                                {certification.status !== 'deprecated' && (
                                     <LemonButton
                                         fullWidth
                                         loading={inFlight}

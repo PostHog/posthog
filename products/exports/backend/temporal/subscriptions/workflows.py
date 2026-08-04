@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    deliver_subscription_v2,
     fetch_due_subscriptions_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -372,8 +373,13 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
 
+            delivery_activity = (
+                deliver_subscription_v2
+                if temporalio.workflow.patched("subscription-delivery-campaign-v2")
+                else deliver_subscription
+            )
             deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
-                deliver_subscription,
+                delivery_activity,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=delivery_asset_ids,
@@ -387,6 +393,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     invite_message=inputs.invite_message,
                     change_summary=change_summary,
                     summary_skipped_over_budget=summary_skipped_over_budget,
+                    delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
@@ -553,8 +560,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2: ship the persisted report.
+            delivery_activity = (
+                deliver_subscription_v2
+                if temporalio.workflow.patched("subscription-delivery-campaign-v2")
+                else deliver_subscription
+            )
             deliver_result = await temporalio.workflow.execute_activity(
-                deliver_subscription,
+                delivery_activity,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=[],

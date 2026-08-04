@@ -1035,13 +1035,18 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A derived note quotes a report's id, title, and dismissal text, all of which the
-            # report API gates on `task:read`. A scout-only token must not read around that.
+            # Every report-derived note quotes a report's id, title, and reviewer/reader text, all of
+            # which the report API gates on `task:read`. A scout-only token must not read around that,
+            # so all derived origins are withheld together — a new one must not reopen the gap.
             ("without_report_read", ["signal_scout:read"], {"steering"}),
-            ("with_report_read", ["signal_scout:read", "task:read"], {"steering", "derived from a dismissal"}),
+            (
+                "with_report_read",
+                ["signal_scout:read", "task:read"],
+                {"steering", "derived from a dismissal", "derived from feedback"},
+            ),
         ]
     )
-    def test_list_withholds_dismissal_notes_from_callers_without_report_read(
+    def test_list_withholds_derived_notes_from_callers_without_report_read(
         self, _name: str, scopes: list[str], expected: set[str]
     ) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
@@ -1052,6 +1057,11 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             team=self.team,
             content="derived from a dismissal",
             origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
+        )
+        SignalScoutNote.objects.create(
+            team=self.team,
+            content="derived from feedback",
+            origin=SignalScoutNote.Origin.REPORT_FEEDBACK,
         )
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
@@ -1638,6 +1648,51 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         if expected_missing_scope is not None:
             assert expected_missing_scope in response.json()["detail"]
 
+    def test_child_scoped_api_key_cannot_update_parent_config(self) -> None:
+        # Config rows canonicalize to the parent team, so a key scoped only to a child
+        # environment passes the default scope check (URL team == child) while the PATCH
+        # targets the parent's row — ScoutCanonicalTeamAccessPermission must 403 before a
+        # child-scoped credential can change the parent's sandbox posture (network_access).
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:write"],
+            scoped_teams=[env.id],
+        )
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+            data={"network_access": "full"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
+    def test_partial_update_round_trips_network_access(self) -> None:
+        # Wiring guard: DRF silently drops a field missing from the update serializer's
+        # `Meta.fields` (the PATCH would 200 while never changing the sandbox posture), and the
+        # read serializer must surface the stored value back.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"network_access": "full"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["network_access"] == "full"
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
+
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         # 20 is below the 30-minute floor (the tightest cadence the UI offers) but above the old
@@ -1875,7 +1930,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         response = self.client.post(
             self._list_url(),
-            data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 120, "emit": False},
+            data={
+                "skill_name": "signals-scout-fresh",
+                "run_interval_minutes": 120,
+                "emit": False,
+                "network_access": "full",
+            },
             format="json",
         )
 
@@ -1885,9 +1945,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body["run_interval_minutes"] == 120
         assert body["emit"] is False
         assert body["enabled"] is True
+        assert body["network_access"] == "full"
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.created_by_id == self.user.id
         assert config.enabled_by_id == self.user.id
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
 
     def test_create_stamps_scout_category_on_skill(self) -> None:
         skill = self._make_skill("signals-scout-fresh")

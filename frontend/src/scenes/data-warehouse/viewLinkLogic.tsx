@@ -8,9 +8,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { performQuery } from '~/queries/query'
-import { DatabaseSchemaField, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, DataWarehouseViewLinkValidation } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
@@ -45,6 +43,20 @@ export interface KeySelectOption {
     disabledReason?: string
 }
 
+export type JoinKeyMode = 'column' | 'sql_expression'
+
+/** Shape Base UI's Combobox expects for grouped items: a label plus the group's own items. */
+export interface TableOptionGroup {
+    value: string
+    items: string[]
+}
+
+const TABLE_GROUPS: { label: string; types: DatabaseSchemaTable['type'][] }[] = [
+    { label: 'PostHog tables', types: ['posthog', 'system'] },
+    { label: 'Data warehouse', types: ['data_warehouse', 'batch_export'] },
+    { label: 'Views', types: ['view', 'materialized_view', 'managed_view', 'endpoint'] },
+]
+
 const disabledReasonForColumn = (column: DatabaseSchemaField): string | undefined => {
     if (column.type === 'lazy_table') {
         return "Lazy tables can't be joined directly, use SQL expression to join with lazy table fields"
@@ -62,6 +74,8 @@ export interface viewLinkLogicValues {
     allTables: DatabaseSchemaTable[] // databaseTableListLogic
     error: string | null
     fieldName: string
+    fieldNameTouched: boolean
+    groupedTableOptions: TableOptionGroup[]
     isJoinTableModalOpen: boolean
     isNewJoin: boolean
     isViewLinkSubmitting: boolean
@@ -69,9 +83,9 @@ export interface viewLinkLogicValues {
     joinToEdit: DataWarehouseViewLink | null
     joinValidation: JoinValidationState
     joiningIsUsingHogQLExpression: boolean
+    joiningKeyMode: JoinKeyMode
+    joiningKeyModeOverride: JoinKeyMode | null
     joiningTableKeys: KeySelectOption[]
-    joiningTablePreviewData: Record<string, any>[]
-    joiningTablePreviewLoading: boolean
     keyTypeMismatchWarning: string | null
     saveDisabledReason: string | null
     selectedJoiningKey: string | null
@@ -82,9 +96,9 @@ export interface viewLinkLogicValues {
     selectedSourceTableName: string | null
     showViewLinkErrors: boolean
     sourceIsUsingHogQLExpression: boolean
+    sourceKeyMode: JoinKeyMode
+    sourceKeyModeOverride: JoinKeyMode | null
     sourceTableKeys: KeySelectOption[]
-    sourceTablePreviewData: Record<string, any>[]
-    sourceTablePreviewLoading: boolean
     sqlCodeSnippet: string | null
     tableOptions: {
         label: string
@@ -113,6 +127,9 @@ export interface viewLinkLogicActions {
         force?: boolean
     } // databaseTableListLogic
     loadJoins: () => any // joinsLogic
+    autofillFieldName: (fieldName: string) => {
+        fieldName: string
+    }
     checkKeyTypeMismatch: () => void
     clearModalFields: () => {
         value: true
@@ -123,12 +140,6 @@ export interface viewLinkLogicActions {
     ) => {
         column: any
         table: any
-    }
-    loadJoiningTablePreview: (tableName: string) => {
-        tableName: string
-    }
-    loadSourceTablePreview: (tableName: string) => {
-        tableName: string
     }
     resetJoinValidation: () => {
         value: true
@@ -159,14 +170,14 @@ export interface viewLinkLogicActions {
     setFieldName: (fieldName: string) => {
         fieldName: string
     }
-    setJoiningTablePreviewData: (data: Record<string, any>[]) => {
-        data: Record<string, any>[]
+    setJoiningKeyMode: (mode: JoinKeyMode) => {
+        mode: JoinKeyMode
     }
     setKeyTypeMismatchWarning: (warning: string | null) => {
         warning: string | null
     }
-    setSourceTablePreviewData: (data: Record<string, any>[]) => {
-        data: Record<string, any>[]
+    setSourceKeyMode: (mode: JoinKeyMode) => {
+        mode: JoinKeyMode
     }
     setViewLinkManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -248,6 +259,7 @@ export interface viewLinkLogicMeta {
             label: string
             value: string
         }[]
+        groupedTableOptions: (allTables: DatabaseSchemaTable[]) => TableOptionGroup[]
         sourceTableKeys: (selectedSourceTable: DatabaseSchemaTable | undefined) => KeySelectOption[]
         joiningTableKeys: (selectedJoiningTable: DatabaseSchemaTable | undefined) => KeySelectOption[]
         sqlCodeSnippet: (
@@ -255,6 +267,11 @@ export interface viewLinkLogicMeta {
             selectedJoiningTableName: string | null,
             fieldName: string
         ) => string | null
+        sourceKeyMode: (sourceKeyModeOverride: JoinKeyMode | null, sourceIsUsingHogQLExpression: boolean) => JoinKeyMode
+        joiningKeyMode: (
+            joiningKeyModeOverride: JoinKeyMode | null,
+            joiningIsUsingHogQLExpression: boolean
+        ) => JoinKeyMode
         saveDisabledReason: (joinValidation: JoinValidationState) => string | null
     }
 }
@@ -285,11 +302,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
         clearModalFields: true,
-        loadSourceTablePreview: (tableName: string) => ({ tableName }),
-        loadJoiningTablePreview: (tableName: string) => ({ tableName }),
-        setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
-        setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setKeyTypeMismatchWarning: (warning: string | null) => ({ warning }),
+        setSourceKeyMode: (mode: JoinKeyMode) => ({ mode }),
+        setJoiningKeyMode: (mode: JoinKeyMode) => ({ mode }),
+        autofillFieldName: (fieldName: string) => ({ fieldName }),
         validateJoin: () => {},
         validateJoinStarted: true,
         validateJoinSuccess: (response: DataWarehouseViewLinkValidation) => ({ response }),
@@ -363,6 +379,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectSourceKey: (_, { selectedKey }) => selectedKey,
+                // A key belongs to its table; keeping it across a table change would
+                // silently validate or save against a column of the wrong table.
+                selectSourceTable: () => null,
+                // A column and a SQL expression aren't interchangeable, so drop the key when the
+                // mode switches rather than reinterpreting the old value under the new mode.
+                setSourceKeyMode: () => null,
                 toggleNewJoinModal: (_, { join }) => join?.source_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
                 clearModalFields: () => null,
@@ -372,6 +394,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectJoiningKey: (_, { selectedKey }) => selectedKey,
+                selectJoiningTable: () => null,
+                setJoiningKeyMode: () => null,
                 toggleNewJoinModal: (_, { join }) => join?.joining_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
                 clearModalFields: () => null,
@@ -381,10 +405,21 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             '' as string,
             {
                 setFieldName: (_, { fieldName }) => fieldName,
-                selectJoiningTable: (_, { selectedTableName }) => selectedTableName.replaceAll('.', '_'),
+                autofillFieldName: (_, { fieldName }) => fieldName,
                 toggleNewJoinModal: (_, { join }) => join?.field_name ?? '',
                 toggleEditJoinModal: (_, { join }) => join.field_name ?? '',
                 clearModalFields: () => '',
+            },
+        ],
+        fieldNameTouched: [
+            false as boolean,
+            {
+                setFieldName: () => true,
+                toggleNewJoinModal: () => false,
+                // An existing join's accessor is user-owned; treat it as touched so changing the
+                // joining table doesn't autofill over a custom accessor and break queries using it.
+                toggleEditJoinModal: (_, { join }) => !!join.field_name,
+                clearModalFields: () => false,
             },
         ],
         isJoinTableModalOpen: [
@@ -402,6 +437,25 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => null,
             },
         ],
+        // Only an explicit toggle is stored. The mode is otherwise derived from the key, so it
+        // stays correct when the schema arrives after the modal opens; picking "SQL expression"
+        // empties the field, which is why derivation alone would bounce the user back.
+        sourceKeyModeOverride: [
+            null as JoinKeyMode | null,
+            {
+                setSourceKeyMode: (_, { mode }) => mode,
+                selectSourceTable: () => null,
+                clearModalFields: () => null,
+            },
+        ],
+        joiningKeyModeOverride: [
+            null as JoinKeyMode | null,
+            {
+                setJoiningKeyMode: (_, { mode }) => mode,
+                selectJoiningTable: () => null,
+                clearModalFields: () => null,
+            },
+        ],
         keyTypeMismatchWarning: [
             null as null | string,
             {
@@ -411,34 +465,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 selectSourceTable: () => null,
                 selectJoiningKey: () => null,
                 selectJoiningTable: () => null,
-            },
-        ],
-        sourceTablePreviewData: [
-            [] as Record<string, any>[],
-            {
-                setSourceTablePreviewData: (_, { data }) => data,
-                clearModalFields: () => [],
-            },
-        ],
-        joiningTablePreviewData: [
-            [] as Record<string, any>[],
-            {
-                setJoiningTablePreviewData: (_, { data }) => data,
-                clearModalFields: () => [],
-            },
-        ],
-        sourceTablePreviewLoading: [
-            false as boolean,
-            {
-                loadSourceTablePreview: () => true,
-                setSourceTablePreviewData: () => false,
-            },
-        ],
-        joiningTablePreviewLoading: [
-            false as boolean,
-            {
-                loadJoiningTablePreview: () => true,
-                setJoiningTablePreviewData: () => false,
+                setSourceKeyMode: () => null,
+                setJoiningKeyMode: () => null,
             },
         ],
     }),
@@ -502,22 +530,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ actions, values }) => ({
         toggleNewJoinModal: ({ join }) => {
             actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
-            if (join?.source_table_name) {
-                actions.loadSourceTablePreview(join.source_table_name)
-            }
-            if (join?.joining_table_name) {
-                actions.loadJoiningTablePreview(join.joining_table_name)
-            }
             actions.validateJoin()
         },
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)
-            if (join.source_table_name) {
-                actions.loadSourceTablePreview(join.source_table_name)
-            }
-            if (join.joining_table_name) {
-                actions.loadJoiningTablePreview(join.joining_table_name)
-            }
             actions.validateJoin()
         },
         setViewLinkValue: ({ name }) => {
@@ -527,17 +543,24 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 actions.validateJoin()
             }
         },
-        selectSourceTable: async ({ selectedTableName }) => {
-            if (selectedTableName) {
-                actions.loadSourceTablePreview(selectedTableName)
-            }
+        selectSourceTable: async () => {
+            actions.setViewLinkValue('source_table_key', null)
             actions.validateJoin()
         },
         selectJoiningTable: async ({ selectedTableName }) => {
-            if (selectedTableName) {
-                actions.loadJoiningTablePreview(selectedTableName)
+            actions.setViewLinkValue('joining_table_key', null)
+            if (selectedTableName && !values.fieldNameTouched) {
+                actions.autofillFieldName(selectedTableName.replaceAll('.', '_'))
             }
             actions.validateJoin()
+        },
+        // Clear the form value on a mode switch so a column and a SQL expression can't be
+        // reinterpreted under the other mode when validating or saving.
+        setSourceKeyMode: () => {
+            actions.setViewLinkValue('source_table_key', null)
+        },
+        setJoiningKeyMode: () => {
+            actions.setViewLinkValue('joining_table_key', null)
         },
         checkKeyTypeMismatch: () => {
             if (values.selectedSourceKey && values.selectedJoiningKey) {
@@ -563,12 +586,6 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectJoiningKey: () => {
             actions.checkKeyTypeMismatch()
             actions.validateJoin()
-        },
-        loadSourceTablePreview: async ({ tableName }) => {
-            await loadTablePreviewData(tableName, actions.setSourceTablePreviewData)
-        },
-        loadJoiningTablePreview: async ({ tableName }) => {
-            await loadTablePreviewData(tableName, actions.setJoiningTablePreviewData)
         },
         validateJoin: async (_, breakpoint) => {
             await breakpoint(VALIDATE_JOIN_DEBOUNCE_MS)
@@ -658,6 +675,20 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     label: table.name,
                 })),
         ],
+        groupedTableOptions: [
+            (s) => [s.allTables],
+            (tables: import('~/queries/schema/schema-general').DatabaseSchemaTable[]): TableOptionGroup[] => {
+                const groups = TABLE_GROUPS.map(({ label, types }) => ({
+                    value: label,
+                    items: tables.filter((table) => types.includes(table.type)).map((table) => table.name),
+                }))
+                // A table type missing from TABLE_GROUPS would otherwise silently disappear
+                // from the picker.
+                const grouped = new Set(groups.flatMap((group) => group.items))
+                const ungrouped = tables.map((table) => table.name).filter((name) => !grouped.has(name))
+                return [...groups, { value: 'Other', items: ungrouped }].filter((group) => group.items.length > 0)
+            },
+        ],
         sourceTableKeys: [
             (s) => [s.selectedSourceTable],
             (
@@ -703,6 +734,16 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 return `SELECT ${tableAlias}.${fieldName || ''} FROM ${selectedSourceTableName} ${tableAlias}`
             },
         ],
+        sourceKeyMode: [
+            (s) => [s.sourceKeyModeOverride, s.sourceIsUsingHogQLExpression],
+            (override: JoinKeyMode | null, isExpression: boolean): JoinKeyMode =>
+                override ?? (isExpression ? 'sql_expression' : 'column'),
+        ],
+        joiningKeyMode: [
+            (s) => [s.joiningKeyModeOverride, s.joiningIsUsingHogQLExpression],
+            (override: JoinKeyMode | null, isExpression: boolean): JoinKeyMode =>
+                override ?? (isExpression ? 'sql_expression' : 'column'),
+        ],
         saveDisabledReason: [
             (s) => [s.joinValidation],
             (joinValidation: JoinValidationState): string | null =>
@@ -726,24 +767,3 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         },
     })),
 ])
-
-async function loadTablePreviewData(
-    tableName: string,
-    setDataAction: (data: Record<string, any>[]) => void
-): Promise<void> {
-    try {
-        // An untagged HogQL query is rejected by the query-tag enforcement in sync_execute.
-        const response = await performQuery<HogQLQuery>({
-            kind: NodeKind.HogQLQuery,
-            query: hogql`SELECT * FROM ${hogql.identifier(tableName)} LIMIT 10`,
-            tags: { productKey: 'data_warehouse', name: 'view_link_table_preview' },
-        })
-        const transformedData = (response.results || []).map((row: any[]) =>
-            Object.fromEntries((response.columns || []).map((column: string, index: number) => [column, row[index]]))
-        )
-        setDataAction(transformedData)
-    } catch (error) {
-        posthog.captureException(error)
-        setDataAction([])
-    }
-}

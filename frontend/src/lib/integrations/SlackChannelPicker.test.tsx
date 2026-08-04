@@ -159,6 +159,30 @@ describe('SlackChannelPicker', () => {
         expect(channelIdLookups).not.toContain('COFFPAGE9XX|#off-page-channel')
     })
 
+    it('resolves a saved channel name when the picker is disabled without displaying its ID', async () => {
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    value={OFF_PAGE_CHANNEL.id}
+                    onChange={jest.fn()}
+                    disabled
+                />
+            </Provider>
+        )
+
+        expect(container).not.toHaveTextContent(OFF_PAGE_CHANNEL.id)
+
+        await waitFor(
+            () => {
+                expect(channelIdLookups).toContain(OFF_PAGE_CHANNEL.id)
+                expect(container).toHaveTextContent(`#${OFF_PAGE_CHANNEL.name}`)
+                expect(container).not.toHaveTextContent(OFF_PAGE_CHANNEL.id)
+            },
+            { timeout: 2000 }
+        )
+    })
+
     it('does not fire a direct lookup when there is no saved value', async () => {
         render(
             <Provider>

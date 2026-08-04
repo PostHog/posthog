@@ -189,7 +189,25 @@ class TestTikTokAdsSource:
         """Test schema retrieval."""
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        expected_schemas = {"campaigns", "ad_groups", "ads", "campaign_report", "ad_group_report", "ad_report"}
+        expected_schemas = {
+            "campaigns",
+            "ad_groups",
+            "ads",
+            "creative_videos",
+            "creative_images",
+            "campaign_report",
+            "ad_group_report",
+            "ad_report",
+            "campaign_demographic_report",
+            "campaign_country_report",
+            "campaign_platform_report",
+            "ad_group_demographic_report",
+            "ad_group_country_report",
+            "ad_group_platform_report",
+            "ad_demographic_report",
+            "ad_country_report",
+            "ad_platform_report",
+        }
         actual_schema_names = {schema.name for schema in schemas}
 
         assert actual_schema_names == expected_schemas
@@ -202,6 +220,26 @@ class TestTikTokAdsSource:
             else:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
+
+    def test_only_breakdown_reports_are_off_by_default(self):
+        # New tables land in the schema picker pre-ticked. The breakdown reports fan every
+        # entity-day out across its dimension values, so they must stay opt-in while the
+        # tables that shipped before this stay selected.
+        should_sync = {schema.name: schema.should_sync_default for schema in self.source.get_schemas(self.config, 1)}
+
+        off_by_default = {name for name, default in should_sync.items() if not default}
+
+        assert off_by_default == {
+            "campaign_demographic_report",
+            "campaign_country_report",
+            "campaign_platform_report",
+            "ad_group_demographic_report",
+            "ad_group_country_report",
+            "ad_group_platform_report",
+            "ad_demographic_report",
+            "ad_country_report",
+            "ad_platform_report",
+        }
 
     def test_get_resumable_source_manager(self):
         """The source must expose a ResumableSourceManager instance."""

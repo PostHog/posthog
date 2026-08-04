@@ -70,6 +70,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [AI observability reviews](./references/models-ai-observability-reviews.md)
 - [Logs (`logs` data plane + saved views and alerts)](./references/models-logs.md)
 - [MCP analytics (`$mcp_tool_call` events)](./references/models-mcp.md)
+- [Messaging opt-outs (`system.message_recipient_preferences`, `system.message_categories`)](./references/models-messaging-opt-outs.md)
 - [Metrics (`posthog.metrics`)](./references/models-metrics.md)
 - [Notebooks](./references/models-notebooks.md)
 - [Session Recording Playlists](./references/models-session-recording-playlists.md)

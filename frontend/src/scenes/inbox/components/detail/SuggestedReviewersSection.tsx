@@ -246,7 +246,7 @@ function ReviewerRow({
     )
 
     return (
-        <div className="group flex items-start gap-2 rounded px-1.5 py-1.5">
+        <div className="group grid grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5">
             {/* no row hover: the row isn't clickable, only the remove button (revealed on group hover) is */}
             <Tooltip
                 title={
@@ -257,7 +257,7 @@ function ReviewerRow({
                         : `${displayName} hasn't connected their GitHub account to PostHog. Ask them to do so in Settings!`
                 }
             >
-                <span className={!reviewer.user ? 'opacity-75' : undefined}>
+                <span className={!reviewer.user ? 'min-w-0 opacity-75' : 'min-w-0'}>
                     {/* The GitHub handle's link is merged into the name: clicking it opens the
                         reviewer's GitHub profile, flagged by the external-link icon. */}
                     {githubUrl ? (
@@ -275,7 +275,7 @@ function ReviewerRow({
             </Tooltip>
             <div className="flex flex-col min-w-0 flex-1 gap-0.5">
                 {reviewer.relevant_commits.length > 0 && (
-                    <span className="text-[0.6875rem] text-tertiary">
+                    <span className="text-xs text-tertiary">
                         {reviewer.relevant_commits.map((commit, i) => (
                             <span key={commit.sha}>
                                 {i > 0 && ', '}
@@ -290,7 +290,7 @@ function ReviewerRow({
                         ))}
                     </span>
                 )}
-                {reason && <span className="text-[0.6875rem] text-tertiary leading-snug">{reason}</span>}
+                {reason && <span className="text-xs text-tertiary leading-snug">{reason}</span>}
             </div>
             <LemonButton
                 size="xsmall"
