@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     BearerTokenAuthConfig,
-    IncrementalConfig,
     ResponseAction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -24,9 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwav
 
 FLUTTERWAVE_API_HOST = "https://api.flutterwave.com"
 
-# Floor for the very first sync of an endpoint whose date window is mandatory. Flutterwave has no
-# merchant records that predate the platform, so this pulls the full history without having to guess
-# when the account was opened.
+# Floor of the mandatory date window on /transactions. Flutterwave has no merchant records that
+# predate the platform, so this pulls the full history on every sync without having to guess when the
+# account was opened.
 EARLIEST_WINDOW_START = "2016-01-01"
 
 # The API's `from`/`to` window is day-granular and Flutterwave does not expose the account's
@@ -57,23 +56,6 @@ def base_url(api_version: str) -> str:
 
 def _auth_config(secret_key: str) -> BearerTokenAuthConfig:
     return {"type": "bearer", "token": secret_key}
-
-
-def _to_window_date(value: Any) -> str | None:
-    """Reduce an incremental watermark to the `YYYY-MM-DD` string Flutterwave's `from` param expects.
-
-    The watermark arrives as a datetime (parsed by the pipeline), a date, or a raw string depending
-    on how it was stored; the API's window is day-granular either way. Re-reading the whole day the
-    watermark falls in is intentional: the merge dedupes on the primary key, and a day-granular
-    filter cannot express anything finer.
-    """
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.astimezone(UTC).date().isoformat() if value.tzinfo else value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    return str(value)[:10]
 
 
 def _window_end() -> str:
@@ -113,7 +95,8 @@ def get_rows(
 
     params: dict[str, Any] = {}
     if config.requires_date_window:
-        # Overwritten below by the incremental config when the sync advances a watermark.
+        # /transactions requires `from`/`to`, so a full refresh sends the whole history window: the
+        # earliest-possible floor through today (padded a day for timezones ahead of UTC).
         params["from"] = EARLIEST_WINDOW_START
         params["to"] = _window_end()
 
@@ -127,15 +110,6 @@ def get_rows(
         "paginator": PageNumberPaginator(base_page=1, total_path="meta.page_info.total_pages"),
         "response_actions": _NO_RECORDS_RESPONSE_ACTIONS,
     }
-
-    if config.supports_date_window and should_use_incremental_field:
-        incremental: IncrementalConfig = {
-            "start_param": "from",
-            "cursor_path": "created_at",
-            "initial_value": EARLIEST_WINDOW_START,
-            "convert": _to_window_date,
-        }
-        endpoint_config["incremental"] = incremental
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -192,7 +166,6 @@ def flutterwave_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=config.primary_keys,
-        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

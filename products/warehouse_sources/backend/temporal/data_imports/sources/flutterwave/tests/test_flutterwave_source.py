@@ -69,26 +69,24 @@ class TestSourceConfig:
 class TestGetSchemas:
     @parameterized.expand(
         [
-            # Only endpoints with a real server-side `from`/`to` filter can sync incrementally.
-            ("transactions", True),
-            ("settlements", True),
-            ("refunds", True),
-            ("transfers", True),
-            ("chargebacks", True),
-            ("payment_plans", True),
-            ("subscriptions", False),
-            ("subaccounts", False),
-            ("beneficiaries", False),
+            ("transactions",),
+            ("settlements",),
+            ("refunds",),
+            ("transfers",),
+            ("chargebacks",),
+            ("payment_plans",),
+            ("subscriptions",),
+            ("subaccounts",),
+            ("beneficiaries",),
         ]
     )
-    def test_incremental_support_per_endpoint(self, endpoint: str, expected_incremental: bool) -> None:
+    def test_every_endpoint_is_full_refresh(self, endpoint: str) -> None:
+        # Flutterwave v3 has no update cursor and its records mutate after creation, so no endpoint
+        # may advertise incremental sync (a created_at watermark would strand later status changes).
         schemas = {s.name: s for s in FlutterwaveSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas[endpoint].supports_incremental is expected_incremental
-        assert schemas[endpoint].supports_append is expected_incremental
-
-    def test_incremental_endpoints_advertise_created_at(self) -> None:
-        schemas = {s.name: s for s in FlutterwaveSource().get_schemas(MagicMock(), team_id=1)}
-        assert [f["field"] for f in schemas["transactions"].incremental_fields] == ["created_at"]
+        assert schemas[endpoint].supports_incremental is False
+        assert schemas[endpoint].supports_append is False
+        assert schemas[endpoint].incremental_fields == []
 
     def test_names_filter(self) -> None:
         schemas = FlutterwaveSource().get_schemas(MagicMock(), team_id=1, names=["refunds"])
@@ -123,24 +121,22 @@ class TestNonRetryableErrors:
 
 
 class TestSourceForPipeline:
-    def test_passes_credentials_endpoint_and_watermark(self) -> None:
+    def test_threads_credentials_endpoint_and_api_version(self) -> None:
         with patch(SOURCE_MODULE_PATCH) as mock_source:
             FlutterwaveSource().source_for_pipeline(
                 config=MagicMock(secret_key="FLWSECK-test"),
                 resumable_source_manager=MagicMock(),
-                inputs=_source_inputs(schema_name="transactions", should_use_incremental_field=True),
+                inputs=_source_inputs(schema_name="transactions", should_use_incremental_field=False),
             )
         kwargs = mock_source.call_args.kwargs
         assert kwargs["secret_key"] == "FLWSECK-test"
         assert kwargs["endpoint"] == "transactions"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2024-01-15 00:00:00"
         # An unset pin must resolve to default_version, not fall through as None and break the URL.
         assert kwargs["api_version"] == "v3"
 
     def test_watermark_dropped_on_full_refresh(self) -> None:
-        # On a full-refresh run the stored watermark must not leak into the query, or an unwanted
-        # `from` filter would silently truncate the pull.
+        # Every endpoint is full-refresh, so a stored watermark must never leak into the query, or an
+        # unwanted `from` filter would silently truncate the pull.
         with patch(SOURCE_MODULE_PATCH) as mock_source:
             FlutterwaveSource().source_for_pipeline(
                 config=MagicMock(secret_key="FLWSECK-test"),

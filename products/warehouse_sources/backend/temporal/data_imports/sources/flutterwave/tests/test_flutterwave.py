@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.flutterwave import (
     EARLIEST_WINDOW_START,
     FlutterwaveResumeConfig,
-    _to_window_date,
     base_url,
     flutterwave_source,
     validate_credentials,
@@ -87,20 +86,6 @@ def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any)
         resumable_source_manager=manager if manager is not None else _make_manager(),
         **kwargs,
     )
-
-
-class TestToWindowDate:
-    @parameterized.expand(
-        [
-            ("utc_datetime", datetime(2024, 1, 15, 12, 34, 56, tzinfo=UTC), "2024-01-15"),
-            ("naive_datetime", datetime(2024, 1, 15, 12, 34, 56), "2024-01-15"),
-            ("date_value", date(2024, 1, 15), "2024-01-15"),
-            ("api_string", "2024-01-15T12:34:56.000Z", "2024-01-15"),
-            ("none", None, None),
-        ]
-    )
-    def test_reduces_watermark_to_day(self, _name: str, value: Any, expected: str | None) -> None:
-        assert _to_window_date(value) == expected
 
 
 class TestPagination:
@@ -187,31 +172,6 @@ class TestDateWindow:
 
     @parameterized.expand(
         [
-            ("transactions",),
-            ("settlements",),
-            ("refunds",),
-            ("transfers",),
-            ("chargebacks",),
-            ("payment_plans",),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_sends_watermark_day_as_from(self, endpoint: str, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_response(_page([{"id": 1}]))])
-
-        _rows(
-            _source(
-                endpoint,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-
-        assert params[0]["from"] == "2024-03-04"
-
-    @parameterized.expand(
-        [
             ("subscriptions",),
             ("subaccounts",),
             ("beneficiaries",),
@@ -223,13 +183,7 @@ class TestDateWindow:
         session = MockSession.return_value
         params, _auths = _wire(session, [_response(_page([{"id": 1}]))])
 
-        _rows(
-            _source(
-                endpoint,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 3, 4, tzinfo=UTC),
-            )
-        )
+        _rows(_source(endpoint, should_use_incremental_field=False, db_incremental_field_last_value=None))
 
         assert "from" not in params[0]
         assert "to" not in params[0]
@@ -237,24 +191,13 @@ class TestDateWindow:
     @freeze_time("2026-06-15T23:30:00Z")
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_transactions_always_sends_the_required_window(self, MockSession: mock.MagicMock) -> None:
-        # /transactions documents `from`/`to` as required, so a full refresh still sends the floor
-        # window. `to` is padded a day past UTC today so records booked "today" in a timezone ahead
-        # of UTC are not clipped.
+        # /transactions documents `from`/`to` as required, so every full refresh sends the whole
+        # history window. `to` is padded a day past UTC today so records booked "today" in a timezone
+        # ahead of UTC are not clipped.
         session = MockSession.return_value
         params, _auths = _wire(session, [_response(_page([{"id": 1}]))])
 
         _rows(_source("transactions", should_use_incremental_field=False, db_incremental_field_last_value=None))
-
-        assert params[0]["from"] == EARLIEST_WINDOW_START
-        assert params[0]["to"] == "2026-06-16"
-
-    @freeze_time("2026-06-15T23:30:00Z")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_incremental_sync_floors_at_the_earliest_window(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_response(_page([{"id": 1}]))])
-
-        _rows(_source("transactions", should_use_incremental_field=True, db_incremental_field_last_value=None))
 
         assert params[0]["from"] == EARLIEST_WINDOW_START
         assert params[0]["to"] == "2026-06-16"
@@ -350,13 +293,13 @@ class TestSourceResponseMetadata:
             ("beneficiaries",),
         ]
     )
-    def test_every_endpoint_partitions_on_created_at_and_reads_newest_first(self, endpoint: str) -> None:
+    def test_every_endpoint_partitions_on_created_at(self, endpoint: str) -> None:
         response = _source(endpoint)
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        # v3 has no sort control and returns the newest record on page 1; declaring "asc" would
-        # checkpoint the watermark at ~now after the first batch and drop the older rows behind it.
-        assert response.sort_mode == "desc"
+        # Every endpoint is full-refresh, so the pipeline never consults sort_mode; it stays the
+        # framework default.
+        assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
 
