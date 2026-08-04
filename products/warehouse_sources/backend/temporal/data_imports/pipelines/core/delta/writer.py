@@ -27,9 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 
 def _write_deltalake(
@@ -118,14 +116,14 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
 class DeltaWriter:
     """The core write/merge path for one schema's Delta table, plus commit-metadata idempotency.
 
-    Stateless over a `DeltaTableHelper`, which holds the cached table handle and the first-sync
+    Stateless over a `DeltaTableRef`, which holds the cached table handle and the first-sync
     flag — construct one at the call site. Tagging commits with `commit_metadata` and reading the
     tags back (`has_batch_been_committed`) live together because they are two halves of one
     contract: only the terminal commit of a multi-commit write may carry the tag, or a redelivery
     after a mid-write crash would treat the batch as done and lose data.
     """
 
-    def __init__(self, table: "DeltaTableHelper") -> None:
+    def __init__(self, table: "DeltaTableRef") -> None:
         self._table = table
         self._logger = table.logger
 
