@@ -1,6 +1,7 @@
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -22,6 +23,7 @@ jest.mock('lib/api', () => ({
         update: jest.fn(),
     },
 }))
+jest.mock('posthog-js')
 
 const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
@@ -90,6 +92,21 @@ describe('sceneLogic', () => {
         // carries global side-panel state, so it has to survive the redirect too.
         expect(router.values.searchParams.review).toEqual('r-9')
         expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
+    it('still falls back to Error404 when a route handler throws and reporting that error also throws', async () => {
+        // Reproduces a RangeError that posthog-js's own exception parser can raise on deep stacks.
+        ;(posthog.captureException as jest.Mock).mockImplementationOnce(() => {
+            throw new Error('Maximum call stack size exceeded')
+        })
+        jest.spyOn(router.actions, 'replace').mockImplementationOnce(() => {
+            throw new Error('malformed redirect target')
+        })
+
+        router.actions.push('/code_review', { review: 'r-9' })
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.sceneId).toEqual(Scene.Error404)
     })
 
     it('persists the loaded scenes', async () => {

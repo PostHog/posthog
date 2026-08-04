@@ -977,8 +977,14 @@ export const sceneLogic = kea<sceneLogicType>([
                 try {
                     return handler(params, searchParams, hashParams, payload)
                 } catch (error) {
-                    posthog.captureException(error, { extra: { source: 'sceneLogic.urlToAction' } })
+                    // Recover before reporting: if captureException itself throws (e.g. its own
+                    // stack parsing blows the call stack), the fallback below must still run.
                     actions.loadScene(Scene.Error404, undefined, emptySceneParams, payload.method)
+                    try {
+                        posthog.captureException(error, { extra: { source: 'sceneLogic.urlToAction' } })
+                    } catch {
+                        // instrumentation must never crash the app
+                    }
                 }
             }
 
