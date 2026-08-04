@@ -696,8 +696,6 @@ class DataWarehouseSavedQuerySerializer(
                 target = (
                     None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
                 )
-                # Read before the write: on a tiered team the node target is where the cadence
-                # lives, so it is the only place the activity log below can learn what changed.
                 previous_target = declared_targets_by_saved_query(view.team_id, [view.pk]).get(str(view.pk))
                 try:
                     # Validates inside the transaction (a rejected frequency rolls the whole
@@ -763,10 +761,8 @@ class DataWarehouseSavedQuerySerializer(
                 for change in changes
             ]
             if dag_managed_frequency and previous_target != target:
-                # `sync_frequency_interval` stays NULL on a tiered team, so changes_between() sees
-                # no field change and log_activity would drop the whole entry as a no-op update.
-                # Same field and `str(timedelta)` shape the v1 path logs, so the describer and the
-                # sync_frequency_reset reader both keep working.
+                # The cadence lives on the DAG node, so changes_between() sees nothing and
+                # log_activity would discard the whole updated entry as a no-op.
                 changes.append(
                     Change(
                         type="DataWarehouseSavedQuery",
