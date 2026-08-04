@@ -1,18 +1,7 @@
 // AUTO-GENERATED from products/tasks/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { TaskParentMessageSchema } from '@/schema/tool-inputs'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
-
 import {
     LoopsCreateBody,
     LoopsDestroyParams,
@@ -40,6 +29,15 @@ import {
     TasksRunsSessionLogsRetrieveQueryParams,
     TasksSpawnCreateBody,
 } from '@/generated/tasks/api'
+import { TaskParentMessageSchema } from '@/schema/tool-inputs'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ChannelCreateSchema = TaskChannelsCreateBody
 
@@ -49,7 +47,9 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
     handler: async (context: Context, params: z.infer<typeof ChannelCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body['name'] = params.name
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
         const result = await context.api.request<Schemas.ChannelDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
@@ -163,23 +163,57 @@ const loopsCreateExecute = (): ToolBase<typeof LoopsCreateSchemaExecute, Schemas
         const params = __guard.verifiedArgs
         const projectId = __scopeProjectId
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body['name'] = params.name
-        if (params.description !== undefined) body['description'] = params.description
-        if (params.take_ownership !== undefined) body['take_ownership'] = params.take_ownership
-        if (params.visibility !== undefined) body['visibility'] = params.visibility
-        if (params.instructions !== undefined) body['instructions'] = params.instructions
-        if (params.runtime_adapter !== undefined) body['runtime_adapter'] = params.runtime_adapter
-        if (params.model !== undefined) body['model'] = params.model
-        if (params.reasoning_effort !== undefined) body['reasoning_effort'] = params.reasoning_effort
-        if (params.repositories !== undefined) body['repositories'] = params.repositories
-        if (params.sandbox_environment !== undefined) body['sandbox_environment'] = params.sandbox_environment
-        if (params.enabled !== undefined) body['enabled'] = params.enabled
-        if (params.overlap_policy !== undefined) body['overlap_policy'] = params.overlap_policy
-        if (params.behaviors !== undefined) body['behaviors'] = params.behaviors
-        if (params.connectors !== undefined) body['connectors'] = params.connectors
-        if (params.notifications !== undefined) body['notifications'] = params.notifications
-        if (params.context_target !== undefined) body['context_target'] = params.context_target
-        if (params.triggers !== undefined) body['triggers'] = params.triggers
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.take_ownership !== undefined) {
+            body['take_ownership'] = params.take_ownership
+        }
+        if (params.visibility !== undefined) {
+            body['visibility'] = params.visibility
+        }
+        if (params.instructions !== undefined) {
+            body['instructions'] = params.instructions
+        }
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
+        if (params.sandbox_environment !== undefined) {
+            body['sandbox_environment'] = params.sandbox_environment
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.overlap_policy !== undefined) {
+            body['overlap_policy'] = params.overlap_policy
+        }
+        if (params.behaviors !== undefined) {
+            body['behaviors'] = params.behaviors
+        }
+        if (params.connectors !== undefined) {
+            body['connectors'] = params.connectors
+        }
+        if (params.notifications !== undefined) {
+            body['notifications'] = params.notifications
+        }
+        if (params.context_target !== undefined) {
+            body['context_target'] = params.context_target
+        }
+        if (params.triggers !== undefined) {
+            body['triggers'] = params.triggers
+        }
         const result = await context.api.request<Schemas.LoopDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/`,
@@ -233,23 +267,57 @@ const loopsPartialUpdate = (): ToolBase<typeof LoopsPartialUpdateSchema, Schemas
     handler: async (context: Context, params: z.infer<typeof LoopsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body['name'] = params.name
-        if (params.description !== undefined) body['description'] = params.description
-        if (params.take_ownership !== undefined) body['take_ownership'] = params.take_ownership
-        if (params.visibility !== undefined) body['visibility'] = params.visibility
-        if (params.instructions !== undefined) body['instructions'] = params.instructions
-        if (params.runtime_adapter !== undefined) body['runtime_adapter'] = params.runtime_adapter
-        if (params.model !== undefined) body['model'] = params.model
-        if (params.reasoning_effort !== undefined) body['reasoning_effort'] = params.reasoning_effort
-        if (params.repositories !== undefined) body['repositories'] = params.repositories
-        if (params.sandbox_environment !== undefined) body['sandbox_environment'] = params.sandbox_environment
-        if (params.enabled !== undefined) body['enabled'] = params.enabled
-        if (params.overlap_policy !== undefined) body['overlap_policy'] = params.overlap_policy
-        if (params.behaviors !== undefined) body['behaviors'] = params.behaviors
-        if (params.connectors !== undefined) body['connectors'] = params.connectors
-        if (params.notifications !== undefined) body['notifications'] = params.notifications
-        if (params.context_target !== undefined) body['context_target'] = params.context_target
-        if (params.triggers !== undefined) body['triggers'] = params.triggers
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.take_ownership !== undefined) {
+            body['take_ownership'] = params.take_ownership
+        }
+        if (params.visibility !== undefined) {
+            body['visibility'] = params.visibility
+        }
+        if (params.instructions !== undefined) {
+            body['instructions'] = params.instructions
+        }
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
+        if (params.sandbox_environment !== undefined) {
+            body['sandbox_environment'] = params.sandbox_environment
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.overlap_policy !== undefined) {
+            body['overlap_policy'] = params.overlap_policy
+        }
+        if (params.behaviors !== undefined) {
+            body['behaviors'] = params.behaviors
+        }
+        if (params.connectors !== undefined) {
+            body['connectors'] = params.connectors
+        }
+        if (params.notifications !== undefined) {
+            body['notifications'] = params.notifications
+        }
+        if (params.context_target !== undefined) {
+            body['context_target'] = params.context_target
+        }
+        if (params.triggers !== undefined) {
+            body['triggers'] = params.triggers
+        }
         const result = await context.api.request<Schemas.LoopDTO>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/`,
@@ -269,8 +337,12 @@ const loopsPreviewCreate = (): ToolBase<typeof LoopsPreviewCreateSchema, Schemas
     handler: async (context: Context, params: z.infer<typeof LoopsPreviewCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.trigger_type !== undefined) body['trigger_type'] = params.trigger_type
-        if (params.payload !== undefined) body['payload'] = params.payload
+        if (params.trigger_type !== undefined) {
+            body['trigger_type'] = params.trigger_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
         const result = await context.api.request<Schemas.LoopPreviewDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/preview/`,
@@ -377,9 +449,15 @@ const tasksCreate = (): ToolBase<typeof TasksCreateSchema, WithPostHogUrl<Schema
     handler: async (context: Context, params: z.infer<typeof TasksCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) body['title'] = params.title
-        if (params.description !== undefined) body['description'] = params.description
-        if (params.repository !== undefined) body['repository'] = params.repository
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
         const result = await context.api.request<Schemas.TaskDetailDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
@@ -463,7 +541,9 @@ const tasksNotifyParent = (): ToolBase<typeof TasksNotifyParentSchema, unknown> 
     handler: async (context: Context, params: z.infer<typeof TasksNotifyParentSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.message !== undefined) body['message'] = params.message
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/message-parent/`,
@@ -598,13 +678,27 @@ const tasksSpawn = (): ToolBase<typeof TasksSpawnSchema, WithPostHogUrl<Schemas.
     handler: async (context: Context, params: z.infer<typeof TasksSpawnSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) body['title'] = params.title
-        if (params.description !== undefined) body['description'] = params.description
-        if (params.repository !== undefined) body['repository'] = params.repository
-        if (params.runtime_adapter !== undefined) body['runtime_adapter'] = params.runtime_adapter
-        if (params.model !== undefined) body['model'] = params.model
-        if (params.reasoning_effort !== undefined) body['reasoning_effort'] = params.reasoning_effort
-        if (params.wake_on !== undefined) body['wake_on'] = params.wake_on
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        if (params.wake_on !== undefined) {
+            body['wake_on'] = params.wake_on
+        }
         const result = await context.api.request<Schemas.TaskDetailDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/spawn/`,
