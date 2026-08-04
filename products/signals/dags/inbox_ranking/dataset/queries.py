@@ -245,6 +245,7 @@ STATUS_COLUMNS = (
     "dismissal_reason",
     "status_event_priority",
     "status_event_actionability",
+    "status_event_team_id",
 )
 # The inner query dedupes at-least-once analytics delivery within 10-minute buckets;
 # events.timestamp is qualified because the min() alias shadows the raw column in WHERE/GROUP BY.
@@ -271,7 +272,13 @@ SELECT
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
     -- its classification as the one this outcome was judged at.
     nullIf(argMax(coalesce(event_priority, ''), timestamp), '') AS status_event_priority,
-    nullIf(argMax(coalesce(event_actionability, ''), timestamp), '') AS status_event_actionability
+    nullIf(argMax(coalesce(event_actionability, ''), timestamp), '') AS status_event_actionability,
+    -- The owning team as the transition itself reported it. This is the only tenant attribution a
+    -- label-only row can have: reports outside this dag's region have no Postgres state and no
+    -- embedding here. Deliberately *not* merged into report_team_id, which is a US team id by
+    -- construction — team ids are per-region, so an EU 42 and a US 42 are different teams and
+    -- nothing on the event says which region emitted it.
+    toInt(argMax(coalesce(event_team_id, ''), timestamp)) AS status_event_team_id
 FROM (
     SELECT
         min(events.timestamp) AS timestamp,
@@ -287,7 +294,8 @@ FROM (
         ) AS outcome,
         any(nullIf(toString(properties.dismissal_reason), '')) AS dismissal_reason,
         any(nullIf(toString(properties.priority), '')) AS event_priority,
-        any(nullIf(toString(properties.actionability), '')) AS event_actionability
+        any(nullIf(toString(properties.actionability), '')) AS event_actionability,
+        any(nullIf(toString(properties.team_id), '')) AS event_team_id
     FROM events
     WHERE event = 'signal_report_status_changed'
       AND events.timestamp >= toDateTime({labels_epoch}) AND events.timestamp < toDateTime({snapshot_end})
@@ -388,6 +396,7 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "dismissal_reason": None,
     "status_event_priority": None,
     "status_event_actionability": None,
+    "status_event_team_id": None,
     "pr_created_count": 0,
     "first_pr_created_at": None,
     "pr_merged_count": 0,

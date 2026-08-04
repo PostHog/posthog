@@ -37,7 +37,7 @@ import pyarrow as pa
 
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -90,9 +90,10 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
 
 
 def _tag_dagster_queries(context: dagster.AssetExecutionContext) -> None:
-    """Stamp product + dagster run tags into the thread's query tags so every ClickHouse query
-    this asset issues (sync_execute and HogQL alike) is attributable in system.query_log."""
-    tag_queries(product=Product.SIGNALS)
+    """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
+    query this asset issues (sync_execute and HogQL alike) is attributable in system.query_log.
+    Both product and feature are required: sync_execute refuses an untagged query in local dev."""
+    tag_queries(product=Product.SIGNALS, feature=Feature.DATA_MODELING)
     get_query_tags().with_dagster(dagster_tags(context))
 
 
@@ -162,6 +163,7 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("dismissal_reason", pa.string()),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
+    ("status_event_team_id", pa.int64()),
     ("pr_created_count", pa.int32()),
     ("first_pr_created_at", _TIMESTAMP),
     ("pr_merged_count", pa.int32()),
