@@ -10,6 +10,8 @@ import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lem
 import { dayjs } from 'lib/dayjs'
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils/colors'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { isExternalLink } from 'lib/utils/url'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -105,6 +107,22 @@ function getCellTitle(cell: TableDataCell<any>): string | undefined {
         return String(cell.value)
     }
     return undefined
+}
+
+const JSON_LIKE_REGEX = /^\s*[{[]/
+const ISO_DATETIME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/
+
+// Cells whose value renders as plain text (not a link, a JSON viewer, or a date component,
+// each of which already has its own interaction) get a click-to-copy affordance so truncated
+// content isn't only reachable via a hover-only tooltip.
+export function isCopyableCellText(cell: TableDataCell<any>, cellTitle: string): boolean {
+    if (isDateColumn(cell.type) || cell.type === 'TUPLE' || cell.type === 'ARRAY') {
+        return false
+    }
+    if (cell.type === 'STRING' || cell.type === 'UNKNOWN') {
+        return !JSON_LIKE_REGEX.test(cellTitle) && !ISO_DATETIME_REGEX.test(cellTitle) && !isExternalLink(cellTitle)
+    }
+    return true
 }
 
 // Header labels are clamped to a few lines with a CSS ellipsis when they don't fit. The full text stays
@@ -304,19 +322,42 @@ export const Table = (props: TableProps): JSX.Element => {
                         )
                     }
 
-                    return (
-                        <div className="truncate" title={getCellTitle(cell)}>
-                            {renderColumn(
-                                cell.sourceColumnName ?? column.name,
-                                cell.formattedValue,
-                                data,
-                                recordIndex,
-                                rowCount,
-                                {
-                                    kind: NodeKind.DataTableNode,
-                                    source: props.query.source,
+                    const renderedCell = renderColumn(
+                        cell.sourceColumnName ?? column.name,
+                        cell.formattedValue,
+                        data,
+                        recordIndex,
+                        rowCount,
+                        {
+                            kind: NodeKind.DataTableNode,
+                            source: props.query.source,
+                        }
+                    )
+
+                    const cellTitle = getCellTitle(cell)
+                    if (cellTitle !== undefined && isCopyableCellText(cell, cellTitle)) {
+                        return (
+                            <Tooltip
+                                title={
+                                    <>
+                                        <div className="max-w-100 whitespace-pre-wrap break-words">{cellTitle}</div>
+                                        <div className="text-xs opacity-70">Click to copy</div>
+                                    </>
                                 }
-                            )}
+                            >
+                                <div
+                                    className="truncate cursor-pointer"
+                                    onClick={() => void copyToClipboard(cellTitle, 'cell value')}
+                                >
+                                    {renderedCell}
+                                </div>
+                            </Tooltip>
+                        )
+                    }
+
+                    return (
+                        <div className="truncate" title={cellTitle}>
+                            {renderedCell}
                         </div>
                     )
                 },
