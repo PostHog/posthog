@@ -4417,6 +4417,402 @@
           "row_count": null,
           "type": "system"
       },
+      "system.dataset_item_versions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_id",
+                  "id": null,
+                  "name": "dataset_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_item_id",
+                  "id": null,
+                  "name": "dataset_item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_revision_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_revision_id",
+                  "id": null,
+                  "name": "dataset_revision_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "input": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "input",
+                  "id": null,
+                  "name": "input",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "expected_output": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "expected_output",
+                  "id": null,
+                  "name": "expected_output",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "source_output": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_output",
+                  "id": null,
+                  "name": "source_output",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "source_trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_trace_id",
+                  "id": null,
+                  "name": "source_trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source_event_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_event_id",
+                  "id": null,
+                  "name": "source_event_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source_timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_timestamp",
+                  "id": null,
+                  "name": "source_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.dataset_item_versions",
+          "name": "system.dataset_item_versions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.dataset_items": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_id",
+                  "id": null,
+                  "name": "dataset_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "client_item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "client_item_id",
+                  "id": null,
+                  "name": "client_item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "current_version_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_version_id",
+                  "id": null,
+                  "name": "current_version_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.dataset_items",
+          "name": "system.dataset_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.dataset_revisions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_id",
+                  "id": null,
+                  "name": "dataset_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "revision": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "revision",
+                  "id": null,
+                  "name": "revision",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.dataset_revisions",
+          "name": "system.dataset_revisions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.datasets": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "current_revision_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_revision_id",
+                  "id": null,
+                  "name": "current_revision_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.datasets",
+          "name": "system.datasets",
+          "row_count": null,
+          "type": "system"
+      },
       "system.data_modeling_jobs": {
           "certification": null,
           "fields": {
@@ -13304,6 +13700,402 @@
           },
           "id": "system.dashboard_tiles",
           "name": "system.dashboard_tiles",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.dataset_item_versions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_id",
+                  "id": null,
+                  "name": "dataset_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_item_id",
+                  "id": null,
+                  "name": "dataset_item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_revision_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_revision_id",
+                  "id": null,
+                  "name": "dataset_revision_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "version",
+                  "id": null,
+                  "name": "version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "input": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "input",
+                  "id": null,
+                  "name": "input",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "expected_output": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "expected_output",
+                  "id": null,
+                  "name": "expected_output",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "source_output": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_output",
+                  "id": null,
+                  "name": "source_output",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "source_trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_trace_id",
+                  "id": null,
+                  "name": "source_trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source_event_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_event_id",
+                  "id": null,
+                  "name": "source_event_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source_timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source_timestamp",
+                  "id": null,
+                  "name": "source_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.dataset_item_versions",
+          "name": "system.dataset_item_versions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.dataset_items": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_id",
+                  "id": null,
+                  "name": "dataset_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "client_item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "client_item_id",
+                  "id": null,
+                  "name": "client_item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "current_version_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_version_id",
+                  "id": null,
+                  "name": "current_version_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.dataset_items",
+          "name": "system.dataset_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.dataset_revisions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "dataset_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dataset_id",
+                  "id": null,
+                  "name": "dataset_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "revision": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "revision",
+                  "id": null,
+                  "name": "revision",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.dataset_revisions",
+          "name": "system.dataset_revisions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.datasets": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metadata": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "current_revision_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "current_revision_id",
+                  "id": null,
+                  "name": "current_revision_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.datasets",
+          "name": "system.datasets",
           "row_count": null,
           "type": "system"
       },
