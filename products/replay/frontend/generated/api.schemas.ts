@@ -113,6 +113,11 @@ export interface SessionRecordingPlaylistApi {
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedSessionRecordingPlaylistListApi {
@@ -163,6 +168,11 @@ export interface PatchedSessionRecordingPlaylistApi {
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export interface MinimalPersonApi {
