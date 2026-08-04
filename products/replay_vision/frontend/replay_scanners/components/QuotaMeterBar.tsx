@@ -24,6 +24,7 @@ interface QuotaMeterBarProps {
     projected: QuotaMeterSegment[]
     valueNow: number
     label: string
+    size?: 'small' | 'medium'
     className?: string
 }
 
@@ -51,6 +52,7 @@ export function QuotaMeterBar({
     projected,
     valueNow,
     label,
+    size = 'medium',
     className,
 }: QuotaMeterBarProps): JSX.Element {
     const widths = quotaMeterWidths(
@@ -60,7 +62,11 @@ export function QuotaMeterBar({
     )
     return (
         <div
-            className={clsx('flex h-3 rounded overflow-hidden bg-fill-tertiary', className)}
+            className={clsx(
+                'flex overflow-hidden bg-fill-tertiary',
+                size === 'small' ? 'h-1.5 rounded-full' : 'h-3 rounded',
+                className
+            )}
             role="meter"
             aria-valuemin={0}
             aria-valuemax={100}

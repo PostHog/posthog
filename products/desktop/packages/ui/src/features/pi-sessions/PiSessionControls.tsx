@@ -1,4 +1,4 @@
-import { CaretDown, Lightning, Stack } from "@phosphor-icons/react";
+import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -9,102 +9,38 @@ import {
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import { ReasoningLevelDropdown } from "@posthog/ui/features/sessions/components/ReasoningLevelDropdown";
+import {
+  type AgentHarness,
+  HarnessSubmenu,
+} from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
-import { Fragment } from "react";
+import { useRef, useState } from "react";
+
+type PiModelOption = PiModelSelection & { name?: string };
 
 interface PiModelSelectorProps {
-  models: PiModelSelection[];
-  currentModel?: PiModelSelection;
+  models: PiModelOption[];
+  currentModel?: PiModelOption;
+  thinkingLevel?: PiThinkingLevel;
+  thinkingLevels?: PiThinkingLevel[];
   disabled?: boolean;
   onChange: (model: PiModelSelection) => void;
+  onThinkingLevelChange?: (level: PiThinkingLevel) => void;
+  onHarnessChange?: (harness: AgentHarness) => void;
 }
 
 function modelKey(model: PiModelSelection): string {
   return JSON.stringify([model.provider, model.id]);
 }
 
-export function PiModelSelector({
-  models,
-  currentModel,
-  disabled,
-  onChange,
-}: PiModelSelectorProps) {
-  if (models.length === 0) {
-    return null;
-  }
-
-  const modelsByProvider = new Map<string, PiModelSelection[]>();
-  for (const model of models) {
-    const providerModels = modelsByProvider.get(model.provider) ?? [];
-    providerModels.push(model);
-    modelsByProvider.set(model.provider, providerModels);
-  }
-
-  const currentValue = currentModel ? modelKey(currentModel) : "";
-  const currentLabel = currentModel?.id ?? "Model";
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            disabled={disabled}
-            aria-label="Model"
-          >
-            {currentLabel}
-            <CaretDown
-              size={10}
-              weight="bold"
-              className="text-muted-foreground"
-            />
-          </Button>
-        }
-      />
-      <DropdownMenuContent
-        align="start"
-        side="top"
-        sideOffset={6}
-        className="min-w-[220px]"
-      >
-        <DropdownMenuRadioGroup
-          value={currentValue}
-          onValueChange={(value) => {
-            const model = models.find(
-              (candidate) => modelKey(candidate) === value,
-            );
-            if (model) {
-              onChange(model);
-            }
-          }}
-        >
-          {[...modelsByProvider.entries()].map(
-            ([provider, providerModels], index) => (
-              <Fragment key={provider}>
-                {index > 0 && <DropdownMenuSeparator />}
-                <MenuLabel>{provider}</MenuLabel>
-                {providerModels.map((model) => (
-                  <DropdownMenuRadioItem
-                    key={modelKey(model)}
-                    value={modelKey(model)}
-                  >
-                    <span className="whitespace-nowrap">{model.id}</span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </Fragment>
-            ),
-          )}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+function modelLabel(model?: PiModelOption): string {
+  return model?.name ?? model?.id ?? "Model";
 }
 
 const thinkingLevelLabels: Record<PiThinkingLevel, string> = {
@@ -117,31 +53,154 @@ const thinkingLevelLabels: Record<PiThinkingLevel, string> = {
   max: "Max",
 };
 
-interface PiThinkingLevelSelectorProps {
-  level: PiThinkingLevel;
-  levels: PiThinkingLevel[];
-  disabled?: boolean;
-  onChange: (level: PiThinkingLevel) => void;
-}
-
-export function PiThinkingLevelSelector({
-  level,
-  levels,
+export function PiModelSelector({
+  models,
+  currentModel,
+  thinkingLevel,
+  thinkingLevels = [],
   disabled,
   onChange,
-}: PiThinkingLevelSelectorProps) {
+  onThinkingLevelChange,
+  onHarnessChange,
+}: PiModelSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const pendingChangeRef = useRef<(() => void) | null>(null);
+
+  if (models.length === 0) {
+    return null;
+  }
+
+  const currentValue = currentModel ? modelKey(currentModel) : "";
+  const selectedModel =
+    models.find((model) => modelKey(model) === currentValue) ?? currentModel;
+  const currentLabel = modelLabel(selectedModel);
+  const thinkingLabel = thinkingLevel
+    ? (thinkingLevelLabels[thinkingLevel] ?? thinkingLevel)
+    : undefined;
+
+  const selectAndClose = (apply: () => void) => {
+    pendingChangeRef.current = apply;
+    setOpen(false);
+  };
+
   return (
-    <ReasoningLevelDropdown
-      value={level}
-      options={levels.map((value) => ({
-        value,
-        label: thinkingLevelLabels[value] ?? value,
-      }))}
-      onChange={(value) => onChange(value as PiThinkingLevel)}
-      variant="slider"
-      label="Thinking"
-      disabled={disabled}
-    />
+    <DropdownMenu
+      open={open}
+      onOpenChange={setOpen}
+      onOpenChangeComplete={(isOpen) => {
+        if (!isOpen && pendingChangeRef.current !== null) {
+          pendingChangeRef.current();
+          pendingChangeRef.current = null;
+        }
+      }}
+    >
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            disabled={disabled}
+            aria-label={
+              thinkingLabel
+                ? `Model and reasoning: ${currentLabel} ${thinkingLabel}`
+                : `Model: ${currentLabel}`
+            }
+          >
+            <span className="text-muted-foreground">
+              <PiIcon size={14} weight="bold" className="translate-y-px" />
+            </span>
+            <span className="font-medium text-foreground">{currentLabel}</span>
+            {thinkingLabel && (
+              <span className="font-normal text-muted-foreground/80">
+                {thinkingLabel}
+              </span>
+            )}
+            <CaretDown
+              size={10}
+              weight="bold"
+              className="text-muted-foreground"
+            />
+          </Button>
+        }
+      />
+      <DropdownMenuContent
+        align="start"
+        side="top"
+        sideOffset={6}
+        className="min-w-[230px]"
+      >
+        {onHarnessChange && (
+          <HarnessSubmenu
+            value="pi"
+            includePi
+            onChange={(harness) => {
+              if (harness !== "pi") {
+                selectAndClose(() => onHarnessChange(harness));
+              }
+            }}
+          />
+        )}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span>Model</span>
+            <span className="flex-1 text-right text-muted-foreground">
+              {currentLabel}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="min-w-[220px]">
+            <DropdownMenuRadioGroup
+              value={currentValue}
+              onValueChange={(value) => {
+                const model = models.find(
+                  (candidate) => modelKey(candidate) === value,
+                );
+                if (model) {
+                  selectAndClose(() => onChange(model));
+                }
+              }}
+            >
+              {models.map((model) => (
+                <DropdownMenuRadioItem
+                  key={modelKey(model)}
+                  value={modelKey(model)}
+                >
+                  <span className="whitespace-nowrap">{modelLabel(model)}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        {thinkingLevel &&
+          onThinkingLevelChange &&
+          thinkingLevels.length > 0 && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <span>Reasoning</span>
+                <span className="flex-1 text-right text-muted-foreground">
+                  {thinkingLabel}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuRadioGroup
+                  value={thinkingLevel}
+                  onValueChange={(value) =>
+                    selectAndClose(() =>
+                      onThinkingLevelChange(value as PiThinkingLevel),
+                    )
+                  }
+                >
+                  {thinkingLevels.map((level) => (
+                    <DropdownMenuRadioItem key={level} value={level}>
+                      {thinkingLevelLabels[level] ?? level}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

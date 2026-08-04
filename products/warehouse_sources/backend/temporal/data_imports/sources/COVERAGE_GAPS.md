@@ -243,24 +243,29 @@ Have: `issues`, `issue_comments`, `issue_events`, `issue_types`, `labels`, `mile
 - [ ] `code-quality/findings` and `pulls/stacks` (skipped: both back GitHub features that are still rolling out, and neither endpoint returns anything on an account without the feature enabled, so they would ship as tables that stay empty or error for nearly everyone. Worth revisiting once the features are generally available).
 - [ ] `repos/{repo}/events` (skipped: GitHub caps this feed at 300 events over 90 days and it restates what `repository_activity`, `issues`, and `pull_requests` already carry).
 
-### HubSpot — our side code-verified, vendor side needs confirmation
+### HubSpot — spec-verified 2026-08-04
 
-`ENDPOINTS` in `hubspot/settings.py` is exactly seven CRM objects.
-Two small additions would unblock most real analysis.
+Diffed against HubSpot's public spec catalog (<https://api.hubspot.com/public/api/spec/v1/specs>) and the
+individual 2026-03 OpenAPI specs behind it.
 
-- [ ] `pipelines` (and pipeline stages) — deals and tickets return `dealstage` and `pipeline` as opaque IDs today, so no one can group by stage name without hardcoding a mapping. Highest value item here.
-- [ ] `owners` — same problem for owner IDs. Also unblocks rep-level reporting.
-- [ ] `line_items` and `products` — deal composition and what was actually sold.
-- [ ] `calls`, `notes`, `tasks`, `communications` — the rest of the engagement objects. We have `emails` and `meetings` only.
-- [ ] `lists` and list memberships.
-- [ ] Marketing emails and marketing campaigns, with their statistics.
-- [ ] `forms` and form submissions.
-- [ ] Custom objects. Currently impossible to sync, and most mature HubSpot portals have them.
-- [ ] Property definitions — needed to interpret and label custom properties.
-- [ ] Associations as a first-class table. Today they ride along as a query param on contacts and companies only, so deal-to-contact links are not queryable.
-- [ ] Feedback submissions (NPS/CSAT surveys).
-- [ ] Workflows.
-- [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build.
+Have: contacts, companies, deals, tickets, quotes, emails, meetings, leads, calls, notes, tasks,
+communications, feedback_submissions, line_items, products, invoices, orders, subscriptions,
+commerce_payments, pipelines, pipeline_stages, properties, owners.
+
+- [x] `pipelines` (and pipeline stages) — deals and tickets return `dealstage` and `pipeline` as opaque IDs today, so no one can group by stage name without hardcoding a mapping. Highest value item here.
+- [x] `owners` — same problem for owner IDs. Also unblocks rep-level reporting.
+- [x] `line_items` and `products` — deal composition and what was actually sold.
+- [x] `calls`, `notes`, `tasks`, `communications` — the rest of the engagement objects. We have `emails` and `meetings` only.
+- [ ] `lists` and list memberships. (skipped: the v3 Lists API is a POST `/crm/v3/lists/search` with its own paging, and memberships are an unbounded per-list fan-out — neither fits the CRM object machinery)
+- [ ] Marketing emails and marketing campaigns, with their statistics. (skipped: `/marketing/v3/*` is a separate API family needing its own scopes and paginator)
+- [ ] `forms` and form submissions. (skipped: the only published Forms spec is version `2026-09-beta`, not GA)
+- [ ] Custom objects. Currently impossible to sync, and most mature HubSpot portals have them. (skipped: needs schema discovery per portal rather than a fixed table)
+- [x] Property definitions — needed to interpret and label custom properties.
+- [ ] Associations as a first-class table. Today they ride along as a query param on contacts and companies only, so deal-to-contact links are not queryable. (skipped: needs a pair-by-pair batch read across every object type; `line_items` now carries its deal association inline)
+- [x] Feedback submissions (NPS/CSAT surveys).
+- [ ] Workflows. (skipped: Automation v4 is a separate API family)
+- [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build. (skipped: `/events/v3/events` requires an objectId per request, so it is a per-record fan-out over the whole portal rather than a listable table)
+- [x] Commerce: `invoices`, `orders`, `subscriptions`, `commerce_payments`. Not covered: `carts`, `discounts`, `fees`, `taxes`, `tax_rates`, `payment_links` — configuration-shaped objects with little query value.
 
 ### LinkedIn Ads — spec-verified
 
@@ -275,14 +280,31 @@ Have: `accounts`, `campaigns`, `campaign_groups`, `creatives`, `conversions`, `c
 - [ ] Budget and bid data on campaigns. (skipped: `dailyBudget`, `unitCost` and `costType` already sync on `campaigns` and `totalBudget` on `campaign_groups`; the remainder would mean adding columns to live tables)
 - [ ] Video ad analytics. (skipped: `videoViews` and `videoCompletions` already sync on the stats tables; the extra quartile metrics would mean adding columns to live tables)
 
-### Google Search Console — needs confirmation
+### Google Search Console — spec-verified
 
-Seven tables, all of them `search_analytics` dimension bundles.
+Diffed against the [Search Console API discovery document](https://searchconsole.googleapis.com/$discovery/rest?version=v1)
+(revision 20260803) on 2026-08-04.
 
-- [ ] `sitemaps` — submission status, errors, indexed counts.
-- [ ] `sites` — the property list itself.
-- [ ] URL inspection results (index status per URL).
-- [ ] Additional dimension combinations, notably date + page + query together, and country + device.
+Have: `search_analytics_by_date`, `search_analytics_by_query`, `search_analytics_by_page`,
+`search_analytics_by_country`, `search_analytics_by_device`, `search_analytics_by_country_device`,
+`search_analytics_by_query_page`, `search_analytics_by_search_appearance`, `search_analytics_by_hour`,
+`sites`, `sitemaps`, `sitemap_contents`.
+
+- [x] `sitemaps` — submission status, errors, indexed counts. (`indexed` itself is marked deprecated
+      "do not use" in the discovery document, so the per-content-type `submitted` count ships instead,
+      as a `sitemap_contents` table.)
+- [x] `sites` — the property list itself.
+- [ ] URL inspection results (index status per URL). (skipped: `urlInspection.index.inspect` is a
+      per-URL POST with no listing endpoint, and nothing in the API yields a bounded URL list —
+      `sitemaps.list` returns sitemap file paths, not the URLs inside them. Combined with the
+      2,000 inspections per property per day quota, there is no way to drive it as a table.)
+- [x] Additional dimension combinations: country + device. (date + page + query already shipped as
+      `search_analytics_by_query_page`.) Also added `search_analytics_by_hour`, the only dimension
+      Google serves outside the 16-month daily window — it retains 10 days and needs
+      `dataState: hourly_all`.
+- [ ] Per search type (`type`: image, video, news, discover, googleNews) variants of the dimension
+      bundles. (skipped: real endpoint, but the docs do not state which dimensions each type supports,
+      so the table set could not be pinned down from the spec alone.)
 
 ### Clerk — spec-verified
 
@@ -335,18 +357,22 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 - [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
       scoped to an organization ID this source does not collect).
 
-### Linear — needs confirmation
+### Linear — spec-verified
 
-Eight tables. Two small additions unblock the cycle-time use case.
+Verified 2026-08-04 against the root `Query` type published by `@linear/sdk` 89.0.0 (npm), which is
+generated from Linear's live GraphQL schema.
 
-- [ ] `workflow_states` — issues carry a state ID with no way to resolve it to a name or type (backlog / started / completed). Highest value item.
-- [ ] `issue_history` — state transitions over time. Without it, cycle time, lead time, and time-in-state cannot be computed.
-- [ ] `project_milestones`, `initiatives`, `roadmaps`.
-- [ ] `attachments` — links out to PRs and tickets, which is how Linear connects to GitHub.
-- [ ] `issue_relations` — blocks / blocked-by / duplicates.
-- [ ] `project_updates`, `documents`.
-- [ ] `team_memberships`, `organization`.
-- [ ] Custom views, templates, reactions, triage responsibilities.
+Have: issues, projects, teams, users, comments, labels, cycles, resources, workflow_states,
+project_milestones, initiatives, team_memberships, issue_relations, project_updates, documents.
+
+- [x] `workflow_states` — issues carry a state ID with no way to resolve it to a name or type (backlog / started / completed). Highest value item.
+- [ ] `issue_history` — state transitions over time. Without it, cycle time, lead time, and time-in-state cannot be computed. (skipped: no root `issueHistory` query — history is only reachable as `issue(id).history`, so it would need a per-issue fan-out)
+- [x] `project_milestones`, [x] `initiatives`, [ ] `roadmaps` (skipped: the schema marks `roadmaps` deprecated in favour of `initiatives`)
+- [x] `attachments` — links out to PRs and tickets, which is how Linear connects to GitHub. (already shipped as the `resources` table)
+- [x] `issue_relations` — blocks / blocked-by / duplicates.
+- [x] `project_updates`, [x] `documents`.
+- [x] `team_memberships`, [ ] `organization` (skipped: a singleton object, not a paginated connection)
+- [ ] Custom views, templates, reactions, triage responsibilities. (skipped: `templates` returns a plain list with no pagination, and there is no root `reactions` query; custom views and triage responsibilities are UI configuration rather than analyzable records)
 
 ## Tier 2
 
@@ -651,16 +677,25 @@ tables dynamically at sync time, so message coverage is better than the static c
 - [ ] User groups, team info, emoji.
 - [ ] Admin analytics (member and channel activity).
 
-### Intercom — needs confirmation
+### Intercom — spec-verified
 
-Fourteen tables and solid coverage.
+Diffed 2026-08-04 against [Intercom's published OpenAPI description](https://github.com/intercom/Intercom-OpenAPI)
+for every API version this source supports (2.13, 2.15, 2.16).
+Twenty-one tables.
 
-- [ ] `data_events` — user event stream.
-- [ ] Help center collections and sections (we have `articles` but not their structure).
-- [ ] Subscription types.
-- [ ] `visitors`.
-- [ ] Conversation ratings.
-- [ ] News items, ticket types, macros / saved replies.
+- [ ] `data_events` — user event stream. (skipped: `GET /events` is not listable. It requires a
+      single-contact filter plus `type=user` and only serves the last 90 days, so it would fan out to
+      one request per contact against a per-workspace rate limit.)
+- [x] Help center collections and sections — shipped as `collections` and `help_centers`. Sections are
+      nested collections (`parent_id`), so the collections table covers both.
+- [x] Subscription types — shipped as `subscription_types`.
+- [ ] `visitors` — (skipped: `GET /visitors` requires a `user_id` and returns a single visitor; there is
+      no list endpoint.)
+- [ ] Conversation ratings — (skipped: no endpoint. `conversation_rating` is a field on the conversation
+      object, already synced by `conversations`.)
+- [x] News items, ticket types — shipped as `news_items`, `newsfeeds`, `ticket_types` and `ticket_states`.
+      Macros / saved replies skipped: `GET /macros` only exists in 2.16, so sources pinned to 2.13 or
+      2.15 would 404 on it.
 
 ### Webflow, WordPress, Calendly, ActiveCampaign, Pipedrive
 

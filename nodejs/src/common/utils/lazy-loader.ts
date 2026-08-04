@@ -102,7 +102,7 @@ type CacheEntry<T> = {
 
 export class LazyLoader<T> {
     private cache: Record<string, CacheEntry<T> | undefined>
-    private pendingLoads: Record<string, Promise<T | null> | undefined>
+    private pendingLoads: Record<string, Promise<void> | undefined>
 
     private refreshAgeMs: number
     private refreshNullAgeMs: number
@@ -114,7 +114,7 @@ export class LazyLoader<T> {
     private buffer:
         | {
               keys: Set<string>
-              promise: Promise<LazyLoaderMap<T>>
+              promise: Promise<void>
           }
         | undefined
 
@@ -272,10 +272,12 @@ export class LazyLoader<T> {
     /**
      * Schedules the keys to be loaded with a buffer to allow batching multiple keys
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
+     *
+     * Loaded values land in `this.cache` via `setValues`; callers read them back from there.
      */
-    private async load(keys: string[]): Promise<LazyLoaderMap<T>> {
+    private async load(keys: string[]): Promise<void> {
         const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
-        const keyPromises: Promise<T | null>[] = []
+        const keyPromises: Promise<void>[] = []
 
         for (const key of keys) {
             let pendingLoad = this.pendingLoads[key]
@@ -298,78 +300,44 @@ export class LazyLoader<T> {
                             this.buffer = undefined
                             resolve(keys)
                         }, bufferMs)
-                    })
-                        .then((keys) => {
-                            // Pull out the keys to load and clear the buffer
-                            logger.debug('[LazyLoader]', this.options.name, 'Loading: ', keys)
-                            return this.invokeLoader(keys)
-                        })
-                        .then((map) => {
-                            this.setValues(map)
-                            return map
-                        }),
+                    }).then(async (bufferedKeys) => {
+                        logger.debug('[LazyLoader]', this.options.name, 'Loading: ', bufferedKeys)
+                        this.setValues(await this.invokeLoader(bufferedKeys))
+                    }),
                 }
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'miss' }).inc()
             } else {
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
-            // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve
-            // and then picks out its value
+            // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve.
+            // The values land in the cache via setValues, so callers read them from there.
             this.buffer.keys.add(key)
-            pendingLoad = this.buffer.promise
-                .then((map) => map[key] ?? null)
-                .finally(() => {
-                    delete this.pendingLoads[key]
-                })
+            pendingLoad = this.buffer.promise.finally(() => {
+                delete this.pendingLoads[key]
+            })
             this.pendingLoads[key] = pendingLoad
             keyPromises.push(pendingLoad)
         }
 
-        const results = await Promise.all(keyPromises)
-
-        // Values are already in the cache via the buffer's setValues call.
-        // For keys the loader omitted (resolved to null), update the cache
-        // so deleted/disabled items don't serve stale data.
-        const now = Date.now()
-        // Keys are caller-supplied: on a plain object, assigning `__proto__` would reassign this
-        // map's prototype instead of storing the value under that key.
-        const result: LazyLoaderMap<T> = Object.create(null)
-        for (let i = 0; i < keys.length; i++) {
-            const key = keys[i]
-            const entry = this.cache[key]
-            // An entry already holding null is rewritten once its deadline has lapsed. Nothing else
-            // would refresh it, since `setValues` only touches keys the loader returned, so leaving
-            // it alone would strand it permanently expired and make every later lookup block.
-            if (results[i] === null && (!entry || entry.value !== null || entry.cacheUntil <= now)) {
-                if (!entry) {
-                    this.cacheSize++
-                }
-                // Replace the entry rather than patching the previous value's fields. A
-                // backgroundRefreshAfter left over from when this key held a real value is
-                // necessarily in the past, because refreshBackgroundAgeMs is smaller than the
-                // refreshAgeMs the key just exceeded. Keeping it would background-refresh the key
-                // on every lookup for the whole null TTL.
-                const jitter = Math.floor(Math.random() * this.refreshJitterMs)
-                this.cache[key] = {
-                    value: null,
-                    lastUsed: now,
-                    cacheUntil: now + this.refreshNullAgeMs + jitter,
-                }
-            }
-            result[key] = this.cache[key]?.value ?? null
-        }
-        return result
+        await Promise.all(keyPromises)
     }
 
     /**
-     * Invoke the loader and normalize its result into a map this class owns: no prototype, and
-     * `undefined` collapsed to `null`. The loader hands back a plain object, where a key like
-     * `__proto__` resolves up the prototype chain instead of reading as absent.
+     * Invoke the loader and normalize its result into a map this class owns: no prototype, an entry
+     * for every requested key, and `undefined` collapsed to `null`. Keys the loader returns beyond
+     * those requested are kept, so a loader can warm the cache with extras. The loader hands back a
+     * plain object, where a key like `__proto__` resolves up the prototype chain instead of reading
+     * as absent.
      */
     private async invokeLoader(keys: string[]): Promise<Record<string, T | null>> {
         const loaded = await this.invokeLoaderWithRetry(keys)
         const map: Record<string, T | null> = Object.create(null)
+        // A key the loader omits means "no value", not "no answer", so seed every requested key
+        // before overlaying what came back.
+        for (const key of keys) {
+            map[key] = null
+        }
         for (const [key, value] of Object.entries(loaded)) {
             map[key] = value ?? null
         }

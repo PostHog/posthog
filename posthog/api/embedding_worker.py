@@ -34,7 +34,18 @@ class EmbeddingResponse:
     did_truncate: bool
 
 
+@dataclass(frozen=True)
+class DocumentKey:
+    """The full embedding identity; document_id alone is not unique."""
+
+    product: str
+    document_type: str
+    rendering: str
+    document_id: str
+
+
 _EMBEDDING_URL = EMBEDDING_API_URL + "/generate/ad_hoc"
+_RECENTLY_SEEN_URL = EMBEDDING_API_URL + "/recently_seen"
 
 
 def _build_embedding_payload(team: Team, content: str, model: str | None, no_truncate: bool) -> dict:
@@ -161,3 +172,61 @@ def emit_embedding_request(
 
     producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
     return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)
+
+
+def _build_recently_seen_payload(documents: list[DocumentKey], team_id: int) -> dict:
+    return {
+        "team_id": team_id,
+        "documents": [
+            {
+                "product": d.product,
+                "document_type": d.document_type,
+                "rendering": d.rendering,
+                "document_id": d.document_id,
+            }
+            for d in documents
+        ],
+    }
+
+
+def _parse_recently_seen_response(data: list[dict]) -> dict[DocumentKey, Optional[datetime]]:
+    results: dict[DocumentKey, Optional[datetime]] = {}
+    for item in data:
+        key = DocumentKey(
+            product=item["product"],
+            document_type=item["document_type"],
+            rendering=item["rendering"],
+            document_id=item["document_id"],
+        )
+        emitted_at = item.get("emitted_at")
+        results[key] = datetime.fromisoformat(emitted_at) if emitted_at else None
+    return results
+
+
+def get_recently_seen_documents(
+    documents: list[DocumentKey],
+    *,
+    team_id: int,
+    timeout: float | None = 30.0,
+) -> dict[DocumentKey, Optional[datetime]]:
+    """Return each document's worker emission time, or None when it is not cached."""
+    if not documents:
+        return {}
+    payload = _build_recently_seen_payload(documents, team_id)
+    response = internal_requests.post(_RECENTLY_SEEN_URL, json=payload, timeout=timeout)
+    response.raise_for_status()
+    return _parse_recently_seen_response(response.json())
+
+
+async def async_get_recently_seen_documents(
+    documents: list[DocumentKey],
+    *,
+    team_id: int,
+) -> dict[DocumentKey, Optional[datetime]]:
+    if not documents:
+        return {}
+    payload = _build_recently_seen_payload(documents, team_id)
+    async with internal_httpx_async_client(timeout=30.0) as client:
+        response = await client.post(_RECENTLY_SEEN_URL, json=payload)
+        response.raise_for_status()
+        return _parse_recently_seen_response(response.json())

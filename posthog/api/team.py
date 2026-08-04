@@ -920,7 +920,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
             )
 
-        return value
+        # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
+        # makes the flag-delete guard miss this row and delete a flag the team still advertises.
+        # A numeric string is normalized instead of rejected, so a client sending "123" stores a
+        # usable row rather than a broken one. Bools and floats are excluded because
+        # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
+        flag_id = value["id"]
+        if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
+        try:
+            return {**value, "id": int(flag_id)}
+        except ValueError:
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:

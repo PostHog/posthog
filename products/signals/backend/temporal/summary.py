@@ -67,6 +67,7 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    pending_reason: str | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -78,6 +79,8 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if pending_reason is not None:
+        properties["pending_reason"] = pending_reason
 
     if event == "signal_report_completed" and result is not None:
         metrics.increment_report_completed(result)
@@ -109,6 +112,10 @@ class ReportDecision:
     # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
     # which does no research.
     charts: list[dict[str, Any]] | None = None
+    # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
+    # broken repo-selection integration apart from the agent legitimately asking for human input.
+    # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
+    pending_reason: str | None = None
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -255,6 +262,7 @@ class SignalReportSummaryWorkflow:
                     summary=f"Could not automatically select a repository: {repo_result.reason}",
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
+                    pending_reason="repo_selection_required",
                 )
             else:
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
@@ -277,6 +285,7 @@ class SignalReportSummaryWorkflow:
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
+                    pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
                 log.info(
@@ -313,6 +322,7 @@ class SignalReportSummaryWorkflow:
                         signal_count=signal_count,
                         source_products=source_products,
                         charts=decision.charts,
+                        pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -617,6 +627,9 @@ class MarkReportPendingInput:
     source_products: list[str] = field(default_factory=list)
     # See MarkReportReadyInput.charts — written in the same transaction as the draft title/summary.
     charts: list[dict[str, Any]] | None = None
+    # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
+    # ReportDecision.pending_reason.
+    pending_reason: str | None = None
 
 
 @temporalio.activity.defn
@@ -637,6 +650,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            # Read by capture_status_change_analytics's post_save receiver (same instance, same
+            # transaction) — not a model field, so it never persists past this save.
+            report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
@@ -665,6 +681,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         run_count=run_count,
         source_products=input.source_products,
         result="pending_input",
+        pending_reason=input.pending_reason,
     )
     logger.debug(
         f"Marked report {input.report_id} as pending_input",
