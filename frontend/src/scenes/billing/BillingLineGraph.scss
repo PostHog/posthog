@@ -1,13 +1,15 @@
-.BillingMarkersOverlay {
+.BillingPeriodMarkerLine {
     position: absolute;
-    top: var(--billing-markers-chart-area-top);
-    left: var(--billing-markers-chart-area-left);
-    pointer-events: none;
+    top: var(--billing-marker-top);
+    left: var(--billing-marker-left);
+    height: var(--billing-marker-height);
+    border-left: 2px dashed var(--billing-marker-line-color);
+    transform: translateX(-50%);
 }
 
 .BillingMarker {
     position: absolute;
-    top: -20px;
+    top: var(--billing-marker-top);
     left: var(--billing-marker-left);
     pointer-events: auto;
     cursor: default;
@@ -20,10 +22,10 @@
         padding: 4px 8px;
         font-size: 12px;
         font-weight: normal;
-        color: var(--billing-marker-text-color);
+        color: var(--color-text-secondary);
         white-space: nowrap;
-        background-color: var(--billing-marker-bg-color);
-        border: 1px solid var(--billing-marker-border-color);
+        background-color: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
         border-radius: 4px;
 
         .anticon {
