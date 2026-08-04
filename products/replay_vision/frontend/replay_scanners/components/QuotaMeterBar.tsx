@@ -74,28 +74,16 @@ export function QuotaMeterBar({
             aria-label={label}
         >
             <div
-                className={clsx(
-                    'transition-[width] duration-500 ease-out',
-                    QUOTA_METER_FREE_CLASS,
-                    widths[0] > 0 && 'min-w-1'
-                )}
+                className={clsx('transition-[width] duration-500 ease-out', QUOTA_METER_FREE_CLASS)}
                 style={{ width: `${widths[0]}%` }}
             />
-            <div
-                className={clsx(
-                    'bg-muted transition-[width] duration-500 ease-out',
-                    // Keep a sliver visible even when the value is a fraction of a percent of the cap.
-                    widths[1] > 0 && 'min-w-1'
-                )}
-                style={{ width: `${widths[1]}%` }}
-            />
+            <div className="bg-muted transition-[width] duration-500 ease-out" style={{ width: `${widths[1]}%` }} />
             {projected.map(({ barClass, striped }, index) => (
                 <div
                     key={index}
                     className={clsx(
                         'transition-[width,background-color] duration-500 ease-out',
                         striped && 'QuotaMeterBar__stripes QuotaMeterBar__stripes--animated',
-                        widths[index + 2] > 0 && 'min-w-1',
                         barClass
                     )}
                     style={{ width: `${widths[index + 2]}%` }}

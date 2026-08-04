@@ -12,6 +12,18 @@ HASH_FILE="$ROOT_DIR/.posthog/.generated/rasterizer-image.hash"
 
 cd "$ROOT_DIR"
 
+# Payloads are encrypted by Django, so the codec key must be Django's SECRET_KEY from .env.
+if [ -z "${SECRET_KEY:-}" ] && [ -f "$ROOT_DIR/.env" ]; then
+    SECRET_KEY="$(sed -n 's/^SECRET_KEY=//p' "$ROOT_DIR/.env" | head -1 | sed -e "s/^['\"]//" -e "s/['\"]\$//")"
+    export SECRET_KEY
+fi
+
+# The mprocs env points at the host's loopback, which inside the container is the container itself.
+if [ -n "${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT:-}" ]; then
+    VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT="${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT/127.0.0.1/host.docker.internal}"
+    VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT="${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT/localhost/host.docker.internal}"
+fi
+
 # --- Step 1: Build TypeScript locally ---
 
 echo "Building headless player..."
@@ -95,6 +107,7 @@ docker run --rm \
     -e MAX_CONCURRENT_ACTIVITIES="${MAX_CONCURRENT_ACTIVITIES:-8}" \
     -e CAPTURE_BROWSER_LOGS="${CAPTURE_BROWSER_LOGS:-0}" \
     -e SECRET_KEY="${SECRET_KEY:?SECRET_KEY must be set}" \
+    -e NODE_ENV="${NODE_ENV:-development}" \
     -e LOG_LEVEL="${LOG_LEVEL:-info}" \
     -e SCREENSHOT_FORMAT="${SCREENSHOT_FORMAT:-jpeg}" \
     -e SCREENSHOT_JPEG_QUALITY="${SCREENSHOT_JPEG_QUALITY:-80}" \

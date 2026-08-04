@@ -78,7 +78,7 @@ export function VisionUsageTab(): JSX.Element {
     const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
     const zeroSpendCount = usageScanners.length - spenders.length
     const totalCredits = spenders.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
-    const creditLimit = hasCap && (quota?.credit_limit ?? 0) > 0 ? (quota?.credit_limit ?? 0) : null
+    const creditLimit = hasCap && quota.credit_limit > 0 ? quota.credit_limit : null
 
     // The period window comes from the quota, so dispatching before it lands would abort the in-flight query
     // and refetch. A failed load still resolves (the loader keeps the last snapshot) so this can't hang.
