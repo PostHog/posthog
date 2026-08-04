@@ -173,9 +173,9 @@ export interface projectTreeDataLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     groupTypesLoading: boolean // groupsModel
     groupsAccessStatus: GroupsAccessStatus // groupsModel
-    user: UserType | null // userLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasOnboardedAnyProduct: boolean // teamLogic
+    user: UserType | null // userLogic
     folderLoadOffset: Record<string, number>
     folderStates: Record<string, FolderState>
     folders: Record<string, FileSystemEntry[]>
@@ -494,7 +494,7 @@ export interface projectTreeDataLogicMeta {
         groupItems: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             shortcutData: FileSystemEntry[],
             featureFlags: FeatureFlagsSet
         ) => FileSystemImport[]
