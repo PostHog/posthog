@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
-use cohort_seeder::app::completion::dispatch_and_record;
+use cohort_seeder::app::completion::{dispatch_and_record, verify_marker_topic};
 use cohort_seeder::app::reconcile_dispatch::{
     execute_reconcile_dispatch, prepare_reconcile_dispatch, CompletionRequirement,
     PreparedDispatch, RegisterBackfillConfirmation,
@@ -127,6 +127,10 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
         PreparedDispatch::Certified(certified) => {
             let run_id = certified.prepared().run_id();
             let status = certified.prepared().run_status();
+            // Probe before the CAS: `dispatch_and_record`'s first act is to capture this topic's
+            // watermarks, and it owns the claim by then, so a topic that is missing or unreachable
+            // would leave the run parked in `reconciling` with no dispatch record.
+            verify_marker_topic(&producer, &config.cohort_reconcile_markers_topic).await?;
             let claim =
                 acquire_claim(&pool, run_id, certified.prepared().run_kind(), status).await?;
             // `plan_chunks` gates its INSERT on a non-locking `status = 'seeding'` read, so a
@@ -153,7 +157,7 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
             let recorded = dispatch_and_record(
                 &pool,
                 &producer,
-                &config.cohort_membership_changed_topic,
+                &config.cohort_reconcile_markers_topic,
                 max_inflight,
                 PARTITION_VERIFY_TIMEOUT,
                 certified,
