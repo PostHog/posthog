@@ -18,7 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import hashlib
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -5883,23 +5883,30 @@ def create_thread_message(
     except Exception:
         logger.exception("Failed to project thread message activity", extra={"message_id": str(message.id)})
     try:
-        _index_thread_message_mentions(message)
+        mentioned_user_ids = resolve_mentioned_user_ids(
+            User, message.content, team_id=message.team_id, author_id=message.author_id
+        )
     except Exception:
-        # Mentions are best-effort: an indexing failure must never fail message creation.
+        mentioned_user_ids = []
+        logger.exception("Failed to resolve thread message mentions", extra={"message_id": str(message.id)})
+    try:
+        _index_thread_message_mentions(message, mentioned_user_ids)
+    except Exception:
+        # Mention indexing is best-effort: a failure must never fail message creation or discard resolved recipients.
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
+    from products.tasks.backend.push_dispatcher import notify_task_thread_message  # noqa: PLC0415
+
+    notify_task_thread_message(message, mentioned_user_ids)
     # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
     return _thread_message_to_dto(message)
 
 
-def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
+def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
     """Create mention index rows for @[Name](email) tokens in the message content.
 
     Emails resolve case-insensitively, only to members of the team's organization;
     self-mentions are skipped (they are never notifications).
     """
-    mentioned_user_ids = resolve_mentioned_user_ids(
-        User, message.content, team_id=message.team_id, author_id=message.author_id
-    )
     mentions = [
         TaskThreadMessageMention(
             team_id=message.team_id,
@@ -6165,7 +6172,10 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
     )
     project_thread_message_activity(message)
     try:
-        _index_thread_message_mentions(message)
+        mentioned_user_ids = resolve_mentioned_user_ids(
+            User, message.content, team_id=message.team_id, author_id=message.author_id
+        )
+        _index_thread_message_mentions(message, mentioned_user_ids)
     except Exception:
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
 

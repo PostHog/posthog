@@ -114,7 +114,7 @@ import {
     isLaunched,
     isSingleVariantShipped,
 } from './experimentsLogic'
-import { featureFlagVariantProperty } from './exposureContract'
+import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     legacyExpectedRunningTime,
@@ -590,6 +590,7 @@ export interface experimentLogicValues {
     props: any
     recommendedRunningTime: number
     recommendedSampleSize: number
+    resolvedExposureEvent: string
     secondaryMetricsLengthWithSharedMetrics: number
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: any[]
@@ -1318,6 +1319,7 @@ export interface experimentLogicMeta {
         isExperimentLaunched: (experiment: Experiment) => boolean
         isExperimentRunning: (experiment: Experiment) => boolean
         isFlagActive: (experiment: Experiment) => boolean
+        resolvedExposureEvent: (experiment: Experiment) => string
         isExperimentStopped: (experiment: Experiment) => boolean
         variants: (experiment: Experiment) => MultivariateFlagVariant[]
         excludedVariants: (experiment: Experiment) => string[]
@@ -3734,6 +3736,15 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment: Experiment): boolean => {
                 return !!experiment?.feature_flag?.active
             },
+        ],
+        /**
+         * The event this experiment's default exposure is actually counted on, resolved by the
+         * backend so the UI names the same event the results queries read. Falls back to
+         * `$feature_flag_called` for an experiment that hasn't been loaded from the API yet.
+         */
+        resolvedExposureEvent: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string => resolvedExposureEvent(experiment ?? {}),
         ],
         isExperimentStopped: [
             (s) => [s.experiment],
