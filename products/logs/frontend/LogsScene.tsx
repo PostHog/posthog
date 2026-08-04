@@ -25,6 +25,7 @@ import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPromp
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
 import { useOpenLogsSettingsPanel } from './hooks/useOpenLogsSettingsPanel'
+import { LogsAnomalies } from './LogsAnomalies'
 import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
 
 export const LOGS_LOGIC_KEY = 'logs'
@@ -96,11 +97,13 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showSqlView = useFeatureFlag('LOGS_SQL_VIEW')
     const showTransformations = useFeatureFlag('LOGS_TRANSFORMATIONS')
+    const showAnomalies = useFeatureFlag('LOGS_ANOMALIES')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
         ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        ...(showAnomalies ? [{ key: 'anomalies' as const, label: 'Anomalies' }] : []),
         ...(showSqlView ? [{ key: 'sql' as const, label: 'SQL' }] : []),
         ...(showTransformations ? [{ key: 'transformations' as const, label: 'Transformations' }] : []),
         { key: 'configuration', label: 'Configuration' },
@@ -156,6 +159,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 </>
             )}
             {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
+            {activeTab === 'anomalies' && showAnomalies && <LogsAnomalies />}
             {activeTab === 'sql' && showSqlView && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
             {activeTab === 'transformations' && showTransformations && <LogsTransformations />}
             {activeTab === 'configuration' && (
