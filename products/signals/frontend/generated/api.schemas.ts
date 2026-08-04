@@ -287,6 +287,35 @@ export interface PatchedSignalReportContentUpdateApi {
 }
 
 /**
+ * * `positive` - positive
+ * * `negative` - negative
+ */
+export type SentimentEnumApi = (typeof SentimentEnumApi)[keyof typeof SentimentEnumApi]
+
+export const SentimentEnumApi = {
+    Positive: 'positive',
+    Negative: 'negative',
+} as const
+
+export interface SignalReportFeedbackRequestApi {
+    /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
+     *
+     * * `positive` - positive
+     * * `negative` - negative */
+    sentiment: SentimentEnumApi
+    /**
+     * Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.
+     * @maxLength 4000
+     */
+    note: string
+}
+
+export interface SignalReportFeedbackResponseApi {
+    /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
+    forwarded: boolean
+}
+
+/**
  * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
  * status, normalized to a common shape.
  */
@@ -2164,7 +2193,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. */
     origin: string
 }
 

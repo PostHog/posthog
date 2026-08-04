@@ -1,3 +1,5 @@
+import { readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   buildSessionContext,
   type FileEntry,
@@ -10,10 +12,17 @@ import type { RpcCommand, RpcResponse } from "@posthog/agent/pi/rpc-transport";
 import type { PiRuntime } from "@posthog/agent/pi/runtime";
 import {
   PI_THINKING_LEVELS,
+  type PiExtensionEvent,
   type PiPersistedSessionConfig,
   type PiQueueSnapshot,
+  type RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
+import {
+  type PiProjectTrust,
+  readPiProjectTrust,
+  writePiProjectTrust,
+} from "@posthog/harness/project-trust";
 import {
   type AgentConversationEvent,
   type PiRuntimeHealth,
@@ -25,7 +34,11 @@ import type { ITaskMetadataRepository } from "../../db/repositories/task-metadat
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
 import type { ProcessTrackingService } from "../process-tracking/process-tracking";
 import { PI_RUNTIME_FACTORY, type PiRuntimeFactory } from "./identifiers";
-import type { StartPiSessionInput } from "./schemas";
+import {
+  piExtensionEventSchema,
+  type ResumePiSessionInput,
+  type StartPiSessionInput,
+} from "./schemas";
 
 type PiPoolSessionState = "starting" | "idle" | "streaming";
 
@@ -58,16 +71,146 @@ interface PiSessionEvents {
   event: { taskId: string; event: AgentConversationEvent };
 }
 
+type PiExtensionDialogRequest = Extract<
+  PiExtensionEvent,
+  { method: "select" | "confirm" | "input" | "editor" }
+>;
+
+interface PiSessionExtensionEvents {
+  event: PiExtensionEvent;
+}
+
 interface ManagedPiSession {
   client: PiRpcClient;
   runtime: PiRuntime;
+  cwd: string;
+  projectTrustPath: string;
   state: PiPoolSessionState;
   lastUsedAt: number;
   activeRequestCount: number;
+  stopFailed: boolean;
+  extensionEventsAbort: AbortController;
+  extensionEvents: TypedEventEmitter<PiSessionExtensionEvents>;
+  startupExtensionDialogs: PiExtensionDialogRequest[];
+  hasHadExtensionSubscriber: boolean;
+  extensionSubscriberCount: number;
+  outstandingExtensionDialogs: Set<string>;
   pid?: number;
 }
 
+function isPiExtensionDialogRequest(
+  event: PiExtensionEvent,
+): event is PiExtensionDialogRequest {
+  return (
+    event.type === "extension_ui_request" &&
+    (event.method === "select" ||
+      event.method === "confirm" ||
+      event.method === "input" ||
+      event.method === "editor")
+  );
+}
+
 const DEFAULT_PI_HOT_POOL_SIZE = 4;
+
+interface GitRepositoryIdentity {
+  commonDir: string;
+  kind: "main" | "worktree";
+}
+
+async function resolveExistingPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+async function resolveGitRepositoryIdentity(
+  repositoryPath: string,
+): Promise<GitRepositoryIdentity | null> {
+  const resolvedRepositoryPath = await resolveExistingPath(repositoryPath);
+  const gitMarker = join(resolvedRepositoryPath, ".git");
+
+  try {
+    const gitMarkerStat = await stat(gitMarker);
+    if (gitMarkerStat.isDirectory()) {
+      return {
+        commonDir: await resolveExistingPath(gitMarker),
+        kind: "main",
+      };
+    }
+    if (!gitMarkerStat.isFile()) {
+      return null;
+    }
+
+    const markerMatch = (await readFile(gitMarker, "utf8")).match(
+      /^gitdir:\s*(.+)$/m,
+    );
+    if (!markerMatch) {
+      return null;
+    }
+
+    const gitDir = await resolveExistingPath(
+      isAbsolute(markerMatch[1])
+        ? markerMatch[1]
+        : resolve(resolvedRepositoryPath, markerMatch[1]),
+    );
+    const commonDir = await resolveExistingPath(
+      resolve(
+        gitDir,
+        (await readFile(join(gitDir, "commondir"), "utf8")).trim(),
+      ),
+    );
+    const gitDirRelativeToCommon = relative(commonDir, gitDir);
+    if (
+      gitDirRelativeToCommon.startsWith("..") ||
+      isAbsolute(gitDirRelativeToCommon) ||
+      !gitDirRelativeToCommon.startsWith(`worktrees${sep}`)
+    ) {
+      return null;
+    }
+
+    const registeredMarker = await resolveExistingPath(
+      (await readFile(join(gitDir, "gitdir"), "utf8")).trim(),
+    );
+    if (registeredMarker !== (await resolveExistingPath(gitMarker))) {
+      return null;
+    }
+
+    return { commonDir, kind: "worktree" };
+  } catch {
+    return null;
+  }
+}
+
+async function assertProjectTrustAppliesToCwd(
+  projectTrustPath: string,
+  cwd: string,
+): Promise<void> {
+  const [resolvedProjectTrustPath, resolvedCwd] = await Promise.all([
+    resolveExistingPath(projectTrustPath),
+    resolveExistingPath(cwd),
+  ]);
+  if (resolvedProjectTrustPath === resolvedCwd) {
+    return;
+  }
+
+  const [trustedRepository, runtimeRepository] = await Promise.all([
+    resolveGitRepositoryIdentity(resolvedProjectTrustPath),
+    resolveGitRepositoryIdentity(resolvedCwd),
+  ]);
+  if (
+    trustedRepository?.kind === "main" &&
+    runtimeRepository?.kind === "worktree" &&
+    trustedRepository.commonDir === runtimeRepository.commonDir
+  ) {
+    return;
+  }
+
+  throw new Error(
+    "Pi project trust path must match the runtime repository or its registered Git worktree",
+  );
+}
 
 function readHotPoolSize(): number {
   const configured = Number.parseInt(
@@ -114,12 +257,21 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   ): Promise<{ sessionFile: string | null; sessionId: string }> {
     await this.stopLocked(input.taskId);
 
+    const projectTrustPath = input.projectTrustPath ?? input.cwd;
+    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
+    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
       cwd: input.cwd,
       model: input.model,
+      projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
-    const session = this.registerSession(input.taskId, runtime);
+    const session = this.registerSession(
+      input.taskId,
+      runtime,
+      input.cwd,
+      projectTrustPath,
+    );
 
     return this.startSession(input.taskId, client, session, async () => {
       if (input.thinkingLevel) {
@@ -146,16 +298,19 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     });
   }
 
-  async resume(input: { taskId: string; cwd: string }): Promise<void> {
+  async resume(input: ResumePiSessionInput): Promise<void> {
     await this.runExclusive(input.taskId, () => this.resumeLocked(input));
   }
 
-  private async resumeLocked(input: {
-    taskId: string;
-    cwd: string;
-  }): Promise<void> {
+  private async resumeLocked(input: ResumePiSessionInput): Promise<void> {
     const existingSession = this.sessions.get(input.taskId);
-    if (existingSession) {
+    const projectTrustPath = input.projectTrustPath ?? input.cwd;
+    if (
+      existingSession &&
+      !existingSession.stopFailed &&
+      existingSession.cwd === input.cwd &&
+      existingSession.projectTrustPath === projectTrustPath
+    ) {
       this.touchSession(existingSession);
       return;
     }
@@ -171,12 +326,20 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
 
     await this.stopLocked(input.taskId);
 
+    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
+    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
       cwd: input.cwd,
       sessionFile,
+      projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
-    const session = this.registerSession(input.taskId, runtime);
+    const session = this.registerSession(
+      input.taskId,
+      runtime,
+      input.cwd,
+      projectTrustPath,
+    );
 
     await this.startSession(input.taskId, client, session, async () => {});
   }
@@ -210,6 +373,95 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       session.runtime.clearPendingQueuedUserMessages();
       return queue;
     });
+  }
+
+  getProjectTrust(taskId: string): PiProjectTrust {
+    const session = this.requireSession(taskId);
+    return readPiProjectTrust(session.projectTrustPath, session.cwd);
+  }
+
+  async setProjectTrusted(taskId: string, trusted: boolean): Promise<void> {
+    await this.runExclusive(taskId, async () => {
+      const session = this.requireSession(taskId);
+      if (session.state !== "idle" || session.activeRequestCount > 0) {
+        throw new Error("Cannot change project trust while Pi is busy");
+      }
+      await this.stopLocked(taskId);
+      writePiProjectTrust(session.projectTrustPath, trusted);
+    });
+  }
+
+  respondToExtensionUI(
+    taskId: string,
+    response: RpcExtensionUIResponse,
+  ): Promise<void> {
+    return this.withActiveRequest(taskId, async (session) => {
+      if (!session.outstandingExtensionDialogs.delete(response.id)) {
+        return;
+      }
+      try {
+        await session.client.respondToExtensionUI(response);
+      } catch (error) {
+        session.outstandingExtensionDialogs.add(response.id);
+        throw error;
+      }
+    });
+  }
+
+  async *extensionEvents(
+    taskId: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<PiExtensionEvent> {
+    const session = this.requireSession(taskId);
+    const subscriptionAbort = new AbortController();
+    const streamSignal = AbortSignal.any([
+      ...(signal ? [signal] : []),
+      session.extensionEventsAbort.signal,
+      subscriptionAbort.signal,
+    ]);
+
+    if (streamSignal.aborted) {
+      return;
+    }
+
+    const liveEvents = session.extensionEvents
+      .toIterable("event", { signal: streamSignal })
+      [Symbol.asyncIterator]();
+    let nextLiveEvent = liveEvents.next();
+    await Promise.resolve();
+    session.hasHadExtensionSubscriber = true;
+    session.extensionSubscriberCount += 1;
+
+    try {
+      for (const event of session.startupExtensionDialogs.splice(0)) {
+        if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
+          return;
+        }
+        yield this.prepareExtensionEvent(event);
+      }
+
+      while (true) {
+        const result = await nextLiveEvent;
+        if (result.done) {
+          return;
+        }
+        if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
+          return;
+        }
+        nextLiveEvent = liveEvents.next();
+        yield this.prepareExtensionEvent(result.value);
+      }
+    } finally {
+      session.extensionSubscriberCount -= 1;
+      subscriptionAbort.abort();
+      await liveEvents.return?.();
+      if (
+        session.extensionSubscriberCount === 0 &&
+        this.sessions.get(taskId) === session
+      ) {
+        await this.cancelOutstandingExtensionDialogs(taskId, session);
+      }
+    }
   }
 
   async readSessionConfig(
@@ -258,14 +510,22 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       return;
     }
 
-    this.sessions.delete(taskId);
-
     try {
       await session.client.stop();
-    } finally {
-      if (session.pid) {
-        this.processTracking.unregister(session.pid, "pi-session-stopped");
+    } catch (error) {
+      if (this.sessions.get(taskId) === session) {
+        session.stopFailed = true;
+        throw error;
       }
+      return;
+    }
+
+    if (this.sessions.get(taskId) === session) {
+      session.extensionEventsAbort.abort();
+      this.sessions.delete(taskId);
+    }
+    if (session.pid) {
+      this.processTracking.unregister(session.pid, "pi-session-stopped");
     }
   }
 
@@ -332,6 +592,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       this.log.error("Failed to start Pi session", { taskId, error });
 
       await this.cleanupFailedClient(taskId, client);
+      session.extensionEventsAbort.abort();
       this.sessions.delete(taskId);
 
       throw error;
@@ -355,15 +616,27 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   private registerSession(
     taskId: string,
     runtime: PiRuntime,
+    cwd: string,
+    projectTrustPath: string,
   ): ManagedPiSession {
     const session: ManagedPiSession = {
       client: runtime.client,
       runtime,
+      cwd,
+      projectTrustPath,
       state: "starting",
       lastUsedAt: Date.now(),
       activeRequestCount: 0,
+      stopFailed: false,
+      extensionEventsAbort: new AbortController(),
+      extensionEvents: new TypedEventEmitter<PiSessionExtensionEvents>(),
+      startupExtensionDialogs: [],
+      hasHadExtensionSubscriber: false,
+      extensionSubscriberCount: 0,
+      outstandingExtensionDialogs: new Set(),
     };
 
+    this.sessions.get(taskId)?.extensionEventsAbort.abort();
     this.sessions.set(taskId, session);
     runtime.onRuntimeEvent((event) =>
       this.handleSessionEvent(taskId, session, event),
@@ -371,8 +644,69 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     runtime.onConversationEvent((event) =>
       this.emit("event", { taskId, event }),
     );
+    runtime.onExtensionEvent?.((event) => {
+      if (this.sessions.get(taskId) !== session) {
+        return;
+      }
+      if (isPiExtensionDialogRequest(event)) {
+        session.outstandingExtensionDialogs.add(event.id);
+        if (session.extensionSubscriberCount === 0) {
+          if (!session.hasHadExtensionSubscriber) {
+            session.startupExtensionDialogs.push(event);
+          } else {
+            session.outstandingExtensionDialogs.delete(event.id);
+            void session.client
+              .respondToExtensionUI({
+                type: "extension_ui_response",
+                id: event.id,
+                cancelled: true,
+              })
+              .catch((error) => {
+                session.outstandingExtensionDialogs.add(event.id);
+                this.log.warn("Failed to cancel orphaned Pi extension dialog", {
+                  taskId,
+                  requestId: event.id,
+                  error,
+                });
+              });
+          }
+          return;
+        }
+      }
+      session.extensionEvents.emit("event", event);
+    });
 
     return session;
+  }
+
+  private prepareExtensionEvent(event: PiExtensionEvent): PiExtensionEvent {
+    return piExtensionEventSchema.parse(event);
+  }
+
+  private async cancelOutstandingExtensionDialogs(
+    taskId: string,
+    session: ManagedPiSession,
+  ): Promise<void> {
+    const requestIds = [...session.outstandingExtensionDialogs];
+    session.outstandingExtensionDialogs.clear();
+    await Promise.all(
+      requestIds.map(async (requestId) => {
+        try {
+          await session.client.respondToExtensionUI({
+            type: "extension_ui_response",
+            id: requestId,
+            cancelled: true,
+          });
+        } catch (error) {
+          session.outstandingExtensionDialogs.add(requestId);
+          this.log.warn("Failed to cancel orphaned Pi extension dialog", {
+            taskId,
+            requestId,
+            error,
+          });
+        }
+      }),
+    );
   }
 
   private trackProcess(taskId: string, session: ManagedPiSession): void {
@@ -398,6 +732,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         return;
       }
 
+      session.extensionEventsAbort.abort();
       this.sessions.delete(taskId);
       this.log.warn("Pi RPC process exited", { taskId, code, signal });
     });
