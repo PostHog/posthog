@@ -352,6 +352,10 @@ def classify_slack_app_model_override(
     fable for this") from subject matter ("add fable to the model picker"). The
     prompt is built around that distinction, and the schema restricts the answer to an
     id from ``choices``.
+
+    Quality on that distinction is measured by the eval suite in
+    ``products/slack_app/evals/eval_model_classifier.py`` — the unit tests around this
+    function cover parsing and validation, not whether the prompt reads a sentence right.
     """
     prompt = (
         "You are routing a Slack message addressed to the PostHog agent. Decide whether "
