@@ -27,6 +27,11 @@ export function ChannelContextChip({
     <Chip
       onClick={onView}
       size="sm"
+      // Chip renders a <div> so ChipClose can nest legally, but the button
+      // behaviour underneath assumes a real <button> unless told otherwise.
+      // Without this it never binds Enter/Space, so the chip is reachable by
+      // keyboard and then does nothing.
+      nativeButton={false}
       className={cn(
         "mt-px shrink-0 pr-1 text-[11px]",
         !onView && "cursor-default",
