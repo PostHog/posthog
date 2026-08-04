@@ -48,13 +48,13 @@ jest.mock('products/business_knowledge/frontend/generated/api', () => ({
 }))
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
-    conversationsTicketsNotePartialUpdate: jest.fn().mockResolvedValue(undefined),
-    conversationsTicketsDeleteNoteDestroy: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
 }))
 
 import api from '~/lib/api'
 
-import { conversationsTicketsNotePartialUpdate } from 'products/conversations/frontend/generated/api'
+import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
 
@@ -497,7 +497,7 @@ describe('supportTicketSceneLogic private note editing', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const noteUpdateMock = conversationsTicketsNotePartialUpdate as jest.Mock
+    const noteUpdateMock = conversationsTicketsNotesPartialUpdate as jest.Mock
     const commentsCreateMock = api.comments.create as jest.Mock
 
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket

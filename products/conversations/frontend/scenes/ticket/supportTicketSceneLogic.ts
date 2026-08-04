@@ -15,7 +15,6 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
-import { marked } from 'marked'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -23,6 +22,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
+import { markdownToHtml } from 'lib/utils/markdown'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -44,8 +44,8 @@ import {
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
 import {
-    conversationsTicketsDeleteNoteDestroy,
-    conversationsTicketsNotePartialUpdate,
+    conversationsTicketsNotesDestroy,
+    conversationsTicketsNotesPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -1201,7 +1201,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             try {
                 if (values.editingMessageId) {
                     const editingId = values.editingMessageId
-                    await conversationsTicketsNotePartialUpdate(
+                    await conversationsTicketsNotesPartialUpdate(
                         String(getCurrentTeamId()),
                         values.ticket.id,
                         editingId,
@@ -1280,8 +1280,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setDraftContent(message.richContent as JSONContent)
             } else {
                 // Notes from MCP/reply API are markdown-only; TipTap parses HTML from marked.
-                const html = marked.parse(message.content || '', { async: false }) as string
-                actions.setDraftContent(html)
+                actions.setDraftContent(markdownToHtml(message.content || ''))
             }
         },
         cancelEditingMessage: () => {
@@ -1307,7 +1306,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     status: 'danger',
                     onClick: async () => {
                         try {
-                            await conversationsTicketsDeleteNoteDestroy(
+                            await conversationsTicketsNotesDestroy(
                                 String(getCurrentTeamId()),
                                 values.ticket!.id,
                                 messageId
