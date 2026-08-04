@@ -169,7 +169,9 @@ class HookdeckCursorPaginator(JSONResponseCursorPaginator):
 
 def validate_credentials(api_key: str, api_version: str) -> tuple[bool, int | None]:
     return validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        # capture=False: the probe hits `/sources`, whose rows carry verification secrets the
+        # name-based sample scrubbers don't recognise, so keep the response out of HTTP sample storage.
+        lambda: make_tracked_session(redact_values=(api_key,), capture=False),
         f"{base_url(api_version)}/sources?limit=1",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
     )
@@ -195,6 +197,11 @@ def hookdeck_source(
             # only the non-secret Accept header is set here.
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
+            # capture=False: raw responses reach the sampler before `_redact_pages` runs, and the
+            # name-based scrubbers don't recognise Hookdeck's secret containers (`auth_method`,
+            # `verification`, `env`) or raw inbound request payloads, so keep every response body
+            # out of shared HTTP sample storage. Requests are still metered and logged (key redacted).
+            "session": make_tracked_session(capture=False, redact_values=(api_key,)),
         },
         "resource_defaults": {},
         "resources": [

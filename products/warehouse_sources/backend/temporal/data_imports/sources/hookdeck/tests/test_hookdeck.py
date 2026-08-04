@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.s
     PAGE_SIZE,
 )
 
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 HOOKDECK_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck.make_tracked_session"
 )
@@ -202,7 +201,7 @@ class TestHookdeckCredentials:
 
 
 class TestHookdeckPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_follows_next_cursor_until_absent(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(
@@ -217,7 +216,7 @@ class TestHookdeckPagination:
         assert "next" not in params[0]
         assert params[1]["next"] == "cur_2"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_stops_when_the_cursor_stops_advancing(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([{"id": "evt_1"}], "cur_2"), _response([{"id": "evt_2"}], "cur_2")])
@@ -227,7 +226,7 @@ class TestHookdeckPagination:
         assert [row["id"] for row in rows] == ["evt_1", "evt_2"]
         assert session.send.call_count == 2
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_stops_on_an_empty_page_even_with_a_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([], "cur_2")])
@@ -235,7 +234,7 @@ class TestHookdeckPagination:
         assert _rows(_source("events", _make_manager())) == []
         assert session.send.call_count == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_saves_resume_state_after_each_page_but_not_the_last(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([{"id": "evt_1"}], "cur_2"), _response([{"id": "evt_2"}], None)])
@@ -246,7 +245,7 @@ class TestHookdeckPagination:
         assert manager.save_state.call_count == 1
         assert manager.save_state.call_args.args[0] == HookdeckResumeConfig(next_cursor="cur_2")
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": "evt_9"}], None)])
@@ -256,7 +255,7 @@ class TestHookdeckPagination:
         assert [row["id"] for row in rows] == ["evt_9"]
         assert params[0]["next"] == "cur_7"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_incremental_filter_rides_the_first_request(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": "iss_1"}], None)])
@@ -276,7 +275,7 @@ class TestHookdeckPagination:
         assert params[0]["last_seen_at[gte]"] == "2026-03-04T02:58:14.000Z"
 
     @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_retries_throttles_and_server_errors(self, MockSession, _mock_sleep) -> None:
         session = MockSession.return_value
         _wire(
@@ -293,7 +292,7 @@ class TestHookdeckPagination:
         assert [row["id"] for row in rows] == ["evt_1"]
         assert session.send.call_count == 3
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_client_error_raises(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response(None, None, status=404)])
@@ -344,7 +343,7 @@ class TestHookdeckRedaction:
     def test_redacts_credential_bearing_fields(self, row: dict[str, Any], expected: dict[str, Any]) -> None:
         assert _redact_secrets(row) == expected
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_credential_endpoint_rows_are_redacted_end_to_end(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([{"id": "des_1", "auth_method": {"config": {"token": "sk_live"}}}], None)])
@@ -353,7 +352,7 @@ class TestHookdeckRedaction:
 
         assert rows == [{"id": "des_1", "auth_method": REDACTED}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_non_credential_endpoint_rows_pass_through_untouched(self, MockSession) -> None:
         # `events` isn't flagged as credential-bearing, so an auth-shaped key must not be masked.
         session = MockSession.return_value
@@ -364,9 +363,29 @@ class TestHookdeckRedaction:
         assert rows == [{"id": "evt_1", "auth_method": {"config": {"token": "kept"}}}]
 
 
+class TestHookdeckSampleCapture:
+    # Raw responses reach the sampler before `_redact_secrets` runs, and the name-based scrubbers
+    # don't recognise Hookdeck's secret containers, so both transports must opt out of sample capture.
+    @mock.patch(HOOKDECK_SESSION_PATCH)
+    def test_sync_session_disables_sample_capture(self, MockSession) -> None:
+        MockSession.return_value.headers = {}
+
+        _source("events", _make_manager())
+
+        assert MockSession.call_args.kwargs["capture"] is False
+
+    @mock.patch(HOOKDECK_SESSION_PATCH)
+    def test_probe_disables_sample_capture(self, MockSession) -> None:
+        MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)
+
+        validate_credentials("hd_key", API_VERSION)
+
+        assert MockSession.call_args.kwargs["capture"] is False
+
+
 class TestHookdeckSourceResponse:
     @pytest.mark.parametrize("endpoint", sorted(HOOKDECK_ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
     def test_source_response_shape(self, MockSession, endpoint: str) -> None:
         MockSession.return_value.headers = {}
 
