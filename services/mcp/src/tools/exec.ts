@@ -49,6 +49,12 @@ export interface ExecInnerCallProperties {
     input_tokens?: number
     output_tokens?: number
     input?: Record<string, unknown>
+    /**
+     * The payload returned to the client, exactly as serialized. Consumed by the
+     * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
+     * result (e.g. which metrics a catalog lookup returned), not just its size.
+     */
+    output?: unknown
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -642,6 +648,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            output: outputText,
                         })
                         return outputText
                     }
@@ -684,6 +691,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            output: payload,
                         })
                         return payload
                     }
@@ -708,6 +716,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        output: outputText,
                     })
                     return outputText
                 }
