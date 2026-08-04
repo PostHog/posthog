@@ -63,6 +63,22 @@ describe('HogWatcherService unit behavior', () => {
         await expect(watcher.observeResults([createResult('first'), createResult('second')])).resolves.toBeUndefined()
     })
 
+    it('falls back to the writer when a reader pipeline command fails', async () => {
+        const writer = createClusterRedisStub()
+        const commandError = new Error('reader command failed')
+        const reader: RedisV2 = {
+            useClient: jest.fn(),
+            usePipeline: jest.fn().mockResolvedValue([[commandError, undefined]]),
+        }
+        const watcher = new HogWatcherService({} as any, WATCHER_CONFIG, writer, reader)
+
+        await expect(watcher.observeResults([createResult('first'), createResult('second')])).resolves.toBeUndefined()
+        expect(writer.usePipeline).toHaveBeenCalledWith(
+            expect.objectContaining({ name: 'readStatesForObserve' }),
+            expect.any(Function)
+        )
+    })
+
     it('rejects buffered callers when a timer-triggered flush fails', async () => {
         jest.useFakeTimers()
         const watcher = new HogWatcherService({} as any, WATCHER_CONFIG, createClusterRedisStub())

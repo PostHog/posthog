@@ -479,6 +479,10 @@ export class HogWatcherService {
             if (!results) {
                 return null
             }
+            const commandError = results.find(([error]) => error)?.[0]
+            if (commandError) {
+                throw commandError
+            }
             return {
                 states: stateKeys.map((_, index) => results[index]?.[1]),
                 locks: lockKeys.map((_, index) => results[stateKeys.length + index]?.[1]),
