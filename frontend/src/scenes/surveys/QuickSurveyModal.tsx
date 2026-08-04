@@ -213,7 +213,11 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
 
             <div className="flex flex-col gap-3 mt-4">
                 {shouldShowSurveyToggle && (
-                    <div className="p-4 border rounded bg-warning-highlight">
+                    <div className="p-4 border rounded bg-warning-highlight space-y-2">
+                        <div>
+                            Surveys are currently disabled for this project. Enable them so this survey can be shown to
+                            users.
+                        </div>
                         <SurveyEnableToggle />
                     </div>
                 )}
