@@ -1157,6 +1157,7 @@ export class AgentServer {
           ];
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
+            ...(params.origin ? { messageOrigin: params.origin } : {}),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),

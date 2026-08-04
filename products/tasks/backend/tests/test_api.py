@@ -1051,13 +1051,19 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
         channel = Channel.objects.unscoped().create(team=self.team, name="orchestration")
         parent_run = self._parent_run(channel=channel)
 
-        response = self.client.post(self.url, self._payload(parent_run, wake_on=["pr_merged"]), format="json")
+        response = self.client.post(
+            self.url, self._payload(parent_run, wake_on=["pr_merged"], delegation_profile="low"), format="json"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         child = Task.objects.get(id=response.json()["id"])
         run = child.runs.get()
         self.assertEqual(child.channel_id, channel.id)
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.state["delegation_profile"], "low")
+        self.assertEqual(run.state["runtime_adapter"], "codex")
+        self.assertEqual(run.state["model"], "gpt-5.6-terra")
+        self.assertEqual(run.state["reasoning_effort"], "low")
         self.assertIn("You were spawned by an orchestrator task", run.state["pending_user_message"])
         self.assertTrue(run.state["pending_user_message"].endswith("Make the focused change"))
         self.assertEqual(
@@ -1085,6 +1091,21 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
                 for call in capture_event.call_args_list
             )
         )
+
+    def test_spawn_rejects_profile_with_explicit_runtime(self):
+        response = self.client.post(
+            self.url,
+            self._payload(
+                self._parent_run(),
+                delegation_profile="low",
+                runtime_adapter="codex",
+                model="gpt-5.6-sol",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("delegation_profile", response.json())
 
     @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
     @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)

@@ -406,6 +406,21 @@ class TestSendUserMessage:
             timeout=15,
         )
 
+    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
+    def test_sends_trusted_message_origin(self, mock_send):
+        mock_send.return_value = CommandResult(success=True, status_code=200)
+        task_run = MagicMock()
+
+        send_user_message(task_run, "Child finished", origin={"kind": "automation", "source": "child"})
+
+        mock_send.assert_called_once_with(
+            task_run,
+            method="user_message",
+            params={"content": "Child finished", "origin": {"kind": "automation", "source": "child"}},
+            auth_token=None,
+            timeout=15,
+        )
+
 
 class TestSendCancel:
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")

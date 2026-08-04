@@ -45,6 +45,7 @@ from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
+    DELEGATION_PROFILES,
     INITIAL_PERMISSION_MODE_CHOICES,
     PUBLIC_REASONING_EFFORTS,
     LLMProvider,
@@ -768,6 +769,16 @@ class TaskSpawnRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional target repository in organization/repository format.",
     )
+    delegation_profile = serializers.ChoiceField(
+        choices=list(DELEGATION_PROFILES),
+        required=False,
+        default=None,
+        help_text=(
+            "Server-managed child capability and cost profile. Choose 'low' for focused implementation, "
+            "'medium' for balanced work, or 'high' for difficult planning and implementation. Cannot be combined "
+            "with explicit runtime_adapter, model, or reasoning_effort fields."
+        ),
+    )
     runtime_adapter = serializers.ChoiceField(
         choices=[adapter.value for adapter in RuntimeAdapter], required=False, default=None
     )
@@ -794,6 +805,12 @@ class TaskSpawnRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if attrs.get("delegation_profile") is not None and any(
+            attrs.get(field) is not None for field in ("runtime_adapter", "model", "reasoning_effort")
+        ):
+            raise serializers.ValidationError(
+                {"delegation_profile": "Cannot be combined with explicit runtime_adapter, model, or reasoning_effort."}
+            )
         runtime_fields = ("runtime_adapter", "model")
         if any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort")):
             errors = {

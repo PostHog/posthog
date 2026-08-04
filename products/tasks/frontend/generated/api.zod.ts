@@ -3043,6 +3043,13 @@ export const TasksSpawnCreateBody = /* @__PURE__ */ zod.object({
         .max(tasksSpawnCreateBodyRepositoryMax)
         .nullish()
         .describe('Optional target repository in organization\/repository format.'),
+    delegation_profile: zod
+        .enum(['high', 'medium', 'low'])
+        .describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low')
+        .optional()
+        .describe(
+            "Server-managed child capability and cost profile. Choose 'low' for focused implementation, 'medium' for balanced work, or 'high' for difficult planning and implementation. Cannot be combined with explicit runtime_adapter, model, or reasoning_effort fields.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high"
+        ),
     runtime_adapter: zod.enum(['claude', 'codex']).optional().describe('\* `claude` - claude\n\* `codex` - codex'),
     model: zod.string().optional(),
     reasoning_effort: zod

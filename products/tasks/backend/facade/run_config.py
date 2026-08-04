@@ -22,6 +22,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.models import TaskArtifact as _TaskArtifact
 from products.tasks.backend.temporal.process_task.utils import (
     CONTEXT_WINDOW_CHOICES,
+    DELEGATION_PROFILES,
     PUBLIC_REASONING_EFFORTS,
     GitHubCredentialSource,
     LLMProvider,
@@ -46,6 +47,7 @@ __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",
     "CODEX_INITIAL_PERMISSION_MODE_CHOICES",
     "CONTEXT_WINDOW_CHOICES",
+    "DELEGATION_PROFILES",
     "INITIAL_PERMISSION_MODE_CHOICES",
     "InitialPermissionMode",
     "PUBLIC_REASONING_EFFORTS",

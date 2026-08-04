@@ -889,6 +889,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     message_id=followup.message_id,
                     message_context=followup.context,
                     steer=followup.steer,
+                    source=followup.source,
                 )
                 if followup.steer and outcome == STEER_DECLINED_OUTCOME:
                     self._insert_followup_in_arrival_order(
@@ -1454,6 +1455,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message_context: dict[str, Any] | None = None,
         *,
         steer: bool = False,
+        source: str = FOLLOWUP_SOURCE_USER,
     ) -> str | None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
@@ -1472,6 +1474,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 actor_user_id=actor_user_id,
                 context=message_context if isinstance(message_context, dict) else {},
                 steer=steer,
+                source=source,
             ),
             start_to_close_timeout=timedelta(minutes=35),
             # See process_task: heartbeat detects worker restarts, message_id

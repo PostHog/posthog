@@ -3715,6 +3715,19 @@ export interface SlackThreadContextResponseApi {
 }
 
 /**
+ * * `high` - high
+ * * `medium` - medium
+ * * `low` - low
+ */
+export type TierEnumApi = (typeof TierEnumApi)[keyof typeof TierEnumApi]
+
+export const TierEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+/**
  * * `pr_merged` - pr_merged
  */
 export type WakeOnEnumApi = (typeof WakeOnEnumApi)[keyof typeof WakeOnEnumApi]
@@ -3739,6 +3752,12 @@ export interface TaskSpawnRequestApi {
      * @nullable
      */
     repository?: string | null
+    /** Server-managed child capability and cost profile. Choose 'low' for focused implementation, 'medium' for balanced work, or 'high' for difficult planning and implementation. Cannot be combined with explicit runtime_adapter, model, or reasoning_effort fields.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high */
+    delegation_profile?: TierEnumApi
     runtime_adapter?: RuntimeAdapterEnumApi
     model?: string
     reasoning_effort?: ReasoningEffortEnumApi

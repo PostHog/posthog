@@ -5,6 +5,7 @@ import {
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { McpToolView } from "@posthog/ui/features/mcp-apps/components/McpToolView";
+import { TasksSpawnToolView } from "@posthog/ui/features/mcp-apps/components/TasksSpawnToolView";
 import { parseMcpToolKey } from "@posthog/ui/features/mcp-apps/utils/mcp-app-host-utils";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -20,6 +21,18 @@ interface McpToolBlockProps extends ToolViewProps {
 }
 
 export function McpToolBlock(props: McpToolBlockProps) {
+  const { mcpToolName } = props;
+  const { serverName, toolName } = parseMcpToolKey(mcpToolName);
+  const isTasksSpawn = serverName === "posthog" && toolName === "tasks-spawn";
+
+  if (isTasksSpawn) {
+    return <TasksSpawnToolView {...props} />;
+  }
+
+  return <GenericMcpToolBlock {...props} />;
+}
+
+function GenericMcpToolBlock(props: McpToolBlockProps) {
   const { mcpToolName, toolCall } = props;
   const { serverName, toolName } = parseMcpToolKey(mcpToolName);
 

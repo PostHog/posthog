@@ -16,6 +16,16 @@ There is no parent-child field on `Task`. Grouping belongs to channels, and addi
 
 Orchestration has a depth limit of one. A run with `parent_task_id` cannot spawn another child.
 
+## Child capability
+
+`tasks-spawn` accepts a server-managed `delegation_profile` for callers that want to control cost and capability without selecting a runtime-specific model combination:
+
+- `low` uses the cheapest supported implementation configuration.
+- `medium` uses a balanced implementation configuration.
+- `high` uses the strongest supported planning and implementation configuration.
+
+Callers that need an exact configuration can instead provide `runtime_adapter`, `model`, and `reasoning_effort`. Profiles and explicit runtime fields cannot be combined.
+
 ## Wake delivery
 
 Every terminal child status wakes the parent. A child can also wake the parent when its pull request merges by including `pr_merged` in `wake_on` at spawn time.
@@ -27,6 +37,8 @@ The wake service resolves the parent task's current run when it delivers the mes
 3. Resume a cold parent and deliver all queued wakes.
 
 Wake messages are built from task and run records. They include the child's status, error, and pull request URL when available.
+
+Child and CI follow-ups carry trusted source metadata through the agent protocol. Clients render them as automation messages rather than attributing them to the user.
 
 ## Running dependent child tasks
 

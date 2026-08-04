@@ -66,7 +66,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
 )
-from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
+from products.tasks.backend.facade.run_config import DELEGATION_PROFILES, TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -411,6 +411,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Team task run rate limit exceeded"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         wake_on = data.pop("wake_on")
+        delegation_profile = data.pop("delegation_profile")
+        if delegation_profile is not None:
+            data.update(DELEGATION_PROFILES[delegation_profile])
         parent_state = parent_run.state or {}
         sandbox_environment_id = data.pop("sandbox_environment_id", parent_state.get("sandbox_environment_id"))
         custom_image_id = data.pop("custom_image_id", parent_state.get("custom_image_id"))
@@ -444,6 +447,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "parent_task_id": str(parent_run.task_id),
                     "parent_run_id": str(parent_run.id),
                     "wake_on": wake_on,
+                    **({"delegation_profile": delegation_profile} if delegation_profile else {}),
                 },
             )
             if result is None or result.error is not None or result.run is None:

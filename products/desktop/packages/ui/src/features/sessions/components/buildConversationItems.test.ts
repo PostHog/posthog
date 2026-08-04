@@ -169,6 +169,21 @@ function refusalStatusMsg(
 }
 
 describe("buildConversationItems", () => {
+  it("preserves trusted automation origin metadata on user messages", () => {
+    const event = userPromptMsg(1, 1, "Child finished the implementation");
+    if ("params" in event.message) {
+      event.message.params = {
+        ...(event.message.params as object),
+        _meta: { messageOrigin: { kind: "automation", source: "child" } },
+      };
+    }
+
+    expect(buildConversationItems([event], null).items[0]).toMatchObject({
+      type: "user_message",
+      origin: { kind: "automation", source: "child" },
+    });
+  });
+
   it("extracts cloud prompt attachments into user messages", () => {
     const uri = makeAttachmentUri("/tmp/hello world.txt");
 

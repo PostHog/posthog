@@ -41,6 +41,11 @@ export interface TurnContext {
   turnComplete: boolean;
 }
 
+export type MessageOrigin = {
+  kind: "automation";
+  source: "child" | "ci";
+};
+
 export type ConversationItem =
   | {
       type: "user_message";
@@ -49,6 +54,7 @@ export type ConversationItem =
       timestamp: number;
       attachments?: UserMessageAttachment[];
       pinToTop?: boolean;
+      origin?: MessageOrigin;
     }
   | { type: "git_action"; id: string; actionType: GitActionType }
   | { type: "skill_button_action"; id: string; buttonId: SkillButtonId }
@@ -466,6 +472,7 @@ function handlePromptRequest(
 
   const userPrompt = extractUserPrompt(msg.params);
   const userContent = userPrompt.content;
+  const origin = extractMessageOrigin(msg.params);
 
   if (userContent.trim().length === 0 && userPrompt.attachments.length === 0) {
     return;
@@ -544,8 +551,25 @@ function handlePromptRequest(
       content: userContent,
       timestamp: ts,
       attachments: userPrompt.attachments,
+      ...(origin ? { origin } : {}),
     });
   }
+}
+
+function extractMessageOrigin(params: unknown): MessageOrigin | undefined {
+  if (!params || typeof params !== "object") return undefined;
+  const meta = (params as { _meta?: unknown })._meta;
+  if (!meta || typeof meta !== "object") return undefined;
+  const origin = (meta as { messageOrigin?: unknown }).messageOrigin;
+  if (!origin || typeof origin !== "object") return undefined;
+  const value = origin as { kind?: unknown; source?: unknown };
+  if (
+    value.kind === "automation" &&
+    (value.source === "child" || value.source === "ci")
+  ) {
+    return { kind: value.kind, source: value.source };
+  }
+  return undefined;
 }
 
 function handlePromptResponse(

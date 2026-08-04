@@ -81,6 +81,7 @@ class SendFollowupToSandboxInput:
     # Signal context, passed through from PendingFollowup.
     context: dict[str, Any] | None = None
     steer: bool = False
+    source: str = "user"
     max_attempts: int = SEND_FOLLOWUP_MAX_ATTEMPTS
 
 
@@ -247,6 +248,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
         message_id=input.message_id,
         steer=input.steer,
+        origin={"kind": "automation", "source": input.source} if input.source in {"child", "ci"} else None,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",

@@ -3,6 +3,7 @@ import {
   Check,
   Copy,
   FileText,
+  Robot,
   Scroll,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
@@ -384,11 +385,13 @@ function UserBubble({
   timestamp,
   attachments = [],
   keyboardFocused = false,
+  origin,
 }: {
   content: string;
   timestamp?: number;
   attachments?: UserMessageAttachment[];
   keyboardFocused?: boolean;
+  origin?: Extract<ConversationItem, { type: "user_message" }>["origin"];
 }) {
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
@@ -436,6 +439,9 @@ function UserBubble({
   );
 
   const containsFileMentions = hasFileMentions(displayContent);
+  const isAutomation = origin?.kind === "automation";
+  const automationLabel =
+    origin?.source === "child" ? "Child task" : "CI automation";
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -458,8 +464,14 @@ function UserBubble({
 
   return (
     <MessageContextMenu value={displayContent}>
-      <ChatMessage align="end" className="group">
+      <ChatMessage align={isAutomation ? "start" : "end"} className="group">
         <ChatMessageContent className="gap-1">
+          {isAutomation && (
+            <ChatMessageHeader className="flex items-center gap-1 text-muted-foreground text-xs">
+              <Robot className="size-3.5" />
+              {automationLabel}
+            </ChatMessageHeader>
+          )}
           {showHeaderChips && (
             <ChatMessageHeader className="flex-wrap gap-1">
               {showChannelContextTag && channelContext && (
@@ -498,10 +510,11 @@ function UserBubble({
             </ChatMessageHeader>
           )}
           <ChatBubble
-            align="end"
+            align={isAutomation ? "start" : "end"}
             variant="default"
             className={cn(
               "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
+              isAutomation && "border border-border bg-muted/40",
               keyboardFocused && "ring-[3px]",
             )}
           >
@@ -672,6 +685,7 @@ function ThreadItemBody({
         timestamp={item.timestamp}
         attachments={item.attachments}
         keyboardFocused={keyboardFocused}
+        origin={item.origin}
       />
     );
   }

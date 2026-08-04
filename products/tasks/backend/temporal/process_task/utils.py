@@ -221,6 +221,12 @@ DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     RuntimeAdapter.CODEX.value: "gpt-5",
 }
 
+DELEGATION_PROFILES: dict[str, dict[str, str]] = {
+    "low": {"runtime_adapter": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "low"},
+    "medium": {"runtime_adapter": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
+    "high": {"runtime_adapter": "claude", "model": "claude-fable-5", "reasoning_effort": "max"},
+}
+
 
 def get_default_model_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> str | None:
     if runtime_adapter is None:

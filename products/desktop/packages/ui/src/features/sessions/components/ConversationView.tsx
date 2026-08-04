@@ -372,6 +372,7 @@ export function ConversationView({
               animate={!initialItemIds.has(item.id)}
               taskId={taskId}
               keyboardFocused={item.id === keyboardFocusedMessageId}
+              origin={item.origin}
               sourceUrl={
                 slackThreadUrl && item.id === firstUserMessageId
                   ? slackThreadUrl

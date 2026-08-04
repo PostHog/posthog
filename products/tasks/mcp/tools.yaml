@@ -618,6 +618,7 @@ tools:
             - title
             - description
             - repository
+            - delegation_profile
             - runtime_adapter
             - model
             - reasoning_effort

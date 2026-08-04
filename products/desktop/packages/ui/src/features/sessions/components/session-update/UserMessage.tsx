@@ -2,6 +2,7 @@ import {
   Check,
   Copy,
   FileText,
+  Robot,
   Scroll,
   SlackLogo,
 } from "@phosphor-icons/react";
@@ -14,6 +15,7 @@ import { MarkdownRenderer } from "../../../editor/components/MarkdownRenderer";
 import { useFeatureFlag } from "../../../feature-flags/useFeatureFlag";
 import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
 import type { UserMessageAttachment } from "../../userMessageTypes";
+import type { MessageOrigin } from "../buildConversationItems";
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
 import { extractCanvasInstructions } from "./canvasInstructions";
@@ -36,6 +38,7 @@ interface UserMessageProps {
   /** Task the message belongs to — needed to open the context file tab. */
   taskId?: string;
   keyboardFocused?: boolean;
+  origin?: MessageOrigin;
 }
 
 function formatTimestamp(ts: number): string {
@@ -62,6 +65,7 @@ export const UserMessage = memo(function UserMessage({
   animate = true,
   taskId,
   keyboardFocused = false,
+  origin,
 }: UserMessageProps) {
   // A channel's CONTEXT.md and the canvas generation instructions, if injected
   // into this prompt, are each collapsed into a clickable tag instead of
@@ -117,6 +121,8 @@ export const UserMessage = memo(function UserMessage({
 
   const containsFileMentions = hasFileMentions(displayContent);
   const showAttachmentChips = attachments.length > 0 && !containsFileMentions;
+  const automationLabel =
+    origin?.source === "child" ? "Child task" : "CI automation";
   const [copied, setCopied] = useState(false);
 
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -140,8 +146,14 @@ export const UserMessage = memo(function UserMessage({
     >
       <Box
         className={`group/msg relative border-l-2 bg-gray-2 py-2 pl-3 transition-shadow ${keyboardFocused ? "ring-(--accent-9) ring-2 ring-offset-(--gray-2) ring-offset-2" : ""}`}
-        style={{ borderColor: "var(--accent-9)" }}
+        style={{ borderColor: origin ? "var(--gray-8)" : "var(--accent-9)" }}
       >
+        {origin && (
+          <Flex align="center" gap="1" className="mb-1 text-gray-10 text-xs">
+            <Robot size={14} />
+            {automationLabel}
+          </Flex>
+        )}
         <CollapsibleMessageContent contentClassName="font-medium text-[13px] [&_p]:leading-[1.9]">
           {containsFileMentions ? (
             parseFileMentions(displayContent)

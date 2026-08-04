@@ -72868,6 +72868,12 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
+      /** Server-managed child capability and cost profile. Choose 'low' for focused implementation, 'medium' for balanced work, or 'high' for difficult planning and implementation. Cannot be combined with explicit runtime_adapter, model, or reasoning_effort fields.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high */
+      delegation_profile?: TierEnum;
       runtime_adapter?: RuntimeAdapterEnum;
       model?: string;
       reasoning_effort?: ReasoningEffortEnum;

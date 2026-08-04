@@ -69,6 +69,12 @@ export const userMessageParamsSchema = z
     artifacts: z.array(z.record(z.string(), z.unknown())).optional(),
     messageId: z.string().min(1).optional(),
     steer: z.boolean().optional(),
+    origin: z
+      .object({
+        kind: z.literal("automation"),
+        source: z.enum(["child", "ci"]),
+      })
+      .optional(),
   })
   .refine(
     (params) => {

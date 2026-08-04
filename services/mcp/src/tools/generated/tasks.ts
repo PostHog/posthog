@@ -687,6 +687,9 @@ const tasksSpawn = (): ToolBase<typeof TasksSpawnSchema, WithPostHogUrl<Schemas.
         if (params.repository !== undefined) {
             body['repository'] = params.repository
         }
+        if (params.delegation_profile !== undefined) {
+            body['delegation_profile'] = params.delegation_profile
+        }
         if (params.runtime_adapter !== undefined) {
             body['runtime_adapter'] = params.runtime_adapter
         }
