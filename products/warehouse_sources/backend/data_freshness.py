@@ -2,7 +2,8 @@ from datetime import datetime
 
 from django.db.models import Max
 
-from posthog.data_freshness import DataSourceSpec, ProbeWindow, postgres_timeout
+from posthog.data_freshness import POSTGRES_TIMEOUT_MS, DataSourceSpec, ProbeWindow
+from posthog.models.utils import execute_with_timeout
 from posthog.schema_enums import ProductKey
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -25,7 +26,7 @@ def last_sync_at(team_ids: list[int], window: ProbeWindow) -> dict[int, datetime
         .values("team_id")
         .annotate(last_synced=Max("last_synced_at"))
     )
-    with postgres_timeout():
+    with execute_with_timeout(POSTGRES_TIMEOUT_MS):
         return {row["team_id"]: row["last_synced"] for row in rows}
 
 

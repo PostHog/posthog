@@ -32,8 +32,7 @@ this module makes about all of time, and it leans on `Team.ingested_event`.
 import hashlib
 import importlib
 import importlib.util
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -41,7 +40,6 @@ from functools import lru_cache, partial
 from typing import Optional
 
 from django.apps import apps
-from django.db import connection, transaction
 from django.db.models import BigIntegerField, Case, CharField, Max, Value, When
 from django.db.models.functions import Coalesce
 
@@ -49,8 +47,9 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.models.utils import execute_with_timeout
 from posthog.schema_enums import ProductKey
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import ensure_utc, get_safe_cache, safe_cache_set
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
 
@@ -71,7 +70,7 @@ _CACHE_SCHEMA_VERSION = 2
 # Backstops, not a latency budget: the cache means one org pays a slow compute at most once per
 # TTL, so these are set well above any legitimate org and exist to stop a pathological one from
 # holding a worker (Postgres has no server-side statement_timeout on this connection).
-POSTGRES_TIMEOUT_SECONDS = 15
+POSTGRES_TIMEOUT_MS = 15_000
 CLICKHOUSE_SETTINGS = {
     "max_execution_time": 30,
     # The cluster's failure mode is concurrent IO-heavy reads, so bytes are capped harder than
@@ -312,7 +311,9 @@ def _probe_event_definitions(specs: tuple[DataSourceSpec, ...], teams: list[Team
         .annotate(last_seen=Max("last_seen_at"))
     )
 
-    with postgres_timeout():
+    # Evaluated inside the block: the timeout is transaction-local, so it only covers the query
+    # if the queryset is actually run here rather than merely built here.
+    with execute_with_timeout(POSTGRES_TIMEOUT_MS):
         rows = list(queryset)
     return [
         (team.id, ProductKey(row["source"]), row["last_seen"])
@@ -357,7 +358,7 @@ def _probe_app_metrics(specs: tuple[DataSourceSpec, ...], teams: list[Team], win
             settings=CLICKHOUSE_SETTINGS,
         )
     return [
-        (team_id, products_by_app_source[app_source], as_utc(last_data_at))
+        (team_id, products_by_app_source[app_source], ensure_utc(last_data_at))
         for team_id, app_source, last_data_at in rows
     ]
 
@@ -366,23 +367,3 @@ def _run_source_probe(spec: DataSourceSpec, teams: list[Team], window: ProbeWind
     assert spec.probe is not None
     found = spec.probe([team.id for team in teams], window)
     return [(team_id, spec.product, last_data_at) for team_id, last_data_at in found.items()]
-
-
-@contextmanager
-def postgres_timeout() -> Iterator[None]:
-    """Bound a Postgres probe so a pathological project can't hold a worker.
-
-    `SET LOCAL` rather than a session-level `SET`, because it reverts at commit and so stays
-    correct under pgbouncer's transaction pooling, where a connection is handed to another
-    request as soon as this one ends. That is also why the queryset has to be evaluated inside
-    the block rather than merely constructed in it.
-    """
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SET LOCAL statement_timeout = %s", [POSTGRES_TIMEOUT_SECONDS * 1000])
-        yield
-
-
-def as_utc(value: datetime) -> datetime:
-    """ClickHouse hands back naive datetimes; they are always UTC."""
-    return value if value.tzinfo else value.replace(tzinfo=UTC)

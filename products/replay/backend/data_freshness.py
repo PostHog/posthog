@@ -2,8 +2,9 @@ from datetime import datetime
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.data_freshness import CLICKHOUSE_SETTINGS, DataSourceSpec, ProbeWindow, as_utc
+from posthog.data_freshness import CLICKHOUSE_SETTINGS, DataSourceSpec, ProbeWindow
 from posthog.schema_enums import ProductKey
+from posthog.utils import ensure_utc
 
 
 def _max_between(team_ids: list[int], since: datetime, until: datetime) -> dict[int, datetime]:
@@ -20,7 +21,7 @@ def _max_between(team_ids: list[int], since: datetime, until: datetime) -> dict[
             {"team_ids": team_ids, "since": since, "until": until},
             settings=CLICKHOUSE_SETTINGS,
         )
-    return {team_id: as_utc(last_data_at) for team_id, last_data_at in rows}
+    return {team_id: ensure_utc(last_data_at) for team_id, last_data_at in rows}
 
 
 def last_replay_at(team_ids: list[int], window: ProbeWindow) -> dict[int, datetime]:

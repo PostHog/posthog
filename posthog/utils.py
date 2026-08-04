@@ -1620,6 +1620,14 @@ def get_safe_cache(cache_key: str):
     return None
 
 
+def ensure_utc(value: dt.datetime) -> dt.datetime:
+    """Treat a tz-naive datetime as UTC, so it can be compared against tz-aware values.
+
+    ClickHouse and some third-party APIs hand back naive datetimes that are UTC by contract.
+    """
+    return value if value.tzinfo else value.replace(tzinfo=dt.UTC)
+
+
 def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:
     """Best-effort cache write. Logs a warning on failure so Redis blips
     are visible during incidents without breaking the calling request."""
