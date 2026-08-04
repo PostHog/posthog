@@ -7685,6 +7685,11 @@ export type OAuthApplicationPublicMetadata = {
     required_scopes?: string[]
     /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
     wildcard_read_scopes?: string[]
+    /**
+     * The app's resolved scope ceiling. `/authorize` clamps the request to this set, so a requested
+     * scope missing from it is dropped rather than granted and must not be rendered as a consent row.
+     */
+    grantable_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
