@@ -6536,6 +6536,29 @@ class TestExperimentService(APIBaseTest):
     # Event/action validation on update_experiment
     # ------------------------------------------------------------------
 
+    def test_update_keeps_metric_whose_event_was_never_ingested(self):
+        service = self._service()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Move Stale Event",
+            feature_flag_key="move-stale-event-flag",
+            allow_unknown_events=True,
+            metrics=[metric],
+        )
+
+        # Moving the metric to the other section resends both arrays without the
+        # opt-in flag. The event is already on the experiment, so it must not be
+        # re-validated: a stale name would otherwise block every metric edit.
+        updated = service.update_experiment(experiment, {"metrics": [], "metrics_secondary": [metric]})
+
+        assert updated.metrics == []
+        assert updated.metrics_secondary is not None and len(updated.metrics_secondary) == 1
+        assert updated.metrics_secondary[0]["source"]["event"] == "not_yet_deployed"
+
     def test_update_experiment_with_unknown_event_raises(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
         service = self._service()
