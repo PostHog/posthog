@@ -52,11 +52,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
-import { ensurePersonalChannel } from "@posthog/ui/features/canvas/ensurePersonalChannel";
-import {
-  useChannelStars,
-  useChannelStarToggle,
-} from "@posthog/ui/features/canvas/hooks/useChannelStars";
+import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
   type Channel,
   useChannelMutations,
@@ -65,10 +61,7 @@ import {
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
-import {
-  PERSONAL_CHANNEL_NAME,
-  useTaskChannels,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import {
   showChannelPane,
@@ -199,7 +192,7 @@ function useChannelActions(channel: Channel): {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { deleteChannel, isDeleting } = useChannelMutations();
-  const { isStarred, toggleStar, removeStar } = useChannelStarToggle(channel);
+  const { isStarred, toggleStar } = useChannelStarToggle(channel);
 
   // Runs the actual delete once confirmed. Returns whether it succeeded so the
   // dialog can stay open (and show the toast) on failure.
@@ -218,12 +211,12 @@ function useChannelActions(channel: Channel): {
           hostClient().dashboards.delete.mutate({ id: d.id }),
         ),
         ...channelTasks.map((t) =>
-          hostClient().channelTasks.unfile.mutate({ id: t.id }),
+          hostClient().channelTasks.unfile.mutate({ taskId: t.taskId }),
         ),
       ]);
 
+      // Deleting the channel removes its per-user stars server-side with it.
       await deleteChannel(channel.id);
-      removeStar();
       // Unscope immediately if this was the current channel — otherwise the
       // sidebar renders a dead id (and new tasks file against it) until the
       // channels list refetches. useCurrentChannel is the backstop.
@@ -619,41 +612,37 @@ function ChannelSection({
 }
 
 // The user's private "#me" channel, pinned above the shared channel list.
-// The feed and task ownership live on the per-user backend personal channel;
-// the "me" folder is the bridge that keeps the folder-keyed surfaces
-// (CONTEXT.md, artifacts) routable, created lazily on first open.
+// Provisioned lazily server-side when the channel list is fetched, so the row
+// only has to find it — there is no client-side create.
 /**
  * Opening the "me" row, shared by the row itself and the search results.
  *
- * The folder is created on first use, so every action resolves the id rather
- * than closing over it — "me" is actionable before it exists. The create is
- * shared (ensurePersonalChannel) so a row click racing its "+" menu can't
- * provision two.
+ * The personal channel appears with the first channel-list fetch; until then
+ * the row's actions have nothing truthful to act on, so they explain rather
+ * than provision a duplicate.
  */
 function useOpenPersonalChannel(): {
-  ensureFolderId: () => Promise<string | undefined>;
-  openPersonalChannel: () => Promise<void>;
-  isCreating: boolean;
+  ensureChannelId: () => string | undefined;
+  openPersonalChannel: () => void;
 } {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
   const { channels } = useChannels();
-  const { createChannel, isCreating } = useChannelMutations();
 
-  const ensureFolderId = async (): Promise<string | undefined> => {
-    try {
-      return (await ensurePersonalChannel(channels, createChannel)).id;
-    } catch (error) {
+  const ensureChannelId = (): string | undefined => {
+    const meChannel = channels.find((c) => c.channelType === "personal");
+    if (!meChannel) {
       toast.error("Couldn't open me", {
-        description: error instanceof Error ? error.message : String(error),
+        description: "Your personal channel is still loading.",
       });
       return undefined;
     }
+    return meChannel.id;
   };
 
-  const openPersonalChannel = async () => {
-    const channelId = await ensureFolderId();
+  const openPersonalChannel = () => {
+    const channelId = ensureChannelId();
     if (!channelId) return;
     showChannelPane();
     setCurrentChannel(channelId);
@@ -662,7 +651,7 @@ function useOpenPersonalChannel(): {
     }
   };
 
-  return { ensureFolderId, openPersonalChannel, isCreating };
+  return { ensureChannelId, openPersonalChannel };
 }
 
 /**
@@ -695,25 +684,22 @@ function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
   const spacesLayout = useChannelsLayout();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
-  const { ensureFolderId, openPersonalChannel, isCreating } =
-    useOpenPersonalChannel();
-  // Listing backend channels lazily provisions the personal channel server-side.
-  useTaskChannels();
+  const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
   // The "+" dropdown (New task / New canvas), mirroring a shared channel row.
   const [newMenuOpen, setNewMenuOpen] = useState(false);
-  const isUnread = useIsChannelUnread()(PERSONAL_CHANNEL_NAME);
 
-  const meFolder = channels.find((c) => c.name === PERSONAL_CHANNEL_NAME);
-  const createAndOpenCanvas = useCreateAndOpenDashboard(meFolder?.id);
+  // Personal channels are provisioned lazily server-side when the channel list
+  // is fetched; `undefined` just means the list hasn't loaded it yet.
+  const meChannel = channels.find((c) => c.channelType === "personal");
+  const isUnread = useIsChannelUnread()(meChannel?.id);
+  const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
   const isActive =
-    !!meFolder &&
-    (pathname === `/website/${meFolder.id}` ||
-      pathname.startsWith(`/website/${meFolder.id}/`));
+    !!meChannel &&
+    (pathname === `/website/${meChannel.id}` ||
+      pathname.startsWith(`/website/${meChannel.id}/`));
 
-  const open = openPersonalChannel;
-
-  const newTask = async () => {
-    const channelId = await ensureFolderId();
+  const newTask = () => {
+    const channelId = ensureChannelId();
     if (!channelId) return;
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "new_task_open",
@@ -723,8 +709,8 @@ function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
     openTaskInput({ channelId });
   };
 
-  const newCanvas = async () => {
-    const channelId = await ensureFolderId();
+  const newCanvas = () => {
+    const channelId = ensureChannelId();
     if (!channelId) return;
     trackAndCreateCanvas(
       channelId,
@@ -738,12 +724,12 @@ function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
     <Box className="group/chan relative">
       <SpaceRowSurface
         asOption={spacesLayout}
-        // "me" is provisioned on first use, so before it exists there is no id
-        // to identify the option by — its name is unique among spaces either way.
-        optionValue={meFolder?.id ?? PERSONAL_CHANNEL_NAME}
+        // "me" is provisioned server-side with the first list fetch, so before
+        // it loads there is no id to identify the option by — its name is
+        // unique among spaces either way.
+        optionValue={meChannel?.id ?? PERSONAL_CHANNEL_NAME}
         data-selected={isActive || undefined}
-        disabled={isCreating}
-        onClick={() => void open()}
+        onClick={openPersonalChannel}
       >
         {channelGlyph(PERSONAL_CHANNEL_NAME, {
           size: 14,
@@ -804,11 +790,11 @@ function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
             sideOffset={4}
             className="w-auto min-w-fit"
           >
-            <DropdownMenuItem onClick={() => void newTask()}>
+            <DropdownMenuItem onClick={newTask}>
               <FileTextIcon size={14} />
               New task
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => void newCanvas()}>
+            <DropdownMenuItem onClick={newCanvas}>
               <ChartBarIcon size={14} />
               New canvas
             </DropdownMenuItem>
@@ -913,7 +899,6 @@ function ChannelGroup({
 // the sidebar outside this scroll region.
 export function ChannelsList() {
   const { channels: allChannels, isLoading } = useChannels();
-  const { starredRefToShortcutId } = useChannelStars();
   // ChannelHotkeys owns the keys these slots describe; sharing the derivation
   // keeps the advertised key and the key that fires in agreement — including
   // the fact that it only binds them under the layout, so off it the list
@@ -930,11 +915,11 @@ export function ChannelsList() {
   const matches = (name: string) =>
     !normalizedQuery || name.toLowerCase().includes(normalizedQuery);
 
-  // The "me" folder renders as the pinned personal row, not a shared channel.
-  const me = allChannels.find((c) => c.name === PERSONAL_CHANNEL_NAME);
-  const channels = allChannels.filter((c) => c.name !== PERSONAL_CHANNEL_NAME);
-  const starred = channels.filter((c) => starredRefToShortcutId.has(c.path));
-  const others = channels.filter((c) => !starredRefToShortcutId.has(c.path));
+  // The personal channel renders as the pinned "#me" row, not a shared channel.
+  const me = allChannels.find((c) => c.channelType === "personal");
+  const channels = allChannels.filter((c) => c.channelType !== "personal");
+  const starred = channels.filter((c) => c.starred);
+  const others = channels.filter((c) => !c.starred);
 
   // Searching collapses the sections into one flat list: the group labels only
   // stand between you and the row you already named, and an empty "Starred"
@@ -950,7 +935,8 @@ export function ChannelsList() {
   // keystroke is swallowed re-establishing the highlight it already shows.
   // A collapsed group renders no rows, so it contributes none.
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
-  // "me" is provisioned on first use; before it exists it has no id to go by.
+  // "me" is provisioned server-side with the first list fetch; before it loads
+  // it has no id to go by.
   const meValue = me?.id ?? PERSONAL_CHANNEL_NAME;
   const optionValues = normalizedQuery
     ? [
@@ -998,7 +984,7 @@ export function ChannelsList() {
         <ChannelSection
           key={channel.id}
           channel={channel}
-          isUnread={isUnread(channel.name)}
+          isUnread={isUnread(channel.id)}
         />
       ))}
       {noMatches && (
@@ -1027,7 +1013,7 @@ export function ChannelsList() {
             <ChannelSection
               key={channel.id}
               channel={channel}
-              isUnread={isUnread(channel.name)}
+              isUnread={isUnread(channel.id)}
               hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             />
           ))}
@@ -1054,7 +1040,7 @@ export function ChannelsList() {
           <ChannelSection
             key={channel.id}
             channel={channel}
-            isUnread={isUnread(channel.name)}
+            isUnread={isUnread(channel.id)}
           />
         ))}
       </ChannelGroup>

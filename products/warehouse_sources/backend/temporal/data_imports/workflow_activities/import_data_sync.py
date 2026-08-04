@@ -305,12 +305,20 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ImportJobModels:
+    job: ExternalDataJob
+    schema: ExternalDataSchema
+    source: ExternalDataSource
+    table: DataWarehouseTable | None
+
+
 @database_sync_to_async_pool
 def _get_models(
     job_id: str,
-) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
+) -> ImportJobModels:
     # `schema__source` is prefetched so `job.folder_path()` (via `schema.source.source_type`, called
-    # repeatedly through the run by `DeltaTableHelper._get_delta_table_uri`) never triggers a lazy
+    # repeatedly through the run by `DeltaTableRef._get_delta_table_uri`) never triggers a lazy
     # relation load later on a pooled connection the transaction pooler may have dropped mid-sync,
     # which raises a transient `OperationalError`/DNS failure.
     job = ExternalDataJob.objects.select_related("schema", "schema__table", "schema__source").get(id=job_id)
@@ -322,7 +330,7 @@ def _get_models(
         raise Exception("No source attached to job")
 
     table: DataWarehouseTable | None = schema.table
-    return job, schema, source, table
+    return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
 async def _handle_import_error(
@@ -407,7 +415,7 @@ async def _handle_import_error(
     # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
     # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
     # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_helper.is_transient_maintenance_error.
+    # delta_table_ref.is_transient_maintenance_error.
     if isinstance(error, OperationalError | InterfaceError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
@@ -448,9 +456,9 @@ async def _run(
     resumable_source_manager: ResumableSourceManager | None,
 ) -> PipelineResult:
     try:
-        job, schema, source, table = await _get_models(job_inputs.run_id)
+        models = await _get_models(job_inputs.run_id)
 
-        use_v3 = job.pipeline_version == ExternalDataJob.PipelineVersion.V3
+        use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
@@ -462,11 +470,8 @@ async def _run(
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
         else:
             pipeline = PipelineNonDLT(
@@ -475,11 +480,8 @@ async def _run(
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
 
         result = await pipeline.run()

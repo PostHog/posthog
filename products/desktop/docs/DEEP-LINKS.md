@@ -10,7 +10,7 @@ PostHog registers custom URL schemes so the desktop app can be opened with conte
 | Development | `posthog-code-dev://` |
 | Legacy (production only) | `twig://`, `array://` |
 
-All schemes route through the same dispatcher. The host portion of the URL selects the handler (`task`, `inbox`, `scout`, `approval`, `canvas`, `channel`, `new`, `plan`, `issue`, `callback`, `integration`, `slack-integration`, `mcp-oauth-complete`).
+All schemes route through the same dispatcher. The host portion of the URL selects the handler (`task`, `inbox`, `scout`, `loop`, `approval`, `canvas`, `channel`, `new`, `plan`, `issue`, `callback`, `integration`, `slack-integration`, `mcp-oauth-complete`).
 
 If the app is not running, the OS launches it and the link is queued until the renderer is ready. If the app is minimised, it is restored and focused before the link is handled.
 
@@ -114,6 +114,19 @@ emission card.
 ```
 posthog-code://scout/error-tracking
 posthog-code://scout/error-tracking?finding=abc123
+```
+
+### `posthog-code://loop/<loopId>`
+
+Open a loop's detail page. This is the link copied by the "Copy link" button on
+a loop's detail page.
+
+| Segment | Required | Description |
+|---|---|---|
+| `<loopId>` | Yes | Loop ID |
+
+```
+posthog-code://loop/abc123
 ```
 
 ### `posthog-code://approval/<requestId>`
@@ -233,6 +246,7 @@ In development the same payload is delivered to `http://localhost:8238/mcp-oauth
 | `task` | [packages/core/src/links/task-link.ts](../packages/core/src/links/task-link.ts) |
 | `inbox` | [packages/core/src/links/inbox-link.ts](../packages/core/src/links/inbox-link.ts) |
 | `scout` | [packages/core/src/links/scout-link.ts](../packages/core/src/links/scout-link.ts) |
+| `loop` | [packages/core/src/links/loop-link.ts](../packages/core/src/links/loop-link.ts) |
 | `approval` | [packages/core/src/links/approval-link.ts](../packages/core/src/links/approval-link.ts) |
 | `canvas` | [packages/core/src/links/canvas-link.ts](../packages/core/src/links/canvas-link.ts) |
 | `channel` | [packages/core/src/links/channel-link.ts](../packages/core/src/links/channel-link.ts) |

@@ -143,6 +143,16 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "Bing Ads OAuth application credentials not configured": None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A Bing SOAP call that comes back with a bare HTTP 400 (no SOAP fault) is rejected at the
+        # transport/edge layer, not by request validation — suds surfaces it as `Exception((400,
+        # 'Bad Request'))`, which our wrapper re-raises as `ValueError(... Exception: (400, 'Bad
+        # Request'))`. A genuinely malformed report request instead returns a coded WebFault
+        # (InvalidReportColumn, etc.), so this shape is a transient upstream blip that Temporal's
+        # activity retry clears — keep it out of error tracking as noise rather than paging as a bug.
+        # Match the stable status tuple only; a fault-backed 400 never produces this substring.
+        return {"(400, 'Bad Request')"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

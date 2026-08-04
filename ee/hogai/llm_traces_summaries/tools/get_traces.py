@@ -26,8 +26,8 @@ class LLMTracesSummarizerCollector:
         query = self._get_traces_query(offset=0, date_range=date_range, limit=limit)
         runner = TracesQueryRunner(query=query, team=self._team, user=self._user)
         # Expecting to get all trace ids in a single query, as it should be lightweight-ish
-        trace_ids, _, _ = runner._get_trace_ids()
-        return trace_ids
+        trace_ids_result = runner._get_trace_ids()
+        return trace_ids_result.trace_ids
 
     @staticmethod
     def _get_traces_query(offset: int, date_range: DateRange, limit: int) -> TracesQuery:

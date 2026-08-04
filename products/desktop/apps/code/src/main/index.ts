@@ -26,6 +26,7 @@ import type { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import type { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import type { ChannelLinkService } from "@posthog/core/links/channel-link";
 import type { InboxLinkService } from "@posthog/core/links/inbox-link";
+import type { LoopLinkService } from "@posthog/core/links/loop-link";
 import type { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import type { ScoutLinkService } from "@posthog/core/links/scout-link";
 import type { TaskLinkService } from "@posthog/core/links/task-link";
@@ -62,6 +63,7 @@ import {
   EXTERNAL_APPS_SERVICE,
   FILE_WATCHER_SERVICE,
   INBOX_LINK_SERVICE,
+  LOOP_LINK_SERVICE,
   FS_SERVICE as MAIN_FS_SERVICE,
   NEW_TASK_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE,
@@ -277,10 +279,11 @@ async function initializeServices(): Promise<void> {
   container.get<ScoutLinkService>(SCOUT_LINK_SERVICE);
   container.get<NewTaskLinkService>(NEW_TASK_LINK_SERVICE);
   container.get<ApprovalLinkService>(APPROVAL_LINK_SERVICE);
-  // Eagerly resolved so their constructors register the `canvas` / `channel`
-  // deep-link handlers at boot, before any link arrives.
+  // Eagerly resolved so their constructors register the `canvas` / `channel` /
+  // `loop` deep-link handlers at boot, before any link arrives.
   container.get<CanvasLinkService>(CANVAS_LINK_SERVICE);
   container.get<ChannelLinkService>(CHANNEL_LINK_SERVICE);
+  container.get<LoopLinkService>(LOOP_LINK_SERVICE);
   container.get<GitHubIntegrationService>(GITHUB_INTEGRATION_SERVICE);
   container.get<SlackIntegrationService>(SLACK_INTEGRATION_SERVICE);
   container.get<ExternalAppsService>(EXTERNAL_APPS_SERVICE);
@@ -435,9 +438,14 @@ app.whenReady().then(async () => {
 
   if (process.env.POSTHOG_E2E_UPDATE_FEED) {
     const updates = container.get<UpdatesService>(UPDATES_SERVICE);
+    // Pin the re-staging rollout on: the packaged e2e app boots posthog with
+    // an anonymous user whose flags would otherwise sync this off mid-test.
+    updates.setStagedUpdatesEnabled(true);
+    updates.setStagedUpdatesEnabled = () => {};
     Object.assign(globalThis, {
       __e2eUpdates: {
         check: () => updates.checkForUpdates(),
+        periodicCheck: () => updates.checkForUpdates("periodic"),
         download: () => updates.requestDownload(),
         install: () => updates.installUpdate(),
         status: () => updates.getStatus(),
