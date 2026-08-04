@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, TypedDict
 
+from django.db.models import QuerySet
+
 import structlog
 
 from posthog.hogql.database.database import Database
@@ -295,20 +297,34 @@ def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> 
         maybe_reconcile_dag(dag)
 
 
-def promote_view_nodes_to_matview(saved_query: "DataWarehouseSavedQuery") -> None:
-    """Retype nodes the DAG still treats as ephemeral views, now that a table backs the query.
+def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
+    """Retype the nodes in `nodes` that a table backs but the graph still calls ephemeral views.
 
-    `revert_materialization` types a node VIEW, and only the `materialize` action ever typed it
-    back — so a query rematerialized any other way (a manual run, an endpoint enable) kept a VIEW
-    node over a live table. `get_dag_structure` calls every VIEW node ephemeral, so each scheduled
-    run then reported success for it without materializing and without writing a job row.
+    `get_dag_structure` calls every VIEW node ephemeral, so a scheduled run reports success for one
+    without materializing it and without writing a job row — it just stops updating, silently. A
+    node ends up in that state because `revert_materialization` types it VIEW and, until the callers
+    below existed, only the `materialize` action ever typed it back.
 
-    Only VIEW nodes are touched: ENDPOINT nodes are materializing types already and must keep
-    their type. No reconcile follows, because tier membership keys off the node's frequency
-    target, not its type.
+    Only VIEW nodes are touched: ENDPOINT nodes are a materializing type already and must keep
+    theirs. Views with no backing table are left alone, being genuinely ephemeral. No reconcile
+    follows, because tier membership keys off the node's frequency target, not its type.
     """
-    if saved_query.table_id is None:
-        return
-    Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query, type=NodeType.VIEW).update(
-        type=NodeType.MAT_VIEW
+    return (
+        nodes.filter(type=NodeType.VIEW, saved_query__table_id__isnull=False)
+        .exclude(saved_query__deleted=True)
+        .update(type=NodeType.MAT_VIEW)
     )
+
+
+def promote_view_nodes_to_matview(saved_query: "DataWarehouseSavedQuery") -> int:
+    """Repair one saved query's nodes, for the path that just linked its table."""
+    return _promote_view_nodes(Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query))
+
+
+def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
+    """Repair a whole DAG's nodes, for the tier conversion that is about to sweep its v1 schedules.
+
+    v1 materializes a saved query whatever its node type, so a stranded node keeps running right up
+    until that sweep and only goes dark afterwards.
+    """
+    return _promote_view_nodes(Node.objects.filter(dag=dag))

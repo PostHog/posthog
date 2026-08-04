@@ -11,10 +11,10 @@ from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
     maybe_reconcile_dag,
-    promote_dag_view_nodes_to_matview,
     reconcile_dag_schedules,
 )
 from products.data_modeling.backend.models.dag import DAG
