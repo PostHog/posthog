@@ -459,6 +459,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -472,6 +473,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -484,6 +486,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -496,6 +499,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -508,6 +512,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -520,6 +525,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -532,6 +538,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -544,6 +551,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -556,6 +564,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -568,6 +577,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -580,6 +590,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -592,6 +603,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -604,6 +616,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -616,6 +629,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -630,6 +644,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -642,6 +657,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -662,6 +678,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -674,6 +691,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -686,6 +704,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -698,6 +717,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -710,6 +730,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -722,6 +743,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -734,6 +756,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -746,6 +769,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -758,6 +782,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -770,6 +795,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -782,6 +808,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -794,6 +821,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -806,6 +834,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -818,6 +847,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -830,6 +860,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -842,6 +873,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -854,6 +886,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -866,6 +899,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -878,6 +912,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -890,6 +925,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -902,6 +938,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -914,6 +951,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -926,6 +964,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -939,6 +978,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -951,6 +991,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -963,6 +1004,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -975,6 +1017,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -987,6 +1030,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -999,6 +1043,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1011,6 +1056,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1023,6 +1069,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1035,6 +1082,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1047,6 +1095,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1059,6 +1108,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1148,6 +1198,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1162,6 +1213,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1174,6 +1226,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1186,6 +1239,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -1198,6 +1252,7 @@ export interface insightVizDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery

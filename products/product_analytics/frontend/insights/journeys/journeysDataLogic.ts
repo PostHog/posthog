@@ -33,7 +33,7 @@ export interface journeysDataLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         results: (insightData: Record<string, any>) => PathsV2Results | null
-        isAnchored: (pathsV2Filter: PathsV2Filter | null) => boolean
+        isAnchored: (pathsV2Filter: PathsV2Filter | null | undefined) => boolean
         gridModel: (results: PathsV2Results | null) => JourneyGridModel
     }
 }
