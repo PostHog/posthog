@@ -21,6 +21,13 @@ AUTO_FILL_KEYS = [
     "SANDBOX_PROVIDER",
     "SANDBOX_MCP_URL",
 ]
+LOCAL_SANDBOX_MCP_URL = "http://host.docker.internal:8787/mcp"
+CLOUD_SANDBOX_MCP_URLS = {
+    "https://mcp.posthog.com/mcp",
+    "https://mcp.us.posthog.com/mcp",
+    "https://mcp-eu.posthog.com/mcp",
+    "https://mcp.eu.posthog.com/mcp",
+}
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
 # Canonical local-dev redirect URIs for the Array OAuth app (matches
 # products/demo/backend/logic/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).
@@ -92,6 +99,11 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f"  Wrote {key} to .env"))
         else:
             self.stdout.write(self.style.SUCCESS("  All auto-shareable env vars already present."))
+
+        if existing_values.get("SANDBOX_MCP_URL") in CLOUD_SANDBOX_MCP_URLS:
+            _replace_env_var(env_path, "SANDBOX_MCP_URL", LOCAL_SANDBOX_MCP_URL)
+            existing_values["SANDBOX_MCP_URL"] = LOCAL_SANDBOX_MCP_URL
+            self.stdout.write(self.style.SUCCESS("  Updated SANDBOX_MCP_URL to the local MCP server."))
 
         return existing_values
 
@@ -253,3 +265,13 @@ def _append_env_vars(env_path: Path, values: dict[str, str]) -> None:
     lines.append("")  # trailing newline
     with env_path.open("a") as f:
         f.write("\n".join(lines))
+
+
+def _replace_env_var(path: Path, key: str, value: str) -> None:
+    lines = path.read_text().splitlines()
+    replacement = f'{key}="{value}"'
+    updated_lines = []
+    for line in lines:
+        match = _ENV_LINE_RE.match(line)
+        updated_lines.append(replacement if match and match.group(1) == key else line)
+    path.write_text("\n".join(updated_lines) + "\n")

@@ -9,4 +9,13 @@ describe('createDevHonoChildEnv', () => {
     ])('sets the expected runtime environment for %o', (parentEnv, expectedNodeEnv) => {
         expect(createDevHonoChildEnv(parentEnv).NODE_ENV).toBe(expectedNodeEnv)
     })
+
+    it('enables orchestration tool discovery by default', () => {
+        expect(createDevHonoChildEnv({}).FEATURE_FLAG_OVERRIDES).toBe('{"tasks-orchestration":true}')
+    })
+
+    it('preserves explicit feature flag overrides', () => {
+        const overrides = '{"tasks-orchestration":false,"another-flag":true}'
+        expect(createDevHonoChildEnv({ FEATURE_FLAG_OVERRIDES: overrides }).FEATURE_FLAG_OVERRIDES).toBe(overrides)
+    })
 })
