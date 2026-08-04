@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { isHogDate, isHogDateTime } from './objects'
 import { toHogDate, toHogDateTime } from './stl/date'
 
@@ -10,6 +12,20 @@ function temporalSeconds(value: any): number | null {
         return toHogDateTime(value).dt
     }
     return null
+}
+
+/**
+ * Epoch seconds for a datetime-shaped string, else null. Parsed exactly as `toDateTime()` does — ISO, and
+ * UTC when the string carries no offset — so comparing a string against a temporal gives what the user
+ * would get from wrapping it in toDateTime() themselves, and what ClickHouse gives for the same
+ * expression over a real DateTime column.
+ */
+function stringTemporalSeconds(value: any): number | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    const parsed = DateTime.fromISO(value, { zone: 'UTC' })
+    return parsed.isValid ? parsed.toSeconds() : null
 }
 
 export class HogVMException extends Error {
@@ -223,6 +239,22 @@ export function unifyComparisonTypes(left: any, right: any): [any, any] {
     const rightSeconds = temporalSeconds(right)
     if (leftSeconds !== null && rightSeconds !== null) {
         return [leftSeconds, rightSeconds]
+    }
+    // One temporal, one datetime-shaped string. `event.timestamp` in filter globals is an ISO string, so
+    // `timestamp > toDateTime(...)` lands here; without this the string is compared against "[object
+    // Object]" and the filter is always false, however the dates actually order. Only coerce when the other
+    // side is temporal, so ordinary string comparisons are untouched.
+    if (leftSeconds !== null) {
+        const rightAsTemporal = stringTemporalSeconds(right)
+        if (rightAsTemporal !== null) {
+            return [leftSeconds, rightAsTemporal]
+        }
+    }
+    if (rightSeconds !== null) {
+        const leftAsTemporal = stringTemporalSeconds(left)
+        if (leftAsTemporal !== null) {
+            return [leftAsTemporal, rightSeconds]
+        }
     }
     if (typeof left === 'number' && typeof right === 'string') {
         return [left, Number(right)]

@@ -358,4 +358,49 @@ describe('hog-function-filtering', () => {
             expect(result.match).toBe(true)
         })
     })
+
+    describe('a SQL filter comparing timestamp against toDateTime', () => {
+        // `event.timestamp` reaches the VM as an ISO string, while toDateTime() yields a temporal, so this
+        // filter pairs a string with an object. That pair used to fall through the comparison unchanged and
+        // be compared against "[object Object]", making the filter always false — a live trigger that never
+        // fired however the dates ordered, with no error to show for it.
+        // Compiled from `timestamp > toDateTime('2026-07-01')` by the HogQL compiler.
+        const BYTECODE = ['_H', 1, 32, '2026-07-01', 2, 'toDateTime', 1, 32, 'timestamp', 1, 1, 13]
+
+        const matchesAt = async (timestamp: string): Promise<boolean> => {
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: {
+                    uuid: 'event_uuid',
+                    event: 'Account Email Verified',
+                    distinct_id: 'user_123',
+                    properties: {},
+                    elements_chain: '',
+                    timestamp,
+                    url: 'http://example.com/event',
+                },
+                person: undefined,
+                groups: {},
+            } as unknown as HogFunctionInvocationGlobals)
+
+            const result = await filterFunctionInstrumented({
+                fn: { id: 'fn', team_id: 1, name: 'fn' } as unknown as HogFunctionType,
+                // The hogql property entry is carried alongside the bytecode, as the compiler emits it. A
+                // filters object holding only bytecode is short-circuited to a match before the VM runs.
+                filters: {
+                    properties: [{ key: "timestamp > toDateTime('2026-07-01')", type: 'hogql', value: null }],
+                    bytecode: BYTECODE,
+                } as unknown as HogFunctionType['filters'],
+                filterGlobals,
+            })
+            return result.match
+        }
+
+        it('matches an event after the cutoff', async () => {
+            await expect(matchesAt('2026-08-04T09:12:33.000Z')).resolves.toBe(true)
+        })
+
+        it('does not match an event before the cutoff', async () => {
+            await expect(matchesAt('2026-01-15T09:12:33.000Z')).resolves.toBe(false)
+        })
+    })
 })
