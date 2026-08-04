@@ -182,8 +182,8 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
-    def test_viewer_can_export_an_archived_dataset(self, _start_workflow: object) -> None:
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_viewer_can_export_an_archived_dataset(self, _async_connect: AsyncMock) -> None:
         create_dataset_item(
             team_id=self.team.id,
             dataset_id=self.dataset.id,

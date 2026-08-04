@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import RestrictedError
@@ -15,9 +15,10 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.ai_observability.backend.api.dataset_exports import DATASET_EXPORT_STUCK_MESSAGE
 from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
-from products.exports.backend.facade.api import DATASET_EXPORT_KIND, STUCK_EXPORT_MESSAGE, ExportedAsset
+from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAsset
 
 
 class TestDatasetsApi(APIBaseTest):
@@ -703,7 +704,7 @@ class TestDatasetsApi(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {read_key}")
 
-        with patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True):
+        with patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock):
             export_response = self.client.post(
                 f"{self.datasets_url}{dataset['id']}/exports/",
                 {},
@@ -918,8 +919,8 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(response.data["count"], 3)
         self.assertEqual(len(response.data["results"]), 2)
 
-    @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
-    def test_dataset_export_pins_revision_and_scopes_status_and_content(self, start_workflow: MagicMock) -> None:
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_dataset_export_pins_revision_and_scopes_status_and_content(self, async_connect: AsyncMock) -> None:
         dataset = self._create_dataset()
         first_item = self._create_item(dataset["id"], input={"question": "First"})
 
@@ -937,7 +938,7 @@ class TestDatasetsApi(APIBaseTest):
             {"id", "status", "dataset_revision", "filename", "created_at", "expires_after", "exception"},
         )
 
-        self.assertEqual(start_workflow.call_count, 1)
+        async_connect.return_value.start_workflow.assert_awaited_once()
 
         self._create_item(dataset["id"], input={"question": "Later"})
         export_id = create_response.data["id"]
@@ -963,9 +964,9 @@ class TestDatasetsApi(APIBaseTest):
         self.assertIn("attachment", content_response["Content-Disposition"])
 
     @patch("products.ai_observability.backend.api.datasets.is_impersonated", return_value=True)
-    @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_dataset_export_logs_exported_asset_activity(
-        self, _start_workflow: MagicMock, _is_impersonated: MagicMock
+        self, _async_connect: AsyncMock, _is_impersonated: MagicMock
     ) -> None:
         dataset = self._create_dataset()
         item = self._create_item(dataset["id"])
@@ -1004,8 +1005,8 @@ class TestDatasetsApi(APIBaseTest):
             },
         )
 
-    @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
-    def test_dataset_export_reports_a_stuck_workflow_as_failed(self, _start_workflow: MagicMock) -> None:
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_dataset_export_reports_a_stuck_workflow_as_failed(self, _async_connect: AsyncMock) -> None:
         dataset = self._create_dataset()
         self._create_item(dataset["id"])
         create_response = self.client.post(f"{self.datasets_url}{dataset['id']}/exports/", {}, format="json")
@@ -1016,9 +1017,9 @@ class TestDatasetsApi(APIBaseTest):
         content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
 
         self.assertEqual(status_response.data["status"], "failed")
-        self.assertEqual(status_response.data["exception"], STUCK_EXPORT_MESSAGE)
+        self.assertEqual(status_response.data["exception"], DATASET_EXPORT_STUCK_MESSAGE)
         self.assertEqual(content_response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(content_response.data, {"detail": STUCK_EXPORT_MESSAGE})
+        self.assertEqual(content_response.data, {"detail": DATASET_EXPORT_STUCK_MESSAGE})
 
     def test_dataset_export_rejects_an_invalid_export_id(self) -> None:
         dataset = self._create_dataset()

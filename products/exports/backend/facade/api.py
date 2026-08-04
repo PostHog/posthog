@@ -1,27 +1,22 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 from datetime import timedelta
-from typing import Literal
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
-from django.utils.timezone import now
 
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.slo.types import SloConfig
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.exports.backend.models.exported_asset import (
-    DATASET_EXPORT_KIND,
+    DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
     get_content_response,
     save_content_from_file as _save_content_from_file,
@@ -37,125 +32,12 @@ JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
 EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
-EXPORT_STATUS_GRACE_PERIOD = timedelta(seconds=30)
-STUCK_EXPORT_MESSAGE = "This export took too long to finish. Try again. If it keeps failing, contact support."
-
-
-def _export_stuck_after(*, export_format: str, export_context: dict[str, object] | None) -> timedelta:
-    if export_format == JSONL_EXPORT_FORMAT and (export_context or {}).get("kind") == DATASET_EXPORT_KIND:
-        return EXPORT_WORKFLOW_TIMEOUT + EXPORT_STATUS_GRACE_PERIOD
-    return timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME) + EXPORT_STATUS_GRACE_PERIOD
-
-
-def get_export_asset_effective_exception(asset: ExportedAsset) -> str | None:
-    if asset.exception:
-        return asset.exception
-    if asset.has_content:
-        return None
-    stuck_after = _export_stuck_after(export_format=asset.export_format, export_context=asset.export_context)
-    if asset.created_at < now() - stuck_after:
-        return STUCK_EXPORT_MESSAGE
-    return None
-
-
-def get_export_asset_status(asset: ExportedAsset) -> Literal["pending", "complete", "failed"]:
-    if get_export_asset_effective_exception(asset):
-        return "failed"
-    if asset.has_content:
-        return "complete"
-    return "pending"
-
-
-def _describe_exported_asset(asset: ExportedAsset) -> str:
-    context = asset.export_context or {}
-    export_type = asset.export_type
-    if export_type == "dashboard":
-        return asset.dashboard.name if asset.dashboard and asset.dashboard.name else "a dashboard"
-    if export_type == "insight":
-        # Reachable only when an insight export is also tied to a dashboard (the insight-only
-        # path is logged under the Insight scope above); name it after the insight either way.
-        if asset.insight:
-            return asset.insight.name or asset.insight.derived_name or "an insight"
-        return "an insight"
-    if export_type == "recording":
-        session_recording_id = context.get("session_recording_id")
-        return f"session recording {session_recording_id}" if session_recording_id else "a session recording"
-    if export_type == "heatmap":
-        heatmap_url = context.get("heatmap_url")
-        return f"heatmap {heatmap_url}" if heatmap_url else "a heatmap"
-    if context.get("source"):
-        return "SQL query results"
-    if context.get("filename"):
-        return str(context["filename"])
-    return "an export"
-
-
-def log_exported_asset_activity(*, asset: ExportedAsset, user: User, was_impersonated: bool) -> None:
-    log_activity(
-        organization_id=asset.team.organization_id,
-        team_id=asset.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=asset.id,
-        scope="ExportedAsset",
-        activity="exported",
-        detail=Detail(
-            name=_describe_exported_asset(asset),
-            type=asset.export_type,
-            changes=[
-                Change(
-                    type="ExportedAsset",
-                    action="exported",
-                    field="export_format",
-                    after=asset.export_format,
-                )
-            ],
-        ),
-    )
-
-
-def start_export_asset_workflow(
-    *,
-    asset: ExportedAsset,
-    distinct_id: str,
-    wait: bool,
-    slo: SloConfig | None = None,
-) -> bool:
-    async def _run() -> None:
-        client = await async_connect()
-        method = client.execute_workflow if wait else client.start_workflow
-        await method(
-            ExportAssetWorkflow.run,
-            ExportAssetWorkflowInputs(
-                exported_asset_id=asset.id,
-                team_id=asset.team_id,
-                distinct_id=distinct_id,
-                slo=slo,
-            ),
-            id=f"export-asset-{asset.id}",
-            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-            execution_timeout=EXPORT_WORKFLOW_TIMEOUT,
-        )
-
-    try:
-        async_to_sync(_run)()
-    except Exception as error:
-        logger.info("export_workflow_failed_gracefully", asset_id=asset.id, error=str(error))
-        asset.refresh_from_db()
-        if not asset.exception:
-            asset.exception = "The export could not be started. Try again."
-            asset.exception_type = type(error).__name__
-            asset.save(update_fields=["exception", "exception_type"])
-        return False
-    return True
 
 
 def create_export_asset_async(
     *,
     team: Team,
     created_by: User,
-    was_impersonated: bool,
     export_format: str,
     export_context: dict[str, object],
 ) -> ExportedAsset:
@@ -168,13 +50,32 @@ def create_export_asset_async(
         export_format=export_format,
         export_context=export_context,
     )
-    start_export_asset_workflow(
-        asset=asset,
-        distinct_id=str(created_by.distinct_id),
-        wait=False,
-    )
+
+    async def _start() -> None:
+        client = await async_connect()
+        await client.start_workflow(
+            ExportAssetWorkflow.run,
+            ExportAssetWorkflowInputs(
+                exported_asset_id=asset.id,
+                team_id=team.id,
+                distinct_id=str(created_by.distinct_id),
+            ),
+            id=f"export-asset-{asset.id}",
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            execution_timeout=EXPORT_WORKFLOW_TIMEOUT,
+        )
+
+    try:
+        async_to_sync(_start)()
+    except Exception as error:
+        logger.info("export_workflow_failed_gracefully", asset_id=asset.id, error=str(error))
+        asset.refresh_from_db()
+        if not asset.exception:
+            asset.exception = "The export could not be started. Try again."
+            asset.exception_type = type(error).__name__
+            asset.save(update_fields=["exception", "exception_type"])
     asset.refresh_from_db()
-    log_exported_asset_activity(asset=asset, user=created_by, was_impersonated=was_impersonated)
     return asset
 
 

@@ -1,21 +1,27 @@
+from datetime import timedelta
 from typing import Literal
+
+from django.utils.timezone import now
 
 from rest_framework import serializers
 
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.ai_observability.backend.api.dataset_serializers import StrictDatasetSerializer
 from products.ai_observability.backend.dataset_queries import latest_dataset_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetRevision
 from products.exports.backend.facade.api import (
     DATASET_EXPORT_KIND,
+    EXPORT_WORKFLOW_TIMEOUT,
     JSONL_EXPORT_FORMAT,
     ExportedAsset,
     create_export_asset_async,
     get_export_asset,
-    get_export_asset_effective_exception,
-    get_export_asset_status,
 )
+
+DATASET_EXPORT_STUCK_AFTER = EXPORT_WORKFLOW_TIMEOUT + timedelta(seconds=30)
+DATASET_EXPORT_STUCK_MESSAGE = "This export took too long to finish. Try again. If it keeps failing, contact support."
 
 
 class DatasetExportUnavailableError(Exception):
@@ -46,13 +52,25 @@ class DatasetExportReadSerializer(serializers.Serializer):
     )
 
     def get_status(self, asset: ExportedAsset) -> Literal["pending", "complete", "failed"]:
-        return get_export_asset_status(asset)
+        if get_dataset_export_effective_exception(asset):
+            return "failed"
+        if asset.has_content:
+            return "complete"
+        return "pending"
 
     def get_dataset_revision(self, asset: ExportedAsset) -> int:
         return int((asset.export_context or {})["dataset_revision"])
 
     def get_exception(self, asset: ExportedAsset) -> str | None:
-        return get_export_asset_effective_exception(asset)
+        return get_dataset_export_effective_exception(asset)
+
+
+def get_dataset_export_effective_exception(asset: ExportedAsset) -> str | None:
+    if asset.exception:
+        return asset.exception
+    if not asset.has_content and asset.created_at < now() - DATASET_EXPORT_STUCK_AFTER:
+        return DATASET_EXPORT_STUCK_MESSAGE
+    return None
 
 
 def create_dataset_export(
@@ -79,10 +97,9 @@ def create_dataset_export(
     ):
         raise DatasetExportUnavailableError("This dataset revision does not exist.")
 
-    return create_export_asset_async(
+    asset = create_export_asset_async(
         team=team,
         created_by=created_by,
-        was_impersonated=was_impersonated,
         export_format=JSONL_EXPORT_FORMAT,
         export_context={
             "kind": DATASET_EXPORT_KIND,
@@ -91,6 +108,28 @@ def create_dataset_export(
             "filename": f"{dataset.name}-r{selected_revision}",
         },
     )
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        user=created_by,
+        was_impersonated=was_impersonated,
+        item_id=asset.id,
+        scope="ExportedAsset",
+        activity="exported",
+        detail=Detail(
+            name=f"{dataset.name}-r{selected_revision}",
+            type=DATASET_EXPORT_KIND,
+            changes=[
+                Change(
+                    type="ExportedAsset",
+                    action="exported",
+                    field="export_format",
+                    after=JSONL_EXPORT_FORMAT,
+                )
+            ],
+        ),
+    )
+    return asset
 
 
 def get_dataset_export(

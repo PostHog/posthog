@@ -42,6 +42,7 @@ from products.ai_observability.backend.api.dataset_exports import (
     DatasetExportUnavailableError,
     create_dataset_export,
     get_dataset_export,
+    get_dataset_export_effective_exception,
 )
 from products.ai_observability.backend.api.dataset_serializers import StrictDatasetSerializer
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -65,7 +66,7 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
-from products.exports.backend.facade.api import get_export_asset_content_response, get_export_asset_effective_exception
+from products.exports.backend.facade.api import get_export_asset_content_response
 
 
 def _json_value_schema(*, nullable: bool = False) -> dict[str, object]:
@@ -886,7 +887,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         )
         if asset is None:
             raise Http404("Dataset export not found.")
-        effective_exception = get_export_asset_effective_exception(asset)
+        effective_exception = get_dataset_export_effective_exception(asset)
         if effective_exception:
             return Response({"detail": effective_exception}, status=status.HTTP_409_CONFLICT)
         if not asset.has_content:

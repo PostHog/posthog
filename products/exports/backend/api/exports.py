@@ -25,19 +25,15 @@ from posthog.models.organization import Organization
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-from products.exports.backend.facade.api import (
-    DATASET_EXPORT_KIND,
-    get_export_asset_effective_exception,
-    log_exported_asset_activity,
-    start_export_asset_workflow,
-)
-from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
+from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset, get_content_response
 from products.product_analytics.backend.models.insight import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
@@ -91,10 +87,19 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
     def to_representation(self, instance):
         """Override to show stuck exports as having an exception."""
         data = super().to_representation(instance)
-        effective_exception = get_export_asset_effective_exception(instance)
-        data["exception"] = effective_exception
 
-        if effective_exception is not None and instance.exception is None:
+        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
+        # has no content, and has no recorded exception)
+        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
+        if (
+            timeout_threshold
+            and instance.created_at < timeout_threshold
+            and not instance.has_content
+            and not instance.exception
+        ):
+            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
+            data["exception"] = timeout_message
+
             distinct_id = (
                 self.context["request"].user.distinct_id
                 if "request" in self.context and self.context["request"].user
@@ -105,7 +110,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 event="export timeout error returned",
                 properties={
                     **instance.get_analytics_metadata(),
-                    "timeout_message": effective_exception,
+                    "timeout_message": timeout_message,
                     "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
                 },
                 groups=groups(instance.team.organization, instance.team),
@@ -324,12 +329,56 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             # every data export auditable. Insight-only exports are logged above (Insight scope) and
             # never reach here, so we never write two activity rows for one export. System/synthetic
             # exports (user is None, e.g. open-graph image renders) are intentionally not logged.
-            log_exported_asset_activity(
-                asset=instance,
-                user=user,
-                was_impersonated=is_impersonated(self.context.get("request")),
-            )
+            self._log_exported_asset_activity(instance, user)
         return instance
+
+    def _log_exported_asset_activity(self, instance: ExportedAsset, user: User) -> None:
+        log_activity(
+            organization_id=instance.team.organization_id,
+            team_id=instance.team_id,
+            user=user,
+            was_impersonated=is_impersonated(self.context.get("request")),
+            item_id=instance.id,
+            scope="ExportedAsset",
+            activity="exported",
+            detail=Detail(
+                name=self._describe_exported_asset(instance),
+                type=instance.export_type,
+                changes=[
+                    Change(
+                        type="ExportedAsset",
+                        action="exported",
+                        field="export_format",
+                        after=instance.export_format,
+                    )
+                ],
+            ),
+        )
+
+    @staticmethod
+    def _describe_exported_asset(instance: ExportedAsset) -> str:
+        """Human-readable name of what was exported, for the activity log entry."""
+        context = instance.export_context or {}
+        export_type = instance.export_type
+        if export_type == "dashboard":
+            return instance.dashboard.name if instance.dashboard and instance.dashboard.name else "a dashboard"
+        if export_type == "insight":
+            # Reachable only when an insight export is also tied to a dashboard (the insight-only
+            # path is logged under the Insight scope above); name it after the insight either way.
+            if instance.insight:
+                return instance.insight.name or instance.insight.derived_name or "an insight"
+            return "an insight"
+        if export_type == "recording":
+            session_recording_id = context.get("session_recording_id")
+            return f"session recording {session_recording_id}" if session_recording_id else "a session recording"
+        if export_type == "heatmap":
+            heatmap_url = context.get("heatmap_url")
+            return f"heatmap {heatmap_url}" if heatmap_url else "a heatmap"
+        if context.get("source"):
+            return "SQL query results"
+        if context.get("filename"):
+            return str(context["filename"])
+        return "an export"
 
     def _start_export_workflow(
         self, instance: ExportedAsset, team: Team, user: User | None, force_async: bool = False
@@ -338,10 +387,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         source = get_event_source(request) if request else EventSource.EXPORT
         distinct_id = str(user.distinct_id) if user else str(team.id)
 
-        started = start_export_asset_workflow(
-            asset=instance,
+        workflow_inputs = ExportAssetWorkflowInputs(
+            exported_asset_id=instance.id,
+            team_id=team.id,
             distinct_id=distinct_id,
-            wait=not force_async,
             slo=SloConfig(
                 operation=SloOperation.EXPORT,
                 area=SloArea.ANALYTIC_PLATFORM,
@@ -360,11 +409,37 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 },
             ),
         )
-        if started:
-            logger.info(
-                "export_workflow_dispatched" if force_async else "export_workflow_completed",
-                asset_id=instance.id,
+
+        async def _run():
+            client = await async_connect()
+            method = client.start_workflow if force_async else client.execute_workflow
+            await method(
+                ExportAssetWorkflow.run,
+                workflow_inputs,
+                id=f"export-asset-{instance.id}",
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+                execution_timeout=timedelta(minutes=35),
             )
+
+        try:
+            async_to_sync(_run)()
+        except Exception as e:
+            # Swallow workflow failures so the API always returns a 201 with the
+            # ExportedAsset record. export_asset_direct populates the exception
+            # field before re-raising, so callers (frontend toast, sharing
+            # endpoint) can inspect the failure on the asset itself.
+            logger.info(
+                "export_workflow_failed_gracefully",
+                asset_id=instance.id,
+                error=str(e),
+            )
+            return
+
+        logger.info(
+            "export_workflow_dispatched" if force_async else "export_workflow_completed",
+            asset_id=instance.id,
+        )
 
 
 @extend_schema(extensions={"x-product": "core"})

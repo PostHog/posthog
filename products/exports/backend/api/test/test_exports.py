@@ -35,8 +35,7 @@ from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import DATASET_EXPORT_KIND, STUCK_EXPORT_MESSAGE
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
 from products.product_analytics.backend.api.insight import InsightSerializer
@@ -344,15 +343,16 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_errors_if_bad_format(self) -> None:
-        response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
+    @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
+    def test_errors_if_bad_format(self, export_format: str) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": export_format})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "attr": "export_format",
                 "code": "invalid_choice",
-                "detail": '"not/allowed" is not a valid choice.',
+                "detail": f'"{export_format}" is not a valid choice.',
                 "type": "validation_error",
             },
         )
@@ -694,7 +694,8 @@ class TestExports(APIBaseTest):
         results_by_id = {result["id"]: result for result in results}
 
         stuck_result = results_by_id[stuck_export.id]
-        self.assertEqual(stuck_result["exception"], STUCK_EXPORT_MESSAGE)
+        self.assertIsNotNone(stuck_result["exception"])
+        self.assertIn(f"Export failed without throwing an exception", stuck_result["exception"])
 
         recent_result = results_by_id[recent_export.id]
         self.assertIsNone(recent_result["exception"])
@@ -733,7 +734,8 @@ class TestExports(APIBaseTest):
         result = response.json()
 
         # Check that the stuck export appears to have an exception in the response
-        self.assertEqual(result["exception"], STUCK_EXPORT_MESSAGE)
+        self.assertIsNotNone(result["exception"])
+        self.assertIn(f"Export failed without throwing an exception", result["exception"])
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
