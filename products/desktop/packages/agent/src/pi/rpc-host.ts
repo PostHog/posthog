@@ -6,10 +6,12 @@ import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
+import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
 
 interface PiRpcBootstrap {
   providerOptions?: PosthogProviderOptions;
+  channelMode?: boolean;
 }
 
 interface PiHostRequest {
@@ -38,6 +40,13 @@ const sessionManager = sessionFile
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
+  ...(bootstrap.channelMode
+    ? {
+        resourceLoaderOptions: {
+          extensionFactories: [createPiRepositoryToolsExtension(cwd)],
+        },
+      }
+    : {}),
   ...providerOptions,
 });
 
