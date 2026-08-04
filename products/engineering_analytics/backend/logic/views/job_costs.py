@@ -18,6 +18,7 @@ non-materialized ``DataWarehouseSavedQuery`` by data_modeling's managed-viewset 
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     FloatDatabaseField,
@@ -73,6 +74,12 @@ FIELDS: dict[str, FieldOrTable] = {
     "multiplier": IntegerDatabaseField(name="multiplier", nullable=True),
     "billable_seconds": IntegerDatabaseField(name="billable_seconds", nullable=True),
     "estimated_cost_usd": FloatDatabaseField(name="estimated_cost_usd", nullable=True),
+    # Not nullable, unlike the attribution columns above: it is derived, never read off the source, so
+    # it is always 0 or 1. A job whose run row is missing reads 0 — the same "no" an unjoined row gives
+    # every other run attribute. Exposed here rather than left to consumers because "what does the
+    # merge queue cost" is a question this view exists to answer, and re-deriving it from head_branch
+    # would put the definition of a gate branch in a second place (it lives in logic/merge_queue.py).
+    "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
 }
 
 
@@ -147,7 +154,8 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
             vcpu,
             {render_multiplier("vcpu")} AS multiplier,
             {render_billable_seconds("provider", "os", "duration_seconds")} AS billable_seconds,
-            {render_estimated_cost_usd("provider", "os", "vcpu", "duration_seconds")} AS estimated_cost_usd{run_columns}
+            {render_estimated_cost_usd("provider", "os", "vcpu", "duration_seconds")} AS estimated_cost_usd,
+            is_merge_queue{run_columns}
         FROM (
             SELECT
                 repo_owner,
@@ -166,6 +174,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                 completed_at,
                 queue_seconds,
                 duration_seconds,
+                is_merge_queue,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
                 {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
@@ -187,6 +196,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                     completed_at,
                     queue_seconds,
                     duration_seconds,
+                    is_merge_queue,
                     {render_depot_label("labels_arr")} AS depot_label,
                     {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
                 FROM (
@@ -209,6 +219,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                         j.completed_at AS completed_at,
                         j.queue_seconds AS queue_seconds,
                         j.duration_seconds AS duration_seconds,
+                        r.is_merge_queue AS is_merge_queue,
                         {labels_array} AS labels_arr{inner_run_columns}
                     FROM ({jobs}) AS j
                     LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt

@@ -103,6 +103,7 @@ They are non-materialized: the rendered SQL is persisted per team and re-synced 
 - Grain: one row per job attempt (a retry appears once per attempt; correct for cost). Jobs whose run row is missing keep NULL attribution rather than being dropped.
 - NULL cost is disambiguated by `provider` (non-billable: github-hosted, non-Linux, unclassifiable) vs `completed_at` (unsettled). A queued job is never shown as `$0.00`.
 - Cost is defined once, in `logic/cost.py`, rendered to HogQL; a ClickHouse-backed parity test asserts the view equals the Python model. The endpoint cost queries read the same rendered SELECT (via `_curated.job_cost_source()`), so there is no second cost path to drift.
+- `is_merge_queue` splits merge-queue gate spend from the rest without anyone re-deriving what a gate branch is. Both this view and `ci_job_history` carry it, so neither answers "what does the queue cost" by pattern-matching a branch name.
 
 #### `engineering_analytics_ci_job_history`
 
