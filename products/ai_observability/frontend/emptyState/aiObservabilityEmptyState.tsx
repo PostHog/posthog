@@ -22,8 +22,8 @@ export const aiObservabilityEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogMagnifyingGlass,
         text: {
             'needs-setup': {
-                headline: 'See how users actually use your AI product',
-                lead: 'Capture every LLM session in full detail. See how your product is being used, catch errors and regressions in real-time, and get alerted when it happens.',
+                headline: 'See how your AI is doing in the wild',
+                lead: "Capture LLM sessions in full detail. See how it's being used, catch errors and regressions in real-time, and get alerted when it happens.",
                 hint: 'Point the wizard at your project root. Setup costs are on us, no API key needed:',
             },
         },
