@@ -39,11 +39,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_column_name,
     realign_decimal_buffers,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import DEFAULT_MAX_TABLE_BYTES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -413,16 +415,18 @@ async def _rewrite_into_temp(
 
     buffered: list[pa.Table] = []
     buffered_rows = 0
+    buffered_bytes = 0
 
     async def flush() -> int:
         """Write the buffered batches as one Delta commit and return the rows written."""
-        nonlocal buffered, buffered_rows
+        nonlocal buffered, buffered_rows, buffered_bytes
         if not buffered:
             return 0
         # Every buffered table was already aligned to `live_schema`, so they concat without promotion.
         combined = buffered[0] if len(buffered) == 1 else pa.concat_tables(buffered)
         buffered = []
         buffered_rows = 0
+        buffered_bytes = 0
         await asyncio.to_thread(
             deltalake.write_deltalake,
             temp_uri,
@@ -486,15 +490,21 @@ async def _rewrite_into_temp(
         partitioned_table = evolve_pyarrow_schema(partitioned_table, live_schema)
         partitioned_table = realign_decimal_buffers(partitioned_table)
 
-        # Coalesce before writing. The reader yields at least one batch per source *file*, so an
-        # over-fragmented table produces thousands of tiny batches; writing each one appends a
-        # separate Delta commit, making the rewrite cost scale with the source's file count rather
-        # than its size — worst exactly for the tables this exists to fix. Buffering to `batch_size`
-        # rows keeps peak memory at the same bound the batches were already sized to.
+        # Coalesce before writing, so commits scale with data size rather than source file count
+        # (see `CLAIM_RECHECK_INTERVAL_SECONDS`). Bound the buffer by bytes as well as rows: a row
+        # count says nothing about width once `evolve_pyarrow_schema` has flattened struct and list
+        # columns into JSON strings, and this package caps Arrow payload for that reason elsewhere
+        # (`DEFAULT_MAX_TABLE_BYTES`). Flush *before* appending whatever would overflow, never after,
+        # or a nearly-full buffer could still take a further full-sized batch.
+        table_bytes = table_payload_bytes(partitioned_table)
+        if buffered and (
+            buffered_rows + partitioned_table.num_rows > batch_size
+            or buffered_bytes + table_bytes > DEFAULT_MAX_TABLE_BYTES
+        ):
+            rows_written += await flush()
         buffered.append(partitioned_table)
         buffered_rows += partitioned_table.num_rows
-        if buffered_rows >= batch_size:
-            rows_written += await flush()
+        buffered_bytes += table_bytes
 
     rows_written += await flush()
 
@@ -521,8 +531,9 @@ async def repartition_table_in_place(
     observability. Raises `RepartitionUnpartitionableError` (terminal) if no partition mode applies.
 
     `claim_token` fences out zombie attempts: the temp table is scoped to the token so concurrent
-    writers can never share one, and the claim is re-checked before every batch write and every
-    destructive step (raising `RepartitionSupersededError` when a newer attempt has taken over).
+    writers can never share one, and the claim is re-checked before every destructive step — and,
+    during the rewrite, at most once per `CLAIM_RECHECK_INTERVAL_SECONDS` (raising
+    `RepartitionSupersededError` when a newer attempt has taken over).
     """
     live_uri = await helper.get_table_uri()
     storage_options = helper.get_storage_options()

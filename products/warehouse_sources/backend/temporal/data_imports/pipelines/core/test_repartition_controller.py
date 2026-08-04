@@ -580,6 +580,10 @@ class TestRepartitionActivity:
         emitted = [c.args[0] for c in capture.call_args_list]
         assert "warehouse_repartition_started" in emitted
         assert "warehouse_repartition_failed" not in emitted
+        # A started event with no closing event is indistinguishable from an attempt that vanished.
+        skipped = [c.args[1] for c in capture.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+        assert [p["reason"] for p in skipped] == ["transient_infra_error"]
+        assert skipped[0]["terminal"] is False
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
