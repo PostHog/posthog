@@ -1,6 +1,7 @@
 import gzip
 import json
 import threading
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -673,6 +674,53 @@ class TestWarmQueriesOp(BaseTest):
         self.assertEqual(mock_exit.called, expect_exit)
         if not expect_exit:
             self.assertEqual(runner.run.call_count, n_shapes)
+
+    def test_crawling_pass_fails_at_deadline(self) -> None:
+        # A pass that completes one shape per stall window never trips the
+        # no-progress guard, but crawling like that holds the job's single run
+        # slot indefinitely and blocks every scheduled tick. It must fail at
+        # the pass deadline via a clean dagster.Failure (in-flight shapes are
+        # healthy, so no hard exit).
+        class _Exited(BaseException):
+            pass
+
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        real_wait = cache_warming.wait
+        fake_time = SimpleNamespace(now=0.0)
+        fake_time.monotonic = lambda: fake_time.now
+        fake_time.sleep = lambda _s: None
+
+        def fake_wait(
+            pending: set, timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set, set]:
+            fake_time.now += 7200.0
+            first = next(iter(pending))
+            real_wait({first}, timeout=5)
+            return {first}, pending - {first}
+
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.wait", side_effect=fake_wait),
+            patch("products.web_analytics.dags.cache_warming.time", new=fake_time),
+            patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
+        ):
+            mock_cm.return_value.lookup.return_value.entry = None
+            shapes = [
+                {
+                    "team_id": self.team.pk,
+                    "query_json": {"kind": "WebOverviewQuery", "properties": [], "n": i},
+                    "query_count": 5,
+                    "representative_query_count": 5,
+                    "normalized_query_hash": f"h{i}",
+                }
+                for i in range(3)
+            ]
+            with self.assertRaises(dagster.Failure):
+                warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
+
+        self.assertFalse(mock_exit.called)
 
     def test_staleness_evaluated_on_jitter_aged_entry(self) -> None:
         # Shapes warmed together go stale together (fixed threshold), so a bulk

@@ -639,6 +639,15 @@ WARMING_STALL_TIMEOUT_SECONDS = 1800
 # among only in-flight shapes for this long has no innocent explanation.
 WARMING_TAIL_STALL_WINDOWS = 3
 
+# The no-progress guard above cannot catch a pass that crawls: a poisoned
+# shard completing a handful of shapes per window keeps resetting it while
+# holding the job's single run slot, so every scheduled tick is skipped and
+# the fleet goes stale until a human terminates the run (observed as one shard
+# at ~70 shapes/hour blocking all warming for two days). A healthy full pass
+# finishes well inside an hour; one still running after this long is not
+# serving its purpose, so it fails and the next tick starts fresh.
+WARMING_PASS_DEADLINE_SECONDS = 3 * 3600
+
 # After cancellation/crash, how long healthy in-flight shapes get to finish
 # before the process exits hard rather than hanging on a blocked thread join.
 WARMING_CANCEL_GRACE_SECONDS = 60
@@ -952,6 +961,15 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
         empty_waits = 0
         while pending:
             done, pending = wait(pending, timeout=WARMING_STALL_TIMEOUT_SECONDS, return_when=FIRST_COMPLETED)
+            if pending and time.monotonic() - started_at > WARMING_PASS_DEADLINE_SECONDS:
+                # Raising (not os._exit) routes through the cancellation path
+                # below: the backlog is cancelled, healthy in-flight shapes get
+                # the bounded grace, and only truly wedged threads hard-exit.
+                raise dagster.Failure(
+                    f"Warming pass still running after {WARMING_PASS_DEADLINE_SECONDS // 3600}h with "
+                    f"{len(pending)} shapes left ({processed}/{total} processed) — failing the pass so "
+                    f"the next scheduled run takes over instead of holding the schedule slot"
+                )
             if not done:
                 empty_waits += 1
                 # Queued work beyond the in-flight set means threads should be
