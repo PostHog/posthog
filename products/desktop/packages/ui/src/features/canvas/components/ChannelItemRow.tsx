@@ -288,13 +288,16 @@ export function ChannelItemRow({
               draggable={item.kind === "task"}
               onDragStart={handleDragStart}
               onClick={() => actions.open(item)}
-              // Tasks drag into the Command Center grid, which accepts this
-              // payload type — same contract as the code sidebar's TaskItem.
+              // Tasks drag into the Command Center grid and the sidebar's
+              // watch list, which accept this payload type — same contract as
+              // the code sidebar's TaskItem. The title rides along so a drop
+              // target can keep a legible reference without refetching.
               draggable={item.kind === "task"}
               onDragStart={
                 item.kind === "task"
                   ? (e) => {
                       e.dataTransfer.setData("text/x-task-id", item.id);
+                      e.dataTransfer.setData("text/x-task-title", item.title);
                       e.dataTransfer.effectAllowed = "copy";
                     }
                   : undefined

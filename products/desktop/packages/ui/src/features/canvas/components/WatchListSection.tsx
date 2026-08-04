@@ -14,7 +14,10 @@ import {
   PERSONAL_CHANNEL_NAME,
   useTaskChannels,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
+import {
+  useSpacesSidebarStore,
+  type WatchedTaskRef,
+} from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -49,10 +52,23 @@ export function WatchListSection() {
   const { pinnedTaskIds, togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
 
+  // Older builds persisted bare id strings; treat them as minimal refs.
+  const watchedRefs = useMemo<WatchedTaskRef[]>(
+    () =>
+      (watchList as unknown as (WatchedTaskRef | string)[]).map((entry) =>
+        typeof entry === "string"
+          ? { id: entry, title: "Untitled task", addedAt: 0 }
+          : entry,
+      ),
+    [watchList],
+  );
+
   // Same item shape the space lists use, held in watch-list order (newest
-  // watched first) rather than the builder's recency sort.
+  // watched first) rather than the builder's recency sort. A watched task the
+  // viewer's task list doesn't hold (someone else's, or beyond the page) still
+  // renders, from the reference captured at drop time.
   const items = useMemo<ChannelItemModel[]>(() => {
-    const watched = new Set(watchList);
+    const watched = new Set(watchedRefs.map((entry) => entry.id));
     const built = buildChannelItems({
       dashboards: [],
       feedTasks: allTasks.filter((t) => watched.has(t.id)),
@@ -61,8 +77,24 @@ export function WatchListSection() {
       ownedBy: null,
     });
     const byId = new Map(built.map((item) => [item.id, item]));
-    return watchList.flatMap((id) => byId.get(id) ?? []);
-  }, [watchList, allTasks, archivedTaskIds, pinnedTaskIds]);
+    return watchedRefs.map(
+      (entry) =>
+        byId.get(entry.id) ?? {
+          key: `task:${entry.id}`,
+          kind: "task" as const,
+          id: entry.id,
+          title: entry.title,
+          ts: entry.addedAt,
+          pinned: pinnedTaskIds.has(entry.id),
+          rawStatus: null,
+          authorUser: null,
+          authorName: null,
+          authorUuid: null,
+          templateId: null,
+          task: null,
+        },
+    );
+  }, [watchedRefs, allTasks, archivedTaskIds, pinnedTaskIds]);
 
   // Each task's space: backend channel → display name → folder channel (which
   // the routes need). Unmapped tasks open under #me and carry no label.
@@ -133,7 +165,14 @@ export function WatchListSection() {
     const taskId = e.dataTransfer.getData("text/x-task-id");
     if (!taskId) return;
     e.preventDefault();
-    addToWatchList(taskId);
+    // Title from the drag payload where the source provides it (channel
+    // rows); the loaded task list covers drags from the code sidebar.
+    const title =
+      e.dataTransfer.getData("text/x-task-title") ||
+      allTasks.find((t) => t.id === taskId)?.title ||
+      "Untitled task";
+    addToWatchList({ id: taskId, title, addedAt: Date.now() });
+    toast.success("Added to watch list", { description: title });
   };
 
   return (

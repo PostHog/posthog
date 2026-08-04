@@ -2,6 +2,17 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /**
+ * A watched task, self-sufficient for rendering: the title and added-at are
+ * captured at drop time so a reference stays legible even when the task isn't
+ * in the viewer's loaded task list (someone else's, or beyond the page).
+ */
+export interface WatchedTaskRef {
+  id: string;
+  title: string;
+  addedAt: number;
+}
+
+/**
  * View state for the static spaces sidebar: per-space expands, and the
  * "All spaces" list toggle. `openSections` stores explicit space expansion
  * (default collapsed); `openAddSpace` stores the all-spaces list toggle.
@@ -21,16 +32,16 @@ interface SpacesSidebarState {
   /** The watch list section's fold. */
   openWatchList: boolean;
   /**
-   * Task ids the user dragged into the watch list, newest first. Local-only
+   * Tasks the user dragged into the watch list, newest first. Local-only
    * references for now — watching doesn't touch the task or its space.
    */
-  watchList: string[];
+  watchList: WatchedTaskRef[];
   toggle: (channelId: string) => void;
   toggleAddSpace: () => void;
   toggleOnlyMyTasks: () => void;
   toggleWatchList: () => void;
   setSpaceOrder: (ids: string[]) => void;
-  addToWatchList: (taskId: string) => void;
+  addToWatchList: (ref: WatchedTaskRef) => void;
   removeFromWatchList: (taskId: string) => void;
 }
 
@@ -59,13 +70,16 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
       toggleWatchList: () =>
         set((state) => ({ openWatchList: !state.openWatchList })),
       setSpaceOrder: (ids) => set({ spaceOrder: ids }),
-      addToWatchList: (taskId) =>
+      addToWatchList: (ref) =>
         set((state) => ({
-          watchList: [taskId, ...state.watchList.filter((id) => id !== taskId)],
+          watchList: [
+            ref,
+            ...state.watchList.filter((entry) => entry.id !== ref.id),
+          ],
         })),
       removeFromWatchList: (taskId) =>
         set((state) => ({
-          watchList: state.watchList.filter((id) => id !== taskId),
+          watchList: state.watchList.filter((entry) => entry.id !== taskId),
         })),
     }),
     { name: "spaces-sidebar" },
