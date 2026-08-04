@@ -655,7 +655,14 @@ export function getUsageLimitConsequence(productName: string): string {
  * Build a consolidated message for products that have exceeded their usage limits
  */
 export function buildUsageLimitExceededMessage(
-    products: Array<{ name: string; subscribed: boolean | null }>,
+    products: Array<{
+        name: string
+        subscribed: boolean | null
+        customLimitUsd?: number | null
+        currentAmountUsd?: string | null
+        usageLimit?: number | null
+        unit?: string | null
+    }>,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): {
@@ -685,9 +692,29 @@ export function buildUsageLimitExceededMessage(
             : `ask an organization ${roleName} to upgrade the plan`
     }
 
+    // A custom USD billing limit is converted to a usage allowance elsewhere, so a product can hit
+    // that allowance well under its dollar limit. Show both numbers so customers can see the gap
+    // instead of just being told they're "over limit".
+    const limitDetails = products
+        .filter((p): p is typeof p & { customLimitUsd: number } => p.customLimitUsd != null)
+        .map((p) => {
+            const details = [`a $${p.customLimitUsd.toLocaleString()} billing limit`]
+            if (p.usageLimit != null) {
+                const unitLabel = p.unit ? ` ${wordPluralize(p.unit)}` : ''
+                details.push(`an allowance of ${compactNumber(p.usageLimit)}${unitLabel}`)
+            }
+            if (p.currentAmountUsd != null) {
+                details.push(`current spend of ${currencyFormatter(Number(p.currentAmountUsd))}`)
+            }
+            return `${p.name} has ${details.join(', ')}.`
+        })
+
     return {
         title: products.length === 1 ? 'Usage limit exceeded' : 'Usage limits exceeded',
-        message: `You have exceeded the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+        message: [
+            `You have exceeded the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+            ...limitDetails,
+        ].join(' '),
     }
 }
 

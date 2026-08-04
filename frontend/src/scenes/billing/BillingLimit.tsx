@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
+import { currencyFormatter, formatDisplayUsage, getProductUnitLabel } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -172,6 +173,16 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                         </div>
                     ) : null}
                 </div>
+                {hasCustomLimitSet && !isEditingBillingLimit && product.usage_limit != null ? (
+                    <div className="text-xs text-secondary mt-2" data-attr={`billing-limit-detail-${product.type}`}>
+                        That limit currently allows up to{' '}
+                        {formatDisplayUsage(product.usage_limit, product, { compactFallback: true })}
+                        {getProductUnitLabel(product) ? ` ${getProductUnitLabel(product)}` : ''}.
+                        {product.current_amount_usd != null
+                            ? ` Current spend: ${currencyFormatter(Number(product.current_amount_usd))}.`
+                            : null}
+                    </div>
+                ) : null}
                 {billingLimitConfig.help && !isEditingBillingLimit ? (
                     <div className="text-xs text-secondary mt-2">{billingLimitConfig.help}</div>
                 ) : null}

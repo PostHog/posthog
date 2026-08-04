@@ -1421,7 +1421,14 @@ export const billingLogic = kea<billingLogicType>([
 
             if (productsOverLimit.length > 0) {
                 const { title, message } = buildUsageLimitExceededMessage(
-                    productsOverLimit,
+                    productsOverLimit.map((product) => ({
+                        name: product.name,
+                        subscribed: product.subscribed,
+                        customLimitUsd: values.billing?.custom_limits_usd?.[product.type] ?? null,
+                        currentAmountUsd: product.current_amount_usd,
+                        usageLimit: product.usage_limit,
+                        unit: product.unit,
+                    })),
                     values.canAccessBilling,
                     values.minimumBillingAccessLevel
                 )

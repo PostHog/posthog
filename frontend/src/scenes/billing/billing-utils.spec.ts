@@ -560,6 +560,29 @@ describe('buildUsageLimitExceededMessage', () => {
         const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
         expect(result.message).toContain('increase your billing limit')
     })
+
+    it('should surface the dollar limit, usage allowance, and current spend when a custom limit is set', () => {
+        const result = buildUsageLimitExceededMessage([
+            {
+                name: 'Product analytics',
+                subscribed: true,
+                customLimitUsd: 500,
+                currentAmountUsd: '206.42',
+                usageLimit: 2_000_000,
+                unit: 'event',
+            },
+        ])
+        expect(result.message).toContain(
+            'Product analytics has a $500 billing limit, an allowance of 2 M events, current spend of $206.42.'
+        )
+    })
+
+    it('should not add limit details when no custom limit is set', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for Session replay. Please increase your billing limit or data loss may occur.'
+        )
+    })
 })
 
 describe('buildUsageLimitApproachingMessage', () => {
