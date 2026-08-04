@@ -18,7 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_IDS, SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import str_to_bool
 
 from products.canvas.backend import build_service
@@ -105,6 +105,23 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "revert",
         "build_action",
     ]
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return None
+        application = authenticator.access_token.application
+        if application is None or application.client_id not in ARRAY_APP_CLIENT_IDS:
+            return None
+
+        scopes = set((authenticator.access_token.scope or "").split())
+        if self.action in self.scope_object_read_actions and not scopes.intersection({"canvas:read", "canvas:write"}):
+            if scopes.intersection({"dashboard:read", "dashboard:write"}):
+                return ["dashboard:read"]
+        if self.action in self.scope_object_write_actions and "canvas:write" not in scopes:
+            if "dashboard:write" in scopes:
+                return ["dashboard:write"]
+        return None
 
     @extend_schema(
         parameters=[

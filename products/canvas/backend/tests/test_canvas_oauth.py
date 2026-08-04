@@ -42,10 +42,10 @@ class TestCanvasOAuthAccess(APIBaseTest):
         )
         return token.token
 
-    def _list_canvases(self, scope: str) -> int:
+    def _list_canvases(self, scope: str, client_id: str | None = None) -> int:
         with team_scope(self.team.id):
             channel = Channel.objects.create(team=self.team, name="general")
-        token = self._bearer(scope)
+        token = self._bearer(scope, client_id=client_id)
         self.client.logout()
         res = self.client.get(
             f"/api/projects/{self.team.id}/canvases/?channel={channel.id}&limit=200",
@@ -59,17 +59,29 @@ class TestCanvasOAuthAccess(APIBaseTest):
     def test_list_canvases_with_canvas_read_oauth_token(self):
         assert self._list_canvases("canvas:read") == 200
 
-    def test_list_canvases_denied_without_canvas_scope(self):
-        # A token whose enumerated grant predates the canvas scope: other scopes
-        # present, canvas absent. This is what a stale desktop session narrowed
-        # to an app's scope ceiling looks like; the client's OAUTH_SCOPE_VERSION
-        # bump exists to re-auth these.
+    def test_list_canvases_with_legacy_desktop_oauth_token(self):
+        assert (
+            self._list_canvases(
+                "task:read task:write dashboard:read",
+                client_id=ARRAY_APP_CLIENT_ID_DEV,
+            )
+            == 200
+        )
+
+    def test_list_canvases_denied_without_canvas_scope_for_other_apps(self):
         assert self._list_canvases("task:read task:write dashboard:read") == 403
 
-    def _create_canvas(self, *, client_id: str | None, task_header: str | None) -> dict:
+    def _create_canvas(
+        self,
+        *,
+        client_id: str | None,
+        task_header: str | None,
+        scope: str = "*",
+        expected_status: int = 201,
+    ) -> dict:
         with team_scope(self.team.id):
             channel = Channel.objects.create(team=self.team, name="general")
-        token = self._bearer("*", client_id=client_id)
+        token = self._bearer(scope, client_id=client_id)
         self.client.logout()
         extra: dict[str, Any] = {"HTTP_X_POSTHOG_TASK_ID": task_header} if task_header else {}
         res = self.client.post(
@@ -79,8 +91,24 @@ class TestCanvasOAuthAccess(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
             **extra,
         )
-        assert res.status_code == 201, res.json()
+        assert res.status_code == expected_status, res.json()
         return res.json()
+
+    def test_create_canvas_with_legacy_desktop_oauth_token(self):
+        body = self._create_canvas(
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            task_header=None,
+            scope="task:write dashboard:write",
+        )
+        assert body["name"] == "Signups"
+
+    def test_create_canvas_denied_with_legacy_scope_for_other_apps(self):
+        self._create_canvas(
+            client_id=None,
+            task_header=None,
+            scope="task:write dashboard:write",
+            expected_status=403,
+        )
 
     def test_sandbox_create_binds_the_generating_task(self):
         # Composer-initiated generations have no client-side create, so the
