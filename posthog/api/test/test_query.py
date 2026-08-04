@@ -702,6 +702,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Unsupported query kind: SavedInsightNode", response.content)
 
+    def test_invalid_property_filter_type_returns_short_actionable_message(self):
+        # Guards against the 400 `detail` regressing back to pydantic's raw dump, which
+        # enumerates every accepted property-filter type instead of naming the bad one.
+        query = {
+            "kind": "EventsQuery",
+            "select": ["*"],
+            "properties": [{"type": "not_a_real_filter_type", "key": "x", "value": "y"}],
+        }
+        response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("not_a_real_filter_type", detail)
+        # None of the ~20 other accepted filter tags should be enumerated in the message
+        self.assertNotIn("'event'", detail)
+        self.assertNotIn("'person'", detail)
+        self.assertLess(len(detail), 300, detail)
+
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_hogql_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):

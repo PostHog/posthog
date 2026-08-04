@@ -20,6 +20,32 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+def summarize_validation_error(exc: ValidationError, max_errors: int = 3) -> str:
+    """Build a short, actionable message from a pydantic `ValidationError`.
+
+    `str(exc)` dumps every failing sub-error, which for a discriminated union (e.g. the query
+    schema's property-filter types) enumerates every accepted tag rather than naming what's
+    actually wrong. This picks out the offending field(s) instead. Callers should still log or
+    capture the original exception for the full detail.
+    """
+    errors = exc.errors()
+    parts = []
+    for error in errors[:max_errors]:
+        loc = ".".join(str(part) for part in error["loc"]) or "query"
+        if error["type"] == "union_tag_invalid":
+            tag = error.get("ctx", {}).get("tag")
+            parts.append(
+                f"unrecognized value {tag!r} for '{loc}'" if tag is not None else f"unrecognized value for '{loc}'"
+            )
+        else:
+            parts.append(f"'{loc}': {error['msg']}")
+    summary = "; ".join(parts)
+    remaining = len(errors) - len(parts)
+    if remaining > 0:
+        summary += f" (+{remaining} more)"
+    return summary
+
+
 class ValidatedRequest(Request):
     """
     Request with validated_data and validated_query_data attributes.
@@ -56,7 +82,7 @@ class PydanticModelMixin:
             return model.model_validate(data)
         except ValidationError as exc:
             capture_exception(exc)
-            raise ParseError("JSON parse error - {}".format(str(exc)))
+            raise ParseError(f"Invalid request: {summarize_validation_error(exc)}")
 
 
 def validated_request(

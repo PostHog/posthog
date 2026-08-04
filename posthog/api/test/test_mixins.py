@@ -1,14 +1,68 @@
 import uuid
+from typing import Literal, Union
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from rest_framework import serializers, status
+from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import PydanticModelMixin, summarize_validation_error, validated_request
+
+
+class _FilterA(BaseModel):
+    type: Literal["event"]
+    value: int
+
+
+class _FilterB(BaseModel):
+    type: Literal["person"]
+    value: str
+
+
+class _DiscriminatedUnionModel(BaseModel):
+    filter: Union[_FilterA, _FilterB] = Field(discriminator="type")
+
+
+class TestSummarizeValidationError:
+    def test_names_offending_field_without_enumerating_every_tag(self):
+        try:
+            _DiscriminatedUnionModel.model_validate({"filter": {"type": "cohort", "value": 1}})
+            raise AssertionError("expected a ValidationError")
+        except ValidationError as exc:
+            summary = summarize_validation_error(exc)
+
+        assert "filter" in summary
+        assert "cohort" in summary
+        assert "event" not in summary
+        assert "person" not in summary
+
+    def test_truncates_to_max_errors_and_notes_remainder(self):
+        adapter = TypeAdapter(list[_DiscriminatedUnionModel])
+        try:
+            adapter.validate_python([{"filter": {"type": "cohort"}}] * 5)
+            raise AssertionError("expected a ValidationError")
+        except ValidationError as exc:
+            summary = summarize_validation_error(exc, max_errors=2)
+
+        assert summary.count(";") == 1  # exactly 2 parts joined
+        assert "+3 more" in summary
+
+
+class TestPydanticModelMixinGetModel:
+    def test_invalid_data_raises_parse_error_with_summarized_detail(self):
+        mixin = PydanticModelMixin()
+
+        with pytest.raises(ParseError) as exc_info:
+            mixin.get_model({"filter": {"type": "cohort", "value": 1}}, _DiscriminatedUnionModel)
+
+        detail = str(exc_info.value.detail)
+        assert "cohort" in detail
+        assert "person" not in detail  # no enumeration of every accepted discriminator tag
 
 
 class EventCaptureRequestSerializer(serializers.Serializer):

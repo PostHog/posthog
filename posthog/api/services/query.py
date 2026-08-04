@@ -28,6 +28,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.api.mixins import summarize_validation_error
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import AnalyticsProps
@@ -147,10 +148,15 @@ def process_query_dict(
             },
         )
 
-        if dashboard_id:
-            raise
+        # The raw dump enumerates every branch of the query schema's discriminated unions (e.g.
+        # every accepted property-filter type), so callers that surface `str(e)` or this `error`
+        # field to users get a message naming the offending field instead.
+        error_message = f"This query isn't valid: {summarize_validation_error(e)}"
 
-        return QueryResponse(results=None, error=str(e))
+        if dashboard_id:
+            raise ValueError(error_message) from e
+
+        return QueryResponse(results=None, error=error_message)
 
     tag_queries(query=upgraded_query_json)
 
