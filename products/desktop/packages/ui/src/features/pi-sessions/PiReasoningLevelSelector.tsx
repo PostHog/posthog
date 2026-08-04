@@ -6,6 +6,7 @@ import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
+import { DEFAULT_OPTION_META_KEY } from "@posthog/shared";
 import type { AgentHarness } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { useMemo } from "react";
@@ -91,6 +92,11 @@ export function PiReasoningLevelSelector({
   const supportsThinking = thinkingLevels.some((level) => level !== "off");
   const thoughtOption = useMemo<SessionConfigOption | undefined>(() => {
     if (!supportsThinking || !currentThinkingLevel) return undefined;
+    // Mirrors the composer's fallback level so "Reset to default" has a
+    // notch to land on (Pi has no default marker of its own).
+    const defaultLevel = thinkingLevels.includes("high")
+      ? "high"
+      : thinkingLevels[0];
     return {
       type: "select",
       id: "thinking",
@@ -100,6 +106,9 @@ export function PiReasoningLevelSelector({
       options: thinkingLevels.map((level) => ({
         value: level,
         name: THINKING_LEVEL_LABELS[level] ?? level,
+        ...(level === defaultLevel
+          ? { _meta: { [DEFAULT_OPTION_META_KEY]: true } }
+          : {}),
       })),
     };
   }, [supportsThinking, currentThinkingLevel, thinkingLevels]);

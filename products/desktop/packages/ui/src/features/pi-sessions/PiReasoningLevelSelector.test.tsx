@@ -107,6 +107,26 @@ describe("PiReasoningLevelSelector", () => {
     expect(onModelChange).toHaveBeenCalledTimes(1);
   });
 
+  it("resets to the default thinking level", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { onThinkingLevelChange } = renderSelector({
+      currentThinkingLevel: "low",
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Model and reasoning: claude-haiku-4-5 Low",
+      }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Reset to default" }),
+    );
+
+    await pollUntil(() => onThinkingLevelChange.mock.calls.length > 0);
+    expect(onThinkingLevelChange).toHaveBeenCalledWith("high");
+  });
+
   it("maps a reasoning pick to a Pi thinking level", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     const { onThinkingLevelChange } = renderSelector();
