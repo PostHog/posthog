@@ -142,14 +142,15 @@ class _FakeApi:
 class _FakeReportApi:
     """Serves `/v1/salesReports` per requested report date; an unknown date 404s like Apple's does."""
 
-    def __init__(self, tsv_by_date: dict[str, str]) -> None:
+    def __init__(self, tsv_by_date: dict[str, str], missing_status_code: int = 404) -> None:
         self.tsv_by_date = tsv_by_date
+        self.missing_status_code = missing_status_code
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def get(self, url: str, **kwargs: Any) -> MagicMock:
         params: dict[str, Any] = kwargs.get("params") or {}
         self.calls.append((url, params))
-        return _report_response(self.tsv_by_date.get(params["filter[reportDate]"]))
+        return _report_response(self.tsv_by_date.get(params["filter[reportDate]"]), self.missing_status_code)
 
 
 def _collect(
@@ -534,6 +535,48 @@ class TestSalesReports:
         # Yesterday (2026-03-04) is the newest date Apple has published; 03-03 404s and is skipped.
         assert [(row["report_date"], row["units"]) for row in rows] == [("2026-03-02", "1"), ("2026-03-04", "2")]
         assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-02", "2026-03-03", "2026-03-04"]
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_subscription_report_tolerates_apples_misleading_400(self) -> None:
+        # Apple 400s (instead of 404) a subscription-family report request for a date with no report
+        # available yet — a documented Apple API quirk, not a real credentials failure. It must not
+        # poison-pill the walk by raising on every retry of the same day.
+        api = _FakeReportApi({"2026-03-04": "SKU\tUnits\nacme\t1\n"}, missing_status_code=400)
+
+        rows = _collect(
+            "subscription_reports",
+            api,
+            _FakeManager(),
+            vendor_number="85234567",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 2),
+        )
+
+        assert [(row["report_date"], row["units"]) for row in rows] == [("2026-03-04", "1")]
+        assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-02", "2026-03-03", "2026-03-04"]
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_sales_report_400_is_not_tolerated(self) -> None:
+        # SALES reports don't carry the subscription-family quirk, so a 400 there is a real error and
+        # must still surface rather than being silently treated as an empty day.
+        session = MagicMock()
+        bad_request = _report_response(None, missing_status_code=400)
+        bad_request.raise_for_status.side_effect = Exception("400 Client Error: Bad Request")
+        session.get.return_value = bad_request
+
+        with patch(f"{MODULE}._make_session", return_value=session):
+            with pytest.raises(Exception, match="400"):
+                list(
+                    get_rows(
+                        issuer_id="issuer",
+                        key_id="KEY123",
+                        private_key=PRIVATE_KEY_PEM,
+                        vendor_number="85234567",
+                        endpoint="sales_reports",
+                        logger=MagicMock(),
+                        resumable_source_manager=_FakeManager(),
+                    )
+                )
 
     @freeze_time("2026-03-05 09:00:00")
     def test_sends_the_report_type_filters_from_settings(self) -> None:

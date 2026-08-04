@@ -11,10 +11,51 @@ ui_apps: {}
 tools:
     vision-actions-create:
         operation: vision_actions_create
-        enabled: false
-    vision-actions-destroy:
+        enabled: true
+        scopes:
+            - vision_action:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create vision action
+        description: >
+            Create a vision action, an "and then…" automation over a scanner's observations. Two modes: `group_summary`
+            (a scheduled report synthesized from the observations matching `selection`; set the cadence via
+            `trigger_config` `{rrule, timezone}`, an iCal RRULE without DTSTART, e.g. `FREQ=DAILY`) and `alert`
+            (evaluated continuously on the scanner's sweep; requires `alert_config`: `every_match` notifies about each
+            new matching observation, `on_breach` needs a `threshold` and fires when the `metric` (`count`, or
+            `avg_score` for scorer scanners) crosses it over `window_days` of 1/3/7/14/30). `selection` narrows which
+            observations count (verdict/tags/score bounds). Deliver to Slack or a webhook via `delivery_config`, e.g.
+            `[{type: 'slack', integration_id, channel}]`. Find the workspace's `integration_id` with `integrations-list`
+            (filter kind=slack) and the channel ID with `integrations-channels-retrieve`; without a delivery target,
+            results only appear in-app. Names must be unique within the team.
+        exclude_params:
+            - id
+            - next_run_at
+            - last_run_at
+            - hog_flow_id
+            - created_at
+            - created_by
+            - updated_at
+        requires_ai_consent: true
+        feature_flag: replay-vision-actions
+    vision-actions-delete:
         operation: vision_actions_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - vision_action:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete vision action
+        description: >
+            Permanently delete a vision action by ID, along with its run history (past group summaries and alert
+            firings). Its delivery destinations stop firing. To stop an action without losing its history, set `enabled:
+            false` via `vision-actions-update` instead.
+        feature_flag: replay-vision-actions
     vision-actions-list:
         operation: vision_actions_list
         enabled: true
@@ -33,10 +74,7 @@ tools:
             alert` delivers only when its alert condition holds. Each row carries the bound `scanner`, `mode`,
             `trigger_type`, cadence, and `is_scanner_digest` (the built-in daily digest). Pass `?scanner=<id>` to filter
             to one scanner. To read a specific action's produced reports, list its runs with `vision-actions-runs-list`.
-        feature_flag: replay-vision
-    vision-actions-partial-update:
-        operation: vision_actions_partial_update
-        enabled: false
+        feature_flag: replay-vision-actions
     vision-actions-retrieve:
         operation: vision_actions_retrieve
         enabled: true
@@ -52,7 +90,7 @@ tools:
             (group_summary/alert), `selection` (the observation-targeting predicate — verdict/tags/score bounds/window),
             `synthesis_config`, `alert_config`, cadence, and delivery targets. Use `vision-actions-runs-list` +
             `vision-actions-runs-retrieve` to read the reports it has actually produced.
-        feature_flag: replay-vision
+        feature_flag: replay-vision-actions
     vision-actions-run-create:
         operation: vision_actions_run_create
         enabled: false
@@ -74,7 +112,7 @@ tools:
             (running/completed/failed/skipped), `scheduled_at`, `observation_count` (how many observations fed the
             summary), `error_reason`, and `is_recovery` — without the report body. Fetch a completed run with
             `vision-actions-runs-retrieve` to get the synthesized report and the observations it cited.
-        feature_flag: replay-vision
+        feature_flag: replay-vision-actions
     vision-actions-runs-retrieve:
         operation: vision_actions_runs_retrieve
         enabled: true
@@ -94,7 +132,35 @@ tools:
             markdown, `observations[N-1]` is the observation it cites, so you can check whether the cited observation
             actually supports the claim. Empty `synthesized_markdown`/`observations` means the run skipped, failed, or
             predates observation tracking.
-        feature_flag: replay-vision
+        feature_flag: replay-vision-actions
+    vision-actions-update:
+        operation: vision_actions_partial_update
+        enabled: true
+        scopes:
+            - vision_action:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update vision action
+        description: >
+            Partially update a vision action by ID. Send only the fields you want to change. Common changes: toggle
+            `enabled` to pause/resume it, tune the `alert_config` threshold, change the `trigger_config` cadence, or
+            point `delivery_config` at a different Slack channel or webhook. Nested objects and lists you send replace
+            the stored value wholesale (e.g. `delivery_config` is the full new list), so fetch the action with
+            `vision-actions-retrieve` first and resend the parts you want to keep. `mode` cross-field rules apply as on
+            create: switching to `alert` requires an `alert_config`.
+        exclude_params:
+            - id
+            - next_run_at
+            - last_run_at
+            - hog_flow_id
+            - created_at
+            - created_by
+            - updated_at
+        requires_ai_consent: true
+        feature_flag: replay-vision-actions
     vision-observations-create-task-create:
         operation: vision_observations_create_task_create
         enabled: false
@@ -188,9 +254,10 @@ tools:
             model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations
             counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the
             `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before
-            creating a scanner or calling `vision-scanners-scan-session` — observations requested over budget are
-            silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner
-            against the remaining budget.
+            creating a scanner or calling `vision-scanners-scan-session`: over budget, a scanner's scheduled sweeps
+            silently skip their observations until the next period, while `vision-scanners-scan-session` is rejected
+            outright with a 402. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining
+            budget.
         feature_flag: replay-vision
     vision-scanners-affected-cohort-create:
         operation: vision_scanners_affected_cohort_create
@@ -226,17 +293,18 @@ tools:
         title: Create replay vision scanner
         description: >
             Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier`
-            (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with
-            optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a
-            `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and
-            `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches —
+            (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, which
+            always emits facet embeddings) — and fill `scanner_config` to match: all types need a `prompt`; classifiers
+            also need `tags`; scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config`
+            keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches —
             `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random
-            downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique
-            within the team. Before creating a broad scanner (a permissive `query` and/or high `sampling_rate`), first
-            call `vision-scanners-estimate-create` to project its monthly observation volume and `vision-quota-retrieve`
-            to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and
-            creation itself does not check quota, so a too-broad scanner can exhaust the monthly budget on its first
-            sweeps.
+            downsample applied after the query matches (default 1.0). `model` chooses the LLM, and sets what each
+            observation costs in credits. Names must be unique within the team. Before creating a broad scanner (a
+            permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its
+            monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner
+            sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner
+            can exhaust the monthly budget on its first sweeps. To get notified about what the scanner finds (a Slack
+            alert or a scheduled summary), create a vision action bound to it with `vision-actions-create`.
         exclude_params:
             - id
             - scanner_version
@@ -279,10 +347,13 @@ tools:
         description: >
             Preview how many observations a proposed scanner would generate before saving it. Send a `query`
             (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) and
-            an optional `sampling_rate`. Returns `matched_sessions_in_window`, the `window_days` it was measured over,
-            and `estimated_observations_per_month`. Enabled scanners sweep every 5 minutes, so a broad query can exhaust
-            the monthly quota quickly — run this and compare against `vision-quota-retrieve` before
-            `vision-scanners-create`.
+            an optional `sampling_rate` and `model`. Returns `matched_sessions_in_window`, the `window_days` it was
+            measured over, `estimated_observations_per_month`, `credits_per_observation` (the price at that model),
+            `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits`. Enabled scanners sweep every 5
+            minutes, so a broad query can exhaust the monthly budget quickly — run this and compare the *credit* figures
+            against `remaining` from `vision-quota-retrieve` before `vision-scanners-create`. Comparing observation
+            counts against `remaining` understates the cost: `remaining` is denominated in credits, and one observation
+            costs several.
         feature_flag: replay-vision
     vision-scanners-get:
         operation: vision_scanners_retrieve
@@ -331,8 +402,8 @@ tools:
             List all replay vision scanners in the current project. A scanner watches a slice of session recordings
             (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching
             session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric
-            rubric), or `summarizer` (free-text summary, optionally with facet embeddings for downstream search). Each
-            scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.
+            rubric), or `summarizer` (free-text summary, with facet embeddings for downstream search). Each scanner
+            returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.
         feature_flag: replay-vision
     vision-scanners-observations-create-task-create:
         operation: vision_scanners_observations_create_task_create

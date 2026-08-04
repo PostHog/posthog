@@ -15,7 +15,6 @@ from .comment import Comment
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckgresServer, DuckgresSinkSchemaState
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -28,8 +27,6 @@ from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .file_system.file_system import FileSystem
-from .file_system.folder_context_generation import FileSystemFolderContextGeneration
-from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.persisted_folder import PersistedFolder
 from .file_system.user_product_list import UserProductList
@@ -101,8 +98,6 @@ __all__ = [
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
-    "DuckgresServer",
-    "DuckgresSinkSchemaState",
     "Element",
     "ElementGroup",
     "Entity",
@@ -112,8 +107,6 @@ __all__ = [
     "EventProperty",
     "RoleExternalReference",
     "FileSystem",
-    "FileSystemFolderContextGeneration",
-    "FileSystemFolderInstructions",
     "FileSystemViewLog",
     "PersistedFolder",
     "UserProductList",
