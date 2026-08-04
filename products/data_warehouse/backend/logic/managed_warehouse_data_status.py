@@ -194,7 +194,7 @@ def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tup
     if state.status == ManagedWarehouseSourceJobStatus.RUNNING:
         return "backfilling", f"The {workflow_name} workflow is applying the latest source import."
     if state.status == ManagedWarehouseSourceJobStatus.COMPLETED:
-        return "up_to_date", f"The latest source import was applied by the {workflow_name} workflow."
+        return "up_to_date", "The latest source import was applied."
     if state.status == ManagedWarehouseSourceJobStatus.STALE:
         return "waiting", "A newer source import replaced this register workflow."
     return "waiting", f"The {workflow_name} workflow did not apply this source import."
@@ -209,7 +209,11 @@ def _schema_table_statuses(
     per-source detail lookup (one source's schemas, for the drill-down modal) so the readiness
     computation and the visibility rules never drift between the two views.
     """
-    source_filter: dict[str, object] = {"team_id": team_id, "deleted": False}
+    source_filter: dict[str, object] = {
+        "team_id": team_id,
+        "deleted": False,
+        "access_method": ExternalDataSource.AccessMethod.WAREHOUSE,
+    }
     if source_id is not None:
         source_filter["id"] = source_id
     sources = user_access_control.filter_queryset_by_access_level(ExternalDataSource.objects.filter(**source_filter))

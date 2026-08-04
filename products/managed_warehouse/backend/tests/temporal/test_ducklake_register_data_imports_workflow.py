@@ -14,6 +14,7 @@ from products.managed_warehouse.backend.facade.contracts import ManagedWarehouse
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
+    S3_COPY_BATCH_SIZE,
     DuckLakeRegisterDataImportsActivityInputs,
     DuckLakeRegisterDataImportsGateInputs,
     DuckLakeRegisterDataImportsInputs,
@@ -144,7 +145,7 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
 def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monkeypatch):
     class FakeS3:
         def __init__(self) -> None:
-            self.copies: list[tuple[str, str]] = []
+            self.copy_calls: list[tuple[list[str], list[str], int]] = []
 
         def find(self, prefix: str, detail: bool = False):
             files = {
@@ -153,8 +154,8 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
             }
             return files if detail else list(files)
 
-        def copy(self, source: str, destination: str) -> None:
-            self.copies.append((source, destination))
+        def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
+            self.copy_calls.append((sources, destinations, batch_size))
 
     s3 = FakeS3()
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
@@ -180,28 +181,39 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     connect = MagicMock(return_value=conn)
     monkeypatch.setattr(registration_module.psycopg, "connect", connect)
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    heartbeat_state = {"active": False}
     heartbeater = MagicMock()
-    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
-    heartbeater.__exit__ = MagicMock(return_value=False)
+    heartbeater.__enter__ = MagicMock(side_effect=lambda: heartbeat_state.update(active=True))
+    heartbeater.__exit__ = MagicMock(side_effect=lambda *args: heartbeat_state.update(active=False))
     monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
     workload_metrics = _mock_activity_workload_metrics(monkeypatch)
+
+    def assert_heartbeat_active(_value: float) -> None:
+        assert heartbeat_state["active"] is True
+
+    workload_metrics.files.record.side_effect = assert_heartbeat_active
+    workload_metrics.rows.record.side_effect = assert_heartbeat_active
+    workload_metrics.bytes.record.side_effect = assert_heartbeat_active
 
     inputs = _activity_inputs()
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
     connect.assert_called_once_with("postgresql://duckgres", autocommit=True)
-    assert s3.copies == [
+    assert s3.copy_calls == [
         (
-            "source/team/customers__query/_ph_partition_key=2026-07/a.parquet",
-            "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-            "_ph_partition_key=2026-07/a.parquet",
-        ),
-        (
-            "source/team/customers__query/_ph_partition_key=2026-08/b.parquet",
-            "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-            "_ph_partition_key=2026-08/b.parquet",
-        ),
+            [
+                "source/team/customers__query/_ph_partition_key=2026-07/a.parquet",
+                "source/team/customers__query/_ph_partition_key=2026-08/b.parquet",
+            ],
+            [
+                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+                "_ph_partition_key=2026-07/a.parquet",
+                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+                "_ph_partition_key=2026-08/b.parquet",
+            ],
+            S3_COPY_BATCH_SIZE,
+        )
     ]
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_indexes = [index for index, query in enumerate(executed) if "ducklake_add_data_files" in query]
@@ -210,7 +222,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         index for index, query in enumerate(executed) if "DROP TABLE IF EXISTS" in query and "customers" in query
     )
     rename_index = next(index for index, query in enumerate(executed) if "RENAME TO" in query)
-    assert len(registration_indexes) == 2
+    assert len(registration_indexes) == 1
+    registration_query = executed[registration_indexes[0]]
+    assert "_ph_partition_key=2026-07/a.parquet" in registration_query
+    assert "_ph_partition_key=2026-08/b.parquet" in registration_query
     assert len(verification_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
     assert max(verification_indexes) < drop_live_index < rename_index

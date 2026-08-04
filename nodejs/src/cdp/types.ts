@@ -304,7 +304,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
-    emailAssets: MessageAssetRow[]
+    messageAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -344,6 +344,10 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
+    // Stamped at enqueue for account-audience batch children: event.distinct_id is the account's
+    // group key, not a person distinct_id. The worker must trust this over the live trigger config,
+    // which can be edited to a person audience while these children are still queued.
+    accountAudience?: boolean
     // Set by the subscription matcher when a person merge repointed this job's distinct_id and re-keyed
     // personId onto the survivor. Tells the worker to resolve the person by personId, not the distinct_id
     // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a

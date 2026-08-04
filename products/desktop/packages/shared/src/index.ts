@@ -90,9 +90,11 @@ export {
   getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
+  isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
+  isDeepseekModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -326,6 +328,7 @@ export type {
   UploadableSkillSource,
 } from "./skills";
 export {
+  DISABLE_MODEL_INVOCATION_METADATA_KEY,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,

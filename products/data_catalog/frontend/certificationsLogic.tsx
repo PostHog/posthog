@@ -15,17 +15,20 @@ import {
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
 export type CertificationTargetType = 'table' | 'view'
+export type ProposedStatus = 'certified' | 'deprecated'
 
 export interface NewCertificationForm {
     targetName: string
     targetType: CertificationTargetType
     notes: string
+    proposedStatus: ProposedStatus
 }
 
 export const EMPTY_NEW_CERTIFICATION_FORM: NewCertificationForm = {
     targetName: '',
     targetType: 'table',
     notes: '',
+    proposedStatus: 'certified',
 }
 
 function projectId(): string {
@@ -222,12 +225,15 @@ export const certificationsLogic = kea<certificationsLogicType>([
                             ? { view_name: form.targetName }
                             : { table_name: form.targetName }),
                         notes: form.notes || undefined,
+                        proposed_status: form.proposedStatus,
                     })
                     actions.loadCertificationsSuccess([created, ...values.certifications])
                     actions.closeNewCertificationModal()
-                    lemonToast.success('Certification proposed')
+                    lemonToast.success(
+                        form.proposedStatus === 'deprecated' ? 'Deprecation proposed' : 'Certification proposed'
+                    )
                 } catch (error) {
-                    lemonToast.error(apiErrorDetail(error) || 'Could not propose the certification. Try again.')
+                    lemonToast.error(apiErrorDetail(error) || 'Could not create the proposal. Try again.')
                 } finally {
                     actions.setCreatingCertification(false)
                 }
