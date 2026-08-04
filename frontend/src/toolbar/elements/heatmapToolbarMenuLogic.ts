@@ -39,8 +39,8 @@ import {
     elementIsVisible,
     elementToActionStep,
     getParent,
-    getToolbarRootElement,
     invalidateZoomCache,
+    isToolbarElement,
     trimElement,
 } from '~/toolbar/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -88,12 +88,11 @@ const AREA_CANDIDATE_LIMIT = 300
 // visibly its own region. Same-rect wrapper chains collapse to their deepest element,
 // and the result is sorted biggest-first so nested boxes paint children-on-top.
 export function computeAreaCandidates(): HTMLElement[] {
-    const toolbarRoot = getToolbarRootElement()
     const visibilityCache = new WeakMap<HTMLElement, boolean>()
     const byRectKey = new Map<string, { element: HTMLElement; area: number }>()
 
     for (const element of collectAllElementsDeep('*', document) as HTMLElement[]) {
-        if (toolbarRoot?.contains(element) || !element.matches(`${AREA_TARGET_SELECTOR}, div`)) {
+        if (isToolbarElement(element) || !element.matches(`${AREA_TARGET_SELECTOR}, div`)) {
             continue
         }
         const rect = element.getBoundingClientRect()
@@ -1481,9 +1480,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         cache.disposables.add(() => {
             // capture-phase document listeners so area picking sees page elements before the
             // page's own handlers do; guarded by areaSelectionActive so they cost nothing otherwise
-            const isToolbarElement = (element: HTMLElement): boolean =>
-                getToolbarRootElement()?.contains(element) ?? false
-
             const onMouseOver = (e: MouseEvent): void => {
                 if (!values.areaSelectionActive) {
                     return

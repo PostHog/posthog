@@ -154,6 +154,13 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
 }
 
 function computeElementQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
+    // finder validates candidate selectors against `document`, which can never match an element
+    // living inside the toolbar's own shadow root, so treat that case as a selector-generation
+    // bug upstream rather than something worth an exception report.
+    if (isToolbarElement(element)) {
+        return undefined
+    }
+
     for (const { name, value } of Array.from(element.attributes)) {
         if (!dataAttributes.includes(name)) {
             continue
@@ -415,6 +422,17 @@ export function isParentOf(element: HTMLElement, possibleParent: HTMLElement): b
     }
 
     return false
+}
+
+// `Node.contains()` never crosses a shadow boundary, so it can't tell that an element inside
+// the toolbar's own shadow root (see ToolbarApp.tsx) belongs to the toolbar. Walk the composed
+// tree instead, via `getParent()`, which hops from a shadow root to its host.
+export function isToolbarElement(element: HTMLElement): boolean {
+    const toolbarRoot = getToolbarRootElement()
+    if (!toolbarRoot) {
+        return false
+    }
+    return element === toolbarRoot || isParentOf(element, toolbarRoot)
 }
 
 export function getElementForStep(step: ActionStepForm, allElements?: HTMLElement[]): HTMLElement | null {

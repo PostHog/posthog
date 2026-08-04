@@ -14,7 +14,7 @@ import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLo
 import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ElementWithMetadata } from '~/toolbar/types'
-import { getBoxColors, getHeatMapHue, getToolbarRootElement } from '~/toolbar/utils'
+import { getBoxColors, getHeatMapHue, isToolbarElement } from '~/toolbar/utils'
 
 import { toolbarLogic } from '../bar/toolbarLogic'
 import { ScrollDepth } from './ScrollDepth'
@@ -84,9 +84,8 @@ export function Elements(): JSX.Element {
     const hoverAreaCandidate = (e: ReactMouseEvent, element: HTMLElement): void => {
         // the real page leaf under the pointer (not this overlay box) anchors the arrow-key
         // walk, so pressing down still shrinks toward what the user is pointing at
-        const toolbarRoot = getToolbarRootElement()
         const leaf = (document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[]).find(
-            (el) => !toolbarRoot?.contains(el)
+            (el) => !isToolbarElement(el)
         )
         setAreaHover(leaf ?? element, element)
     }

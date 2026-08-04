@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ElementsEventType } from '~/toolbar/types'
+import { TOOLBAR_ID } from '~/toolbar/utils'
 
 import {
     buildElementStatsProperties,
@@ -257,6 +258,20 @@ describe('heatmapToolbarMenuLogic', () => {
             const distinct = addElement('div', { top: 0, left: 0, width: 400, height: 300 }, inner)
 
             expect(computeAreaCandidates()).toEqual([inner, distinct])
+        })
+
+        it("excludes elements rendered inside the toolbar's own shadow root", () => {
+            const toolbarRoot = document.createElement('div')
+            toolbarRoot.id = TOOLBAR_ID
+            document.body.appendChild(toolbarRoot)
+            const shadowRoot = toolbarRoot.attachShadow({ mode: 'open' })
+            const overlay = addElement(
+                'div',
+                { top: 0, left: 0, width: 800, height: 600 },
+                shadowRoot as unknown as HTMLElement
+            )
+
+            expect(computeAreaCandidates()).not.toContain(overlay)
         })
     })
 
