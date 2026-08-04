@@ -652,7 +652,7 @@ export function TaskInput({
     setConfigOption,
   ]);
 
-  const { folders } = useFolders();
+  const { folders, isLoaded: foldersLoaded } = useFolders();
 
   useEffect(() => {
     if (selectedRepository || !lastUsedCloudRepository) {
@@ -701,8 +701,10 @@ export function TaskInput({
 
   useInitialRepoSelectionFromFolderId({
     folderId: view.folderId,
+    folderRepository: view.folderRepository,
     requestId: view.taskInputRequestId,
     folders,
+    foldersLoaded,
     repositories,
     reposLoaded: reposReady,
     currentMode: workspaceMode,
