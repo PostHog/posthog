@@ -373,7 +373,11 @@ export interface insightVizDataLogicActions {
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
         | TraceSpansTreeQueryResponse // insightDataLogic
-    setQuery: (query: Node<Record<string, any>> | null) => {
+    setQuery: (
+        query: Node<Record<string, any>> | null,
+        fromUrl?: boolean | undefined
+    ) => {
+        fromUrl: boolean
         query: Node<Record<string, any>> | null
     } // insightDataLogic
     removeFormulaNode: (formulas: TrendsFormulaNode[]) => {
@@ -1123,7 +1127,7 @@ export interface insightVizDataLogicMeta {
             actions: import('~/types').ActionType[]
         ) => string[]
         theme: (
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
