@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
@@ -12,10 +12,29 @@ from products.tasks.backend.logic.services.orchestration import (
     ORCHESTRATION_RESUME_STATE_KEY,
     PENDING_ORCHESTRATION_WAKES_STATE_KEY,
     notify_parent_of_child_event,
+    render_child_run_message,
     resume_parent_with_pending_wakes,
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.execute_sandbox.workflow import FOLLOWUP_SOURCE_CHILD
+
+
+class TestRenderChildRunMessage(SimpleTestCase):
+    def test_uses_dedicated_framing_and_preserves_custom_instructions(self) -> None:
+        custom_instructions = (
+            "<user_custom_instructions>\n"
+            "The user has saved custom instructions that apply to all of their tasks. Follow them.\n\n"
+            "Always use tabs.\n"
+            "</user_custom_instructions>"
+        )
+
+        message = render_child_run_message(f"Make the focused change\n\n{custom_instructions}")
+
+        self.assertTrue(message.startswith("<orchestration_instructions>"))
+        self.assertIn("tasks-notify-parent", message)
+        self.assertIn("does not complete or stop your task", message)
+        self.assertEqual(message.count("<user_custom_instructions>"), 1)
+        self.assertTrue(message.endswith(custom_instructions))
 
 
 class TestNotifyParentOfChildEvent(TestCase):

@@ -35,6 +35,7 @@ import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
+import { extractOrchestrationInstructions } from "@posthog/ui/features/sessions/components/session-update/orchestrationInstructions";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { Fragment, type KeyboardEvent, type ReactNode, useMemo } from "react";
 
@@ -85,11 +86,18 @@ function UserMessageRow({
     [content],
   );
   const afterChannelContext = channelContext?.stripped ?? content;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterChannelContext),
+  const orchestrationInstructions = useMemo(
+    () => extractOrchestrationInstructions(afterChannelContext),
     [afterChannelContext],
   );
-  const displayContent = customInstructions?.stripped ?? afterChannelContext;
+  const afterOrchestrationInstructions =
+    orchestrationInstructions?.stripped ?? afterChannelContext;
+  const customInstructions = useMemo(
+    () => extractCustomInstructions(afterOrchestrationInstructions),
+    [afterOrchestrationInstructions],
+  );
+  const displayContent =
+    customInstructions?.stripped ?? afterOrchestrationInstructions;
   // The row itself is the hit target. `ThreadItem` renders an <article>, which a
   // <button> may not wrap and which can't become one (quill's primitive takes no
   // `render`), so it carries the button role and its own key handling.

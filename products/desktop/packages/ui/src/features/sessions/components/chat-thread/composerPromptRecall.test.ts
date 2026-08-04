@@ -189,6 +189,11 @@ describe("resolvePromptRecall", () => {
         "fix the bug\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nbe terse\n</user_custom_instructions>",
     },
     {
+      name: "orchestration framing alongside custom instructions",
+      content:
+        "<orchestration_instructions>\nThe following system-generated instructions apply to this orchestrated child run. Follow them.\n\nUse tasks-notify-parent for progress.\n</orchestration_instructions>\n\nfix the bug\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nbe terse\n</user_custom_instructions>",
+    },
+    {
       name: "a trailing attachment summary",
       content: "fix the bug\n\nAttached files: screenshot.png",
     },
