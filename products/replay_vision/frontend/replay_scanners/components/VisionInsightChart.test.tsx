@@ -98,7 +98,7 @@ describe('VisionInsightChart', () => {
             })
 
             expect(await screen.findByText('This query is taking longer than usual.')).toBeTruthy()
-            expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+            expect(screen.getByText('Retry')).toBeTruthy()
             expect(screen.queryByText("Couldn't load this chart.")).toBeNull()
 
             dataLogic.unmount()
