@@ -203,7 +203,8 @@ describe('Hono MCP analytics contexts', () => {
 
     describe('trackToolSpan', () => {
         it.each([
-            ['a tool declaring capture_trace_payload', 'data-catalog-metric-run', { name: 'mrr' }, true],
+            ['a non-execute-sql tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
+            ['any other non-execute-sql tool', 'query-logs', { query: 'SELECT 1' }, true],
             [
                 'execute-sql querying metadata',
                 'execute-sql',
@@ -211,7 +212,18 @@ describe('Hono MCP analytics contexts', () => {
                 true,
             ],
             ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
-            ['a tool that did not opt in', 'query-logs', { query: 'SELECT 1' }, false],
+            [
+                'execute-sql with the marker only in a string literal',
+                'execute-sql',
+                { query: "SELECT distinct_id FROM events WHERE 'information_schema' != ''" },
+                false,
+            ],
+            [
+                'execute-sql with the marker only in a comment',
+                'execute-sql',
+                { query: 'SELECT count() FROM events -- information_schema' },
+                false,
+            ],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

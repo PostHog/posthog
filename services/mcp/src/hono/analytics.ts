@@ -11,12 +11,7 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import {
-    MAX_CAPTURED_DESCRIPTION_LENGTH,
-    capturesTracePayload,
-    getToolCategory,
-    getToolDescription,
-} from '@/tools/toolDefinitions'
+import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -61,7 +56,7 @@ function buildBaseProperties(
         // Stamped on every event so catalog-on vs catalog-off cohorts can be split
         // in analytics; the flag only gates instructions content, so nothing else
         // on the event reveals whether the agent was steered toward the catalog.
-        $mcp_data_catalog_enabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
+        mcp_data_catalog_enabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }
@@ -229,20 +224,32 @@ export interface ToolSpanMeta {
     output?: unknown
 }
 
+// Comments and single-quoted string literals can carry the metadata marker
+// without the query actually reading a metadata relation, so they're stripped
+// before the check — otherwise a data query like `... WHERE 'information_schema'
+// != ''` would be mis-tagged as metadata and its result captured.
+function stripSqlCommentsAndLiterals(query: string): string {
+    return query
+        .replace(/--[^\n]*/g, ' ')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/'(?:''|[^'])*'/g, ' ')
+}
+
+function isMetadataQuery(query: string): boolean {
+    return stripSqlCommentsAndLiterals(query).toLowerCase().includes(METADATA_QUERY_MARKER)
+}
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
-    if (capturesTracePayload(toolName)) {
+    // execute-sql can't be captured wholesale: its payload is the query result,
+    // which is the bulk of MCP response volume. Metadata queries are the
+    // exception, because their results are small and describe what the agent
+    // learned about the workspace before writing its next query, which is the
+    // context an evaluation needs to judge that query.
+    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
         return true
     }
-    // execute-sql can't opt in wholesale: its payload is the query result, which
-    // is the bulk of MCP response volume. Metadata queries are the exception,
-    // because their results are small and describe what the agent learned about
-    // the workspace before writing its next query, which is the context an
-    // evaluation needs to judge that query.
-    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
-        return false
-    }
     const query = (input as { query?: unknown } | null | undefined)?.query
-    return typeof query === 'string' && query.toLowerCase().includes(METADATA_QUERY_MARKER)
+    return typeof query === 'string' && isMetadataQuery(query)
 }
 
 function serializeSpanState(value: unknown): string | undefined {
@@ -258,15 +265,13 @@ function serializeSpanState(value: unknown): string | undefined {
 }
 
 /**
- * Captures an `$ai_span` for tool calls that opted into trace-payload capture,
- * joining the same MCP-session trace as the execute-sql `$ai_generation` events.
- * Trace-target online evaluations then see a call's args AND result, neither of
- * which `$mcp_tool_call` carries.
+ * Captures an `$ai_span` for a tool call, joining the same MCP-session trace as
+ * the execute-sql `$ai_generation` events. Trace-target online evaluations then
+ * see a call's args AND result, neither of which `$mcp_tool_call` carries.
  *
- * Which tools opt in is declared per product via `capture_trace_payload` in
- * `tools.yaml`, not decided here: results are the bulk of MCP payload volume, so
- * the team that knows an evaluation reads a tool's payload is the one that turns
- * it on.
+ * Every tool is captured by default. `execute-sql` is the one exception: its
+ * payload is the query result and it serves the bulk of MCP volume, so only its
+ * metadata queries are captured (see {@link shouldCaptureToolSpan}).
  */
 export async function trackToolSpan(toolName: string, state: ResolvedState, meta: ToolSpanMeta): Promise<void> {
     try {

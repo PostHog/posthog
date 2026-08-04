@@ -7,7 +7,6 @@
 category: Data catalog
 feature: data_catalog
 url_prefix: /
-capture_trace_payload: true
 ui_apps: {}
 tools:
     data-catalog-certification-certify:
