@@ -61,6 +61,7 @@ const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
     { value: 'contains', label: 'Contains' },
     { value: 'greater_than', label: 'Greater than' },
     { value: 'less_than', label: 'Less than' },
+    { value: 'last_7_days', label: 'Last 7 days' },
     { value: 'is_set', label: 'Is set' },
     { value: 'is_not_set', label: 'Is not set' },
     { value: 'custom', label: 'SQL condition' },
@@ -255,7 +256,9 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
                     {config.filters.map((filter, index) => {
-                        const filterNeedsValue = !['is_set', 'is_not_set', 'custom'].includes(filter.operator)
+                        const filterNeedsValue = !['last_7_days', 'is_set', 'is_not_set', 'custom'].includes(
+                            filter.operator
+                        )
                         return (
                             <div
                                 key={filter.field.id}
@@ -270,7 +273,13 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                 />
                                 <LemonSelect
                                     value={filter.operator}
-                                    options={FILTER_OPERATOR_OPTIONS}
+                                    options={FILTER_OPERATOR_OPTIONS.map((option) => ({
+                                        ...option,
+                                        disabledReason:
+                                            option.value === 'last_7_days' && !isDateTimeBIField(filter.field)
+                                                ? 'Choose a date or date-time field'
+                                                : undefined,
+                                    }))}
                                     onChange={(operator) => setFilterOperator(index, operator)}
                                     size="xsmall"
                                     dropdownMatchSelectWidth={false}

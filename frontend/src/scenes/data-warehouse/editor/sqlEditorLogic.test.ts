@@ -1580,6 +1580,39 @@ describe('sqlEditorLogic', () => {
 
             biLogic.unmount()
         })
+
+        it('adds a removable default date filter for event data', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            await expectLogic(biLogic, () => biLogic.actions.setDataSource({ table: 'events' }))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    config: partial({
+                        source: { table: 'events' },
+                        filters: [
+                            partial({
+                                field: partial({ expression: 'timestamp', type: 'datetime' }),
+                                operator: 'last_7_days',
+                            }),
+                        ],
+                    }),
+                })
+
+            await expectLogic(biLogic, () => biLogic.actions.removeFieldFromShelf('filters', 0)).toFinishAllListeners()
+            await expectLogic(biLogic, () => biLogic.actions.addBlankFieldToShelf('rows')).toFinishAllListeners()
+
+            expect(biLogic.values.config.filters).toEqual([])
+            expect(logic.values.queryInput).not.toContain('INTERVAL 7 DAY')
+
+            biLogic.unmount()
+        })
     })
 
     describe('source URL parameter', () => {

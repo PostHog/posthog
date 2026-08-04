@@ -17,6 +17,7 @@ export type BIFilterOperator =
     | 'contains'
     | 'greater_than'
     | 'less_than'
+    | 'last_7_days'
     | 'is_set'
     | 'is_not_set'
     | 'custom'
@@ -94,10 +95,19 @@ const BI_FILTER_OPERATORS = new Set<BIFilterOperator>([
     'contains',
     'greater_than',
     'less_than',
+    'last_7_days',
     'is_set',
     'is_not_set',
     'custom',
 ])
+
+const DEFAULT_DATE_FIELD_BY_TABLE: Record<string, string> = {
+    events: 'timestamp',
+    sessions: '$start_timestamp',
+    heatmaps: 'timestamp',
+    session_replay_events: 'start_time',
+    raw_session_replay_events: 'min_first_timestamp',
+}
 
 const NUMERIC_FIELD_TYPES = new Set<DatabaseSerializedFieldType>(['integer', 'float', 'decimal'])
 
@@ -118,6 +128,29 @@ export function isBIFieldCompatible(source: BIDataSource | null, field: BIField)
 
 export function defaultAggregationForField(field: BIField): BIAggregation {
     return isNumericBIField(field) ? 'sum' : 'count_distinct'
+}
+
+export function createDefaultDateFilter(source: BIDataSource): BIFilter | null {
+    if (source.connectionId) {
+        return null
+    }
+
+    const expression = DEFAULT_DATE_FIELD_BY_TABLE[source.table]
+    if (!expression) {
+        return null
+    }
+
+    return {
+        field: {
+            id: `bi-default:${source.table}:${expression}`,
+            name: expression,
+            expression,
+            type: 'datetime',
+            source,
+        },
+        operator: 'last_7_days',
+        value: '',
+    }
 }
 
 export function serializeBIField(field: BIField): string {
@@ -324,6 +357,9 @@ function filterExpression(filter: BIFilter): string | null {
     }
     if (filter.operator === 'is_not_set') {
         return `${field} IS NULL`
+    }
+    if (filter.operator === 'last_7_days') {
+        return `${field} >= now() - INTERVAL 7 DAY`
     }
     if (!filter.value.trim()) {
         return null

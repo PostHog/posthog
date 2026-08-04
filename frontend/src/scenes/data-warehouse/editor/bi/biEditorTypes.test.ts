@@ -1,7 +1,7 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { BIConfig, BIField, buildBIQuery, isBIFieldCompatible } from './biEditorTypes'
+import { BIConfig, BIField, buildBIQuery, createDefaultDateFilter, isBIFieldCompatible } from './biEditorTypes'
 
 const eventField: BIField = {
     id: 'warehouse:events:event',
@@ -135,6 +135,43 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain("sumIf(properties.revenue, event = 'purchase') AS custom_revenue")
         expect(result?.query).toContain("timestamp > '2026-08-04 09:30:00'")
         expect(result?.query).toContain("properties.$browser != 'HeadlessChrome'")
+    })
+
+    test.each([
+        ['events', 'timestamp'],
+        ['sessions', '$start_timestamp'],
+        ['heatmaps', 'timestamp'],
+        ['session_replay_events', 'start_time'],
+        ['raw_session_replay_events', 'min_first_timestamp'],
+    ])('creates a relative date filter for the %s table', (table, expression) => {
+        const filter = createDefaultDateFilter({ table })
+
+        expect(filter).toEqual({
+            field: expect.objectContaining({ expression, source: { table }, type: 'datetime' }),
+            operator: 'last_7_days',
+            value: '',
+        })
+    })
+
+    test.each([
+        ['a table without a default', { table: 'persons' }],
+        ['an external table', { table: 'events', connectionId: 'warehouse-1' }],
+    ])('does not create a relative date filter for %s', (_name, source) => {
+        expect(createDefaultDateFilter(source)).toBeNull()
+    })
+
+    it('generates a relative date condition for the last 7 days', () => {
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.Auto,
+            rows: [],
+            columns: [],
+            values: [],
+            filters: [{ field: timestampField, operator: 'last_7_days', value: '' }],
+            limit: 100,
+        })
+
+        expect(result?.query).toContain('timestamp >= now() - INTERVAL 7 DAY')
     })
 
     test.each([

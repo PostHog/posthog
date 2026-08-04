@@ -20,6 +20,7 @@ import {
     BIShelf,
     DEFAULT_BI_CONFIG,
     buildBIQuery,
+    createDefaultDateFilter,
     defaultAggregationForField,
     isBIFieldCompatible,
 } from './biEditorTypes'
@@ -46,13 +47,15 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         return config
     }
 
+    const defaultDateFilter = createDefaultDateFilter(source)
+
     return {
         ...config,
         source,
         rows: [],
         columns: [],
         values: [],
-        filters: [],
+        filters: defaultDateFilter ? [defaultDateFilter] : [],
     }
 }
 
@@ -72,28 +75,37 @@ function addFieldToConfig(config: BIConfig, field: BIField, shelf: BIShelf): BIC
     }
 
     const source = config.source ?? field.source
+    const sourceConfig = config.source ? config : setDataSourceInConfig(config, source)
 
     switch (shelf) {
         case 'rows':
         case 'columns':
-            if (config[shelf].some((existingField) => existingField.id === field.id)) {
-                return config
+            if (sourceConfig[shelf].some((existingField) => existingField.id === field.id)) {
+                return sourceConfig
             }
-            return { ...config, source, [shelf]: [...config[shelf], field] }
+            return { ...sourceConfig, source, [shelf]: [...sourceConfig[shelf], field] }
         case 'values':
             return {
-                ...config,
+                ...sourceConfig,
                 source,
-                values: [...config.values, { field, aggregation: defaultAggregationForField(field) }],
+                values: [...sourceConfig.values, { field, aggregation: defaultAggregationForField(field) }],
             }
         case 'filters':
-            if (config.filters.some((filter) => filter.field.id === field.id)) {
-                return config
+            if (
+                sourceConfig.filters.some(
+                    (filter) =>
+                        filter.field.id === field.id ||
+                        (filter.field.expression === field.expression &&
+                            filter.field.source.table === field.source.table &&
+                            (filter.field.source.connectionId ?? null) === (field.source.connectionId ?? null))
+                )
+            ) {
+                return sourceConfig
             }
             return {
-                ...config,
+                ...sourceConfig,
                 source,
-                filters: [...config.filters, { field, operator: 'equals', value: '' }],
+                filters: [...sourceConfig.filters, { field, operator: 'equals', value: '' }],
             }
     }
 }
