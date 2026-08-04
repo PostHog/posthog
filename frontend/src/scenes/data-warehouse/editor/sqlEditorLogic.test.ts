@@ -1,9 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+import { defaultNotebookContent } from 'scenes/notebooks/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -22,7 +26,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { editorSceneLogic } from './editorSceneLogic'
+import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import {
     activeTabMatchesUrlTarget,
@@ -437,6 +441,59 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('title section', () => {
+        it.each([
+            [
+                'SQL v2',
+                true,
+                null,
+                'SQL query',
+                {
+                    type: NotebookNodeType.SQLV2,
+                    attrs: {
+                        nodeId: expect.any(String),
+                        code: 'SELECT * FROM events LIMIT 10',
+                        returnVariable: '',
+                        edit: true,
+                    },
+                },
+            ],
+            [
+                'legacy SQL',
+                false,
+                MOCK_INSIGHT,
+                MOCK_INSIGHT.name,
+                {
+                    type: NotebookNodeType.Query,
+                    attrs: {
+                        query: {
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.HogQLQuery,
+                                query: 'SELECT * FROM events LIMIT 10',
+                            },
+                        },
+                        edit: true,
+                    },
+                },
+            ],
+        ])(
+            'builds a %s notebook from the current SQL',
+            (_case, isFlagOn, editingInsight, expectedTitle, expectedNode) => {
+                const notebook = buildSqlNotebook('SELECT * FROM events LIMIT 10', null, editingInsight, {
+                    [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn,
+                })
+
+                expect(notebook).toMatchObject({
+                    title: expectedTitle,
+                    content: [expectedNode],
+                })
+
+                const markdown = getMarkdownNotebookMarkdown(defaultNotebookContent(notebook.title, notebook.content))
+
+                expect(markdown).not.toContain('hideFilters')
+            }
+        )
+
         it('shows loading view title when opening a view from URL before view loads', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

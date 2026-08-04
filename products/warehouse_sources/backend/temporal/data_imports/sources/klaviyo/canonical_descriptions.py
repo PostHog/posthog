@@ -356,9 +356,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "coupon_codes": {
         "description": "A unique coupon code assigned to a profile.",
-        "docs_url": "https://developers.klaviyo.com/en/reference/get_coupon_codes",
+        "docs_url": "https://developers.klaviyo.com/en/reference/get_coupon_coupon_codes",
         "columns": {
             "id": "Unique identifier for the coupon code.",
+            "coupon_id": "Identifier of the coupon this code was issued from.",
             "unique_code": "The code assigned to the profile.",
             "expires_at": "The datetime when the code expires.",
             "status": "Current status of the code (e.g. unassigned, assigned_to_profile, used).",
