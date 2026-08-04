@@ -67,6 +67,7 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
@@ -84,11 +85,14 @@ from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import hash_key_value
 from posthog.otel_metrics import OtelInstrumentFactory
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
     is_rate_limit_enabled,
     team_is_allowed_to_bypass_throttle,
 )
@@ -218,6 +222,8 @@ def _request_auth_type(request) -> str:
     authenticator = getattr(request, "successful_authenticator", None)
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
+    if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+        return "project_secret_api_key"
     if isinstance(authenticator, SharingAccessTokenAuthentication):
         return "shared"
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
@@ -723,7 +729,7 @@ def get_cached_org_tier(team_id: int) -> str:
     return tier
 
 
-class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
+class _TierAwareReplayThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     def _get_rates(self) -> dict[str, dict[str, str]]:
         raise NotImplementedError("Subclasses must implement _get_rates")
 
@@ -737,11 +743,14 @@ class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
         self.num_requests, self.duration = self.parse_rate(self.rate)
         self.scope = f"{base_scope}_{resolved_tier}"
 
-    def _is_personal_api_key_request(self, request) -> bool:
-        return _request_auth_type(request) == "personal_api_key"
+    def _is_keyed_request(self, request) -> bool:
+        # Both auth methods carry a scoped, tier-relevant team/plan behind them, unlike
+        # session/OAuth traffic, so both get the org's tiered rate rather than the default one.
+        auth_type = _request_auth_type(request)
+        return auth_type == "personal_api_key" or auth_type == "project_secret_api_key"
 
     def allow_request(self, request, view):
-        if self._is_personal_api_key_request(request):
+        if self._is_keyed_request(request):
             try:
                 team_id = self.safely_get_team_id_from_view(view)
                 tier = get_cached_org_tier(team_id) if team_id else SNAPSHOT_DEFAULT_TIER
@@ -831,6 +840,28 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
         return False
 
 
+class ReplayBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle, ClickHouseBurstRateThrottle):
+    """ClickHouseBurstRateThrottle's rate, keyed per personal API key or per project secret API key."""
+
+
+class ReplaySustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle, ClickHouseSustainedRateThrottle):
+    """ClickHouseSustainedRateThrottle's rate, keyed per personal API key or per project secret API key."""
+
+
+class ReplayPSAKTeamBurstRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's PSAKs, sized like ReplayBurstRateThrottle."""
+
+    scope = "replay_psak_team_burst"
+    rate = ClickHouseBurstRateThrottle.rate
+
+
+class ReplayPSAKTeamSustainedRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's PSAKs, sized like ReplaySustainedRateThrottle."""
+
+    scope = "replay_psak_team_sustained"
+    rate = ClickHouseSustainedRateThrottle.rate
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -873,10 +904,19 @@ def clean_referer_url(current_url: str | None) -> str:
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
-    authentication_classes = [ExportRendererAuthentication]
+    authentication_classes = [ExportRendererAuthentication, ProjectSecretAPIKeyAuthentication]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
-    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    # A leaked PSAK is project-wide, same as any other PSAK scope; letting a service integration
+    # read recordings per-project (instead of sharing one personal-key bucket across every project
+    # it manages) is the whole point, so this mirrors scope_object_read_actions rather than a subset.
+    psak_allowed_actions = ["list", "retrieve", "snapshots"]
+    throttle_classes = [
+        ReplayBurstRateThrottle,
+        ReplaySustainedRateThrottle,
+        ReplayPSAKTeamBurstRateThrottle,
+        ReplayPSAKTeamSustainedRateThrottle,
+    ]
     serializer_class = SessionRecordingSerializer
     # We don't use this
     queryset = SessionRecording.objects.none()
@@ -1064,7 +1104,10 @@ class SessionRecordingViewSet(
                 raise exceptions.NotFound("Recording not found")
 
             recording.load_person()
-            if not request.user.is_anonymous:
+            # PSAK requests authenticate as a synthetic, user-less credential - there's no real
+            # user to have "viewed" the recording, so skip the lookup rather than querying it against
+            # a placeholder user.
+            if not request.user.is_anonymous and not is_authenticated_via_project_secret_api_key(request):
                 with tracer.start_as_current_span("check_viewed_for_users"):
                     viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
                     other_viewers = _other_users_viewed(
@@ -1376,8 +1419,10 @@ class SessionRecordingViewSet(
         detail=True,
         renderer_classes=[SurrogatePairSafeJSONRenderer],
         throttle_classes=[
-            ClickHouseBurstRateThrottle,
-            ClickHouseSustainedRateThrottle,
+            ReplayBurstRateThrottle,
+            ReplaySustainedRateThrottle,
+            ReplayPSAKTeamBurstRateThrottle,
+            ReplayPSAKTeamSustainedRateThrottle,
             SnapshotsBurstRateThrottle,
             SnapshotsSustainedRateThrottle,
         ],
