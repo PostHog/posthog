@@ -243,7 +243,7 @@ class TestStripeSource:
             ),
             (
                 # A generic backend APIError that survives the SDK's own in-process 5xx retries — one
-                # of at least two known server-generated phrasings for the same "our fault, try again"
+                # of several known server-generated phrasings for the same "our fault, try again"
                 # condition.
                 "Request req_abc123: Error while communicating with one of our backends.  Sorry about "
                 "that!  We have been notified of the problem.  If you have any questions, we can help "
@@ -252,6 +252,11 @@ class TestStripeSource:
             (
                 "Request req_abc123: Sorry, something went wrong. We've already been notified of the "
                 "problem, but if you need any help, you can reach us at https://support.stripe.com/contact.",
+            ),
+            (
+                # The generic APIError also surfaces as a bare "An unknown error occurred" with no
+                # "notified of the problem" boilerplate — the same transient, self-recovering class.
+                "Request req_FmshrAO36NK6xh: An unknown error occurred",
             ),
         ]
     )

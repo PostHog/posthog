@@ -302,9 +302,10 @@ If automatic creation failed due to a permissions error and you're using a restr
         # A non-4xx `stripe.APIError` (a genuine backend problem on Stripe's side) is already retried
         # in-process by the SDK's own 5xx backoff before it can reach here, so the same reasoning
         # applies. Stripe's docs describe these as safe to retry. The server-generated message text
-        # varies between at least two known phrasings, so match the boilerplate phrase both share
-        # rather than the full message.
-        return {"Request rate limit exceeded", "notified of the problem"}
+        # varies between several known phrasings — the longer "our fault, try again" ones share the
+        # "notified of the problem" boilerplate, while the generic APIError surfaces as a bare "An
+        # unknown error occurred" — so match each phrase rather than the full message.
+        return {"Request rate limit exceeded", "notified of the problem", "An unknown error occurred"}
 
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "api_key":
