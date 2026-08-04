@@ -176,121 +176,6 @@ const dashboardCreateTextTile = (): ToolBase<
     },
 })
 
-const DashboardGroupCreateSchema = DashboardsGroupsCreateParams.omit({ project_id: true })
-    .extend(DashboardsGroupsCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsCreateParams.shape['id']) })
-
-const dashboardGroupCreate = (): ToolBase<
-    typeof DashboardGroupCreateSchema,
-    WithPostHogUrl<Schemas.DashboardGroup>
-> => ({
-    name: 'dashboard-group-create',
-    schema: DashboardGroupCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardGroupCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.layouts !== undefined) {
-            body['layouts'] = params.layouts
-        }
-        const result = await context.api.request<Schemas.DashboardGroup>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
-    },
-})
-
-const DashboardGroupUpdateSchema = DashboardsGroupsUpdateCreateParams.omit({ project_id: true })
-    .extend(DashboardsGroupsUpdateCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsUpdateCreateParams.shape['id']) })
-
-const dashboardGroupUpdate = (): ToolBase<
-    typeof DashboardGroupUpdateSchema,
-    WithPostHogUrl<Schemas.DashboardGroup>
-> => ({
-    name: 'dashboard-group-update',
-    schema: DashboardGroupUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardGroupUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.group_id !== undefined) {
-            body['group_id'] = params.group_id
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.layouts !== undefined) {
-            body['layouts'] = params.layouts
-        }
-        const result = await context.api.request<Schemas.DashboardGroup>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/update/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
-    },
-})
-
-const DashboardGroupMoveTileSchema = DashboardsGroupsMoveTileCreateParams.omit({ project_id: true })
-    .extend(DashboardsGroupsMoveTileCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsMoveTileCreateParams.shape['id']) })
-
-const dashboardGroupMoveTile = (): ToolBase<
-    typeof DashboardGroupMoveTileSchema,
-    WithPostHogUrl<Schemas.DashboardTile>
-> => ({
-    name: 'dashboard-group-move-tile',
-    schema: DashboardGroupMoveTileSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardGroupMoveTileSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.tile_id !== undefined) {
-            body['tile_id'] = params.tile_id
-        }
-        if (params.group_id !== undefined) {
-            body['group_id'] = params.group_id
-        }
-        if (params.layouts !== undefined) {
-            body['layouts'] = params.layouts
-        }
-        const result = await context.api.request<Schemas.DashboardTile>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/move-tile/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
-    },
-})
-
-const DashboardGroupDeleteSchema = DashboardsGroupsDeleteCreateParams.omit({ project_id: true })
-    .extend(DashboardsGroupsDeleteCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsDeleteCreateParams.shape['id']) })
-
-const dashboardGroupDelete = (): ToolBase<typeof DashboardGroupDeleteSchema, unknown> => ({
-    name: 'dashboard-group-delete',
-    schema: DashboardGroupDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof DashboardGroupDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.group_id !== undefined) {
-            body['group_id'] = params.group_id
-        }
-        if (params.member_handling !== undefined) {
-            body['member_handling'] = params.member_handling
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/delete/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
-    },
-})
-
 const DashboardDeleteSchema = DashboardsDestroyParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, DashboardsDestroyParams.shape['id']),
 })
@@ -401,6 +286,121 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
             'tiles.*.insight.resolved_date_range',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+    },
+})
+
+const DashboardGroupCreateSchema = DashboardsGroupsCreateParams.omit({ project_id: true })
+    .extend(DashboardsGroupsCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsCreateParams.shape['id']) })
+
+const dashboardGroupCreate = (): ToolBase<
+    typeof DashboardGroupCreateSchema,
+    WithPostHogUrl<Schemas.DashboardGroup>
+> => ({
+    name: 'dashboard-group-create',
+    schema: DashboardGroupCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardGroupCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        const result = await context.api.request<Schemas.DashboardGroup>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
+const DashboardGroupDeleteSchema = DashboardsGroupsDeleteCreateParams.omit({ project_id: true })
+    .extend(DashboardsGroupsDeleteCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsDeleteCreateParams.shape['id']) })
+
+const dashboardGroupDelete = (): ToolBase<typeof DashboardGroupDeleteSchema, unknown> => ({
+    name: 'dashboard-group-delete',
+    schema: DashboardGroupDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardGroupDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.group_id !== undefined) {
+            body['group_id'] = params.group_id
+        }
+        if (params.member_handling !== undefined) {
+            body['member_handling'] = params.member_handling
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/delete/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
+const DashboardGroupMoveTileSchema = DashboardsGroupsMoveTileCreateParams.omit({ project_id: true })
+    .extend(DashboardsGroupsMoveTileCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsMoveTileCreateParams.shape['id']) })
+
+const dashboardGroupMoveTile = (): ToolBase<
+    typeof DashboardGroupMoveTileSchema,
+    WithPostHogUrl<Schemas.DashboardTile>
+> => ({
+    name: 'dashboard-group-move-tile',
+    schema: DashboardGroupMoveTileSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardGroupMoveTileSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.tile_id !== undefined) {
+            body['tile_id'] = params.tile_id
+        }
+        if (params.group_id !== undefined) {
+            body['group_id'] = params.group_id
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        const result = await context.api.request<Schemas.DashboardTile>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/move-tile/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
+const DashboardGroupUpdateSchema = DashboardsGroupsUpdateCreateParams.omit({ project_id: true })
+    .extend(DashboardsGroupsUpdateCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsUpdateCreateParams.shape['id']) })
+
+const dashboardGroupUpdate = (): ToolBase<
+    typeof DashboardGroupUpdateSchema,
+    WithPostHogUrl<Schemas.DashboardGroup>
+> => ({
+    name: 'dashboard-group-update',
+    schema: DashboardGroupUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardGroupUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.group_id !== undefined) {
+            body['group_id'] = params.group_id
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        const result = await context.api.request<Schemas.DashboardGroup>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/update/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
     },
 })
 
@@ -850,13 +850,13 @@ const dashboardsMoveTilePartialUpdate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': dashboardCreate,
     'dashboard-create-text-tile': dashboardCreateTextTile,
-    'dashboard-group-create': dashboardGroupCreate,
-    'dashboard-group-update': dashboardGroupUpdate,
-    'dashboard-group-move-tile': dashboardGroupMoveTile,
-    'dashboard-group-delete': dashboardGroupDelete,
     'dashboard-delete': dashboardDelete,
     'dashboard-delete-tile': dashboardDeleteTile,
     'dashboard-get': dashboardGet,
+    'dashboard-group-create': dashboardGroupCreate,
+    'dashboard-group-delete': dashboardGroupDelete,
+    'dashboard-group-move-tile': dashboardGroupMoveTile,
+    'dashboard-group-update': dashboardGroupUpdate,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
     'dashboard-templates-list': dashboardTemplatesList,
