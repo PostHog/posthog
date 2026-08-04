@@ -244,19 +244,39 @@ export const HeaderFooterOnly: Story = {
  * and `anchorItemKey` pointing at the last "user" message, which has more than a viewport of content after
  * it. Must land with the anchor at the top of the viewport, not at the bottom. The height estimate is a
  * deliberate undershoot (46px vs ~200px real), the same skew the real `THREAD_ITEM_HEIGHT_ESTIMATES` has.
+ * The 400px wrapper is intentionally shorter than the canvas so the bounded container — and where the
+ * scroll landed inside it — is visible in the snapshot.
  */
 export const AnchoredOpen: Story = {
     render: () => {
-        // 30 items; the anchor "user" message is #21, followed by 8 long rows (~1200px, two viewports).
-        const items = makeItems(30).map((item, i) => (i >= 21 ? { ...item, text: `#${i} — ${LOREM} ${LOREM}` } : item))
-        const anchorKey = 'item-21'
+        // 30 items; the anchor "user" message is #21, followed by 8 long rows (several viewports of tail).
+        const items = makeItems(30).map((item, i) => {
+            if (i === 21) {
+                return {
+                    ...item,
+                    role: 'user' as const,
+                    text: `#${i} (user, the anchor) — EXPECTED ON OPEN: this message sits at the TOP of the viewport, because more than a viewport of response follows it.`,
+                }
+            }
+            if (i > 21) {
+                return {
+                    ...item,
+                    role: 'assistant' as const,
+                    text:
+                        i === 29
+                            ? `#${i} — EXPECTED: the end of the thread stays below the fold, reached by scrolling down. ${LOREM}`
+                            : `#${i} — response under the anchor; visible below it or below the fold. ${LOREM} ${LOREM}`,
+                }
+            }
+            return item
+        })
         return (
-            <div className="h-[600px] w-180 border rounded overflow-hidden">
+            <div className="h-[400px] w-180 border rounded overflow-hidden">
                 <VirtualizedThread.Root
                     items={items}
                     getItemKey={getKey}
                     estimateItemHeight={() => 46}
-                    anchorItemKey={anchorKey}
+                    anchorItemKey="item-21"
                     stickToBottom
                 >
                     {(item) => (
@@ -274,13 +294,33 @@ export const AnchoredOpen: Story = {
  * Anchored open, mid-turn with a short tail — reopening a thread the agent is still working on, with less
  * than a viewport of response under the anchor. The top is unreachable, so this must open at the bottom,
  * pinned (no padding is reserved to force the anchor higher). Static (`turnActive` but no timers), so the
- * visual-regression run captures the clamped landing without flakes.
+ * visual-regression run captures the clamped landing without flakes. The 400px wrapper keeps the bounded
+ * container visible in the snapshot.
  */
 export const AnchoredOpenMidTurn: Story = {
     render: () => {
-        const items = makeItems(30).map((item, i) => (i >= 27 ? { ...item, text: `#${i} — ${LOREM} ${LOREM}` } : item))
+        const items = makeItems(30).map((item, i) => {
+            if (i === 27) {
+                return {
+                    ...item,
+                    role: 'user' as const,
+                    text: `#${i} (user, the anchor) — EXPECTED ON OPEN: NOT at the top. Less than a viewport of response follows, so the thread opens clamped to the BOTTOM, pinned — no whitespace is reserved to push this row higher.`,
+                }
+            }
+            if (i > 27) {
+                return {
+                    ...item,
+                    role: 'assistant' as const,
+                    text:
+                        i === 29
+                            ? `#${i} — EXPECTED: this last row sits at the bottom edge of the viewport on open.`
+                            : `#${i} — short response under the anchor. ${LOREM.slice(0, 80)}`,
+                }
+            }
+            return item
+        })
         return (
-            <div className="h-[600px] w-180 border rounded overflow-hidden">
+            <div className="h-[400px] w-180 border rounded overflow-hidden">
                 <VirtualizedThread.Root
                     items={items}
                     getItemKey={getKey}
@@ -349,13 +389,30 @@ export const AnchoredOpenMidTurnDebug: Story = {
  * Anchored open, mid-turn with a long tail — reopening a thread the agent is still working on, with more
  * than a viewport of response already under the anchor. This is a reading position: the anchor must land at
  * the top of the viewport and stay there — streaming below must not steal the view. Static and
- * deterministic, so the visual-regression run captures it.
+ * deterministic, so the visual-regression run captures it. The 400px wrapper keeps the bounded container
+ * visible in the snapshot.
  */
 export const AnchoredOpenMidTurnLongTail: Story = {
     render: () => {
-        const items = makeItems(30).map((item, i) => (i >= 21 ? { ...item, text: `#${i} — ${LOREM} ${LOREM}` } : item))
+        const items = makeItems(30).map((item, i) => {
+            if (i === 21) {
+                return {
+                    ...item,
+                    role: 'user' as const,
+                    text: `#${i} (user, the anchor) — EXPECTED ON OPEN (mid-turn): at the TOP of the viewport, and it STAYS there — the stream growing below must not steal this reading position.`,
+                }
+            }
+            if (i > 21) {
+                return {
+                    ...item,
+                    role: 'assistant' as const,
+                    text: `#${i} — in-progress response under the anchor; the tail already exceeds a viewport. ${LOREM} ${LOREM}`,
+                }
+            }
+            return item
+        })
         return (
-            <div className="h-[600px] w-180 border rounded overflow-hidden">
+            <div className="h-[400px] w-180 border rounded overflow-hidden">
                 <VirtualizedThread.Root
                     items={items}
                     getItemKey={getKey}
