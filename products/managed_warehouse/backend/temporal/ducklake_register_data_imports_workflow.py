@@ -64,6 +64,7 @@ LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
+S3_COPY_BATCH_SIZE = 16
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 
 
@@ -436,6 +437,8 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     if not parquet_paths:
         raise ApplicationError(f"No prepared Parquet files found under {source_uri}", non_retryable=True)
 
+    source_copy_paths: list[str] = []
+    landing_copy_paths: list[str] = []
     landing_paths: list[str] = []
     for source_path_value in parquet_paths:
         source_path = source_path_value.removeprefix("s3://")
@@ -443,8 +446,11 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
         if relative_path == source_path or relative_path.startswith("../"):
             raise ApplicationError(f"Prepared file escaped source prefix: {source_path}", non_retryable=True)
         landing_path = f"{landing_prefix}/{relative_path}"
-        s3.copy(source_path, landing_path)
+        source_copy_paths.append(source_path)
+        landing_copy_paths.append(landing_path)
         landing_paths.append(f"s3://{landing_path}")
+
+    s3.copy(source_copy_paths, landing_copy_paths, batch_size=S3_COPY_BATCH_SIZE)
 
     copied_bytes = 0
     if isinstance(found, dict):
