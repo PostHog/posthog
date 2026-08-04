@@ -1,5 +1,6 @@
 import {
     BreakPointFunction,
+    BuiltLogic,
     MakeLogicType,
     actions,
     connect,
@@ -193,7 +194,8 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
         ],
     }),
 
-    loaders(({ values }) => {
+    loaders((logic) => {
+        const { values } = logic
         const fetchFacet = async (facet: FacetConfig): Promise<_LogFacetValueApi[]> => {
             if (!values.currentTeamId) {
                 return []
@@ -222,9 +224,6 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
 
         // Fetch each facet independently and merge into the existing record. allSettled (not all) so
         // one facet's failed request leaves the others' counts intact instead of wiping the batch.
-        // Takes the caller's breakpoint so it can bail out right after the network round-trip: the
-        // facet rail (and this logic) unmounts when the user collapses it, and reading `values.facetValues`
-        // once unmounted throws "Can not find path ... in the store" instead of just discarding the result.
         const mergeFetched = async (
             facets: FacetConfig[],
             breakpoint: BreakPointFunction
@@ -233,6 +232,12 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                 facets.map(async (facet) => [facet.key, await fetchFacet(facet)] as const)
             )
             breakpoint()
+            // breakpoint() only bails on a superseded call, not on unmount — the rail can collapse
+            // mid-flight, and reading `values.facetValues` on an unmounted logic throws kea's
+            // path-not-found error. The result is discarded anyway once unmounted, so return early.
+            if (!(logic as BuiltLogic<facetCountsLogicType>).isMounted()) {
+                return {}
+            }
             const fetched = settled
                 .filter(
                     (s): s is PromiseFulfilledResult<readonly [string, _LogFacetValueApi[]]> => s.status === 'fulfilled'
