@@ -384,6 +384,9 @@ tools:
                 - internal
                 - created_at
                 - updated_at
+    tasks-message-parent-create:
+        operation: tasks_message_parent_create
+        enabled: false
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false

@@ -71778,6 +71778,10 @@ export namespace Schemas {
       runtime?: RuntimeEnum;
     }
 
+    export interface TaskParentMessageRequest {
+      message: string;
+    }
+
     export interface TaskPinRequest {
       /** Whether the task should be pinned for the requester. */
       pinned: boolean;

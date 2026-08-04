@@ -3017,6 +3017,14 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * @summary Send a message to the parent task
+ */
+export const TasksMessageParentCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string(),
+})
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  * @summary Spawn a child task
  */
 export const tasksSpawnCreateBodyTitleMax = 255
