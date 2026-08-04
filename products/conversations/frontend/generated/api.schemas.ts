@@ -943,6 +943,24 @@ export interface PaginatedTicketMessageListApi {
 }
 
 /**
+ * Payload for updating a private note on a ticket.
+ */
+export interface PatchedTicketNoteUpdateRequestApi {
+    /**
+     * Updated note content in markdown.
+     * @maxLength 5000
+     */
+    message?: string
+    /** Optional TipTap rich content JSON for formatted messages. */
+    rich_content?: unknown
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
+}
+
+/**
  * Payload for posting a reply or internal note to a ticket.
  */
 export interface TicketReplyRequestApi {
@@ -953,19 +971,6 @@ export interface TicketReplyRequestApi {
     message: string
     /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
     is_private?: boolean
-    /** Optional TipTap rich content JSON for formatted messages. */
-    rich_content?: unknown
-}
-
-/**
- * Payload for updating a private note on a ticket.
- */
-export interface TicketNoteUpdateRequestApi {
-    /**
-     * Updated note content in markdown.
-     * @maxLength 5000
-     */
-    message: string
     /** Optional TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
 }
@@ -1066,11 +1071,6 @@ export interface ComposeTicketResponseApi {
     id: string
     /** Human-readable ticket number. */
     ticket_number: number
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**
