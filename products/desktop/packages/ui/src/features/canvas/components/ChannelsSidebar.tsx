@@ -137,9 +137,7 @@ export function ChannelsSidebar() {
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
   const channelsLayout = useChannelsLayout();
-  const staticSpacesSidebarEnabled = useFeatureFlag(
-    STATIC_SPACES_SIDEBAR_FLAG,
-  );
+  const staticSpacesSidebarEnabled = useFeatureFlag(STATIC_SPACES_SIDEBAR_FLAG);
   const staticSpacesSidebar = channelsLayout && staticSpacesSidebarEnabled;
   const channelsWorld = channelsLayout || channelsEnabled;
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
@@ -173,12 +171,7 @@ export function ChannelsSidebar() {
     if (!channelsLayout || staticSpacesSidebar || !routeChannelId) return;
     setCurrentChannel(routeChannelId);
     showChannelPane();
-  }, [
-    channelsLayout,
-    staticSpacesSidebar,
-    routeChannelId,
-    setCurrentChannel,
-  ]);
+  }, [channelsLayout, staticSpacesSidebar, routeChannelId, setCurrentChannel]);
 
   const pane = useChannelPaneStore((s) => s.pane);
   const showList = pane === "list" || currentChannelId == null;

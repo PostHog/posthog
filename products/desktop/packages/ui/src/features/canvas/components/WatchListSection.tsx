@@ -9,11 +9,7 @@ import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import {
-  normalizeChannelName,
-  PERSONAL_CHANNEL_NAME,
-  useTaskChannels,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -57,8 +53,7 @@ export function WatchListSection() {
       refetchInterval: WATCHED_TASK_POLL_INTERVAL_MS,
     })),
   });
-  const { channels: backendChannels } = useTaskChannels({ enabled: open });
-  const { channels: folderChannels } = useChannels();
+  const { channels } = useChannels({ enabled: open });
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
@@ -104,34 +99,30 @@ export function WatchListSection() {
     );
   }, [watchList, allTasks, watchedTaskQueries, archivedTaskIds, pinnedTaskIds]);
 
-  // Each task's space: backend channel → display name → folder channel (which
-  // the routes need). Unmapped tasks open under #me and carry no label.
+  // Each task carries the same channel UUID used by the spaces routes.
+  // Unmapped tasks open under #me and carry no label.
   const spaceFor = useMemo(() => {
-    const backendById = new Map(backendChannels.map((c) => [c.id, c]));
-    const folderByName = new Map(
-      folderChannels.map((c) => [normalizeChannelName(c.name), c]),
+    const channelById = new Map(
+      channels.map((channel) => [channel.id, channel]),
     );
-    const me = folderChannels.find((c) => c.name === PERSONAL_CHANNEL_NAME);
+    const me = channels.find((channel) => channel.channelType === "personal");
     const byTaskId = new Map<
       string,
       { spaceName: string | null; folderId: string | undefined }
     >();
     for (const item of items) {
-      const backend = item.task?.channel
-        ? backendById.get(item.task.channel)
+      const channel = item.task?.channel
+        ? channelById.get(item.task.channel)
         : undefined;
-      const spaceName = backend
-        ? backend.channel_type === "personal"
+      const spaceName = channel
+        ? channel.channelType === "personal"
           ? PERSONAL_CHANNEL_NAME
-          : backend.name
+          : channel.name
         : null;
-      const folder = spaceName
-        ? folderByName.get(normalizeChannelName(spaceName))
-        : undefined;
-      byTaskId.set(item.id, { spaceName, folderId: (folder ?? me)?.id });
+      byTaskId.set(item.id, { spaceName, folderId: (channel ?? me)?.id });
     }
     return byTaskId;
-  }, [items, backendChannels, folderChannels]);
+  }, [items, channels]);
 
   const actions = useMemo<ChannelItemActions>(
     () => ({

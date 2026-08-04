@@ -34,7 +34,7 @@ export function AllSpacesSection() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const { channels } = useChannels();
-  const { starredRefToShortcutId } = useChannelStars();
+  const { starredChannelIds } = useChannelStars();
   const { star, unstar } = useChannelStarMutations();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
   const navigate = useNavigate();
@@ -62,15 +62,15 @@ export function AllSpacesSection() {
   };
 
   const togglePin = (channel: Channel) => {
-    const shortcutId = starredRefToShortcutId.get(channel.path);
+    const isStarred = starredChannelIds.has(channel.id);
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-      action_type: shortcutId ? "unstar" : "star",
+      action_type: isStarred ? "unstar" : "star",
       surface: "sidebar",
       channel_id: channel.id,
     });
-    const run = shortcutId ? unstar(shortcutId) : star(channel);
+    const run = isStarred ? unstar(channel.id) : star(channel.id);
     run.catch((error: unknown) =>
-      toast.error(shortcutId ? "Couldn't unpin space" : "Couldn't pin space", {
+      toast.error(isStarred ? "Couldn't unpin space" : "Couldn't pin space", {
         description: error instanceof Error ? error.message : String(error),
       }),
     );
@@ -106,7 +106,7 @@ export function AllSpacesSection() {
           <>
             <div className="flex max-h-64 flex-col gap-px overflow-y-auto">
               {spaces.map((channel) => {
-                const shortcutId = starredRefToShortcutId.get(channel.path);
+                const isStarred = starredChannelIds.has(channel.id);
                 const base = `/website/${channel.id}`;
                 const isActive =
                   pathname === base || pathname.startsWith(`${base}/`);
@@ -134,18 +134,18 @@ export function AllSpacesSection() {
                     <Button
                       variant="default"
                       size="icon-sm"
-                      aria-label={shortcutId ? "Unpin space" : "Pin space"}
+                      aria-label={isStarred ? "Unpin space" : "Pin space"}
                       onClick={() => togglePin(channel)}
                       className={cn(
                         "-translate-y-1/2 absolute top-1/2 right-[2px] text-muted-foreground transition-opacity",
-                        shortcutId
+                        isStarred
                           ? "opacity-100"
                           : "opacity-0 focus-visible:opacity-100 group-hover/space:opacity-100",
                       )}
                     >
                       <StarIcon
                         size={13}
-                        weight={shortcutId ? "fill" : "regular"}
+                        weight={isStarred ? "fill" : "regular"}
                       />
                     </Button>
                   </div>

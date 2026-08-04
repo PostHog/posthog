@@ -33,7 +33,7 @@ export function SpaceSelect({
   onChange: (channelId: string) => void;
 }) {
   const { channels } = useChannels();
-  const { starredRefToShortcutId } = useChannelStars();
+  const { starredChannelIds } = useChannelStars();
   const spaceOrder = useSpacesSidebarStore((s) => s.spaceOrder);
   const current = channels.find((c) => c.id === value);
 
@@ -42,9 +42,7 @@ export function SpaceSelect({
     const rank = new Map(spaceOrder.map((id, index) => [id, index]));
     const starredList = channels
       .filter(
-        (c) =>
-          c.name !== PERSONAL_CHANNEL_NAME &&
-          starredRefToShortcutId.has(c.path),
+        (c) => c.name !== PERSONAL_CHANNEL_NAME && starredChannelIds.has(c.id),
       )
       .sort(
         (a, b) =>
@@ -60,7 +58,7 @@ export function SpaceSelect({
         )
         .sort((a, b) => a.name.localeCompare(b.name)),
     };
-  }, [channels, starredRefToShortcutId, spaceOrder]);
+  }, [channels, starredChannelIds, spaceOrder]);
 
   const triggerGlyph = channelGlyph(current?.name, { size: 14, space: true });
 

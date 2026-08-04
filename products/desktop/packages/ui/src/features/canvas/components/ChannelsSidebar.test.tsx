@@ -6,7 +6,12 @@ const mocks = vi.hoisted(() => ({
   featureFlags: new Map<string, boolean>(),
   channelsLayout: false,
   channelsEnabled: false,
-  channels: [] as { id: string; name: string; path: string }[],
+  channels: [] as {
+    id: string;
+    name: string;
+    channelType: "public" | "personal";
+    starred: boolean;
+  }[],
   channelsLoading: false,
   archivedTaskIds: new Set<string>(),
   navigateToArchived: vi.fn(),
@@ -15,6 +20,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@posthog/ui/shell/analytics", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
+}));
+vi.mock("@tanstack/react-router", () => ({
+  useParams: () => ({}),
 }));
 
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
@@ -33,7 +41,7 @@ vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
   useArchivedTaskIds: () => mocks.archivedTaskIds,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
-  useChannelStars: () => ({ starredRefToShortcutId: new Map() }),
+  useChannelStars: () => ({ starredChannelIds: new Set() }),
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToArchived: (...args: unknown[]) => mocks.navigateToArchived(...args),
@@ -99,7 +107,12 @@ function renderSidebar() {
   );
 }
 
-const ME = { id: "me-id", name: "me", path: "/me" };
+const ME = {
+  id: "me-id",
+  name: "me",
+  channelType: "personal" as const,
+  starred: true,
+};
 
 describe("ChannelsSidebar", () => {
   beforeEach(() => {
@@ -135,7 +148,15 @@ describe("ChannelsSidebar", () => {
 
     it("fires space-viewed tracking from the shell", () => {
       mocks.channelsLayout = true;
-      mocks.channels = [ME, { id: "eng-id", name: "eng", path: "/eng" }];
+      mocks.channels = [
+        ME,
+        {
+          id: "eng-id",
+          name: "eng",
+          channelType: "public",
+          starred: false,
+        },
+      ];
       renderSidebar();
       expect(mocks.track).toHaveBeenCalledWith(
         ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED,

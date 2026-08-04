@@ -24,8 +24,7 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
  * Switches the spaces layout from the original master/detail sidebar to the
  * static, expandable spaces navigation. Requires code-spaces-layout.
  */
-export const STATIC_SPACES_SIDEBAR_FLAG =
-  "posthog-code-static-spaces-sidebar";
+export const STATIC_SPACES_SIDEBAR_FLAG = "posthog-code-static-spaces-sidebar";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";

@@ -3,8 +3,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  channels: [] as { id: string; name: string; path: string }[],
-  starredRefToShortcutId: new Map<string, string>(),
+  channels: [] as {
+    id: string;
+    name: string;
+    channelType: "public" | "personal";
+    starred: boolean;
+  }[],
+  starredChannelIds: new Set<string>(),
   star: vi.fn(() => Promise.resolve()),
   unstar: vi.fn(() => Promise.resolve()),
   navigate: vi.fn(),
@@ -29,7 +34,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStars: () => ({
-    starredRefToShortcutId: mocks.starredRefToShortcutId,
+    starredChannelIds: mocks.starredChannelIds,
   }),
   useChannelStarMutations: () => ({ star: mocks.star, unstar: mocks.unstar }),
 }));
@@ -46,9 +51,24 @@ vi.mock("@posthog/ui/features/canvas/components/CreateChannelModal", () => ({
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { AllSpacesSection } from "./AllSpacesSection";
 
-const ME = { id: "me-id", name: "me", path: "/me" };
-const ENG = { id: "eng-id", name: "eng", path: "/eng" };
-const ADS = { id: "ads-id", name: "ads", path: "/ads" };
+const ME = {
+  id: "me-id",
+  name: "me",
+  channelType: "personal" as const,
+  starred: true,
+};
+const ENG = {
+  id: "eng-id",
+  name: "eng",
+  channelType: "public" as const,
+  starred: false,
+};
+const ADS = {
+  id: "ads-id",
+  name: "ads",
+  channelType: "public" as const,
+  starred: false,
+};
 
 function renderSection() {
   return render(
@@ -62,7 +82,7 @@ describe("AllSpacesSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.channels = [ME, ENG, ADS];
-    mocks.starredRefToShortcutId = new Map();
+    mocks.starredChannelIds = new Set();
     mocks.pathname = "/code";
     useSpacesSidebarStore.setState({ openAddSpace: true });
   });
@@ -90,15 +110,15 @@ describe("AllSpacesSection", () => {
   it("pins on the star without opening the space", () => {
     renderSection();
     fireEvent.click(screen.getAllByLabelText("Pin space")[0]);
-    expect(mocks.star).toHaveBeenCalledWith(ADS);
+    expect(mocks.star).toHaveBeenCalledWith(ADS.id);
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
-  it("unpins an already-pinned space through its shortcut", () => {
-    mocks.starredRefToShortcutId = new Map([[ENG.path, "shortcut-1"]]);
+  it("unpins an already-pinned space", () => {
+    mocks.starredChannelIds = new Set([ENG.id]);
     renderSection();
     fireEvent.click(screen.getByLabelText("Unpin space"));
-    expect(mocks.unstar).toHaveBeenCalledWith("shortcut-1");
+    expect(mocks.unstar).toHaveBeenCalledWith(ENG.id);
   });
 
   it("collapses to just the section label", () => {

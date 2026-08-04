@@ -93,7 +93,7 @@ export function SpacesSidebarNav() {
   // the directory's star but as one gesture; dragging a pinned row out again
   // unpins it.
   const { channels } = useChannels();
-  const { starredRefToShortcutId } = useChannelStars();
+  const { starredChannelIds } = useChannelStars();
   const { star, unstar } = useChannelStarMutations();
   const [isSpaceDropTarget, setIsSpaceDropTarget] = useState(false);
 
@@ -129,13 +129,13 @@ export function SpacesSidebarNav() {
     if (!spaceId) return;
     e.preventDefault();
     const channel = channels.find((c) => c.id === spaceId);
-    if (!channel || starredRefToShortcutId.has(channel.path)) return;
+    if (!channel || starredChannelIds.has(channel.id)) return;
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "star",
       surface: "sidebar",
       channel_id: channel.id,
     });
-    star(channel).catch((error: unknown) =>
+    star(channel.id).catch((error: unknown) =>
       toast.error("Couldn't pin space", {
         description: error instanceof Error ? error.message : String(error),
       }),
@@ -157,14 +157,13 @@ export function SpacesSidebarNav() {
     // is still the target.
     if (!targetId) {
       const channel = channels.find((c) => c.id === String(sourceId));
-      const shortcutId = channel && starredRefToShortcutId.get(channel.path);
-      if (!channel || !shortcutId) return;
+      if (!channel || !starredChannelIds.has(channel.id)) return;
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "unstar",
         surface: "sidebar",
         channel_id: channel.id,
       });
-      unstar(shortcutId).catch((error: unknown) =>
+      unstar(channel.id).catch((error: unknown) =>
         toast.error("Couldn't unpin space", {
           description: error instanceof Error ? error.message : String(error),
         }),

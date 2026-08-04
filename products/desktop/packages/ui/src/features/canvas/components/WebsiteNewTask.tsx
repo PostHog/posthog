@@ -8,7 +8,6 @@ import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
-import { useBackendChannel } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -33,7 +32,6 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   const { fileTask } = useChannelTaskMutations();
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
-  const { channel: backendChannel } = useBackendChannel(channelName);
 
   // Surface the channel breadcrumb in the shared header, same as the other
   // channel scenes ("# channel / New task").
@@ -80,7 +78,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
       // Seed the detail cache so the destination route resolves instantly
       // (mirrors openTask), then file to the channel + navigate.
       queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
-      void fileTask(channelId, task.id, task.title)
+      void fileTask(channelId, task.id)
         .then(() => {
           track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
             action_type: "file_task",
@@ -141,7 +139,7 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
           channelName={channelName}
-          channelId={backendChannel?.id}
+          channelId={channelId}
           channelContextId={channelId}
           allowNoRepo
           // So a prompt handed to openTaskInput survives routing into a channel.

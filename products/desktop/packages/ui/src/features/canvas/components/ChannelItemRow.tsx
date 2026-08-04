@@ -224,9 +224,10 @@ export function ChannelItemRow({
       if (item.kind !== "task") return;
 
       event.dataTransfer.setData("text/x-task-id", item.id);
+      event.dataTransfer.setData("text/x-task-title", item.title);
       event.dataTransfer.effectAllowed = "copy";
     },
-    [item.id, item.kind],
+    [item.id, item.kind, item.title],
   );
   // The row's leading mark is always the task-list state vocabulary. Canvases
   // have no live run, so they use the quiet dot and move their glyph to the
@@ -298,20 +299,6 @@ export function ChannelItemRow({
               draggable={item.kind === "task"}
               onDragStart={handleDragStart}
               onClick={() => actions.open(item)}
-              // Tasks drag into the Command Center grid and the sidebar's
-              // watch list, which accept this payload type — same contract as
-              // the code sidebar's TaskItem. The title rides along so a drop
-              // target can keep a legible reference without refetching.
-              draggable={item.kind === "task"}
-              onDragStart={
-                item.kind === "task"
-                  ? (e) => {
-                      e.dataTransfer.setData("text/x-task-id", item.id);
-                      e.dataTransfer.setData("text/x-task-title", item.title);
-                      e.dataTransfer.effectAllowed = "copy";
-                    }
-                  : undefined
-              }
               endContent={
                 <span className={TRAILING_CLASS}>
                   {contextLabel && (
