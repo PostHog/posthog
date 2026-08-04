@@ -421,13 +421,27 @@ class TestEarlyAccessFeature(APIBaseTest):
             },
         )
 
-    def test_cant_create_early_access_feature_with_duplicate_key(self):
-        FeatureFlag.objects.create(
+    @parameterized.expand(
+        [
+            ("linkable_flag", False, "Rename this feature, or link the existing flag instead."),
+            ("flag_already_attached", True, "Rename this feature."),
+        ]
+    )
+    def test_cant_create_early_access_feature_with_duplicate_key(self, _name, attach_existing_feature, remedy):
+        flag = FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [], "rollout_percentage": None}]},
             key="hick-bondoogling",
             created_by=self.user,
         )
+        if attach_existing_feature:
+            EarlyAccessFeature.objects.create(
+                team=self.team,
+                name="Hick bondoogling (original)",
+                description="The one that got there first.",
+                stage="beta",
+                feature_flag=flag,
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
@@ -442,9 +456,37 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
 
+        self.assertEqual(response_data["attr"], "name")
         self.assertEqual(
             response_data["detail"],
-            "There is already a feature flag with this key.",
+            f"A feature flag with the key 'hick-bondoogling' already exists. {remedy}",
+        )
+
+    @parameterized.expand(
+        [
+            ("non_latin_script", "功能名称"),
+            ("emoji_only", "🎉🎉🎉"),
+            ("punctuation_only", "!!!"),
+        ]
+    )
+    def test_cant_create_early_access_feature_whose_name_yields_no_flag_key(self, _name, feature_name):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": feature_name,
+                "description": "A feature whose name slugifies to nothing.",
+                "stage": "beta",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+
+        self.assertEqual(response_data["attr"], "name")
+        self.assertEqual(
+            response_data["detail"],
+            "A feature flag key can't be built from this name. Rename this feature using letters (a-z) or numbers, or link an existing flag instead.",
         )
 
     def test_can_create_new_early_access_feature_with_soft_deleted_flag(self):
