@@ -175,7 +175,6 @@ def create_posthog_code_followup_loop_activity(
     today's behavior instead of dead-ending.
     """
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
-    from products.tasks.backend.access import has_loops_access
     from products.tasks.backend.facade.loops import (
         LoopLimitError,
         LoopPermissionError,
@@ -190,7 +189,7 @@ def create_posthog_code_followup_loop_activity(
         integration_id=inputs.slack_team_id,
     )
     user = User.objects.filter(id=user_id, is_active=True).first()
-    if user is None or not has_loops_access(user, integration.team):
+    if user is None:
         return False
 
     run_at = datetime.fromisoformat(run_at_iso)
@@ -218,6 +217,8 @@ def create_posthog_code_followup_loop_activity(
             },
         )
     except LoopPermissionError:
+        # The facade enforces loops access (products/tasks isolation keeps the check behind its
+        # boundary); a requester without it falls through to the normal run-now path.
         return False
     except (LoopValidationError, LoopLimitError) as error:
         detail = getattr(error, "detail", "") or str(error)

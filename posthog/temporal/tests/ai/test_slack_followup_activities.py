@@ -70,10 +70,7 @@ class TestCreateFollowupLoopActivity(SlackFollowupActivityTestCase):
         )
 
     def test_creates_the_loop_and_confirms_in_thread(self):
-        with (
-            patch("products.tasks.backend.access.has_loops_access", return_value=True),
-            patch("products.tasks.backend.facade.loops.create_slack_followup_loop") as mock_create,
-        ):
+        with patch("products.tasks.backend.facade.loops.create_slack_followup_loop") as mock_create:
             handled = self.create()
 
         self.assertTrue(handled)
@@ -95,25 +92,23 @@ class TestCreateFollowupLoopActivity(SlackFollowupActivityTestCase):
         self.assertIn("cancel the follow-up", confirmation)
 
     def test_no_loops_access_falls_through_to_the_run_now_path(self):
-        with (
-            patch("products.tasks.backend.access.has_loops_access", return_value=False),
-            patch("products.tasks.backend.facade.loops.create_slack_followup_loop") as mock_create,
+        from products.tasks.backend.facade.loops import LoopPermissionError
+
+        with patch(
+            "products.tasks.backend.facade.loops.create_slack_followup_loop",
+            side_effect=LoopPermissionError("Loops are not enabled for this user or project."),
         ):
             handled = self.create()
 
         self.assertFalse(handled)
-        mock_create.assert_not_called()
         self.assertEqual(self.posted_messages(), [])
 
     def test_creation_failure_is_reported_in_thread_instead_of_falling_through(self):
         from products.tasks.backend.facade.loops import LoopValidationError
 
-        with (
-            patch("products.tasks.backend.access.has_loops_access", return_value=True),
-            patch(
-                "products.tasks.backend.facade.loops.create_slack_followup_loop",
-                side_effect=LoopValidationError("The follow-up time must be in the future."),
-            ),
+        with patch(
+            "products.tasks.backend.facade.loops.create_slack_followup_loop",
+            side_effect=LoopValidationError("The follow-up time must be in the future."),
         ):
             handled = self.create()
 
