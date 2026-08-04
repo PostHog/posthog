@@ -842,6 +842,14 @@ class TestProcessTaskWorkflowUnit:
                 {
                     "mode": "background",
                     "pending_user_message": "this is nice",
+                    "parent_run_id": "parent-run-id",
+                },
+                False,
+            ),
+            (
+                {
+                    "mode": "background",
+                    "pending_user_message": "this is nice",
                     "resume_from_run_id": "previous-run-id",
                 },
                 False,
@@ -856,6 +864,20 @@ class TestProcessTaskWorkflowUnit:
         )
 
         assert workflow._should_forward_pending_user_message() is expected
+
+    def test_spawned_child_initial_prompt_has_one_delivery_owner(self):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state={
+                "mode": "background",
+                "pending_user_message": "Make the focused change",
+                "parent_run_id": "parent-run-id",
+            },
+        )
+
+        assert workflow.context.state["pending_user_message"] == "Make the focused change"
+        assert workflow._should_forward_pending_user_message() is False
 
     @pytest.mark.parametrize(
         "payload, expected_prewarmed",
