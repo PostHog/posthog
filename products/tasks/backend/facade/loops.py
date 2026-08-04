@@ -958,6 +958,30 @@ def create_slack_followup_loop(
         )
 
 
+def disable_slack_followup_loops_for_thread(
+    team_id: int, user: User, *, integration_id: int, channel: str, thread_ts: str
+) -> int:
+    """Disable the requester's enabled Slack follow-up loops bound to a thread and pause
+    their schedules. Owner-only, matching personal-loop edit rules, so one thread
+    participant can't cancel another's follow-up. Returns how many loops were disabled."""
+    loops = list(
+        Loop.objects.for_team(team_id, canonical=True).filter(
+            deleted=False,
+            enabled=True,
+            created_by_id=user.id,
+            origin_product=Task.OriginProduct.SLACK,
+            slack_thread_target__integration_id=integration_id,
+            slack_thread_target__channel=channel,
+            slack_thread_target__thread_ts=thread_ts,
+        )
+    )
+    for loop in loops:
+        loop.enabled = False
+        loop.save(update_fields=["enabled", "updated_at"])
+        loop_service.pause_loop_schedules(loop)
+    return len(loops)
+
+
 def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_data: dict) -> LoopDTO | None:
     """Partially update a loop reachable by the user (see `_fetch_loop_for_write`). Raises
     `LoopPermissionError` if the user may reach the loop but not make this particular write.

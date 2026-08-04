@@ -10,10 +10,13 @@ from posthog.temporal.ai.slack_app import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     PostHogCodeSlackMentionWorkflowInputs,
     block_posthog_code_task_if_no_personal_github_activity,
+    cancel_posthog_code_followup_loops_activity,
     cascade_posthog_code_repository_activity,
+    classify_posthog_code_followup_request_activity,
     classify_posthog_code_task_needs_repo_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
+    create_posthog_code_followup_loop_activity,
     create_posthog_code_task_for_repo_activity,
     discover_posthog_code_repository_via_agent_activity,
     enforce_posthog_code_billing_quota_activity,
@@ -32,6 +35,7 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 
 # Temporal patch ID — an arbitrary string recorded in workflow history.
 _PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
+_PATCH_ID_SLACK_FOLLOWUPS = "slack-followup-loops-v1"
 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")
@@ -196,6 +200,43 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
             if not thread_messages:
                 return
+
+            # A "check this later" ask becomes a one-time loop bound to this thread. It must be
+            # detected before the repository cascade, so a scheduling ask never spins up the
+            # repo-discovery sandbox. Any non-schedule outcome (including a dark feature flag
+            # or a requester without loops access) falls through to the normal run-now path.
+            if workflow.patched(_PATCH_ID_SLACK_FOLLOWUPS):
+                followup_intent = await _execute_posthog_code_activity(
+                    classify_posthog_code_followup_request_activity,
+                    inputs,
+                    event.get("text", ""),
+                    thread_messages,
+                )
+                if followup_intent.intent == "schedule" and followup_intent.run_at:
+                    handled = await _execute_posthog_code_activity(
+                        create_posthog_code_followup_loop_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        user_id,
+                        event.get("text", ""),
+                        thread_messages,
+                        followup_intent.run_at,
+                        followup_intent.what or "",
+                    )
+                    if handled:
+                        return
+                elif followup_intent.intent == "cancel":
+                    handled = await _execute_posthog_code_activity(
+                        cancel_posthog_code_followup_loops_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        user_id,
+                    )
+                    if handled:
+                        return
 
             repository: str | None
             # Set only on the ambiguous path that runs the discovery sandbox

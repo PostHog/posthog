@@ -35,6 +35,7 @@ SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
 SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
 SLACK_APP_LIVING_ARTIFACTS_FLAG = "slack-app-living-artifacts"
 SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
+SLACK_APP_FOLLOWUPS_FLAG = "slack-app-followups"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -158,6 +159,30 @@ def is_slack_app_living_artifacts_enabled(integration: Integration) -> bool:
     except Exception:
         logger.exception(
             "slack_app_living_artifacts_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
+def is_slack_app_followups_enabled(integration: Integration) -> bool:
+    """Gate for scheduled follow-ups ("check this in two weeks and report back here"):
+    the mention-time intent classifier, follow-up loop creation, and in-thread
+    cancellation. Keyed on the Slack workspace + PostHog org. Loops access
+    (`tasks` + `loops` flags) is checked separately per requesting user."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_FOLLOWUPS_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_followups_feature_flag_check_failed",
             integration_id=integration.id,
         )
         return False

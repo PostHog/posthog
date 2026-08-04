@@ -140,6 +140,20 @@ class PostHogCodeRepoCascadeOutcome:
 
 
 @dataclass
+class PostHogCodeFollowupIntent:
+    """Outcome of the deferred-follow-up classifier for a fresh mention.
+
+    `schedule` → create a one-time thread-bound loop (`run_at` and `what` are set).
+    `cancel` → the mention asks to call off a follow-up scheduled in this thread.
+    `none` → not a scheduling ask; the mention proceeds down the normal run-now path.
+    """
+
+    intent: Literal["none", "schedule", "cancel"]
+    run_at: str | None = None
+    what: str | None = None
+
+
+@dataclass
 class SlackRepoSelectionOutcome:
     """Discovery-agent result wrapped at the activity boundary.
 

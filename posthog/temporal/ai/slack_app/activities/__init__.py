@@ -6,6 +6,12 @@ from posthog.temporal.ai.slack_app.activities.classifiers import (
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
+from posthog.temporal.ai.slack_app.activities.followups import (
+    cancel_posthog_code_followup_loops_activity,
+    classify_followup_request,
+    classify_posthog_code_followup_request_activity,
+    create_posthog_code_followup_loop_activity,
+)
 from posthog.temporal.ai.slack_app.activities.messaging import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
@@ -48,12 +54,16 @@ __all__ = [
     "POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE",
     "POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE",
     "block_posthog_code_task_if_no_personal_github_activity",
+    "cancel_posthog_code_followup_loops_activity",
     "cascade_posthog_code_repository_activity",
+    "classify_followup_request",
     "classify_message_is_agent_directed",
+    "classify_posthog_code_followup_request_activity",
     "classify_posthog_code_task_needs_repo_activity",
     "classify_task_needs_repo",
     "classify_untagged_followup_activity",
     "collect_posthog_code_thread_messages_activity",
+    "create_posthog_code_followup_loop_activity",
     "create_posthog_code_routing_rule_activity",
     "create_posthog_code_task_for_repo_activity",
     "derive_mention_workflow_id",

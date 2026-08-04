@@ -8,6 +8,8 @@ from django.utils import timezone as django_timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.user import User
+
 from products.tasks.backend.exceptions import FollowupDeferError
 from products.tasks.backend.logic.services.loop_followups import request_followup_defer
 from products.tasks.backend.models import Loop, LoopTrigger, Task, TaskRun
@@ -100,6 +102,46 @@ class TestRequestFollowupDefer(SlackFollowupTestCase):
             request_followup_defer(run, until=django_timezone.now() + timedelta(days=7))
 
         self.assertEqual(ctx.exception.code, "not_a_followup")
+
+
+class TestDisableSlackFollowupLoopsForThread(SlackFollowupTestCase):
+    def setUp(self):
+        super().setUp()
+        pause = patch("products.tasks.backend.facade.loops.loop_service.pause_loop_schedules")
+        self.mock_pause = pause.start()
+        self.addCleanup(pause.stop)
+
+    def test_disables_only_the_requesters_loops_bound_to_the_thread(self):
+        from products.tasks.backend.facade.loops import disable_slack_followup_loops_for_thread
+
+        mine = self.create_loop(slack_thread_target=self.slack_target(), origin_product=Task.OriginProduct.SLACK)
+        other_thread = self.create_loop(
+            slack_thread_target=self.slack_target(thread_ts="999.888"),
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        teammate = User.objects.create_user(email="teammate@example.com", first_name="T", password="password")
+        theirs = self.create_loop(
+            slack_thread_target=self.slack_target(),
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=teammate,
+        )
+
+        disabled = disable_slack_followup_loops_for_thread(
+            self.team.id,
+            self.user,
+            integration_id=self.slack_integration.id,
+            channel="C0456",
+            thread_ts=self.THREAD_TS,
+        )
+
+        self.assertEqual(disabled, 1)
+        mine.refresh_from_db()
+        other_thread.refresh_from_db()
+        theirs.refresh_from_db()
+        self.assertFalse(mine.enabled)
+        self.assertTrue(other_thread.enabled)
+        self.assertTrue(theirs.enabled)
+        self.mock_pause.assert_called_once()
 
 
 class TestDeferFollowupEndpoint(APIBaseTest):
