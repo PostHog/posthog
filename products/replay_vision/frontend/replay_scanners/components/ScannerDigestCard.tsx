@@ -1,6 +1,7 @@
 import './ScannerSummary.scss'
 
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -23,9 +24,19 @@ import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerDigestLogic } from '../scannerDigestLogic'
 import { resolveObservationCitations } from '../visionActionRunSceneLogic'
 
-function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
+function CardShell({
+    children,
+    containerRef,
+}: {
+    children: React.ReactNode
+    containerRef?: React.RefObject<HTMLDivElement>
+}): JSX.Element {
     return (
-        <div className="border rounded p-4 flex flex-col gap-2" data-attr="vision-scanner-digest-card">
+        <div
+            ref={containerRef}
+            className="border rounded p-4 flex flex-col gap-2"
+            data-attr="vision-scanner-digest-card"
+        >
             {children}
         </div>
     )
@@ -65,6 +76,14 @@ export function ScannerDigestCard({
     const { createDigest, promoteDigest, toggleExpanded, toggleActionEnabled, runNow } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
+    const cardRef = useRef<HTMLDivElement>(null)
+    // Collapsing shrinks the card by hundreds of pixels when the digest is long, which can leave the
+    // viewport parked below the card with nothing visibly changing. Scroll the card back into view so
+    // the collapse reads as a response to the click instead of a no-op.
+    const handleToggleExpanded = (): void => {
+        toggleExpanded()
+        requestAnimationFrame(() => cardRef.current?.scrollIntoView({ block: 'nearest' }))
+    }
     // Disable Run now while a run is actually processing (not just during the trigger request). A
     // second run coalesces server-side anyway, but disabling makes that obvious and stops spam clicks.
     const runNowDisabledReason = editDisabledReason ?? (runInProgress ? 'A run is already in progress' : undefined)
@@ -200,7 +219,7 @@ export function ScannerDigestCard({
     const delivers = (digest.delivery_config?.length ?? 0) > 0
 
     return (
-        <CardShell>
+        <CardShell containerRef={cardRef}>
             <CardHeader
                 meta={
                     <>
@@ -215,13 +234,15 @@ export function ScannerDigestCard({
                 }
             />
             {/* The mask's fixed offsets (vs percentages) keep short, unclipped digests fully opaque:
-                content under 12rem never reaches the fade band that softens the 15rem (max-h-60) cut. */}
+                content under 12rem never reaches the fade band that softens the 15rem (max-h-60) cut.
+                Clickable too: users expect the summary text itself to toggle, not just the footer button. */}
             <div
                 className={
                     expanded
-                        ? undefined
-                        : 'max-h-60 overflow-hidden [mask-image:linear-gradient(to_bottom,black_12rem,transparent_15rem)]'
+                        ? 'cursor-pointer'
+                        : 'max-h-60 overflow-hidden cursor-pointer [mask-image:linear-gradient(to_bottom,black_12rem,transparent_15rem)]'
                 }
+                onClick={handleToggleExpanded}
             >
                 {/* LLM/replay-derived content: render non-PostHog images as links, not auto-fetched <img>s.
                     Resolve the summarizer's [obs N] markers into links to each cited observation. */}
@@ -233,7 +254,7 @@ export function ScannerDigestCard({
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
-                    onClick={toggleExpanded}
+                    onClick={handleToggleExpanded}
                     data-attr="vision-scanner-digest-expand"
                 >
                     {expanded ? 'Show less' : 'Show more'}
