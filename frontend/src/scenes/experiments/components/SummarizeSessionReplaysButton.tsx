@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRewindPlay } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -58,10 +58,10 @@ export const SummarizeSessionReplaysButton = ({
                 }
             }}
             type="secondary"
-            icon={<IconRewindPlay />}
-            tooltip="Use AI to analyze session recordings and identify patterns in user behavior across experiment variants. Discover insights about how users interact with your variants."
+            icon={<IconSparkles />}
+            tooltip="Use AI to compare session recordings across variants and spot differences in user behavior."
         >
-            Summarize session recordings
+            Summarize recordings
             <LemonTag type="highlight" size="small" className="ml-1">
                 Beta
             </LemonTag>
