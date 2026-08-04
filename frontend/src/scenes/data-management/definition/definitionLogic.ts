@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isUUIDLike } from 'lib/utils/guards'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -321,9 +322,16 @@ export const definitionLogic = kea<definitionLogicType>([
                     try {
                         if (values.isEvent) {
                             // Event Definition
-                            definition = await api.eventDefinitions.get({
-                                eventDefinitionId: id,
-                            })
+                            if (isUUIDLike(id)) {
+                                definition = await api.eventDefinitions.get({
+                                    eventDefinitionId: id,
+                                })
+                            } else {
+                                // Links built from the event name (e.g. by external tools) don't carry the
+                                // definition id, so resolve it by name and land on the canonical id URL.
+                                definition = await api.eventDefinitions.byName({ name: id })
+                                router.actions.replace(urls.eventDefinition(definition.id))
+                            }
                         } else {
                             // Event Property Definition
                             definition = await api.propertyDefinitions.get({
@@ -487,7 +495,11 @@ export const definitionLogic = kea<definitionLogicType>([
             actions.setDefinition(createNewDefinition(values.isEvent))
         } else {
             actions.loadDefinition(props.id)
-            actions.loadMetrics(props.id)
+            // A non-UUID event id means loadDefinition will resolve it by name and redirect to the
+            // canonical id URL, which remounts this logic keyed by that id and loads metrics then.
+            if (!values.isEvent || isUUIDLike(props.id)) {
+                actions.loadMetrics(props.id)
+            }
         }
     }),
 ])

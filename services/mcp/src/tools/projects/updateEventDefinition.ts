@@ -28,7 +28,7 @@ export const updateEventDefinitionHandler: ToolBase<typeof schema, Result>['hand
 
     return {
         ...result.data,
-        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/events/${encodeURIComponent(result.data.name)}`,
+        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/events/${encodeURIComponent(result.data.id)}`,
     }
 }
 

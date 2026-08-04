@@ -91,7 +91,7 @@ describe('Projects', { concurrent: false }, () => {
 
             expect(eventDef.description).toBe(testDescription)
             expect(eventDef.name).toBe('$pageview')
-            expect(eventDef.url).toContain('/data-management/events/')
+            expect(eventDef.url).toContain(`/data-management/events/${eventDef.id}`)
         })
 
         it('should update event definition tags', async () => {

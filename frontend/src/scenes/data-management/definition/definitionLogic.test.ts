@@ -19,6 +19,7 @@ describe('definitionLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
+                '/api/projects/:team/event_definitions/by_name': mockEventDefinitions[0],
                 '/api/projects/:team/property_definitions/:id': mockEventPropertyDefinition,
             },
         })
@@ -33,6 +34,21 @@ describe('definitionLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadDefinition', 'loadDefinitionSuccess']).toMatchValues({
                 definition: mockEventDefinitions[0],
             })
+        })
+
+        it('resolves a name-based route by name and redirects to the canonical id URL', async () => {
+            router.actions.push(urls.eventDefinition('some_event_name'))
+            logic = definitionLogic({ id: 'some_event_name' })
+            logic.mount()
+            await expectLogic(logic)
+                .toDispatchActions(['loadDefinition', 'loadDefinitionSuccess'])
+                .toNotHaveDispatchedActions(['loadMetrics'])
+                .toMatchValues({
+                    definition: mockEventDefinitions[0],
+                })
+            expect(router.values.location.pathname).toEqual(
+                `/project/997${urls.eventDefinition(mockEventDefinitions[0].id)}`
+            )
         })
 
         it('load new definition on mount', async () => {
