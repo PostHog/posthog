@@ -145,6 +145,12 @@ function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   );
 }
 
+function isSessionUpdateItem(
+  item: ConversationItem,
+): item is SessionUpdateItem {
+  return item.type === "session_update";
+}
+
 /**
  * Session-updates that `SessionUpdateView` always renders as `null`. They produce no row, so they
  * must not break a contiguous tool run.
@@ -177,21 +183,41 @@ function isInvisibleItem(item: ConversationItem): boolean {
 }
 
 /**
+ * A thought joins a tool run instead of breaking it. Between two calls it is the agent narrating
+ * the stretch of work the run already stands for, so folding it in keeps one row for one stretch —
+ * the group's body still lists it in order, and the row's own label follows it while it streams.
+ * Prose to the user (`agent_message_chunk`) still breaks the run: that is said *to* you, not about
+ * the work.
+ */
+function isThoughtItem(item: ConversationItem): boolean {
+  return (
+    item.type === "session_update" &&
+    item.update.sessionUpdate === "agent_thought_chunk"
+  );
+}
+
+/**
  * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
- * broken by any *visible* non-tool item (prose, thought, status) so groups follow reading order;
- * invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run. A lone
- * tool call passes through untouched — it stays a single marker, matching the legacy thread.
+ * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
+ * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
+ * A lone tool call passes through untouched — it stays a single marker, matching the legacy thread,
+ * and so do the thoughts around it: thoughts ride along a run, they never make one.
  */
 function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
-  // The buffer holds the active run: tool items plus any invisible items interleaved with them.
+  // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
+  // items interleaved with either.
   let buffer: ConversationItem[] = [];
   let toolCount = 0;
 
   const flush = () => {
     if (toolCount >= 2) {
-      const tools = buffer.filter(isToolCallItem);
-      out.push({ type: "tool_group", id: tools[0].id, tools });
+      out.push({
+        type: "tool_group",
+        // The run's first tool call, so the id is stable as thoughts append around it.
+        id: buffer.filter(isToolCallItem)[0].id,
+        items: buffer.filter(isSessionUpdateItem),
+      });
     } else {
       out.push(...buffer);
     }
@@ -203,8 +229,8 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
     if (isToolCallItem(item)) {
       buffer.push(item);
       toolCount++;
-    } else if (isInvisibleItem(item)) {
-      // Don't break the run; carry it along (it renders nothing wherever it lands).
+    } else if (isInvisibleItem(item) || isThoughtItem(item)) {
+      // Don't break the run; carry it along in order.
       buffer.push(item);
     } else {
       flush();
@@ -595,12 +621,12 @@ function ThreadItemBody({
   keyboardFocused?: boolean;
 }) {
   if (item.type === "tool_group") {
-    const context = item.tools[0]?.turnContext;
+    const context = item.items[0]?.turnContext;
     const turnStreaming =
       !!context && !context.turnComplete && !context.turnCancelled;
     return (
       <ToolGroup
-        tools={item.tools}
+        items={item.items}
         mayStillGrow={isTrailing && turnStreaming}
       />
     );
