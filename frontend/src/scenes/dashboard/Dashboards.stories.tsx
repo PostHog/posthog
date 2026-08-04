@@ -8,7 +8,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
@@ -71,11 +71,7 @@ const insightFetchMock = ({ params }: MockResolverInfo): [number, any] => {
 }
 
 const BASE_DASHBOARD_ID = 1
-const SERVER_ERROR_DASHBOARD_ID = 2
-const LOADING_DASHBOARD_ID = 3
-const EMPTY_DASHBOARD_ID = 4
-const ACCESS_DENIED_DASHBOARD_ID = 5
-const NOT_FOUND_DASHBOARD_ID = 1000
+const DASHBOARD_STATE_ID = 2
 
 const meta: Meta = {
     component: App,
@@ -88,25 +84,6 @@ const meta: Meta = {
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,
                 [`/api/environments/:team_id/dashboards/${BASE_DASHBOARD_ID}/collaborators/`]: [],
-                [`/api/environments/:team_id/dashboards/${SERVER_ERROR_DASHBOARD_ID}/`]: [
-                    500,
-                    { detail: 'Server error' },
-                ],
-                [`/api/environments/:team_id/dashboards/${LOADING_DASHBOARD_ID}/`]: async () => {
-                    await delay('infinite')
-                    return HttpResponse.json({})
-                },
-                [`/api/environments/:team_id/dashboards/${EMPTY_DASHBOARD_ID}/`]: {
-                    ...dashboard,
-                    id: EMPTY_DASHBOARD_ID,
-                    name: 'Empty dashboard',
-                    tiles: [],
-                },
-                [`/api/environments/:team_id/dashboards/${ACCESS_DENIED_DASHBOARD_ID}/`]: [
-                    403,
-                    { code: 'permission_denied', detail: 'You do not have access to this dashboard.' },
-                ],
-                [`/api/environments/:team_id/dashboards/${NOT_FOUND_DASHBOARD_ID}/`]: [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/dashboard_templates/': __dashboard_templates as any,
                 '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
                 '/api/environments/:team_id/dashboards/:dash_id/sharing/': {
@@ -136,6 +113,9 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
+const DASHBOARD_STATES = ['Loading', 'Not Found', 'Access Denied', 'Server Error', 'Empty'] as const
+type DashboardState = (typeof DASHBOARD_STATES)[number]
+
 export const List: Story = {}
 
 export const New: Story = {
@@ -234,34 +214,51 @@ export const Edit: Story = {
     parameters: { pageUrl: urls.dashboard(BASE_DASHBOARD_ID) },
 }
 
-export const NotFound: Story = {
-    parameters: {
-        pageUrl: urls.dashboard(NOT_FOUND_DASHBOARD_ID),
+export const DashboardStates: StoryObj<{ state: DashboardState }> = {
+    args: {
+        state: 'Loading',
     },
-}
-
-export const AccessDenied: Story = {
-    parameters: {
-        pageUrl: urls.dashboard(ACCESS_DENIED_DASHBOARD_ID),
+    argTypes: {
+        state: {
+            control: 'select',
+            options: DASHBOARD_STATES,
+        },
     },
-}
+    render: ({ state }) => {
+        let response: any
 
-export const ServerError: Story = {
-    parameters: {
-        pageUrl: urls.dashboard(SERVER_ERROR_DASHBOARD_ID),
+        switch (state) {
+            case 'Not Found':
+                response = [404, { detail: 'Not found.' }]
+                break
+            case 'Access Denied':
+                response = [403, { code: 'permission_denied', detail: 'You do not have access to this dashboard.' }]
+                break
+            case 'Server Error':
+                response = [500, { detail: 'Server error' }]
+                break
+            case 'Empty':
+                response = { ...dashboard, id: DASHBOARD_STATE_ID, name: 'Empty dashboard', tiles: [] }
+                break
+            case 'Loading':
+                response = async () => {
+                    await delay('infinite')
+                    return HttpResponse.json({})
+                }
+                break
+        }
+
+        useStorybookMocks({
+            get: {
+                [`/api/environments/:team_id/dashboards/${DASHBOARD_STATE_ID}/`]: response,
+            },
+        })
+
+        return <App key={state} />
     },
-}
-
-export const Loading: Story = {
     parameters: {
-        pageUrl: urls.dashboard(LOADING_DASHBOARD_ID),
+        pageUrl: urls.dashboard(DASHBOARD_STATE_ID),
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[aria-label="Loading dashboard"]' },
-    },
-}
-
-export const Empty: Story = {
-    parameters: {
-        pageUrl: urls.dashboard(EMPTY_DASHBOARD_ID),
     },
 }
 
