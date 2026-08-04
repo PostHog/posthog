@@ -37,8 +37,9 @@ export const SummarizeSessionReplaysButton = ({
 
     const useSkill = featureFlags[FEATURE_FLAGS.EXPERIMENT_SESSION_REPLAYS_SKILL]
 
-    // When using MaxTool, openMax is null if the button shouldn't show
-    if (!useSkill && !openMax) {
+    // openMax is null when the tool isn't available (draft experiment or no results yet).
+    // Gate rendering on it for both click paths, so the skill path can't offer an unusable flow.
+    if (!openMax) {
         return null
     }
 
@@ -52,7 +53,7 @@ export const SummarizeSessionReplaysButton = ({
                 if (useSkill) {
                     // Open PostHog AI in a new tab with skill-based prompt
                     openPostHogAI(skillPrompt)
-                } else if (openMax) {
+                } else {
                     // Use legacy MaxTool approach
                     openMax()
                 }
