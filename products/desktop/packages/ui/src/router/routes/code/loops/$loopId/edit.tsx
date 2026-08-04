@@ -6,5 +6,12 @@ export const Route = createFileRoute("/code/loops/$loopId/edit")({
 
 function EditLoopRoute() {
   const { loopId } = Route.useParams();
-  return <Navigate replace to="/code/loops/$loopId" params={{ loopId }} />;
+  return (
+    <Navigate
+      replace
+      to="/code/loops/$loopId"
+      params={{ loopId }}
+      search={{ edit: true }}
+    />
+  );
 }

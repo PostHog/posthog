@@ -38,12 +38,14 @@ import {
   goBackInHistory,
   navigateToLoops,
 } from "@posthog/ui/router/navigationBridge";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Flex, Text } from "@radix-ui/themes";
+import type { ParsedHistoryState } from "@tanstack/history";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLoop } from "../hooks/useLoop";
 import {
   useDeleteLoop,
@@ -74,7 +76,20 @@ import { LoopHeaderTitle } from "./LoopHeaderTitle";
 import { LoopRunRow } from "./LoopRunRow";
 import { LoopSpaceBreadcrumb } from "./LoopSpaceBreadcrumb";
 
-export function LoopDetailView({ loopId }: { loopId: string }) {
+type PendingNavigation = {
+  action: "PUSH" | "REPLACE" | "BACK" | "FORWARD" | "GO";
+  delta: number | null;
+  href: string;
+  state: ParsedHistoryState;
+};
+
+export function LoopDetailView({
+  loopId,
+  startEditing = false,
+}: {
+  loopId: string;
+  startEditing?: boolean;
+}) {
   const hasLoopListOrigin = useLocation({
     select: (location) => location.state.loopListOrigin === true,
   });
@@ -85,10 +100,11 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [pendingLeaveAction, setPendingLeaveAction] = useState<
-    "back" | "summary" | null
+    "back" | "summary" | "navigation" | null
   >(null);
+  const pendingNavigationRef = useRef<PendingNavigation | null>(null);
   const [runNowPending, setRunNowPending] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(startEditing);
   const [editDirty, setEditDirty] = useState(false);
 
   const runsQuery = useLoopRuns(loopId);
@@ -216,13 +232,17 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
     });
   };
 
-  const leavePage = () => {
+  useEffect(() => {
+    if (startEditing) setIsEditing(true);
+  }, [startEditing]);
+
+  const leavePage = useCallback(() => {
     if (hasLoopListOrigin && canGoBackInHistory()) {
       goBackInHistory();
       return;
     }
     navigateToLoops();
-  };
+  }, [hasLoopListOrigin]);
 
   const requestLeaveEdit = (action: "back" | "summary") => {
     if (isEditing && editDirty) {
@@ -238,6 +258,41 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
     }
   };
 
+  const continueBlockedNavigation = () => {
+    const pendingNavigation = pendingNavigationRef.current;
+    pendingNavigationRef.current = null;
+    if (!pendingNavigation) return;
+
+    const router = getRouterOrNull();
+    if (!router) return;
+
+    if (
+      pendingNavigation.action === "BACK" ||
+      pendingNavigation.action === "FORWARD" ||
+      pendingNavigation.action === "GO"
+    ) {
+      if (pendingNavigation.delta !== null && pendingNavigation.delta !== 0) {
+        router.history.go(pendingNavigation.delta, { ignoreBlocker: true });
+      } else {
+        router.history.push(pendingNavigation.href, pendingNavigation.state, {
+          ignoreBlocker: true,
+        });
+      }
+      return;
+    }
+
+    if (pendingNavigation.action === "REPLACE") {
+      router.history.replace(pendingNavigation.href, pendingNavigation.state, {
+        ignoreBlocker: true,
+      });
+      return;
+    }
+
+    router.history.push(pendingNavigation.href, pendingNavigation.state, {
+      ignoreBlocker: true,
+    });
+  };
+
   const discardChanges = () => {
     const action = pendingLeaveAction;
     setDiscardOpen(false);
@@ -245,9 +300,43 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
     setEditDirty(false);
     setIsEditing(false);
     if (action === "back") {
-      leavePage();
+      if (hasLoopListOrigin && canGoBackInHistory()) {
+        getRouterOrNull()?.history.back({ ignoreBlocker: true });
+        return;
+      }
+      navigateToLoops({ ignoreBlocker: true });
+    } else if (action === "navigation") {
+      continueBlockedNavigation();
     }
   };
+
+  useEffect(() => {
+    if (!isEditing || !editDirty) return;
+    const router = getRouterOrNull();
+    if (!router) return;
+
+    return router.history.block({
+      enableBeforeUnload: true,
+      blockerFn: ({ currentLocation, nextLocation, action }) => {
+        if (nextLocation.href === currentLocation.href) return false;
+
+        const delta =
+          typeof nextLocation.state.__TSR_index === "number" &&
+          typeof currentLocation.state.__TSR_index === "number"
+            ? nextLocation.state.__TSR_index - currentLocation.state.__TSR_index
+            : null;
+        pendingNavigationRef.current = {
+          action,
+          delta,
+          href: nextLocation.href,
+          state: nextLocation.state,
+        };
+        setPendingLeaveAction("navigation");
+        setDiscardOpen(true);
+        return true;
+      },
+    });
+  }, [isEditing, editDirty]);
 
   useEffect(() => {
     if (!isEditing || !editDirty) return;

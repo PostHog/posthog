@@ -72,6 +72,23 @@ const ADAPTER_LABELS: Record<LoopSchemas.LoopRuntimeAdapterEnum, string> = {
 
 const STEPS = ["Prompt", "When", "Options", "Review"] as const;
 
+type LoopFormBaseline = {
+  loopId: string;
+  updatedAt: string;
+  values: LoopFormValues;
+  serialized: string;
+};
+
+function buildLoopFormBaseline(loop: LoopSchemas.Loop): LoopFormBaseline {
+  const values = normalizeLoopFormValues(loopToFormValues(loop));
+  return {
+    loopId: loop.id,
+    updatedAt: loop.updated_at,
+    values,
+    serialized: JSON.stringify(values),
+  };
+}
+
 interface LoopFormProps {
   /** Present in edit mode; absent when creating a new loop. */
   loop?: LoopSchemas.Loop;
@@ -103,21 +120,43 @@ export function LoopForm({
     });
   });
   const [step, setStep] = useState(0);
+  const [baseline, setBaseline] = useState<LoopFormBaseline | null>(() =>
+    loop ? buildLoopFormBaseline(loop) : null,
+  );
+  const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
   // Open when editing a loop that already pins a model, so the pinned value
   // is visible without hunting for it.
   const [showAdvanced, setShowAdvanced] = useState(
     () => !!(loop && (loop.model || loop.reasoning_effort)),
   );
-  const initialValues = useMemo(
-    () => (loop ? normalizeLoopFormValues(loopToFormValues(loop)) : null),
-    [loop],
-  );
-  const isDirty =
-    !!initialValues && JSON.stringify(values) !== JSON.stringify(initialValues);
+  const isDirty = !!baseline && JSON.stringify(values) !== baseline.serialized;
 
   useEffect(() => {
     if (!loop) useLoopDraftStore.getState().setPrefill(null);
   }, [loop]);
+
+  useEffect(() => {
+    if (!loop) return;
+
+    const nextBaseline = buildLoopFormBaseline(loop);
+    if (!baseline || baseline.loopId !== loop.id) {
+      setBaseline(nextBaseline);
+      setValues(nextBaseline.values);
+      setHasRemoteUpdate(false);
+      return;
+    }
+
+    if (nextBaseline.updatedAt === baseline.updatedAt) return;
+
+    if (isDirty) {
+      setHasRemoteUpdate(true);
+      return;
+    }
+
+    setBaseline(nextBaseline);
+    setValues(nextBaseline.values);
+    setHasRemoteUpdate(false);
+  }, [loop, baseline, isDirty]);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -141,7 +180,8 @@ export function LoopForm({
     bundleSkill.isPending ||
     replaceSkillBundles.isPending ||
     deleteLoop.isPending;
-  const canSubmit = isLoopFormValid(values) && !isSubmitting;
+  const canSubmit =
+    isLoopFormValid(values) && !isSubmitting && !hasRemoteUpdate;
 
   // Per-step gate for the Next button. The final Create button is gated on the
   // whole form being valid, so jumping between steps can't submit a bad loop.
@@ -196,6 +236,12 @@ export function LoopForm({
   };
 
   const handleSubmit = async () => {
+    if (hasRemoteUpdate) {
+      toast.error("Loop changed elsewhere", {
+        description: "Cancel and reopen editing before saving changes.",
+      });
+      return;
+    }
     if (!canSubmit) return;
     const body = formValuesToLoopWrite(values);
 
@@ -439,6 +485,22 @@ export function LoopForm({
             }
           />
         </Step>
+
+        {hasRemoteUpdate ? (
+          <Flex
+            direction="column"
+            gap="1"
+            className="rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-3 py-2"
+          >
+            <Text className="font-medium text-(--amber-12) text-[12.5px]">
+              This loop changed elsewhere
+            </Text>
+            <Text className="text-(--amber-11) text-[12px] leading-snug">
+              Cancel and reopen editing before saving, so you don't overwrite
+              newer settings.
+            </Text>
+          </Flex>
+        ) : null}
 
         <Flex
           align="center"
