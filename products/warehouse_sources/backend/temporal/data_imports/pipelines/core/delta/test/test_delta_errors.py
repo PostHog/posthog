@@ -80,6 +80,20 @@ class TestIsTransientDeltaMaintenanceError:
                 deltalake.exceptions.CommitFailedError("Metadata changed since last commit."),
                 False,
             ),
+            # A concurrent `reset_table` purging the whole table prefix (a full_refresh sync) out from
+            # under a still-running maintenance pass takes `_delta_log` with it, so the vacuum reading
+            # the commit history loses a log file mid-read: same race, safe to skip and retry.
+            (
+                "missing_delta_log_commit_file",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Kernel error: File not found: "
+                    "dlt/team_1_source_2/table/_delta_log/00000000000000000001.json"
+                ),
+                True,
+            ),
+            # "File not found" outside the log directory must not match, because a data file missing for
+            # some other reason is a real failure to capture, not this specific log-commit race.
+            ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
             # Same message shape but not the DeltaError type delta-rs actually raises for it.
@@ -115,6 +129,17 @@ class TestIsTransientMaintenanceError:
                 "commit_conflict_retries_exhausted",
                 deltalake.exceptions.CommitFailedError(
                     "Commit failed: a concurrent transaction deleted data this operation read."
+                ),
+                True,
+            ),
+            # A full_refresh `reset_table` purging `_delta_log` out from under a concurrent
+            # vacuum. The maintenance call sites only consult this folded-in classifier, so the
+            # signature has to reach them through here too.
+            (
+                "missing_delta_log_commit_file",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Kernel error: File not found: "
+                    "dlt/team_1_source_2/table/_delta_log/00000000000000000001.json"
                 ),
                 True,
             ),
