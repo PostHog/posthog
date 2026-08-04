@@ -20,6 +20,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Input,
   ItemContent,
   ItemDescription,
   ItemMedia,
@@ -571,6 +572,29 @@ function GithubTriggerFields({
     onChange({ ...config, events });
   };
 
+  const conditions = config.filters?.payload ?? [];
+
+  const setConditions = (
+    next: LoopSchemas.LoopGithubTriggerPayloadFilter[],
+  ) => {
+    const { payload: _dropped, ...rest } = config.filters ?? {};
+    onChange({
+      ...config,
+      filters: next.length > 0 ? { ...rest, payload: next } : rest,
+    });
+  };
+
+  const updateCondition = (
+    index: number,
+    patch: Partial<LoopSchemas.LoopGithubTriggerPayloadFilter>,
+  ) => {
+    setConditions(
+      conditions.map((condition, i) =>
+        i === index ? { ...condition, ...patch } : condition,
+      ),
+    );
+  };
+
   return (
     <Flex direction="column" gap="3">
       <SubField label="Repository">
@@ -619,6 +643,72 @@ function GithubTriggerFields({
             </Text>
           ))}
         </Flex>
+      </SubField>
+
+      <SubField label="Payload conditions">
+        <div className="flex flex-col gap-2">
+          <span className="text-[12px] text-gray-10">
+            Optional. Narrow the events further by matching fields in the GitHub
+            payload, like the team asked to review.
+          </span>
+          {conditions.map((condition, index) => (
+            <div
+              // Keying on the path instead would remount the input on every keystroke.
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows carry no id and cannot be reordered, and both inputs are controlled off the config, so the index is a correct identity
+              key={index}
+              className="flex items-center gap-2"
+            >
+              <Input
+                value={condition.path}
+                disabled={disabled}
+                placeholder="requested_team.slug"
+                className="h-7 flex-1"
+                onChange={(event) =>
+                  updateCondition(index, { path: event.target.value })
+                }
+              />
+              <span className="text-[12px] text-gray-10">is</span>
+              <Input
+                // One value per row here. A condition authored over the API or MCP can
+                // carry several, so those are shown joined and left alone unless edited.
+                value={
+                  Array.isArray(condition.equals)
+                    ? condition.equals.join(", ")
+                    : condition.equals
+                }
+                disabled={disabled}
+                placeholder="team-security"
+                className="h-7 flex-1"
+                onChange={(event) =>
+                  updateCondition(index, { equals: event.target.value })
+                }
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                aria-label="Remove condition"
+                onClick={() =>
+                  setConditions(conditions.filter((_, i) => i !== index))
+                }
+              >
+                <Trash size={13} />
+              </Button>
+            </div>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            className="self-start"
+            onClick={() =>
+              setConditions([...conditions, { path: "", equals: "" }])
+            }
+          >
+            <Plus size={13} />
+            Add condition
+          </Button>
+        </div>
       </SubField>
     </Flex>
   );

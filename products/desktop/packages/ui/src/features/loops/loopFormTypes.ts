@@ -261,8 +261,23 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
     return (
       !!config.repository &&
       config.github_integration_id > 0 &&
-      config.events.length > 0
+      config.events.length > 0 &&
+      (config.filters?.payload ?? []).every(isPayloadConditionValid)
     );
   }
   return true;
+}
+
+// A half-filled row would submit and come back as a 400 from the trigger serializer.
+function isPayloadConditionValid(
+  condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
+): boolean {
+  const values = Array.isArray(condition.equals)
+    ? condition.equals
+    : [condition.equals];
+  return (
+    !!condition.path.trim() &&
+    values.length > 0 &&
+    values.every((value) => !!value.trim())
+  );
 }

@@ -83,6 +83,38 @@ describe("isTriggerDraftValid", () => {
       expected: false,
     },
     {
+      name: "github with a complete payload condition",
+      trigger: githubTrigger({
+        filters: {
+          payload: [{ path: "requested_team.slug", equals: "team-security" }],
+        },
+      }),
+      expected: true,
+    },
+    {
+      name: "github with a payload condition missing its path",
+      trigger: githubTrigger({
+        filters: { payload: [{ path: " ", equals: "team-security" }] },
+      }),
+      expected: false,
+    },
+    {
+      name: "github with a payload condition missing its value",
+      trigger: githubTrigger({
+        filters: { payload: [{ path: "requested_team.slug", equals: "" }] },
+      }),
+      expected: false,
+    },
+    {
+      name: "github with a blank value among several",
+      trigger: githubTrigger({
+        filters: {
+          payload: [{ path: "requested_team.slug", equals: ["a", " "] }],
+        },
+      }),
+      expected: false,
+    },
+    {
       name: "api trigger",
       trigger: {
         key: "k3",
