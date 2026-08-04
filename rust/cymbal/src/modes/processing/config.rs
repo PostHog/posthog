@@ -86,9 +86,11 @@ pub struct ProcessingConfig {
     #[envconfig(default = "300")]
     pub release_cache_ttl_seconds: u64,
 
-    // Bounded in bytes in case someone tries to do something funny.
-    #[envconfig(default = "33554432")] // 32 MiB
-    pub release_cache_max_bytes: u64,
+    // An entry-count bound is a real memory bound: cached records clamp metadata to
+    // MAX_RELEASE_METADATA_BYTES at fetch, so a full cache tops out around
+    // max_entries * 8 KiB per lookup kind.
+    #[envconfig(default = "10000")]
+    pub release_cache_max_entries: u64,
 
     // Maximum number of in-flight futures for a single `Batch::apply_func` call.
     // This is a per-call-site limit, not a global pipeline-wide concurrency cap.

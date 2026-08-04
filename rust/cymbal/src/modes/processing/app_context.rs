@@ -167,7 +167,7 @@ impl AppContext {
             .build();
 
         let release_cache = ReleaseCache::new(
-            config.release_cache_max_bytes,
+            config.release_cache_max_entries,
             Duration::from_secs(config.release_cache_ttl_seconds),
         );
 

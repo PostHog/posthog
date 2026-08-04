@@ -894,7 +894,9 @@ export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
     metadata: zod
         .record(zod.string(), zod.unknown())
         .nullish()
-        .describe('Optional free-form metadata object stored alongside the release.'),
+        .describe(
+            'Optional free-form metadata object stored alongside the release. Limited to 8 KB of serialized JSON.'
+        ),
 })
 
 export const errorTrackingReleasesUpdateBodyHashIdMax = 128
@@ -910,7 +912,7 @@ export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
     metadata: zod
         .record(zod.string(), zod.unknown())
         .nullish()
-        .describe('Free-form metadata object. Omit to preserve the current value.'),
+        .describe('Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.'),
 })
 
 export const errorTrackingReleasesPartialUpdateBodyHashIdMax = 128
@@ -926,7 +928,7 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
     metadata: zod
         .record(zod.string(), zod.unknown())
         .nullish()
-        .describe('Free-form metadata object. Omit to preserve the current value.'),
+        .describe('Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.'),
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({

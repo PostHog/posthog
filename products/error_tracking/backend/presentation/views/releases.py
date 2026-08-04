@@ -1,3 +1,5 @@
+import json
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -14,6 +16,10 @@ from products.error_tracking.backend.facade import (
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 MAX_HASH_ID_LENGTH = 128
+# Kept in sync with MAX_RELEASE_METADATA_BYTES in rust/cymbal/src/core/types/frames/releases.rs:
+# cymbal embeds metadata into every matching exception event, so an unbounded value would be
+# amplified across the whole event stream.
+MAX_METADATA_BYTES = 8 * 1024
 RELEASE_HASH_IN_USE_ERROR_CODE = "release_hash_in_use"
 
 
@@ -37,7 +43,9 @@ class ErrorTrackingReleaseCreateRequestSerializer(serializers.Serializer):
         help_text="Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.",
     )
     metadata = ReleaseMetadataField(
-        required=False, allow_null=True, help_text="Optional free-form metadata object stored alongside the release."
+        required=False,
+        allow_null=True,
+        help_text="Optional free-form metadata object stored alongside the release. Limited to 8 KB of serialized JSON.",
     )
 
 
@@ -55,7 +63,9 @@ class ErrorTrackingReleaseUpdateRequestSerializer(serializers.Serializer):
         help_text="Release hash (e.g. a git commit SHA). Omit to preserve the current value.",
     )
     metadata = ReleaseMetadataField(
-        required=False, allow_null=True, help_text="Free-form metadata object. Omit to preserve the current value."
+        required=False,
+        allow_null=True,
+        help_text="Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.",
     )
 
 
@@ -71,6 +81,13 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if len(hash_id) > MAX_HASH_ID_LENGTH:
             raise ValidationError("Hash id length cannot exceed 128 bytes")
         return hash_id
+
+    def _validated_metadata(self, metadata: object) -> object:
+        if metadata is None:
+            return None
+        if len(json.dumps(metadata, separators=(",", ":")).encode("utf-8")) > MAX_METADATA_BYTES:
+            raise ValidationError("Metadata is too large. Keep it under 8 KB.")
+        return metadata
 
     def list(self, request, *args, **kwargs) -> Response:
         return paginate_via_facade(
@@ -97,13 +114,14 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if not project:
             raise ValidationError("Project is required")
         hash_id = self._validated_hash_id(request.data.get("hash_id"))
+        metadata = self._validated_metadata(request.data.get("metadata"))
         try:
             release = error_tracking_api.create_release(
                 self.team.id,
                 version=str(version),
                 project=str(project),
                 hash_id=hash_id,
-                metadata=request.data.get("metadata"),
+                metadata=metadata,
             )
         except error_tracking_api.ReleaseHashInUseError as err:
             raise ValidationError(f"Hash id {err} already in use", code=RELEASE_HASH_IN_USE_ERROR_CODE) from err
@@ -115,7 +133,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             release = error_tracking_api.update_release(
                 self.team.id,
                 pk,
-                metadata=data.get("metadata"),
+                metadata=self._validated_metadata(data.get("metadata")),
                 hash_id=hash_id,
                 version=data.get("version"),
                 project=data.get("project"),

@@ -5,6 +5,13 @@ use sha2::{Digest, Sha512};
 use sqlx::Executor;
 use uuid::Uuid;
 
+/// Kept in sync with MAX_METADATA_BYTES in the release API
+/// (products/error_tracking/backend/presentation/views/releases.py). The API rejects larger
+/// metadata on write; rows predating the cap (or written outside it) are clamped at fetch so a
+/// single oversized release can't be amplified into every matching event, and so cache entries
+/// stay small enough for an entry-count budget.
+pub const MAX_RELEASE_METADATA_BYTES: usize = 8 * 1024;
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReleaseRecord {
     pub id: Uuid,
@@ -47,7 +54,7 @@ impl ReleaseRecord {
         .fetch_optional(e)
         .await?;
 
-        Ok(row)
+        Ok(row.map(Self::with_clamped_metadata))
     }
 
     pub async fn for_hash<'c, E>(
@@ -71,7 +78,7 @@ impl ReleaseRecord {
         .fetch_optional(e)
         .await?;
 
-        Ok(row)
+        Ok(row.map(Self::with_clamped_metadata))
     }
 
     pub fn to_info(&self) -> ReleaseInfo {
@@ -84,35 +91,16 @@ impl ReleaseRecord {
         }
     }
 
-    /// Rough in-memory footprint, for the release cache's weigher. `metadata` is a free-form
-    /// JSON column any client can write, so it dominates and is the only reason this exists —
-    /// without it a cache bounded on entry count would be unbounded in bytes. Only has to be
-    /// proportional to the real cost, not exact.
-    pub fn approx_size_bytes(&self) -> usize {
-        size_of::<Self>()
-            + self.hash_id.len()
-            + self.version.len()
-            + self.project.len()
-            + self.metadata.as_ref().map_or(0, json_size_bytes)
-    }
-}
-
-/// Heap bytes held by a `Value`, ignoring the inline scalars already counted by `size_of`.
-///
-/// The recursion is bounded: these values are decoded by `serde_json`, which enforces its own
-/// nesting limit while parsing, so a hostile `metadata` column can't drive this deep enough to
-/// overflow the stack.
-fn json_size_bytes(value: &Value) -> usize {
-    match value {
-        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
-        Value::String(s) => s.len(),
-        Value::Array(items) => {
-            items.len() * size_of::<Value>() + items.iter().map(json_size_bytes).sum::<usize>()
+    /// Drops `metadata` when its serialized form exceeds the cap the API enforces on new writes.
+    /// The `id` survives, so consumers can still fetch the full release.
+    fn with_clamped_metadata(mut self) -> Self {
+        let oversized = self.metadata.as_ref().is_some_and(|metadata| {
+            serde_json::to_string(metadata).map_or(true, |s| s.len() > MAX_RELEASE_METADATA_BYTES)
+        });
+        if oversized {
+            self.metadata = None;
         }
-        Value::Object(entries) => entries
-            .iter()
-            .map(|(key, val)| key.len() + size_of::<Value>() + json_size_bytes(val))
-            .sum(),
+        self
     }
 }
 
@@ -211,17 +199,14 @@ mod tests {
     }
 
     #[test]
-    fn size_estimate_tracks_metadata_payload() {
-        // The cache weigher is only a real memory bound if the estimate actually grows with the
-        // free-form `metadata` column. Returning a constant here (or ignoring nested strings)
-        // would silently restore the unbounded-by-entry-count behavior the weigher replaced.
-        let blob = "x".repeat(100_000);
-        let bare = record(None).approx_size_bytes();
-        let nested = record(Some(json!({"git": {"commit_id": blob}}))).approx_size_bytes();
+    fn oversized_metadata_is_clamped_but_small_metadata_survives() {
+        // Rows predating the API's write-time cap can hold multi-megabyte metadata; without the
+        // clamp every matching event would embed it, re-opening the amplification the cap closed.
+        let big = record(Some(json!({"git": {"commit_id": "x".repeat(100_000)}})));
+        assert_eq!(big.with_clamped_metadata().metadata, None);
 
-        assert!(
-            nested >= bare + 100_000,
-            "nested metadata under-counted: {nested} vs {bare}"
-        );
+        let small_value = json!({"git": {"commit_id": "abc123"}});
+        let small = record(Some(small_value.clone()));
+        assert_eq!(small.with_clamped_metadata().metadata, Some(small_value));
     }
 }
