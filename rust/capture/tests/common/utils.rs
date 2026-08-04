@@ -254,6 +254,24 @@ impl ServerHandle {
         Self::for_config(config).await
     }
 
+    /// Like `for_recordings`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so replay warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_recordings_with_warnings(
+        main: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
     /// Boots a server with the v1 analytics pipeline enabled: a single `msk`
     /// sink whose topics all point at `topic`, injected via a deterministic env
     /// snapshot (no global `std::env` mutation, so parallel tests don't race on

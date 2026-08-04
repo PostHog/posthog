@@ -8,16 +8,7 @@ async function goToSavedSqlInsight(page: Page, insightShortId: InsightShortId): 
     await page.goto(`/sql#insight=${insightShortId}`, { waitUntil: 'domcontentloaded' })
     await expect(page).toHaveURL(/\/sql#.*insight=/)
     await expect(page.locator('.DataVisualization canvas').last()).toBeVisible({ timeout: 60_000 })
-}
-
-async function openUpdateInsightOption(page: Page): Promise<void> {
-    const updateInsightOption = page.getByRole('menuitem', { name: 'Update insight' })
-
-    await expect(async () => {
-        await page.keyboard.press('Escape')
-        await page.getByTestId('sql-editor-save-options-button').click()
-        await expect(updateInsightOption).toBeVisible({ timeout: 5_000 })
-    }).toPass({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: 'Update insight' })).toBeVisible({ timeout: 30_000 })
 }
 
 test.describe('SQL editor axis labels', () => {
@@ -87,9 +78,15 @@ test.describe('SQL editor axis labels', () => {
         await page.getByText('Right Y-axis').click()
         await page.getByTestId('data-visualization-right-y-axis-label-input').fill('People')
 
-        await openUpdateInsightOption(page)
-        await page.getByRole('menuitem', { name: 'Update insight' }).click()
-        await expect(page).toHaveURL(/\/insights\//, { timeout: 60_000 })
+        const saveRequestPromise = page.waitForResponse(
+            (response) =>
+                /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
+                response.request().method() === 'PATCH',
+            { timeout: 60_000 }
+        )
+
+        await page.getByRole('button', { name: 'Update insight' }).click()
+        await expect((await saveRequestPromise).ok()).toBe(true)
 
         await goToSavedSqlInsight(page, insightShortId)
 
