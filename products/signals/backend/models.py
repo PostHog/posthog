@@ -304,6 +304,14 @@ class SignalReport(UUIDModel):
                 self.run_count += 1
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
 
+            # A summary run paused mid-workflow by the Signals credits quota gate returns to
+            # CANDIDATE, so the report re-promotes on the next matching signal instead of sticking
+            # in IN_PROGRESS (which no promotion rule ever picks up). No side effects: promoted_at
+            # is still accurate, and run_count / signals_at_run keep the values the aborted run
+            # advanced them to (run_count feeds Temporal workflow IDs and must never roll back).
+            case (S.IN_PROGRESS, S.CANDIDATE):
+                pass
+
             case (S.IN_PROGRESS, S.READY):
                 if title is None or summary is None:
                     raise ValueError("title and summary are required for in_progress -> ready")

@@ -34,6 +34,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.quota import SignalsQuotaGate
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -637,3 +638,64 @@ def test_autostart_description_appends_fix_loop_instructions_only_for_metric_rep
     # Evidence-hygiene guardrail: fix-loop PRs may target public repos, so the prompt must forbid
     # real telemetry (raw rows, error messages, identifiers) in before/after evidence.
     assert ("never raw telemetry rows" in description) is expect_fix_loop
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("enforced", [True, False])
+async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
+    # The implementation task is the step that leads to the billable PR: an enforced over-quota
+    # team must start none, while dark launch (limited, flag off) must leave auto-start untouched.
+    # Committed rows for the same reason as the autostart-switch test above.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="quota-org")
+        team = Team.objects.create(organization=organization, name="quota-team")
+        enabler = User.objects.create(email="quota-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch(
+            "products.signals.backend.auto_start.signals_quota_gate",
+            return_value=SignalsQuotaGate(limited=True, enforced=enforced),
+        ),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    assert (mock_create.call_count == 0) is enforced
