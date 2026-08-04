@@ -35,9 +35,9 @@ logger = structlog.get_logger(__name__)
 
 
 class OrganizationUsageResource(TypedDict):
-    usage: int | float | None
+    usage: int | None
     limit: int | None
-    todays_usage: int | float | None
+    todays_usage: int | None
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
@@ -59,8 +59,8 @@ class OrganizationUsageInfo(TypedDict):
     posthog_code_credits: OrganizationUsageResource | None
     posthog_code_token_credits: OrganizationUsageResource | None
     sandbox_compute_credits: OrganizationUsageResource | None
-    sandbox_compute_cpu_core_seconds: OrganizationUsageResource | None
-    sandbox_compute_memory_gib_seconds: OrganizationUsageResource | None
+    sandbox_compute_cpu_millicore_seconds: OrganizationUsageResource | None
+    sandbox_compute_memory_mib_seconds: OrganizationUsageResource | None
     sandbox_compute_cpu_cost_microusd: OrganizationUsageResource | None
     sandbox_compute_memory_cost_microusd: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None

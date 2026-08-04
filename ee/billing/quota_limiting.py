@@ -151,8 +151,8 @@ class UsageCounters(TypedDict):
     posthog_code_credits: int
     posthog_code_token_credits: int
     sandbox_compute_credits: int
-    sandbox_compute_cpu_core_seconds: float
-    sandbox_compute_memory_gib_seconds: float
+    sandbox_compute_cpu_millicore_seconds: int
+    sandbox_compute_memory_mib_seconds: int
     sandbox_compute_cpu_cost_microusd: int
     sandbox_compute_memory_cost_microusd: int
     workflow_emails: int
@@ -165,8 +165,8 @@ class UsageCounters(TypedDict):
 INFORMATIONAL_USAGE_RESOURCES = (
     "posthog_code_token_credits",
     "sandbox_compute_credits",
-    "sandbox_compute_cpu_core_seconds",
-    "sandbox_compute_memory_gib_seconds",
+    "sandbox_compute_cpu_millicore_seconds",
+    "sandbox_compute_memory_mib_seconds",
     "sandbox_compute_cpu_cost_microusd",
     "sandbox_compute_memory_cost_microusd",
 )
@@ -945,7 +945,7 @@ def _append_todays_usage_patch(
     if not existing_resource:
         return
 
-    new_todays_usage = cast(dict[str, int | float], todays_report)[field]
+    new_todays_usage = cast(dict[str, int], todays_report)[field]
     if existing_resource.get("todays_usage") == new_todays_usage:
         return
 
@@ -1129,11 +1129,11 @@ def update_all_orgs_billing_quotas(
         },
         "teams_with_posthog_code_token_credits_used_in_period": token_credits,
         "teams_with_sandbox_compute_credits_used_in_period": compute_credits,
-        "teams_with_sandbox_compute_cpu_core_seconds_in_period": convert_team_usage_rows_to_dict(
-            sandbox_compute_usage.cpu_core_seconds
+        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.cpu_millicore_seconds
         ),
-        "teams_with_sandbox_compute_memory_gib_seconds_in_period": convert_team_usage_rows_to_dict(
-            sandbox_compute_usage.memory_gib_seconds
+        "teams_with_sandbox_compute_memory_mib_seconds_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.memory_mib_seconds
         ),
         "teams_with_sandbox_compute_cpu_cost_microusd_in_period": convert_team_usage_rows_to_dict(
             sandbox_compute_usage.cpu_cost_microusd
@@ -1218,10 +1218,10 @@ def update_all_orgs_billing_quotas(
             posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             posthog_code_token_credits=all_data["teams_with_posthog_code_token_credits_used_in_period"].get(team.id, 0),
             sandbox_compute_credits=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),
-            sandbox_compute_cpu_core_seconds=all_data["teams_with_sandbox_compute_cpu_core_seconds_in_period"].get(
-                team.id, 0
-            ),
-            sandbox_compute_memory_gib_seconds=all_data["teams_with_sandbox_compute_memory_gib_seconds_in_period"].get(
+            sandbox_compute_cpu_millicore_seconds=all_data[
+                "teams_with_sandbox_compute_cpu_millicore_seconds_in_period"
+            ].get(team.id, 0),
+            sandbox_compute_memory_mib_seconds=all_data["teams_with_sandbox_compute_memory_mib_seconds_in_period"].get(
                 team.id, 0
             ),
             sandbox_compute_cpu_cost_microusd=all_data["teams_with_sandbox_compute_cpu_cost_microusd_in_period"].get(

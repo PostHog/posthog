@@ -2322,7 +2322,7 @@ class TestQuotaLimiting(BaseTest):
         mock_update_remote_config.apply_async.assert_not_called()
 
 
-def _full_usage_counters(**overrides: int | float) -> UsageCounters:
+def _full_usage_counters(**overrides: int) -> UsageCounters:
     base = UsageCounters(
         events=0,
         exceptions=0,
@@ -2337,8 +2337,8 @@ def _full_usage_counters(**overrides: int | float) -> UsageCounters:
         posthog_code_credits=0,
         posthog_code_token_credits=0,
         sandbox_compute_credits=0,
-        sandbox_compute_cpu_core_seconds=0,
-        sandbox_compute_memory_gib_seconds=0,
+        sandbox_compute_cpu_millicore_seconds=0,
+        sandbox_compute_memory_mib_seconds=0,
         sandbox_compute_cpu_cost_microusd=0,
         sandbox_compute_memory_cost_microusd=0,
         cdp_trigger_events=0,
@@ -2598,8 +2598,16 @@ class TestPatchTodaysUsage(BaseTest):
             "posthog_code_credits": {"usage": 100, "limit": 2_000, "todays_usage": 0},
             "posthog_code_token_credits": {"usage": 80, "limit": None, "todays_usage": 0},
             "sandbox_compute_credits": {"usage": 20, "limit": None, "todays_usage": 0},
-            "sandbox_compute_cpu_core_seconds": {"usage": 1.5, "limit": None, "todays_usage": 0},
-            "sandbox_compute_memory_gib_seconds": {"usage": 4.5, "limit": None, "todays_usage": 0},
+            "sandbox_compute_cpu_millicore_seconds": {
+                "usage": 1_500,
+                "limit": None,
+                "todays_usage": 0,
+            },
+            "sandbox_compute_memory_mib_seconds": {
+                "usage": 4_608,
+                "limit": None,
+                "todays_usage": 0,
+            },
             "sandbox_compute_cpu_cost_microusd": {"usage": 7, "limit": None, "todays_usage": 0},
             "sandbox_compute_memory_cost_microusd": {"usage": 11, "limit": None, "todays_usage": 0},
             "period": _PERIOD,
@@ -2609,8 +2617,8 @@ class TestPatchTodaysUsage(BaseTest):
             posthog_code_credits=15,
             posthog_code_token_credits=12,
             sandbox_compute_credits=3,
-            sandbox_compute_cpu_core_seconds=2.25,
-            sandbox_compute_memory_gib_seconds=6.75,
+            sandbox_compute_cpu_millicore_seconds=9_876_543_210,
+            sandbox_compute_memory_mib_seconds=7_654_321_098,
             sandbox_compute_cpu_cost_microusd=13,
             sandbox_compute_memory_cost_microusd=17,
         )
@@ -2622,8 +2630,8 @@ class TestPatchTodaysUsage(BaseTest):
         assert self.organization.usage["posthog_code_credits"]["todays_usage"] == 15
         assert self.organization.usage["posthog_code_token_credits"]["todays_usage"] == 12
         assert self.organization.usage["sandbox_compute_credits"]["todays_usage"] == 3
-        assert self.organization.usage["sandbox_compute_cpu_core_seconds"]["todays_usage"] == 2.25
-        assert self.organization.usage["sandbox_compute_memory_gib_seconds"]["todays_usage"] == 6.75
+        assert self.organization.usage["sandbox_compute_cpu_millicore_seconds"]["todays_usage"] == 9_876_543_210
+        assert self.organization.usage["sandbox_compute_memory_mib_seconds"]["todays_usage"] == 7_654_321_098
         assert self.organization.usage["sandbox_compute_cpu_cost_microusd"]["todays_usage"] == 13
         assert self.organization.usage["sandbox_compute_memory_cost_microusd"]["todays_usage"] == 17
 
