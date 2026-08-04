@@ -49,6 +49,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.'
         ),
+    scout_prefix: zod
+        .string()
+        .optional()
+        .describe(
+            'Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.'
+        ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
     source_id: zod
         .string()
