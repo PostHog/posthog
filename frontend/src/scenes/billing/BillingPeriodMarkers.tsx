@@ -22,6 +22,8 @@ export function resolveMarkerX(markerTs: number, labelTimestamps: number[], labe
         if (markerTs < from || markerTs > to) {
             continue
         }
+        // Guards the division below: chart date labels are distinct in practice, but two equal
+        // adjacent timestamps would otherwise divide by zero.
         if (to === from) {
             return labelX[i]
         }
