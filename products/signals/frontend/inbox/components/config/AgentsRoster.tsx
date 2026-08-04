@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useEffect } from 'react'
 
 import { IconArrowUpRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -249,8 +249,16 @@ export function AgentsRoster(): JSX.Element {
         toggleHealthChecks,
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
+        loadSourceDormancy,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // Loaded here rather than on the logic's own mount: only this roster renders the dormancy
+    // badge, and the logic mounts with the whole inbox scene, where answering it would probe
+    // several datastores on every page view.
+    useEffect(() => {
+        loadSourceDormancy()
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     const stateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {

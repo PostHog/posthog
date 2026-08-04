@@ -61,15 +61,11 @@ export function AgentsTab(): JSX.Element {
         closeSessionAnalysisSetup,
         closeDataSourceSetup,
         onDataSourceSetupComplete,
-        loadSourceDormancy,
     } = useActions(signalSourcesLogic)
 
     useEffect(() => {
         loadSources()
         loadSourceConfigs()
-        // Only this tab reads it, and answering it probes several datastores — so it stays off
-        // the inbox's own mount, which happens on every page view.
-        loadSourceDormancy()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     let agentsBody: JSX.Element
