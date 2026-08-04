@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cache, cached_property
@@ -1287,22 +1287,39 @@ class UserAccessControl:
         candidate_resources = {ac.resource for ac in self._cached_access_controls if ac.resource_id is None}
         return sorted(resource for resource in candidate_resources if not self.has_resource_access(resource))
 
-    def none_denied_object_ids(self, resources: Sequence[APIScopeObject]) -> dict[str, set[str]]:
-        """Object ids the user has a 'none' grant on, per resource.
+    def object_ids_matching(
+        self, resources: Sequence[APIScopeObject], predicate: Callable[[_AccessControl], bool]
+    ) -> dict[str, set[str]]:
+        """Object ids whose access control rows satisfy `predicate`, per resource.
 
-        Mirrors the row matching `filter_and_annotate_file_system_queryset` does in SQL: any
-        applicable row (team default, member, or role) at level 'none' denies the object.
+        Considers the same rows the queryset filters consider: every row applicable to this user
+        for the resource, whether it came from the team default, their membership, or a role.
+        Rows without a `resource_id` are resource-level rather than object-level and are skipped.
+
+        `predicate` decides per row, so a resource appears in the result when *any* of its rows
+        matches. Callers wanting a rule that depends on the whole set for an object (for example
+        "explicit rules win over defaults") want `_blocked_and_allowed_object_ids` instead.
         """
-        denied: dict[str, set[str]] = {}
+        matched: dict[str, set[str]] = {}
         for resource in resources:
             object_ids = {
                 access_control.resource_id
                 for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource))
-                if access_control.access_level == NO_ACCESS_LEVEL and access_control.resource_id
+                if access_control.resource_id and predicate(access_control)
             }
             if object_ids:
-                denied[resource] = object_ids
-        return denied
+                matched[resource] = object_ids
+        return matched
+
+    def none_denied_object_ids(self, resources: Sequence[APIScopeObject]) -> dict[str, set[str]]:
+        """Object ids the user has a 'none' grant on, per resource.
+
+        Mirrors the row matching `filter_and_annotate_file_system_queryset` does in SQL: any
+        applicable row (team default, member, or role) at level 'none' denies the object. Kept as
+        a named method rather than a predicate at the call site so the tree filter's two halves,
+        this one and its SQL counterpart, can't drift onto different rules.
+        """
+        return self.object_ids_matching(resources, lambda ac: ac.access_level == NO_ACCESS_LEVEL)
 
     def filter_and_annotate_file_system_queryset(
         self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None

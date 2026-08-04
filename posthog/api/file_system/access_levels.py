@@ -56,8 +56,11 @@ class FileSystemAccessEntry:
 # the high-traffic list endpoint on every page load - the query that translates short_id refs
 # to pks otherwise runs per request and adds DB pool load under contention.
 #
-# Keyed by project rather than by team: a project and its team always share an id, so a team
-# segment would only repeat the project one.
+# Keyed by project rather than by team, because a team segment would only repeat the project
+# one. `TeamManager.create` gives a team the id of its project, creating the project with that
+# id when the caller doesn't supply one, and `Project.objects.create_with_team` allocates a
+# single id for the pair. No code path attaches a team to an existing project, so a project
+# never holds two teams whose refs could collide under one key.
 _REF_PK_CACHE_PREFIX = "fs_ref_pk:v1"
 _REF_PK_CACHE_TTL = 60 * 60
 
