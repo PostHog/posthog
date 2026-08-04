@@ -206,8 +206,8 @@ export interface replayScannersLogicActions {
         error: string,
         accessDenied?: boolean
     ) => {
-        error: string
         accessDenied: boolean
+        error: string
     }
     loadScannersSuccess: (
         scanners: ReplayScanner[],
@@ -289,7 +289,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadCreators: true,
         loadScannerStats: true,
         loadScannersSuccess: (scanners: ReplayScanner[], total: number) => ({ scanners, total }),
-        loadScannersFailure: (error: string, accessDenied = false) => ({ error, accessDenied }),
+        loadScannersFailure: (error: string, accessDenied: boolean = false) => ({ error, accessDenied }),
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
