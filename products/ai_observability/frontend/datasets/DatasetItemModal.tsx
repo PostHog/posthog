@@ -86,8 +86,15 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
         closeModal: onClose,
         isModalOpen: isOpen,
         readOnly,
+        restoringVersion,
     }
-    const { isDatasetItemFormSubmitting, refetchDatasetItems } = useValues(datasetItemModalLogic(logicProps))
+    const {
+        datasetItemFormSubmitDisabledReason,
+        datasetItemVersionRestoreDisabledReason,
+        isDatasetItemFormReadOnly,
+        isDatasetItemFormSubmitting,
+        refetchDatasetItems,
+    } = useValues(datasetItemModalLogic(logicProps))
     const { submitDatasetItemForm, setShouldCloseModal } = useActions(datasetItemModalLogic(logicProps))
     const storedDatasetItem = isStoredDatasetItem(partialDatasetItem) ? partialDatasetItem : null
 
@@ -103,7 +110,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                 logic={datasetItemModalLogic}
                 props={logicProps}
                 formKey="datasetItemForm"
-                enableFormOnSubmit={!readOnly}
+                enableFormOnSubmit={!isDatasetItemFormReadOnly}
                 className="flex flex-col overflow-y-hidden"
             >
                 <LemonModalHeader>
@@ -142,10 +149,10 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                         <>
                             {readOnlyReason && <LemonBanner type="info">{readOnlyReason}</LemonBanner>}
                             <LemonField name="input" label="Input">
-                                <JSONEditor readOnly={readOnly} />
+                                <JSONEditor readOnly={isDatasetItemFormReadOnly} />
                             </LemonField>
                             <LemonField name="expectedOutput" label="Expected output" showOptional>
-                                <JSONEditor readOnly={readOnly} />
+                                <JSONEditor readOnly={isDatasetItemFormReadOnly} />
                             </LemonField>
                             {partialDatasetItem?.source_output !== undefined &&
                                 partialDatasetItem.source_output !== null && (
@@ -158,7 +165,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                                     </div>
                                 )}
                             <LemonField name="metadata" label="Metadata">
-                                <JSONEditor readOnly={readOnly} />
+                                <JSONEditor readOnly={isDatasetItemFormReadOnly} />
                             </LemonField>
                             {storedDatasetItem && (
                                 <>
@@ -173,6 +180,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                                         pageSize={versionsPageSize}
                                         canRestore={canRestoreVersions}
                                         restoringVersion={restoringVersion}
+                                        restoreDisabledReason={datasetItemVersionRestoreDisabledReason}
                                         onRestore={onRestoreVersion}
                                         onPageChange={onVersionsPageChange}
                                         onRetry={onRetryVersions}
@@ -201,6 +209,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                                 <LemonButton
                                     type="secondary"
                                     loading={isDatasetItemFormSubmitting}
+                                    disabledReason={datasetItemFormSubmitDisabledReason}
                                     htmlType="submit"
                                     onClick={(e) => {
                                         e.preventDefault()
@@ -211,7 +220,12 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                                     Save and add another
                                 </LemonButton>
                             )}
-                            <LemonButton type="primary" htmlType="submit" loading={isDatasetItemFormSubmitting}>
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                loading={isDatasetItemFormSubmitting}
+                                disabledReason={datasetItemFormSubmitDisabledReason}
+                            >
                                 Save
                             </LemonButton>
                         </>
@@ -232,6 +246,7 @@ function DatasetItemHistory({
     pageSize,
     canRestore,
     restoringVersion,
+    restoreDisabledReason,
     onRestore,
     onPageChange,
     onRetry,
@@ -245,6 +260,7 @@ function DatasetItemHistory({
     pageSize: number
     canRestore: boolean
     restoringVersion?: number | null
+    restoreDisabledReason?: string
     onRestore?: (version: number) => void
     onPageChange?: (page: number) => void
     onRetry?: () => void
@@ -303,9 +319,10 @@ function DatasetItemHistory({
                                             onClick={() => onRestore(version.version)}
                                             loading={restoringVersion === version.version}
                                             disabledReason={
-                                                restoringVersion && restoringVersion !== version.version
+                                                restoreDisabledReason ??
+                                                (restoringVersion && restoringVersion !== version.version
                                                     ? 'Another version is being restored'
-                                                    : undefined
+                                                    : undefined)
                                             }
                                         >
                                             Restore this version

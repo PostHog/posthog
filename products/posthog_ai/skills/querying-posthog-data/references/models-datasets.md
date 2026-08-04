@@ -16,7 +16,7 @@ Column | Type | Nullable | Description
 `current_revision_id` | uuid | NULL | Latest committed revision, or NULL before the first item mutation
 `created_by_id` | integer | NULL | User who created the dataset
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NULL | Last dataset metadata update
+`updated_at` | timestamp with tz | NULL | Last change to dataset fields or item contents
 
 ## Dataset revision (`system.dataset_revisions`)
 
@@ -107,8 +107,8 @@ SELECT
     i.client_item_id,
     argMax(v.version, r.revision) AS version,
     argMax(v.input, r.revision) AS input,
-    argMax(v.expected_output, r.revision) AS expected_output,
-    argMax(v.source_output, r.revision) AS source_output,
+    tupleElement(argMax(tuple(v.expected_output), r.revision), 1) AS expected_output,
+    tupleElement(argMax(tuple(v.source_output), r.revision), 1) AS source_output,
     argMax(v.metadata, r.revision) AS metadata
 FROM system.dataset_items AS i
 INNER JOIN system.dataset_item_versions AS v ON v.dataset_item_id = i.id

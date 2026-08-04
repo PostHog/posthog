@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -827,6 +828,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
                 dataset=dataset,
                 team=self.team,
                 created_by=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
                 revision=serializer.validated_data.get("revision"),
             )
         except DatasetExportUnavailableError as error:

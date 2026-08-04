@@ -352,7 +352,7 @@ datasets: PostgresTable = PostgresTable(
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the dataset was created."),
         "updated_at": DateTimeDatabaseField(
-            name="updated_at", nullable=True, description="When the dataset metadata was last updated."
+            name="updated_at", nullable=True, description="When the dataset fields or item contents last changed."
         ),
     },
 )

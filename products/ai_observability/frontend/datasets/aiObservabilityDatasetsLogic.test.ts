@@ -5,7 +5,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { initKeaTests } from '~/test/init'
 
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
-import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import {
+    DATASETS_PER_PAGE,
+    aiObservabilityDatasetsLogic,
+    getDatasetDetailUrl,
+    getDatasetListUrl,
+    getDatasetNavigationSearchParams,
+} from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
 
 jest.mock('./datasetsApi', () => ({
@@ -62,6 +68,28 @@ describe('aiObservabilityDatasetsLogic', () => {
         mockDatasetsApi.listDatasets.mockResolvedValue(mockDatasetsResponse)
         mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset1, archived: true })
         mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset1)
+    })
+
+    it('does not carry route-specific state between dataset routes', () => {
+        const searchParams = {
+            dataset_status: 'archived',
+            item: 'item-1',
+            item_status: 'archived',
+            limit: 100,
+            order_by: 'name',
+            page: 2,
+            revision: 12,
+            search: 'support',
+            tab: 'metadata',
+        }
+
+        expect(getDatasetNavigationSearchParams(searchParams)).toEqual({
+            dataset_status: 'archived',
+            order_by: 'name',
+            search: 'support',
+        })
+        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('page=')
+        expect(getDatasetListUrl(searchParams)).not.toContain('page=')
     })
 
     describe('filters functionality', () => {

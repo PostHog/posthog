@@ -34,6 +34,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import RasterizeR
 from products.exports.backend.facade.api import (
     DATASET_EXPORT_KIND,
     get_export_asset_effective_exception,
+    log_exported_asset_activity,
     start_export_asset_workflow,
 )
 from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
@@ -323,56 +324,12 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             # every data export auditable. Insight-only exports are logged above (Insight scope) and
             # never reach here, so we never write two activity rows for one export. System/synthetic
             # exports (user is None, e.g. open-graph image renders) are intentionally not logged.
-            self._log_exported_asset_activity(instance, user)
+            log_exported_asset_activity(
+                asset=instance,
+                user=user,
+                was_impersonated=is_impersonated(self.context.get("request")),
+            )
         return instance
-
-    def _log_exported_asset_activity(self, instance: ExportedAsset, user: User) -> None:
-        log_activity(
-            organization_id=instance.team.organization_id,
-            team_id=instance.team_id,
-            user=user,
-            was_impersonated=is_impersonated(self.context.get("request")),
-            item_id=instance.id,
-            scope="ExportedAsset",
-            activity="exported",
-            detail=Detail(
-                name=self._describe_exported_asset(instance),
-                type=instance.export_type,
-                changes=[
-                    Change(
-                        type="ExportedAsset",
-                        action="exported",
-                        field="export_format",
-                        after=instance.export_format,
-                    )
-                ],
-            ),
-        )
-
-    @staticmethod
-    def _describe_exported_asset(instance: ExportedAsset) -> str:
-        """Human-readable name of what was exported, for the activity log entry."""
-        context = instance.export_context or {}
-        export_type = instance.export_type
-        if export_type == "dashboard":
-            return instance.dashboard.name if instance.dashboard and instance.dashboard.name else "a dashboard"
-        if export_type == "insight":
-            # Reachable only when an insight export is also tied to a dashboard (the insight-only
-            # path is logged under the Insight scope above); name it after the insight either way.
-            if instance.insight:
-                return instance.insight.name or instance.insight.derived_name or "an insight"
-            return "an insight"
-        if export_type == "recording":
-            session_recording_id = context.get("session_recording_id")
-            return f"session recording {session_recording_id}" if session_recording_id else "a session recording"
-        if export_type == "heatmap":
-            heatmap_url = context.get("heatmap_url")
-            return f"heatmap {heatmap_url}" if heatmap_url else "a heatmap"
-        if context.get("source"):
-            return "SQL query results"
-        if context.get("filename"):
-            return str(context["filename"])
-        return "an export"
 
     def _start_export_workflow(
         self, instance: ExportedAsset, team: Team, user: User | None, force_async: bool = False

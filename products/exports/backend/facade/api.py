@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.slo.types import SloConfig
@@ -65,6 +66,54 @@ def get_export_asset_status(asset: ExportedAsset) -> Literal["pending", "complet
     return "pending"
 
 
+def _describe_exported_asset(asset: ExportedAsset) -> str:
+    context = asset.export_context or {}
+    export_type = asset.export_type
+    if export_type == "dashboard":
+        return asset.dashboard.name if asset.dashboard and asset.dashboard.name else "a dashboard"
+    if export_type == "insight":
+        # Reachable only when an insight export is also tied to a dashboard (the insight-only
+        # path is logged under the Insight scope above); name it after the insight either way.
+        if asset.insight:
+            return asset.insight.name or asset.insight.derived_name or "an insight"
+        return "an insight"
+    if export_type == "recording":
+        session_recording_id = context.get("session_recording_id")
+        return f"session recording {session_recording_id}" if session_recording_id else "a session recording"
+    if export_type == "heatmap":
+        heatmap_url = context.get("heatmap_url")
+        return f"heatmap {heatmap_url}" if heatmap_url else "a heatmap"
+    if context.get("source"):
+        return "SQL query results"
+    if context.get("filename"):
+        return str(context["filename"])
+    return "an export"
+
+
+def log_exported_asset_activity(*, asset: ExportedAsset, user: User, was_impersonated: bool) -> None:
+    log_activity(
+        organization_id=asset.team.organization_id,
+        team_id=asset.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=asset.id,
+        scope="ExportedAsset",
+        activity="exported",
+        detail=Detail(
+            name=_describe_exported_asset(asset),
+            type=asset.export_type,
+            changes=[
+                Change(
+                    type="ExportedAsset",
+                    action="exported",
+                    field="export_format",
+                    after=asset.export_format,
+                )
+            ],
+        ),
+    )
+
+
 def start_export_asset_workflow(
     *,
     asset: ExportedAsset,
@@ -106,6 +155,7 @@ def create_export_asset_async(
     *,
     team: Team,
     created_by: User,
+    was_impersonated: bool,
     export_format: str,
     export_context: dict[str, object],
 ) -> ExportedAsset:
@@ -124,6 +174,7 @@ def create_export_asset_async(
         wait=False,
     )
     asset.refresh_from_db()
+    log_exported_asset_activity(asset=asset, user=created_by, was_impersonated=was_impersonated)
     return asset
 
 

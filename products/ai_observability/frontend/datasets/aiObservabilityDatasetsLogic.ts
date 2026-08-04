@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
@@ -17,6 +17,22 @@ import { cleanPagedSearchOrderParams } from '../utils'
 import { datasetsApi } from './datasetsApi'
 
 export const DATASETS_PER_PAGE = 30
+
+const DATASET_NAVIGATION_SEARCH_PARAM_KEYS = new Set(['dataset_status', 'order_by', 'search'])
+
+export function getDatasetNavigationSearchParams(searchParams: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+        Object.entries(searchParams).filter(([key]) => DATASET_NAVIGATION_SEARCH_PARAM_KEYS.has(key))
+    )
+}
+
+export function getDatasetListUrl(searchParams: Record<string, any>): string {
+    return combineUrl(urls.aiObservabilityDatasets(), getDatasetNavigationSearchParams(searchParams)).url
+}
+
+export function getDatasetDetailUrl(datasetId: string, searchParams: Record<string, any>): string {
+    return combineUrl(urls.aiObservabilityDataset(datasetId), getDatasetNavigationSearchParams(searchParams)).url
+}
 
 export interface DatasetFilters {
     page: number

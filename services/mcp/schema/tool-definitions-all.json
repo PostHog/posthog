@@ -5444,7 +5444,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-item-version-list": {
-        "description": "List every immutable version of a dataset item, newest first. The response includes historical content, archive state, dataset revision, provenance, and creator timestamps.",
+        "description": "List every immutable version of a dataset item, newest first. The response includes version metadata only. To retrieve a version's content, call `llma-dataset-item-get` with the item ID and its `dataset_revision` as `revision`.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List dataset item versions",

@@ -300,6 +300,47 @@ describe('datasetItemModalLogic', () => {
         expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
     })
 
+    it('preserves unsaved changes and prevents restoring a version', async () => {
+        const logicProps = {
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        }
+        const logic = datasetItemModalLogic(logicProps)
+        logic.mount()
+
+        logic.actions.setDatasetItemFormValue('input', '{"message": "Changed"}')
+
+        await expectLogic(logic, () => {
+            datasetItemModalLogic({ ...logicProps, restoringVersion: 1 })
+        })
+
+        expect(logic.values.datasetItemFormChanged).toBe(true)
+        expect(logic.values.datasetItemForm.input).toBe('{"message": "Changed"}')
+        expect(logic.values.datasetItemVersionRestoreDisabledReason).toBe(
+            'Save or discard your changes before restoring a version'
+        )
+    })
+
+    it('prevents editing and saving while a version is being restored', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+            restoringVersion: 1,
+        })
+        logic.mount()
+
+        expect(logic.values.isDatasetItemFormReadOnly).toBe(true)
+        expect(logic.values.datasetItemFormSubmitDisabledReason).toBe('Wait for the version to finish restoring')
+
+        await expectLogic(logic, () => logic.actions.submitDatasetItemForm()).toFinishAllListeners()
+
+        expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
+    })
+
     it('rejects invalid expected output JSON', () => {
         expect(isStringJsonValue('{invalid')).toBe(false)
     })

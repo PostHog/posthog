@@ -61,6 +61,7 @@ import {
     isDataset,
     aiObservabilityDatasetLogic,
 } from './aiObservabilityDatasetLogic'
+import { getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { DatasetItemModal } from './DatasetItemModal'
 import { datasetsApi } from './datasetsApi'
 import { EditDatasetForm } from './EditDatasetForm'
@@ -103,7 +104,6 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         archiveDataset,
         restoreDataset,
         exportDataset,
-        setFilters,
         setDatasetFormValue,
         triggerDatasetItemModal,
         sceneMounted,
@@ -193,9 +193,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                                     editDataset(false)
                                                     loadDataset()
                                                 } else {
-                                                    router.actions.push(
-                                                        combineUrl(urls.aiObservabilityDatasets(), searchParams).url
-                                                    )
+                                                    router.actions.push(getDatasetListUrl(searchParams))
                                                 }
                                             }}
                                             disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
@@ -225,16 +223,6 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                     </>
                                 ) : (
                                     <>
-                                        {isDataset(dataset) && isHistoricalRevision && (
-                                            <LemonButton
-                                                type="secondary"
-                                                onClick={() => setFilters({ revision: null, page: 1 }, false)}
-                                                data-attr="view-latest-dataset-revision"
-                                                size="small"
-                                            >
-                                                View latest
-                                            </LemonButton>
-                                        )}
                                         {isDataset(dataset) && (
                                             <LemonButton
                                                 type="secondary"

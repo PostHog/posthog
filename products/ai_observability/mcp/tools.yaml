@@ -340,8 +340,9 @@ tools:
         list: true
         title: List dataset item versions
         description: >
-            List every immutable version of a dataset item, newest first. The response includes historical content,
-            archive state, dataset revision, provenance, and creator timestamps.
+            List every immutable version of a dataset item, newest first. The response includes version metadata only.
+            To retrieve a version's content, call `llma-dataset-item-get` with the item ID and its
+            `dataset_revision` as `revision`.
         feature_flag: llm-analytics-datasets
         response:
             include:
@@ -352,13 +353,6 @@ tools:
                 - version_id
                 - dataset_revision
                 - archived
-                - input
-                - expected_output
-                - source_output
-                - metadata
-                - source_trace_id
-                - source_event_id
-                - source_timestamp
                 - version_created_at
                 - version_created_by
             informational_wrapper:

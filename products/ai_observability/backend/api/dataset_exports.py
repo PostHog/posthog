@@ -60,6 +60,7 @@ def create_dataset_export(
     dataset: Dataset,
     team: Team,
     created_by: User,
+    was_impersonated: bool,
     revision: int | None,
 ) -> ExportedAsset:
     selected_revision = revision
@@ -81,6 +82,7 @@ def create_dataset_export(
     return create_export_asset_async(
         team=team,
         created_by=created_by,
+        was_impersonated=was_impersonated,
         export_format=JSONL_EXPORT_FORMAT,
         export_context={
             "kind": DATASET_EXPORT_KIND,

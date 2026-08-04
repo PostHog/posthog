@@ -10,6 +10,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -960,6 +961,27 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(content_response.status_code, status.HTTP_200_OK)
         self.assertEqual(content_response.content, asset.content)
         self.assertIn("attachment", content_response["Content-Disposition"])
+
+    @patch("products.ai_observability.backend.api.datasets.is_impersonated", return_value=True)
+    @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
+    def test_dataset_export_logs_exported_asset_activity(
+        self, _start_workflow: MagicMock, _is_impersonated: MagicMock
+    ) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+
+        response = self.client.post(f"{self.datasets_url}{dataset['id']}/exports/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        log = ActivityLog.objects.get(scope="ExportedAsset", item_id=str(response.data["id"]))
+        assert log.detail is not None
+        self.assertEqual(log.activity, "exported")
+        self.assertEqual(log.team_id, self.team.id)
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertTrue(log.was_impersonated)
+        self.assertEqual(log.detail["name"], f"{dataset['name']}-r{item['dataset_revision']}")
+        self.assertEqual(log.detail["type"], DATASET_EXPORT_KIND)
+        self.assertEqual(log.detail["changes"][0]["after"], ExportedAsset.ExportFormat.JSONL)
 
     def test_dataset_export_rejects_unknown_request_fields(self) -> None:
         dataset = self._create_dataset()

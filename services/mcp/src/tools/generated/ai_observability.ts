@@ -581,13 +581,6 @@ const llmaDatasetItemVersionList = (): ToolBase<
                     'version_id',
                     'dataset_revision',
                     'archived',
-                    'input',
-                    'expected_output',
-                    'source_output',
-                    'metadata',
-                    'source_trace_id',
-                    'source_event_id',
-                    'source_timestamp',
                     'version_created_at',
                     'version_created_by',
                 ])

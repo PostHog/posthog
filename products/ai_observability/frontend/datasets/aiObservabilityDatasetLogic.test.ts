@@ -593,6 +593,39 @@ describe('aiObservabilityDatasetLogic', () => {
 
             expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(listCallCount + 1)
         })
+
+        it('reloads the open item when unarchiving an outdated version', async () => {
+            const archivedItem = { ...mockDatasetItem1, archived: true, version: 2 }
+            const reloadedItem = { ...archivedItem, version: 3 }
+            const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
+            mockDatasetsApi.getItem.mockResolvedValue(archivedItem)
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                router.actions.push(urls.aiObservabilityDataset(mockDataset.id), { item: archivedItem.id })
+            }).toFinishAllListeners()
+            mockDatasetsApi.restoreItem.mockRejectedValue(
+                new ApiError(errorDetail, 409, undefined, {
+                    code: CodeEnumApi.StaleVersion,
+                    detail: errorDetail,
+                    current_version: reloadedItem.version,
+                })
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.restoreDatasetItem(archivedItem.id, archivedItem.version)
+            }).toFinishAllListeners()
+
+            mockDatasetsApi.getItem.mockResolvedValue(reloadedItem)
+            const toastOptions = (lemonToast.error as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => void }
+            }
+            toastOptions.button.action()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.selectedDatasetItem).toEqual(reloadedItem)
+        })
     })
 
     describe('dataset loading and defaults', () => {
@@ -972,6 +1005,42 @@ describe('aiObservabilityDatasetLogic', () => {
                     limit: 25,
                     offset: 25,
                 })
+            })
+
+            it('reloads item history once after a stale version restore', async () => {
+                const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
+                const currentItem = { ...mockDatasetItem1, version: 3 }
+                const historicalItem = { ...mockDatasetItem1, version: 2 }
+                const reloadedItem = { ...mockDatasetItem1, version: 4 }
+                const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
+                mockDatasetsApi.getItem.mockResolvedValue(currentItem)
+                mockDatasetsApi.listItemVersions.mockResolvedValue({ results: [historicalItem], count: 1 })
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { item: currentItem.id })
+                }).toFinishAllListeners()
+
+                mockDatasetsApi.listItemVersions.mockClear()
+                mockDatasetsApi.updateItem.mockRejectedValue(
+                    new ApiError(errorDetail, 409, undefined, {
+                        code: CodeEnumApi.StaleVersion,
+                        detail: errorDetail,
+                        current_version: reloadedItem.version,
+                    })
+                )
+                await expectLogic(logic, () => {
+                    logic.actions.restoreDatasetItemVersion(historicalItem.version)
+                }).toFinishAllListeners()
+
+                mockDatasetsApi.getItem.mockResolvedValue(reloadedItem)
+                const toastOptions = (lemonToast.error as jest.Mock).mock.calls.at(-1)?.[1] as {
+                    button: { action: () => void }
+                }
+                toastOptions.button.action()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.selectedDatasetItem).toEqual(reloadedItem)
+                expect(mockDatasetsApi.listItemVersions).toHaveBeenCalledTimes(1)
             })
 
             it('does not restore a history row that belongs to another item', async () => {

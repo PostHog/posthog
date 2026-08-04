@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -7,7 +7,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -20,7 +19,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
-import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic, getDatasetDetailUrl } from './aiObservabilityDatasetsLogic'
 
 export const scene: SceneExport = {
     component: AIObservabilityDatasetsScene,
@@ -33,7 +32,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
     const { archivingDatasetId, datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
         useValues(aiObservabilityDatasetsLogic)
     const { searchParams } = useValues(router)
-    const datasetUrl = (id: string): string => combineUrl(urls.aiObservabilityDataset(id), searchParams).url
+    const datasetUrl = (id: string): string => getDatasetDetailUrl(id, searchParams)
 
     const columns: LemonTableColumns<Dataset> = [
         {

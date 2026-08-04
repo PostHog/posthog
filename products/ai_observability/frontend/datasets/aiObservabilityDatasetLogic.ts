@@ -15,7 +15,7 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -40,7 +40,7 @@ import type {
     PaginatedDatasetRevisionReadListApi,
 } from '../generated/api.schemas'
 import { truncateValue } from '../utils'
-import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import { aiObservabilityDatasetsLogic, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
 import { EMPTY_JSON, isStringJsonObject, parseJsonObject, prettifyJson } from './utils'
 
@@ -1019,7 +1019,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             (dataset: DatasetReadApi | DatasetFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Datasets',
-                    path: combineUrl(urls.aiObservabilityDatasets(), searchParams).url,
+                    path: getDatasetListUrl(searchParams),
                     key: 'AIObservabilityDatasets',
                     iconType: 'llm_datasets',
                 },
@@ -1053,7 +1053,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             },
                         },
                     })
-                    router.actions.replace(urls.aiObservabilityDatasets(), router.values.searchParams)
+                    router.actions.replace(getDatasetListUrl(router.values.searchParams))
                 } catch {
                     lemonToast.error("Couldn't archive dataset. Try again.")
                 }
@@ -1145,7 +1145,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                     error,
                     "Couldn't unarchive dataset item. Refresh the dataset and try again.",
                     () => {
-                        void asyncActions.loadDatasetItems(false)
+                        void asyncActions.refreshAfterDatasetItemMutation(itemId)
                     }
                 )
             } finally {
@@ -1191,7 +1191,6 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                     "Couldn't restore that item version. Reload the history and try again.",
                     () => {
                         void asyncActions.loadDatasetItemDetails({ itemId: currentItem.id })
-                        void asyncActions.loadDatasetItemVersions({ itemId: currentItem.id })
                     }
                 )
             } finally {
