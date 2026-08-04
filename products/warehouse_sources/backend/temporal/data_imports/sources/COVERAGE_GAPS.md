@@ -276,6 +276,29 @@ See patterns 1 and 2 above.
 - [ ] Ad account table (currency and timezone, without which spend is ambiguous).
 - [ ] Audiences and pixel / conversion event definitions.
 
+### Snapchat Ads — spec-verified
+
+Split out of the four-platform section above.
+Diffed against the [Snapchat Marketing API v1 reference](https://developers.snap.com/api/marketing-api)
+on 2026-08-04.
+Have: campaigns, ad_squads, ads, campaign_stats_daily, ad_squad_stats_daily, ad_stats_daily,
+ad_accounts, creatives, media, audience_segments, pixels, campaign_stats_daily_country,
+campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demographics.
+
+- [x] Creative metadata — `creatives` and `media`.
+- [x] Breakdown dimensions — `report_dimension` country and age/gender tables at campaign and ad level,
+      off by default because a breakdown row exists per dimension value per day.
+- [x] Ad account table — `ad_accounts`, carrying the currency and timezone every spend figure is in.
+- [x] Audiences — `audience_segments`.
+- [x] Pixel definitions — `pixels`.
+- [ ] Custom conversion definitions (skipped: `/pixels/{pixel_id}/custom_conversions` only lists per
+      pixel, and this source has no parent fan-out path yet).
+- [ ] Region, DMA, device make, OS, and lifestyle-category breakdowns (skipped: Snapchat documents the
+      dimension names but not the column each returns, so the primary key would be a guess; region, DMA
+      and make also return no conversion metrics).
+- [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
+      scoped to an organization ID this source does not collect).
+
 ### Linear — needs confirmation
 
 Eight tables. Two small additions unblock the cycle-time use case.
