@@ -70,8 +70,8 @@ export function AppMetricSummary({
                     <LemonSkeleton className="w-10 h-4" />
                 ) : (
                     <>
-                        {subtitle}
-                        {diffForDisplay}
+                        {subtitle ? <span>{subtitle}</span> : null}
+                        {diffForDisplay ? <span>{diffForDisplay}</span> : null}
                     </>
                 )}
             </div>
