@@ -327,7 +327,10 @@ describe('ApiClient', () => {
 
             const recoverable = findRecoverableApiError(result.error)
             expect(recoverable).toBeInstanceOf(PostHogApiError)
-            expect(recoverable?.status).toBe(404)
+            if (!(recoverable instanceof PostHogApiError)) {
+                throw new Error('expected a PostHogApiError')
+            }
+            expect(recoverable.status).toBe(404)
             expect(result.error.message).toContain('Experiment 999 not found in this project')
             expect(result.error.message).toContain('experiment-list')
 
