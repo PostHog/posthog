@@ -679,10 +679,6 @@ class AssignAndEmitSignalOutput:
     promoted: bool
     timestamp: datetime
     run_count: int
-    # Debounce for the research run this promotion spawns, read here rather than in the workflow:
-    # reading the setting inside a workflow body would be non-deterministic on replay, and grouping
-    # workflows are long-lived, so they replay across a rollout. Defaults to 0 so histories written
-    # before this field decode to "no wait".
     research_debounce_seconds: int = 0
 
 
@@ -1388,8 +1384,6 @@ async def _process_signal_batch(
                 execution_timeout=timedelta(hours=1, seconds=report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
-            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op. With
-            # the debounce on this is the common path, and the count is what the debounce saves.
             metrics.increment_research_run_collapsed()
         except Exception:
             # Log and continue: raising here would reprocess the whole batch and double-count
