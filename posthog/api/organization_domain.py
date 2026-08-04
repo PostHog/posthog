@@ -257,6 +257,24 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance = self.get_object()
 
+        # With `enforce_verified_domains` on, deleting the domain that admits the acting admin
+        # (including the last verified domain) locks them out at their next request, and possibly
+        # the whole organization with them. Mirrors the guard on enabling the setting.
+        if instance.is_verified and self.organization.enforce_verified_domains:
+            user = cast(User, request.user)
+            email_domain = user.email[user.email.index("@") + 1 :] if "@" in user.email else ""
+            still_admitted = (
+                OrganizationDomain.objects.verified_domains()
+                .filter(organization=self.organization, domain__iexact=email_domain)
+                .exclude(pk=instance.pk)
+                .exists()
+            )
+            if not still_admitted:
+                raise exceptions.ValidationError(
+                    "You can't delete this domain while membership is restricted to verified email domains, because your own email address would no longer be allowed. Turn off that setting first.",
+                    code="would_block_self",
+                )
+
         _capture_domain_event(
             request,
             instance,

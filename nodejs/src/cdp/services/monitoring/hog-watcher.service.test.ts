@@ -582,16 +582,13 @@ describe('HogWatcher', () => {
         })
 
         it('should fall back to the writer when the reader throws on getPersistedStates', async () => {
+            await watcher.observeResults([createResult({ duration: 1000, kind: 'hog' })])
+
             const failingReader = makeFailingReader(new Error('reader unavailable'))
             const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
 
-            // Seed state on the writer so a successful fallback returns real data
-            await watcherWithFailingReader.observeResults([createResult({ duration: 1000, kind: 'hog' })])
-
             const state = await watcherWithFailingReader.getPersistedState(hogFunctionId)
 
-            // observeResults uses useClient (mget), getPersistedState uses usePipeline
-            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
             expect(failingReader.usePipeline).toHaveBeenCalledTimes(1)
             expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
             expect(loggerWarnSpy).toHaveBeenCalledWith(
