@@ -1075,7 +1075,12 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     filtered_events = _all_known_webhook_events()
@@ -1130,6 +1135,11 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            if auth_method == "oauth":
+                return WebhookCreationResult(
+                    success=False,
+                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                )
             return WebhookCreationResult(
                 success=False,
                 error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",
