@@ -203,6 +203,32 @@ function isThoughtItem(item: ConversationItem): boolean {
  * A lone tool call passes through untouched — it stays a single marker, matching the legacy thread,
  * and so do the thoughts around it: thoughts ride along a run, they never make one.
  */
+/**
+ * Item arrays for settled runs, keyed on the run's (stable) first item.
+ *
+ * Grouping re-runs over the whole thread on every streamed chunk, so a completed run gets a fresh
+ * array each time — new identity, same contents. That defeats `ToolGroup`'s `memo`, and every
+ * settled group above the live one re-renders per token. Handing back the previous array makes
+ * those groups skip the render entirely.
+ *
+ * Only safe once the run's turn is complete: a live tool's status is mutated in place on its
+ * resolved `ToolCall`, so reusing an array while the turn streams would freeze a spinner on a
+ * tool that has since finished. `len` guards the case where a run gains items before settling.
+ */
+const settledRunItems = new WeakMap<
+  ConversationItem,
+  { len: number; items: SessionUpdateItem[] }
+>();
+
+function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
+  if (!run.at(-1)?.turnContext.turnComplete) return run;
+  const key = run[0];
+  const cached = settledRunItems.get(key);
+  if (cached && cached.len === run.length) return cached.items;
+  settledRunItems.set(key, { len: run.length, items: run });
+  return run;
+}
+
 function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
@@ -216,7 +242,7 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
         type: "tool_group",
         // The run's first tool call, so the id is stable as thoughts append around it.
         id: buffer.filter(isToolCallItem)[0].id,
-        items: buffer.filter(isSessionUpdateItem),
+        items: stableRunItems(buffer.filter(isSessionUpdateItem)),
       });
     } else {
       out.push(...buffer);

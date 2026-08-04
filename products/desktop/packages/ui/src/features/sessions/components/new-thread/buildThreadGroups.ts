@@ -248,7 +248,11 @@ const summaryCache = new WeakMap<
   { len: number; summary: GroupSummary }
 >();
 
-function summarizeMemo(
+/**
+ * `summarize`, skipping the walk for a run whose turn has completed. Exported alongside it so the
+ * quill thread gets the same caching rather than re-walking every settled group per streamed token.
+ */
+export function summarizeMemo(
   leading: ConversationItem[],
   turnComplete: boolean,
 ): GroupSummary {

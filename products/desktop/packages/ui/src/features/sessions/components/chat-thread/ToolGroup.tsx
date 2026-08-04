@@ -10,7 +10,7 @@ import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
-import { summarize } from "../new-thread/buildThreadGroups";
+import { summarizeMemo } from "../new-thread/buildThreadGroups";
 import { grouping } from "../new-thread/conversationThreadConfig";
 import { SessionUpdateView } from "../session-update/SessionUpdateView";
 import { iconForToolCall } from "../session-update/toolCallUtils";
@@ -77,6 +77,16 @@ export function isToolActive(item: SessionUpdateItem): boolean {
   );
 }
 
+/** The run's most recent in-flight tool. Walked backwards rather than copy-and-reverse. */
+function lastActiveTool(
+  tools: SessionUpdateItem[],
+): SessionUpdateItem | undefined {
+  for (let i = tools.length - 1; i >= 0; i--) {
+    if (isToolActive(tools[i])) return tools[i];
+  }
+  return undefined;
+}
+
 /** True while the run's last item is a thought still streaming — the agent is mid-reasoning. */
 function isThinking(items: SessionUpdateItem[]): boolean {
   const last = items.at(-1);
@@ -127,8 +137,7 @@ export const ToolGroup = memo(function ToolGroup({
 
   // Grouping only ever builds a run around ≥2 tool calls, but the component is exported, so a
   // thought-only run resolves to no current tool rather than throwing on `undefined`.
-  const currentItem =
-    [...tools].reverse().find(isToolActive) ?? tools[tools.length - 1];
+  const currentItem = lastActiveTool(tools) ?? tools.at(-1);
   const current = currentItem ? resolveTool(currentItem) : null;
   const currentName = currentItem ? friendlyName(toolKey(currentItem)) : null;
   const currentContext =
@@ -143,9 +152,12 @@ export const ToolGroup = memo(function ToolGroup({
     : null;
 
   // A settled run reads as a tally of what happened. One with nothing countable keeps the live
-  // shape rather than falling back to summarize's "Worked". Memoized because the trailing group
-  // re-renders per streamed token, and this walks the whole run.
-  const summary = useMemo(() => summarize(items), [items]);
+  // shape rather than falling back to summarize's "Worked". Cached across renders once the run's
+  // turn is complete — the walk is O(run), and the live turn re-renders every group per token.
+  const summary = useMemo(
+    () => summarizeMemo(items, items.at(-1)?.turnContext.turnComplete ?? false),
+    [items],
+  );
   const showSummary = !isActive && summary.hasCountableWork;
 
   // Keyed so a change swaps the label through the cross-fade. Thinking is its own key, so a run
