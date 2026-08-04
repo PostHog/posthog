@@ -353,8 +353,8 @@ def delete_orphaned_identity_provider_config(
     sender: type[OrganizationDomain], instance: OrganizationDomain, **kwargs: Any
 ) -> None:
     """
-    Note: This is temporary. In the future IDP configs will be explicitly managed in the UI. However, they are current implicitly
-    managed by their relationship to the org domains so we need to make sure they get cleaned up when all linekd org domains are deleted
+    Note: This is temporary. In the future IDP configs will be explicitly managed in the UI. However, they are currently implicitly
+    managed by their relationship to the org domains so we need to make sure they get cleaned up when all linked org domains are deleted
     """
     if instance.identity_provider_config_id is not None:
         IdentityProviderConfig.objects.filter(pk=instance.identity_provider_config_id, domains__isnull=True).delete()
