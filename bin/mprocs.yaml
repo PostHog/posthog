@@ -576,6 +576,13 @@ procs:
             layer: Product services
             tech: Python
 
+    desktop:
+        shell: 'bin/start-desktop'
+        capability: desktop_app
+        groups:
+            layer: Application
+            tech: Node
+
     migrate-postgres:
         shell: 'bin/wait-for-docker && bin/hogli db:restore-schema-if-fresh && bin/migrate --scope=postgres'
         capability: core_infra

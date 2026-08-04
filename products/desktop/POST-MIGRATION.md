@@ -5,6 +5,12 @@ the ones above it are done. `MIGRATION.md` covers the import itself and the resy
 
 This file is monorepo-only. Restore it on a resync (see `MIGRATION.md`).
 
+Status as of 2026-08-01: steps 2, 3, 4, 5 and 6 are done. Step 7 (npm trusted publisher)
+is still open and actively broken: both post-resync `@posthog/agent` releases failed with
+ENEEDAUTH (seen on agent-v2.4.1), so no monorepo-triggered agent release has ever
+succeeded. Two items beyond the original list also need an admin (see "Remaining ops
+work" at the bottom).
+
 ## Merging
 
 Trunk's merge queue is paused, so `/trunk merge` is a no-op. Squash is the only method the
@@ -115,12 +121,13 @@ regression.
 
 ## 5. Register the required status checks
 
-These run and pass today, but nothing enforces them:
+Done 2026-08-01: the four contexts are registered on the `master` ruleset (id 6958621),
+with the caller-job prefix the reusable-workflow dispatch gives them:
 
-- `Desktop Build Pass`
-- `Desktop Typecheck Pass`
-- `Desktop Quality Pass`
-- `Desktop Tests Pass`
+- `build / Desktop Build Pass`
+- `typecheck / Desktop Typecheck Pass`
+- `quality / Desktop Quality Pass`
+- `test / Desktop Tests Pass`
 
 ## 6. Storybook CI (removed post-merge)
 
@@ -137,15 +144,34 @@ git history and let the VR bot commit a posthog-signed baseline.
 `@posthog/agent` publishes from `desktop-agent-release.yml`. Re-register the trusted
 publisher as posthog/posthog + that workflow, or agent releases fail at publish.
 
+## Remaining ops work (needs an admin)
+
+1. **npm trusted publisher for `@posthog/agent`** (step 7 above): re-register as
+   posthog/posthog + `desktop-agent-release.yml` in npm's package settings. Every agent
+   release currently fails with ENEEDAUTH. Decide at the same time whether to strip
+   publish rights from the old PostHog/code + agent-release.yml pairing.
+2. **Disable `agent-tag.yml` and `agent-release.yml` on PostHog/code**: only
+   `code-tag.yml` was disabled there (step 3). The old agent pair is still active, so a
+   stray commit touching packages/agent on the frozen repo could race the monorepo's
+   `agent-v*` tagging.
+3. **AWS OIDC trust policy for `desktop-update-e2e.yml`**: the nightly macOS update E2E
+   fails `sts:AssumeRoleWithWebIdentity` against `AWS_TWIG_APP_ASSETS_ROLE_ARN`, while
+   `desktop-release.yml` succeeds with the same secret. Add the update-e2e workflow (and
+   its `schedule` event) to the role's allowed `sub` claims.
+
 ## Lower priority
 
-- **Backend test coupling**: add `products/desktop/packages/{agent,shared,git}/**` to
-  `ci-backend.yml`'s paths filter (Django's tasks tests exercise the agent overlay), and
-  point `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` (products/tasks `local_packages.py`) at the
-  in-repo `products/desktop/`.
-- **hogli**: add a `desktop` category (`desktop:dev` etc.) to `hogli.yaml`.
+- **Backend test coupling**: done 2026-08-01. `ci-backend.yml` (and the `.depot` mirror)
+  couples `products/desktop/packages/{agent,shared,git}/**` to the Django suite via a
+  `desktop_agent_packages` filter key. Root docs now point
+  `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` at the in-repo `products/desktop/`.
+- **hogli**: done 2026-08-01. `hogli.yaml` has a `desktop:*` category, `hogli test`
+  routes desktop paths to Vitest and `hogli ci:preflight` validates the nested lockfile
+  and runs desktop's Biome.
 - **Dual-publish retirement**: `desktop-release.yml` and `desktop-cleanup-draft-releases.yml`
   still target PostHog/code for the legacy update feed. Retire once app-version telemetry
   shows the old feed is quiet.
 - **Dependency tail**: the remaining transitive high/moderate advisories (minimatch,
   picomatch, js-yaml, form-data, svgo) are left for a dedicated dependency-hygiene sweep.
+  Note automated patching does not cover this tree: see the standing security-patch
+  procedure in `MIGRATION.md`.

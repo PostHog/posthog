@@ -49,8 +49,7 @@ PARTITION_PRUNING_INTERVAL = "14 days"
 # margin absorbs clock skew and sweep timing. Applies only to the outer claim
 # candidates and the recovery sweep — never to the head-of-line/failed-run/
 # schema-busy gates, which must keep seeing rows aged past this window for as
-# long as they exist. The duckgres claim path (duckgres/jobs_db.py) has a
-# similar exposure but is deliberately out of scope here.
+# long as they exist.
 CLAIM_ELIGIBILITY_INTERVAL = "6 days 12 hours"
 
 # Quiet time (no batch inserts or status writes) before lock takeover treats a run as

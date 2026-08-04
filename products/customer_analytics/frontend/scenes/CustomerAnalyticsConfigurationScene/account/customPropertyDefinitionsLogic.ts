@@ -39,10 +39,17 @@ import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
 export type CustomPropertyTargetType = 'account' | 'person' | 'group'
 
-// After triggering a sync/backfill, poll until the source's run settles so the UI reflects
-// completion without a manual refresh. Bounded so a stuck run can't poll forever.
+// Poll until a source's run settles so the UI reflects completion without a manual refresh: fast at
+// first (a small table finishes in seconds), then slower, and bounded so a stuck run can't poll
+// forever. 10 × 3s + 30 × 10s ≈ 5.5 minutes.
 const RUNS_POLL_INTERVAL_MS = 3000
-const RUNS_POLL_MAX_ATTEMPTS = 20
+const RUNS_POLL_SLOW_INTERVAL_MS = 10000
+const RUNS_POLL_FAST_ATTEMPTS = 10
+const RUNS_POLL_MAX_ATTEMPTS = 40
+
+// A run that has reached one of these is finished — anything else (including no run row yet, which
+// is the state right after a trigger while the workflow starts up) means keep polling.
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed'])
 
 // One warehouse-column → person-property pair in the person-target editor. Serialized to the
 // backend's `column_property_map` object ({column: property}) on save; the optional per-mapping
@@ -190,6 +197,7 @@ export interface customPropertyDefinitionsLogicValues {
     editingDefinition: CustomPropertyDefinitionApi | null
     editingReferences: readonly CustomPropertyReferenceApi[]
     filteredDefinitions: CustomPropertyDefinitionApi[]
+    hasSyncedWarehouseTables: boolean | null
     isCustomPropertyFormSubmitting: boolean
     isCustomPropertyFormValid: boolean
     materializedViews: DataWarehouseSavedQuery[]
@@ -535,6 +543,16 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 openCreateModal: (_, { lockTargetType }) => lockTargetType,
                 openEditModal: () => false,
                 closeModal: () => false,
+            },
+        ],
+        // Whether the project has any synced warehouse tables at all — null until the first unsearched
+        // load lands. Tracked apart from `warehouseTables`, which the picker's server-side search
+        // narrows: a search that matches nothing must not read as an empty catalog.
+        hasSyncedWarehouseTables: [
+            null as boolean | null,
+            {
+                loadWarehouseTablesSuccess: (state, { warehouseTables, payload }) =>
+                    payload?.search ? state : warehouseTables.length > 0,
             },
         ],
         // The sources whose sync/backfill trigger is in flight, for the per-row loading/disabled guard.
@@ -1087,6 +1105,14 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         pollRunsStatus: ({ sourceId }) => {
             cache.pollSourceIds = cache.pollSourceIds ?? new Set<string>()
             cache.pollAttempts = cache.pollAttempts ?? {}
+            cache.pollBaselines = cache.pollBaselines ?? {}
+            // Remember which run we already knew about. A trigger returns before its workflow creates
+            // the run row, so "no run yet" and "the same finished run as before" both have to keep
+            // polling — otherwise the first response settles the poll and the status stays stale.
+            const latestRun = values.definitions.find((d) => d.source?.id === sourceId)?.source?.latest_run
+            cache.pollBaselines[sourceId] = latestRun
+                ? { id: latestRun.id, finished: TERMINAL_RUN_STATUSES.has(latestRun.status) }
+                : null
             cache.pollSourceIds.add(sourceId)
             cache.pollAttempts[sourceId] = 0
             cache.disposables.add(() => {
@@ -1095,22 +1121,44 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             }, 'runsPoll')
         },
         loadDefinitionsSuccess: () => {
-            // Reschedule the trigger poll until each polled source's run settles (or attempts run out),
-            // so the buttons/status reflect completion without a manual refresh (see pollRunsStatus).
-            const pollSourceIds: Set<string> | undefined = cache.pollSourceIds
-            if (!pollSourceIds || pollSourceIds.size === 0) {
+            cache.pollSourceIds = cache.pollSourceIds ?? new Set<string>()
+            cache.pollAttempts = cache.pollAttempts ?? {}
+            cache.pollBaselines = cache.pollBaselines ?? {}
+            // Also follow runs that were already in flight when the list loaded — a scheduled sync, or
+            // one started from another tab — so those settle live rather than only on a refresh.
+            values.definitions.forEach(({ source }) => {
+                const run = source?.latest_run
+                if (!source || !run || TERMINAL_RUN_STATUSES.has(run.status) || cache.pollSourceIds.has(source.id)) {
+                    return
+                }
+                cache.pollSourceIds.add(source.id)
+                cache.pollAttempts[source.id] = 0
+                cache.pollBaselines[source.id] = { id: run.id, finished: false }
+            })
+            if (cache.pollSourceIds.size === 0) {
                 return
             }
             // Build the next round rather than mutating the set while iterating it.
             const stillPolling = new Set<string>()
-            pollSourceIds.forEach((sourceId) => {
-                const definition = values.definitions.find((d) => d.source?.id === sourceId)
-                const stillRunning = definition?.source?.latest_run?.status === 'running'
+            let soonestAttempts = RUNS_POLL_MAX_ATTEMPTS
+            cache.pollSourceIds.forEach((sourceId: string) => {
+                const latestRun = values.definitions.find((d) => d.source?.id === sourceId)?.source?.latest_run
+                const baseline = cache.pollBaselines[sourceId]
+                const settled =
+                    !!latestRun &&
+                    TERMINAL_RUN_STATUSES.has(latestRun.status) &&
+                    // The run we started from, already finished back then, tells us nothing new.
+                    !(baseline?.finished && baseline.id === latestRun.id)
                 const attempts = (cache.pollAttempts[sourceId] ?? 0) + 1
                 cache.pollAttempts[sourceId] = attempts
-                actions.loadRuns({ sourceId })
-                if (stillRunning && attempts < RUNS_POLL_MAX_ATTEMPTS) {
+                // Only refresh history for rows that have it open — an unexpanded row would just be
+                // a request nobody reads.
+                if (sourceId in values.runsBySourceId) {
+                    actions.loadRuns({ sourceId })
+                }
+                if (!settled && attempts < RUNS_POLL_MAX_ATTEMPTS) {
                     stillPolling.add(sourceId)
+                    soonestAttempts = Math.min(soonestAttempts, attempts)
                 }
             })
             cache.pollSourceIds = stillPolling
@@ -1119,7 +1167,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 return
             }
             cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => actions.loadDefinitions(), RUNS_POLL_INTERVAL_MS)
+                const timeoutId = setTimeout(
+                    () => actions.loadDefinitions(),
+                    soonestAttempts < RUNS_POLL_FAST_ATTEMPTS ? RUNS_POLL_INTERVAL_MS : RUNS_POLL_SLOW_INTERVAL_MS
+                )
                 return () => clearTimeout(timeoutId)
             }, 'runsPoll')
         },

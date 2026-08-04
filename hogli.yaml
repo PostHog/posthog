@@ -62,6 +62,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: desktop
+          title: Desktop app (products/desktop)
         - key: devex
           title: Developer experience feedback
         - key: utilities
@@ -1019,6 +1021,23 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+desktop:
+    desktop:dev:
+        cmd: pnpm --dir products/desktop dev
+        description: Run the desktop app dev stack (build deps, then phrocs with Electron)
+    desktop:test:
+        cmd: pnpm --dir products/desktop test
+        description: Run desktop unit tests (Vitest via turbo, nested workspace)
+    desktop:typecheck:
+        cmd: pnpm --dir products/desktop typecheck
+        description: Typecheck all desktop packages (turbo)
+    desktop:lint:
+        cmd: pnpm --dir products/desktop exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
+        description: Check desktop code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
+    desktop:lint:fix:
+        cmd: pnpm --dir products/desktop run lint
+        description: Autofix desktop lint issues (biome check --write --unsafe)
+
 owners:
     owners:resolve:
         click: posthog_owners.cli:cmd_resolve
@@ -1174,4 +1193,8 @@ environment:
     ensure:local:setup:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
+        hidden: true
+    start:desktop:
+        bin_script: start-desktop
+        description: 'Install the nested products/desktop workspace and run its dev stack (Electron app plus package watchers via turbo); used by the desktop intent on hogli start'
         hidden: true

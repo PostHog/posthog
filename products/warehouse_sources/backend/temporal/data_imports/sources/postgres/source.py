@@ -250,8 +250,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         placeholder="db.example.com",
                         caption=(
                             "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
-                            "firewall allowlist (see the docs above) and use a public host — `localhost` and private "
-                            "IPs (10.x, 172.16–31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
                             "exposed publicly, enable the SSH tunnel below."
                         ),
                         secret=False,
@@ -500,6 +500,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
                 "(for example: GRANT SELECT ON <table> TO <role>), then re-enable the sync."
             ),
+            # A row-level security policy on this table (or another table its policy queries) is
+            # self-referential, so Postgres can't evaluate it and raises SQLSTATE 42P17 on every
+            # read attempt. The raw psycopg message ("infinite recursion detected in policy for
+            # relation <name>") is what the activity-level check sees via `str(e)`; match that,
+            # excluding the volatile relation name. `InvalidObjectDefinition` — the psycopg
+            # exception class name — only appears once Temporal wraps the activity failure, and
+            # a wrapped message contains both substrings, so this key must come first: finalization
+            # (`update_external_data_job_model`) takes the friendly message from the first matching
+            # dict entry, and a `None` class-name match ahead of it would shadow the actionable one.
+            # The policy is fixed until the customer edits it, so retrying re-hits the same
+            # recursion every attempt.
+            "infinite recursion detected in policy": (
+                "A row-level security policy on one of your tables refers back to itself (or to "
+                "another table whose policy loops back to it), so PostgreSQL can't evaluate it "
+                '("infinite recursion detected in policy"). Fix the policy definition to remove the '
+                "self-reference, or grant the connecting role BYPASSRLS, then re-enable the sync."
+            ),
+            "InvalidObjectDefinition": None,
             "Connection refused": None,
             "No route to host": None,
             "password authentication failed connection": None,

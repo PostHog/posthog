@@ -64,6 +64,7 @@ LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
+S3_COPY_BATCH_SIZE = 16
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 
 
@@ -343,23 +344,23 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             logger.info("Skipping stale prepared Parquet generation before catalog swap")
             return False
 
-    get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(len(landing_paths))
-    )
-    get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(registered_rows)
-    )
-    get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(copied_bytes)
-    )
+        get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(len(landing_paths))
+        )
+        get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(registered_rows)
+        )
+        get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(copied_bytes)
+        )
 
-    logger.info(
-        "Copied, verified, and registered prepared Parquet files in DuckLake",
-        ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
-        file_count=len(landing_paths),
-        landing_uri=inputs.metadata.landing_uri,
-    )
-    return True
+        logger.info(
+            "Copied, verified, and registered prepared Parquet files in DuckLake",
+            ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
+            file_count=len(landing_paths),
+            landing_uri=inputs.metadata.landing_uri,
+        )
+        return True
 
 
 def _is_valid_queryable_folder(queryable_folder: str) -> bool:
@@ -436,6 +437,8 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     if not parquet_paths:
         raise ApplicationError(f"No prepared Parquet files found under {source_uri}", non_retryable=True)
 
+    source_copy_paths: list[str] = []
+    landing_copy_paths: list[str] = []
     landing_paths: list[str] = []
     for source_path_value in parquet_paths:
         source_path = source_path_value.removeprefix("s3://")
@@ -443,8 +446,11 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
         if relative_path == source_path or relative_path.startswith("../"):
             raise ApplicationError(f"Prepared file escaped source prefix: {source_path}", non_retryable=True)
         landing_path = f"{landing_prefix}/{relative_path}"
-        s3.copy(source_path, landing_path)
+        source_copy_paths.append(source_path)
+        landing_copy_paths.append(landing_path)
         landing_paths.append(f"s3://{landing_path}")
+
+    s3.copy(source_copy_paths, landing_copy_paths, batch_size=S3_COPY_BATCH_SIZE)
 
     copied_bytes = 0
     if isinstance(found, dict):
@@ -522,18 +528,17 @@ def _register_prepared_parquet_files(
                         psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                     )
                 )
-            for landing_path in landing_paths:
-                conn.execute(
-                    psql.SQL(
-                        "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
-                        "allow_missing => true, hive_partitioning => true)"
-                    ).format(
-                        psql.Literal("ducklake"),
-                        psql.Literal(shadow_name),
-                        psql.Literal(landing_path),
-                        psql.Literal(schema_name),
-                    )
+            conn.execute(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
+                    "allow_missing => true, hive_partitioning => true)"
+                ).format(
+                    psql.Literal("ducklake"),
+                    psql.Literal(shadow_name),
+                    parquet_paths,
+                    psql.Literal(schema_name),
                 )
+            )
 
         with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             source_row = conn.execute(

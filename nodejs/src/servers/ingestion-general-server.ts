@@ -237,7 +237,12 @@ export class IngestionGeneralServer implements NodeServer {
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
 
         // 3. Ingestion-specific services
-        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+        // Same rationale as the team manager's loaderRetry above: group-type loads run
+        // detached in the LazyLoader buffer, so an un-retried transient failure can
+        // surface as an unhandled rejection and restart the worker.
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
+            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+        })
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
