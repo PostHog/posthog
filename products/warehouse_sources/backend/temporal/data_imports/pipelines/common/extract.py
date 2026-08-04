@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -18,14 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
-    PersonPropertyRowSink,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
@@ -335,7 +332,7 @@ async def handle_reset_or_full_refresh(
     reset_pipeline: bool,
     should_resume: bool,
     schema: "ExternalDataSchema",
-    delta_table_helper: DeltaTableHelper,
+    delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     webhook_only: bool = False,
 ) -> None:
@@ -362,12 +359,12 @@ async def handle_reset_or_full_refresh(
             schema.sync_type_config.pop("reset_pipeline", None)
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
-        await delta_table_helper.reset_table()
+        await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
-        await delta_table_helper.reset_table()
+        await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
 
 
@@ -397,7 +394,7 @@ def _capture_delta_revived(
 async def handle_corrupted_delta_log(
     schema: "ExternalDataSchema",
     job: "ExternalDataJob",
-    delta_table_helper: DeltaTableHelper,
+    delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
@@ -424,7 +421,7 @@ async def handle_corrupted_delta_log(
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
         try:
-            if not await delta_table_helper.is_table_corrupted():
+            if not await delta_table_ref.is_table_corrupted():
                 return False
         except Exception as e:
             if is_transient_object_store_error(e):
@@ -467,12 +464,12 @@ async def handle_corrupted_delta_log(
                 else _target_from_schema(schema)
             )
             result = await _resume_swap_with_missing_live(
-                helper=delta_table_helper,
+                table_ref=delta_table_ref,
                 schema=schema,
                 target=target,
                 temp_uri=swap["temp_uri"],
                 live_uri=swap["live_uri"],
-                storage_options=delta_table_helper._get_credentials(),
+                storage_options=delta_table_ref.get_storage_options(),
                 logger=logger,
             )
             if result.get("outcome") == "completed":
@@ -503,7 +500,7 @@ async def handle_corrupted_delta_log(
     )
 
     try:
-        await delta_table_helper.reset_table()
+        await delta_table_ref.reset_table()
     except Exception as e:
         if is_transient_object_store_error(e):
             # A rate-limited or connectivity blip purging the old table's S3 prefix isn't a bug —
@@ -551,6 +548,12 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
     pa_memory_pool.release_unused()
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class IncrementalFieldValues:
+    last_value: Any
+    earliest_value: Any
+
+
 async def update_incremental_field_values(
     schema: "ExternalDataSchema",
     pa_table: pa.Table,
@@ -560,7 +563,7 @@ async def update_incremental_field_values(
     logger: FilteringBoundLogger,
     log_prefix: str = "",
     staging_run_uuid: str | None = None,
-) -> tuple[Any, Any]:
+) -> IncrementalFieldValues:
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
@@ -593,7 +596,9 @@ async def update_incremental_field_values(
                         earliest_value, type="earliest"
                     )
 
-    return last_incremental_field_value, earliest_incremental_field_value
+    return IncrementalFieldValues(
+        last_value=last_incremental_field_value, earliest_value=earliest_incremental_field_value
+    )
 
 
 async def update_row_tracking_after_batch(
@@ -676,23 +681,3 @@ async def advance_xmin_state(
         ceiling_xid8=resource.xmin_ceiling_xid8,
         num_wraparound=resource.xmin_num_wraparound,
     )
-
-
-async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
-    if await cdp_producer.should_produce_table():
-        await cdp_producer.clear_s3_chunks()
-
-
-async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
-    if await cdp_producer.should_produce_table():
-        await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
-
-
-async def person_property_sink_clear_chunks(sink: PersonPropertyRowSink):
-    if await sink.should_stage():
-        await sink.clear_chunks()
-
-
-async def stage_chunk_for_person_property_sink(sink: PersonPropertyRowSink, index: int, pa_table: pa.Table):
-    if await sink.should_stage():
-        await sink.stage_chunk(chunk=index, table=pa_table)

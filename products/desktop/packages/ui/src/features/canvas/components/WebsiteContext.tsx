@@ -1,4 +1,8 @@
-import { FileTextIcon, SparkleIcon } from "@phosphor-icons/react";
+import {
+  FileTextIcon,
+  GitBranchIcon,
+  SparkleIcon,
+} from "@phosphor-icons/react";
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
@@ -11,9 +15,13 @@ import {
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { TaskChannel } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -21,6 +29,10 @@ import {
   useFolderInstructionsMutations,
   useFolderInstructionsVersions,
 } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
+import {
+  useTaskChannels,
+  useUpdateTaskChannelRepositories,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -48,7 +60,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
 
-// Initial markdown shown when a folder has no instructions yet — gives both
+// Initial markdown shown when a channel has no instructions yet — gives both
 // humans and agents a structural starting point instead of a blank screen.
 const CHANNEL_EMPTY_TEMPLATE =
   "# Channel context\n\nDescribe what lives here.\n";
@@ -68,6 +80,8 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
     (spacesLayout ? "Space" : "Channel");
+  const { channels: taskChannels } = useTaskChannels();
+  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
 
   const {
     data: latest,
@@ -130,19 +144,20 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const isConflict = publishError instanceof FolderInstructionsConflictError;
 
   // Allow inspecting an older version read-only. When `null`, we're showing
-  // either the latest (rendered/edit) or the empty state.
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
-    null,
-  );
+  // either the latest (rendered/edit) or the empty state. Versions are keyed
+  // by their number — the version's identity on the channel.
+  const [selectedVersionNumber, setSelectedVersionNumber] = useState<
+    number | null
+  >(null);
 
   // Picking a past version forces rendered mode and shows that version's
   // metadata; we don't currently fetch the historical content body, so the
   // viewer falls back to "Open latest in editor" when there is no body.
   // (Backend exposes content only via the `latest` endpoint today.)
   const selectedVersion = useMemo(() => {
-    if (!selectedVersionId) return null;
-    return versions.find((v) => v.id === selectedVersionId) ?? null;
-  }, [selectedVersionId, versions]);
+    if (selectedVersionNumber == null) return null;
+    return versions.find((v) => v.version === selectedVersionNumber) ?? null;
+  }, [selectedVersionNumber, versions]);
 
   if (isLoadingLatest) {
     return (
@@ -157,7 +172,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
       <Flex direction="column" gap="3" p="4">
         <Callout.Root color="red" size="1">
           <Callout.Text>
-            Failed to load folder instructions: {latestError.message}
+            Failed to load channel instructions: {latestError.message}
           </Callout.Text>
         </Callout.Root>
       </Flex>
@@ -193,6 +208,9 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
+      {spacesLayout && taskChannel ? (
+        <SpaceRepositories channel={taskChannel} />
+      ) : null}
       <Flex
         align="center"
         justify="between"
@@ -227,12 +245,16 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           {versions.length > 0 ? (
             <Select.Root
               size="1"
-              value={selectedVersionId ?? "latest"}
+              value={
+                selectedVersionNumber != null
+                  ? String(selectedVersionNumber)
+                  : "latest"
+              }
               onValueChange={(value) => {
                 if (value === "latest") {
-                  setSelectedVersionId(null);
+                  setSelectedVersionNumber(null);
                 } else {
-                  setSelectedVersionId(value);
+                  setSelectedVersionNumber(Number(value));
                   setMode("rendered");
                 }
               }}
@@ -244,9 +266,9 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   Latest (v{latest?.version ?? "—"})
                 </Select.Item>
                 {versions
-                  .filter((v) => !v.is_latest)
+                  .filter((v) => v.version !== latest?.version)
                   .map((v) => (
-                    <Select.Item key={v.id} value={v.id}>
+                    <Select.Item key={v.version} value={String(v.version)}>
                       v{v.version} · {formatTimestamp(v.created_at)}
                     </Select.Item>
                   ))}
@@ -349,6 +371,41 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
         </Box>
       </ScrollArea>
     </Flex>
+  );
+}
+
+function SpaceRepositories({ channel }: { channel: TaskChannel }) {
+  const update = useUpdateTaskChannelRepositories();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const canEdit = currentUser?.id === channel.created_by?.id;
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b border-b-(--gray-5) px-4 py-3">
+      <div className="flex items-center gap-2">
+        <GitBranchIcon size={15} className="text-muted-foreground" />
+        <span className="font-medium text-[13px]">Repositories</span>
+        {update.isPending ? (
+          <Spinner size="1" />
+        ) : update.error ? (
+          <span className="text-[12px] text-red-11">
+            Couldn't save. Try again.
+          </span>
+        ) : null}
+      </div>
+      <RepositoriesField
+        selected={channel.repositories ?? []}
+        integrationId={channel.github_integration ?? null}
+        disabled={!canEdit || update.isPending}
+        onChange={(repositories, githubIntegration) =>
+          update.mutate({
+            channelId: channel.id,
+            githubIntegration,
+            repositories,
+          })
+        }
+      />
+    </div>
   );
 }
 

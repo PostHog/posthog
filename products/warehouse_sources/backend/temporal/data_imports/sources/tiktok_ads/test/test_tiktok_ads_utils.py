@@ -1,5 +1,6 @@
 """Tests for TikTok Ads utility functions."""
 
+import json
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, cast
@@ -438,6 +439,15 @@ class TestStreamTransformations:
         assert result[0]["advertiser_id"] == "123456"
         assert isinstance(result[0]["create_time"], datetime)
 
+    def test_apply_stream_transformations_asset_endpoint(self):
+        # Creative assets have no operational status. Routing them through the entity
+        # transformation would invent a `current_status` column TikTok never returned.
+        reports = [{"video_id": "v1", "create_time": "2026-01-01 00:00:00"}]
+
+        result = TikTokReportResource.apply_stream_transformations(EndpointType.ASSET, reports)
+
+        assert result == reports
+
     def test_apply_stream_transformations_unknown_endpoint(self):
         """Test stream transformations for unknown endpoint type."""
         reports = [{"data": "test"}]
@@ -812,6 +822,11 @@ class TestHelperFunctions:
             ("campaigns", EndpointType.ENTITY),
             ("ad_groups", EndpointType.ENTITY),
             ("ads", EndpointType.ENTITY),
+            ("campaign_demographic_report", EndpointType.REPORT),
+            ("ad_group_country_report", EndpointType.REPORT),
+            ("ad_platform_report", EndpointType.REPORT),
+            ("creative_videos", EndpointType.ASSET),
+            ("creative_images", EndpointType.ASSET),
         ]
     )
     def test_is_report_endpoint(self, endpoint_name, expected_endpoint_type):
@@ -819,6 +834,60 @@ class TestHelperFunctions:
         config = TIKTOK_ADS_CONFIG.get(endpoint_name)
         assert config is not None, f"Endpoint {endpoint_name} not found in config"
         assert config.endpoint_type == expected_endpoint_type
+
+
+# Metrics TikTok only accepts on a BASIC report. Requesting any of them alongside an
+# audience dimension is rejected outright, which would take the whole breakdown table down.
+_BASIC_ONLY_METRICS = {
+    "app_promotion_type",
+    "billing_event",
+    "campaign_budget",
+    "campaign_dedicate_type",
+    "currency",
+    "gross_impressions",
+    "split_test",
+}
+
+AUDIENCE_REPORT_ENDPOINTS = [
+    ("campaign_demographic_report", ["campaign_id", "stat_time_day", "gender", "age"], "AUCTION_CAMPAIGN"),
+    ("campaign_country_report", ["campaign_id", "stat_time_day", "country_code"], "AUCTION_CAMPAIGN"),
+    ("campaign_platform_report", ["campaign_id", "stat_time_day", "platform"], "AUCTION_CAMPAIGN"),
+    ("ad_group_demographic_report", ["adgroup_id", "stat_time_day", "gender", "age"], "AUCTION_ADGROUP"),
+    ("ad_group_country_report", ["adgroup_id", "stat_time_day", "country_code"], "AUCTION_ADGROUP"),
+    ("ad_group_platform_report", ["adgroup_id", "stat_time_day", "platform"], "AUCTION_ADGROUP"),
+    ("ad_demographic_report", ["ad_id", "stat_time_day", "gender", "age"], "AUCTION_AD"),
+    ("ad_country_report", ["ad_id", "stat_time_day", "country_code"], "AUCTION_AD"),
+    ("ad_platform_report", ["ad_id", "stat_time_day", "platform"], "AUCTION_AD"),
+]
+
+
+def _endpoint_params(endpoint_name: str) -> dict[str, Any]:
+    endpoint = cast(dict[str, Any], TIKTOK_ADS_CONFIG[endpoint_name].resource["endpoint"])
+    return cast(dict[str, Any], endpoint["params"])
+
+
+class TestAudienceReportEndpoints:
+    @parameterized.expand(AUDIENCE_REPORT_ENDPOINTS)
+    def test_breakdown_dimensions_are_part_of_the_primary_key(self, endpoint_name, dimensions, data_level):
+        # TikTok returns one row per (entity, day, breakdown value). Dropping a breakdown
+        # from the key would collapse every value of it onto one row and make each merge
+        # multi-match, so the key has to carry the full dimension list.
+        params = _endpoint_params(endpoint_name)
+
+        assert TIKTOK_ADS_CONFIG[endpoint_name].resource["primary_key"] == dimensions
+        assert json.loads(params["dimensions"]) == dimensions
+        assert params["data_level"] == data_level
+
+    @parameterized.expand(AUDIENCE_REPORT_ENDPOINTS)
+    def test_requests_the_audience_report_with_audience_safe_metrics(self, endpoint_name, dimensions, data_level):
+        # Reusing the BASIC metric list here is the easy mistake, and TikTok rejects the
+        # whole request rather than dropping the unsupported metrics.
+        params = _endpoint_params(endpoint_name)
+        metrics = set(json.loads(params["metrics"]))
+
+        assert params["report_type"] == "AUDIENCE"
+        assert metrics & _BASIC_ONLY_METRICS == set()
+        assert metrics & set(dimensions) == set()
 
 
 class TestListAdvertisers:

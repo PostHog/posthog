@@ -82,6 +82,11 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.save(update_fields=["query", "updated_at"])
 
 
+ELIGIBILITY_CHECK_FAILED_REASON = (
+    "Couldn't check whether this query can be materialized. Try again, and if it keeps happening contact support."
+)
+
+
 def build_materialization_info(version: EndpointVersion, endpoint_name: str | None = None) -> dict:
     """Build the materialization status dict for a version."""
     if version.saved_query:
@@ -97,7 +102,11 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             "saved_query_id": str(version.saved_query.id),
         }
     else:
-        can_mat, reason = version.can_materialize()
+        try:
+            can_mat, reason = version.can_materialize()
+        except Exception as e:
+            capture_exception(e, {"endpoint_version_id": str(version.id), "team_id": version.endpoint.team_id})
+            can_mat, reason = False, ELIGIBILITY_CHECK_FAILED_REASON
         result = {
             "can_materialize": can_mat,
             "reason": reason if not can_mat else None,
