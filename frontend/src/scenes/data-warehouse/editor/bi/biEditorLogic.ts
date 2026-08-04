@@ -155,6 +155,7 @@ export interface biEditorLogicValues {
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     activeTab: QueryTab | null // sqlEditorLogic
+    activeDropShelf: BIShelf | null
     availableDataSources: BIDataSource[]
     config: BIConfig
     editorView: BIEditorView
@@ -182,6 +183,9 @@ export interface biEditorLogicActions {
         field: BIField
         shelf: BIShelf
     }
+    clearActiveDropShelf: (shelf: BIShelf) => {
+        shelf: BIShelf
+    }
     persistState: (
         editorView: BIEditorView,
         config: BIConfig
@@ -201,6 +205,9 @@ export interface biEditorLogicActions {
     }
     restoreState: (state: BIEditorState) => {
         state: BIEditorState
+    }
+    setActiveDropShelf: (shelf: BIShelf) => {
+        shelf: BIShelf
     }
     setChartType: (chartType: ChartDisplayType) => {
         chartType: ChartDisplayType
@@ -295,7 +302,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
         persistState: (editorView: BIEditorView, config: BIConfig) => ({ editorView, config }),
         addFieldToShelf: (field: BIField, shelf: BIShelf) => ({ field, shelf }),
         addBlankFieldToShelf: (shelf: BIShelf) => ({ shelf }),
+        clearActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
         removeFieldFromShelf: (shelf: BIShelf, index: number) => ({ shelf, index }),
+        setActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
@@ -308,6 +317,14 @@ export const biEditorLogic = kea<biEditorLogicType>([
         syncGeneratedQuery: true,
     }),
     reducers({
+        activeDropShelf: [
+            null as BIShelf | null,
+            {
+                setActiveDropShelf: (_, { shelf }) => shelf,
+                clearActiveDropShelf: (activeDropShelf, { shelf }) =>
+                    activeDropShelf === shelf ? null : activeDropShelf,
+            },
+        ],
         editorView: [
             BIEditorView.SQL as BIEditorView,
             {

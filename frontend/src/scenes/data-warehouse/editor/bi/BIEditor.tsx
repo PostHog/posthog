@@ -20,6 +20,7 @@ import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { dayjs } from 'lib/dayjs'
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { cn } from 'lib/utils/css-classes'
 
 import { ChartDisplayType } from '~/types'
 
@@ -73,14 +74,16 @@ const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
 
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
-    const { availableDataSources, config, databaseConnectionId, databaseLoading } = useValues(logic)
+    const { activeDropShelf, availableDataSources, config, databaseConnectionId, databaseLoading } = useValues(logic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
     const {
         addBlankFieldToShelf,
         addFieldToShelf,
+        clearActiveDropShelf,
         removeFieldFromShelf,
         resetConfig,
+        setActiveDropShelf,
         setChartType,
         setDataSource,
         setFieldExpression,
@@ -177,7 +180,11 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Group results by these fields"
                     icon={<IconTableChart />}
                     itemCount={config.rows.length}
+                    isActiveDropTarget={activeDropShelf === 'rows'}
                     onDropField={addFieldToShelf}
+                    onActiveDropTargetChange={(active) =>
+                        active ? setActiveDropShelf('rows') : clearActiveDropShelf('rows')
+                    }
                     onAddField={() => addBlankFieldToShelf('rows')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
@@ -197,7 +204,11 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Add a second grouping for charts that use one"
                     icon={<IconTableChart />}
                     itemCount={config.columns.length}
+                    isActiveDropTarget={activeDropShelf === 'columns'}
                     onDropField={addFieldToShelf}
+                    onActiveDropTargetChange={(active) =>
+                        active ? setActiveDropShelf('columns') : clearActiveDropShelf('columns')
+                    }
                     onAddField={() => addBlankFieldToShelf('columns')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
@@ -217,7 +228,11 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Calculate the values shown in the chart"
                     icon={<IconCalculator />}
                     itemCount={config.values.length}
+                    isActiveDropTarget={activeDropShelf === 'values'}
                     onDropField={addFieldToShelf}
+                    onActiveDropTargetChange={(active) =>
+                        active ? setActiveDropShelf('values') : clearActiveDropShelf('values')
+                    }
                     onAddField={() => addBlankFieldToShelf('values')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
@@ -274,7 +289,11 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Limit which rows are included"
                     icon={<IconFilter />}
                     itemCount={config.filters.length}
+                    isActiveDropTarget={activeDropShelf === 'filters'}
                     onDropField={addFieldToShelf}
+                    onActiveDropTargetChange={(active) =>
+                        active ? setActiveDropShelf('filters') : clearActiveDropShelf('filters')
+                    }
                     onAddField={() => addBlankFieldToShelf('filters')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
@@ -448,8 +467,10 @@ function Shelf({
     description,
     icon,
     itemCount,
+    isActiveDropTarget,
     children,
     onDropField,
+    onActiveDropTargetChange,
     onAddField,
     addFieldDisabledReason,
 }: {
@@ -458,13 +479,16 @@ function Shelf({
     description: string
     icon: ReactNode
     itemCount: number
+    isActiveDropTarget: boolean
     children: ReactNode
     onDropField: (field: NonNullable<ReturnType<typeof parseBIField>>, shelf: BIShelf) => void
+    onActiveDropTargetChange: (active: boolean) => void
     onAddField: () => void
     addFieldDisabledReason?: string
 }): JSX.Element {
     const handleDrop = (event: DragEvent<HTMLDivElement>): void => {
         event.preventDefault()
+        onActiveDropTargetChange(false)
         const field = parseBIField(event.dataTransfer.getData(BI_FIELD_DRAG_MIME_TYPE))
         if (field) {
             onDropField(field, shelf)
@@ -474,14 +498,30 @@ function Shelf({
     return (
         <LemonCard
             hoverEffect={false}
-            className="flex min-h-28 max-h-64 flex-col gap-2 overflow-hidden border-dashed p-3"
+            className={cn(
+                'flex min-h-28 max-h-64 flex-col gap-2 overflow-hidden border-dashed p-3 transition-colors',
+                isActiveDropTarget && 'border-accent bg-accent-highlight-secondary ring-2 ring-inset ring-accent'
+            )}
         >
             <div
                 className="flex min-h-0 flex-1 flex-col gap-2"
                 data-attr={`bi-editor-${shelf}-shelf`}
+                onDragEnter={(event) => {
+                    if (Array.from(event.dataTransfer.types).includes(BI_FIELD_DRAG_MIME_TYPE)) {
+                        onActiveDropTargetChange(true)
+                    }
+                }}
                 onDragOver={(event) => {
-                    event.preventDefault()
-                    event.dataTransfer.dropEffect = 'copy'
+                    if (Array.from(event.dataTransfer.types).includes(BI_FIELD_DRAG_MIME_TYPE)) {
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'copy'
+                    }
+                }}
+                onDragLeave={(event) => {
+                    const nextTarget = event.relatedTarget
+                    if (!nextTarget || !event.currentTarget.contains(nextTarget as Node)) {
+                        onActiveDropTargetChange(false)
+                    }
                 }}
                 onDrop={handleDrop}
             >
