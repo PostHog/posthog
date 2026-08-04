@@ -30,6 +30,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_OAUTH_FLAG = "slack-app-oauth"
 SLACK_APP_HOME_FLAG = "slack-app-home"
+SLACK_APP_HOME_STATS_FLAG = "slack-app-home-stats"
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
 SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
@@ -87,6 +88,29 @@ def is_slack_app_home_enabled(integration: Integration) -> bool:
     except Exception:
         logger.exception(
             "slack_app_home_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
+def is_slack_app_home_stats_enabled(integration: Integration) -> bool:
+    """Gate for the workspace-activity stats card on the App Home tab. Separate from
+    ``is_slack_app_home_enabled`` so the aggregates can go dark without taking the whole
+    Home tab with them. Keyed on the Slack workspace + PostHog org."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_HOME_STATS_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_home_stats_feature_flag_check_failed",
             integration_id=integration.id,
         )
         return False
