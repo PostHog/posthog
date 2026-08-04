@@ -247,6 +247,35 @@ class TestBuildReplayRunner(BaseTest):
         self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
+    @parameterized.expand(
+        [
+            # The shared gate rejects both shapes as submitted; canonicalizing
+            # before the check would erase the rejection (drop the modifier,
+            # step the over-cap lookback under MAX_PRECOMPUTE_DAYS) and build
+            # buckets the shape's real queries can never consume, held only to
+            # the lazy demand floor instead of the raw one.
+            ("uuid_join_mode", {"modifiers": {"sessionsV2JoinMode": "uuid"}}, ["-7d"], "-7d"),
+            ("only_over_cap_demand", {"dateRange": {"date_from": "-180d"}}, ["-180d"], "-180d"),
+        ]
+    )
+    def test_ineligible_shape_is_not_canonicalized_into_eligibility(
+        self, _name: str, extra: dict, observed: list[str], expected_from: str
+    ) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "properties": [],
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": "-7d"},
+            **extra,
+        }
+
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, observed)
+
+        self.assertIsNotNone(runner)
+        self.assertFalse(lazy_eligible)
+        self.assertEqual(used_json["dateRange"]["date_from"], expected_from)
+        self.assertEqual(used_json, query)
+
     def test_outside_warming_context_gate_fails_closed(self) -> None:
         reset_query_tags()
         query = {
@@ -299,6 +328,9 @@ class TestCanonicalizeLazyReplay(BaseTest):
             ("steps_up_to_next_multiple", "-31d", "-45d"),
             ("on_step_unchanged", "-45d", "-45d"),
             ("weeks_convert_then_step", "-6w", "-45d"),
+            # 721h is just over 30 days; flooring to -30d would leave the
+            # oldest partial day of the real request's span cold.
+            ("hours_round_up", "-721h", "-45d"),
             ("cap_holds", "-90d", "-90d"),
         ]
     )

@@ -168,13 +168,17 @@ _EXACT_LOOKBACK_DATE_FROM_RE = re.compile(r"^-(\d+)([hdw])$")
 
 
 def _exact_lookback_days(date_from: str | None) -> int | None:
-    """Days a -Nh/-Nd/-Nw range reaches back, or None for any other form."""
+    """Days a -Nh/-Nd/-Nw range reaches back, or None for any other form.
+
+    Hours round up: callers use this as "how many days of buckets cover the
+    span", so flooring -721h to 30 would leave the oldest partial day cold.
+    """
     match = _EXACT_LOOKBACK_DATE_FROM_RE.match(date_from or "")
     if not match:
         return None
     value, unit = int(match.group(1)), match.group(2)
     if unit == "h":
-        return value // _HOURS_PER_DAY
+        return -(-value // _HOURS_PER_DAY)
     if unit == "w":
         return value * _DAYS_PER_WEEK
     return value
@@ -337,32 +341,36 @@ def build_replay_runner(
     the warmer's purpose — so the decision rests on the shape itself.
     """
     # The lazy candidate: deepen to the widest range the shape's demand covers,
-    # widen a sub-30d range up to the standard warm depth, then collapse to the
-    # shape's canonical variant so the staleness cache key survives snapshot
-    # rotations. All three are no-ops off the lazy path, so an unchanged result
-    # means nothing to try there.
-    lazy_json = canonicalize_lazy_replay_json(
-        maybe_expand_warming_date_range(
-            deepen_to_widest_warmable_range(query_json, observed_date_froms, MAX_PRECOMPUTE_DAYS)
-        )
+    # then widen a sub-30d range up to the standard warm depth. Both only ever
+    # substitute ranges the shape's own demand (or the standard warm depth)
+    # covers, so eligibility is decided on this json.
+    eligible_json = maybe_expand_warming_date_range(
+        deepen_to_widest_warmable_range(query_json, observed_date_froms, MAX_PRECOMPUTE_DAYS)
     )
-    if lazy_json is query_json:
-        runner = get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
-        if runner is None:
-            return None, query_json, False
-        return runner, query_json, _is_lazy_eligible(runner, query_json)
-
-    runner = get_query_runner_or_none(query=lazy_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+    runner = get_query_runner_or_none(query=eligible_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
     if runner is None:
-        return None, lazy_json, False
-    if _is_lazy_eligible(runner, lazy_json):
-        return runner, lazy_json, True
-    # Raw path: replay the faithful original range, never the deepened/widened one.
-    return (
-        get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC),
-        query_json,
-        False,
-    )
+        return None, eligible_json, False
+    if not _is_lazy_eligible(runner, eligible_json):
+        if eligible_json is query_json:
+            return runner, query_json, False
+        # Raw path: replay the faithful original range, never the deepened/widened one.
+        return (
+            get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC),
+            query_json,
+            False,
+        )
+    # Only a proven-eligible replay collapses to the canonical variant:
+    # canonicalizing before the check could manufacture eligibility — dropping
+    # a rejected modifier, stepping a >90d lookback under the cap — and build
+    # buckets the shape's real queries can never consume, on the lazy demand
+    # floor instead of the raw one. Dropping namespace-ignored fields can only
+    # relax the gate, so the canonical replay is re-checked and falls back to
+    # the proven json if construction or the gate disagrees.
+    lazy_json = canonicalize_lazy_replay_json(eligible_json)
+    lazy_runner = get_query_runner_or_none(query=lazy_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+    if lazy_runner is not None and _is_lazy_eligible(lazy_runner, lazy_json):
+        return lazy_runner, lazy_json, True
+    return runner, eligible_json, True
 
 
 def queries_to_keep_fresh(
