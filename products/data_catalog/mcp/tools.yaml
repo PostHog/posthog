@@ -7,11 +7,6 @@
 category: Data catalog
 feature: data_catalog
 url_prefix: /
-# Online evaluations judge whether agents consult the semantic layer before
-# deriving a governed number, which needs what a lookup returned, not just that
-# a tool was called. $mcp_tool_call carries no payloads, so these tools opt into
-# trace-payload capture.
-capture_trace_payload: true
 ui_apps: {}
 tools:
     data-catalog-certification-certify:
