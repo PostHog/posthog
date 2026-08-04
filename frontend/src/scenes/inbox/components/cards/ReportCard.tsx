@@ -206,7 +206,7 @@ export function ReportCard({
                                 'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
                             )}
                         >
-                            No summary yet – still collecting context.
+                            No summary yet. Still collecting context.
                         </p>
                     ) : null}
 
@@ -285,7 +285,7 @@ export function ReportCard({
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                tooltip="Open the full report – summary, evidence, and actions"
+                                tooltip="Open the full report to see its summary, evidence, and actions"
                                 onClick={(event) => {
                                     event.preventDefault()
                                     event.stopPropagation()
