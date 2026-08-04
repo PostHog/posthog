@@ -1,11 +1,23 @@
 /**
  * The goals a user can declare when entering the self-driving onboarding. Each goal is modeled as
  * something that is clearly achieved or not: `done` names the observable finish line the flow
- * drives toward (and what time-to-goal is measured against). Nothing downstream consumes the
- * selection yet - this step only records the declared intent.
+ * drives toward (and what time-to-goal is measured against). The selection personalizes the rest
+ * of the flow: step order, goal-conditional steps, and which product intent counts as primary.
  */
+import { ProductKey } from '~/queries/schema/schema-general'
 
 export type SelfDrivingGoal = 'user_behavior' | 'fix_issues' | 'website_traffic' | 'ai_app'
+
+/** Stamped on every intent the self-driving onboarding registers, mirroring the flow's event props. */
+export const SELF_DRIVING_INTENT_METADATA = { flow_variant: 'context_first' }
+
+/** The product whose activation the goal is really about - registered as the primary intent. */
+export const GOAL_PRIMARY_PRODUCT: Record<SelfDrivingGoal, ProductKey> = {
+    user_behavior: ProductKey.PRODUCT_ANALYTICS,
+    fix_issues: ProductKey.ERROR_TRACKING,
+    website_traffic: ProductKey.WEB_ANALYTICS,
+    ai_app: ProductKey.AI_OBSERVABILITY,
+}
 
 export interface SelfDrivingGoalDefinition {
     key: SelfDrivingGoal

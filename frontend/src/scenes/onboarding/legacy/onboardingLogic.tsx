@@ -127,8 +127,8 @@ export interface onboardingLogicActions {
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
     }
-    completeSelfDrivingOnboarding: () => {
-        value: true
+    completeSelfDrivingOnboarding: (goal?: 'ai_app' | 'fix_issues' | 'user_behavior' | 'website_traffic' | null) => {
+        goal: 'ai_app' | 'fix_issues' | 'user_behavior' | 'website_traffic' | null
     }
     goToNextStep: () => {
         value: true
@@ -276,7 +276,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
         }),
         // Completion for the context-first flow, which has no selected product. Marks onboarding done
         // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
-        completeSelfDrivingOnboarding: true,
+        completeSelfDrivingOnboarding: (
+            goal?: 'user_behavior' | 'fix_issues' | 'website_traffic' | 'ai_app' | null
+        ) => ({
+            goal: goal ?? null,
+        }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
@@ -828,7 +832,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
             }
         },
-        completeSelfDrivingOnboarding: async () => {
+        completeSelfDrivingOnboarding: async ({ goal }) => {
             // Idempotency guard — Finish can fire twice on a double-click.
             if (values.isCompleting) {
                 return
@@ -846,6 +850,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (team?.surveys_opt_in) {
                 products.push(ProductKey.SURVEYS)
+            }
+            // The website and AI goals are about products with no team-level toggle to read; the
+            // declared goal is the signal, so credit them when it was declared.
+            if (goal === 'website_traffic') {
+                products.push(ProductKey.WEB_ANALYTICS)
+            }
+            if (goal === 'ai_app') {
+                products.push(ProductKey.AI_OBSERVABILITY)
             }
             for (const productKey of products) {
                 // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`

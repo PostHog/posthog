@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -13,6 +13,10 @@ import { cn } from 'lib/utils/css-classes'
 // team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
+import type { SelfDrivingGoal } from './goals'
+import { goalSelectionLogic } from './goalSelectionLogic'
+import { AIObservabilityStep } from './steps/AIObservabilityStep'
+import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
 import { BillingStep } from './steps/BillingStep'
 import { GoalsStep } from './steps/GoalsStep'
 import { InstallStep } from './steps/InstallStep'
@@ -42,38 +46,76 @@ interface StepDef {
     maxWidth?: string
 }
 
+const ANALYTICS_STEP: StepDef = { id: 'analytics', title: '', Content: AnalyticsStep, hideContinue: true }
+const REPLAY_STEP: StepDef = { id: 'replay', title: '', Content: ReplayStep, hideContinue: true }
+const ERROR_TRACKING_STEP: StepDef = { id: 'error-tracking', title: '', Content: ErrorTrackingStep, hideContinue: true }
+const AUTHORIZED_URLS_STEP: StepDef = {
+    id: 'authorized-urls',
+    title: 'Add your website URLs',
+    Content: AuthorizedUrlsStep,
+    hideContinue: true,
+}
+const AI_OBSERVABILITY_STEP: StepDef = {
+    id: 'ai-observability',
+    title: 'Instrument your AI app',
+    Content: AIObservabilityStep,
+    hideContinue: true,
+    maxWidth: 'max-w-2xl',
+}
+
+/** The tool steps each goal needs to reach its finish line - nothing more. */
+function goalToolSteps(goal: SelfDrivingGoal | null): StepDef[] {
+    switch (goal) {
+        case 'user_behavior':
+            return [ANALYTICS_STEP, REPLAY_STEP]
+        case 'fix_issues':
+            return [ERROR_TRACKING_STEP, REPLAY_STEP]
+        case 'website_traffic':
+            // Web analytics needs at least one authorized URL before its dashboard (the goal's
+            // finish line) can show anything.
+            return [AUTHORIZED_URLS_STEP]
+        case 'ai_app':
+            // The generic wizard install doesn't wire LLM instrumentation - without this step the
+            // goal (first AI traces) is unreachable.
+            return [AI_OBSERVABILITY_STEP]
+        default:
+            return [ANALYTICS_STEP, REPLAY_STEP, ERROR_TRACKING_STEP]
+    }
+}
+
 /**
  * Say what this is, run the wizard, turn on the sources the wizard can't, pick a plan. The wizard
  * does the repo-side configuration (sources, scouts, GitHub); the team-level opt-ins are enabled
  * here because only the signed-in app carries the product_enablement scope.
  */
-const STEPS: StepDef[] = [
-    { id: 'welcome', title: '', Content: WelcomeStep },
-    // One declared goal so the rest of the flow can drive toward it. Picking a card advances;
-    // "set up everything" is the step's skip.
-    {
-        id: 'goals',
-        title: 'What do you want to get done first?',
-        Content: GoalsStep,
-        hideContinue: true,
-        maxWidth: 'max-w-2xl',
-    },
-    { id: 'install', title: 'Install PostHog', Content: InstallStep },
-    // Signal sources for the agents, one per step: product analytics is on by default (a
-    // confirmation, not a choice), the opt-in tools each get a single enable-or-skip decision.
-    // These steps render their own state-dependent title and a single action zone (primary +
-    // skip), so the flow's header title and footer are suppressed.
-    { id: 'analytics', title: '', Content: AnalyticsStep, hideContinue: true },
-    { id: 'replay', title: '', Content: ReplayStep, hideContinue: true },
-    { id: 'error-tracking', title: '', Content: ErrorTrackingStep, hideContinue: true },
-    {
-        id: 'billing',
-        title: 'Pick a plan',
-        Content: BillingStep,
-        hideContinue: true,
-        maxWidth: 'max-w-3xl',
-    },
-]
+function buildSteps(goal: SelfDrivingGoal | null): StepDef[] {
+    return [
+        { id: 'welcome', title: '', Content: WelcomeStep },
+        // One declared goal so the rest of the flow can drive toward it. Picking a card advances;
+        // "set up everything" is the step's skip.
+        {
+            id: 'goals',
+            title: 'What do you want to get done first?',
+            Content: GoalsStep,
+            hideContinue: true,
+            maxWidth: 'max-w-2xl',
+        },
+        { id: 'install', title: 'Install PostHog', Content: InstallStep },
+        // The declared goal FILTERS the tool steps: only what serves the goal gets a screen, so
+        // the user reaches their finish line as fast as possible - everything else is cross-sell
+        // for later, outside onboarding. No goal ("set up everything") keeps the full set. These
+        // steps render their own title and a single action zone, so the flow's header title and
+        // footer are suppressed.
+        ...goalToolSteps(goal),
+        {
+            id: 'billing',
+            title: 'Pick a plan',
+            Content: BillingStep,
+            hideContinue: true,
+            maxWidth: 'max-w-3xl',
+        },
+    ]
+}
 
 // The card: chrome (sm+ panel; full-bleed on mobile) plus the content flex-column. Width varies per
 // step via StepDef.maxWidth — SelfDrivingOnboarding just provides the backdrop + logo.
@@ -89,16 +131,28 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         reportSelfDrivingOnboardingStepCompleted,
         reportSelfDrivingOnboardingStepSkipped,
     } = useActions(onboardingEventUsageLogic)
-    // Initialize from the URL so a refresh — or an OAuth callback that lands back on ?step=install
-    // (e.g. the GitHub connect flow) — resumes where it left off instead of restarting at welcome.
-    const [stepIndex, setStepIndex] = useState(() => {
-        const fromUrl = STEPS.findIndex((s) => s.id === router.values.searchParams['step'])
-        return fromUrl >= 0 ? fromUrl : 0
+    // The step list depends on the declared goal (persisted, so a refresh keeps the conditional
+    // steps in place).
+    const { selectedGoal } = useValues(goalSelectionLogic)
+    const steps = useMemo(() => buildSteps(selectedGoal), [selectedGoal])
+    // Track the current step by id, not index, so goal changes (which insert/remove steps) can't
+    // shift the user onto a different step. Initialize from the URL so a refresh — or an OAuth
+    // callback that lands back on ?step=install (e.g. the GitHub connect flow) — resumes where it
+    // left off instead of restarting at welcome.
+    const [stepId, setStepId] = useState<SelfDrivingOnboardingStepId>(() => {
+        const fromUrl = steps.find((s) => s.id === router.values.searchParams['step'])
+        return fromUrl?.id ?? 'welcome'
     })
 
-    const step = STEPS[stepIndex]
+    // If the current step left the list (e.g. the goal changed and removed it), fall back to the
+    // start rather than rendering nothing.
+    const stepIndex = Math.max(
+        0,
+        steps.findIndex((s) => s.id === stepId)
+    )
+    const step = steps[stepIndex]
     const isFirst = stepIndex === 0
-    const isLast = stepIndex === STEPS.length - 1
+    const isLast = stepIndex === steps.length - 1
 
     // Funnel (GROW-89): `started` fires once per fresh entry — a ?step= resume (refresh, OAuth
     // callback) is a continuation, not a new start. `step viewed` fires for every step shown,
@@ -109,24 +163,29 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         }
     })
     useEffect(() => {
-        reportSelfDrivingOnboardingStepViewed(STEPS[stepIndex].id)
-    }, [stepIndex, reportSelfDrivingOnboardingStepViewed])
+        reportSelfDrivingOnboardingStepViewed(step.id)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [step.id, reportSelfDrivingOnboardingStepViewed])
 
     // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
     // (like the integration ids the GitHub callback appends).
     const goToStep = (index: number): void => {
-        setStepIndex(index)
+        const target = steps[index]
+        if (!target) {
+            return
+        }
+        setStepId(target.id)
         router.actions.replace(router.values.location.pathname, {
             ...router.values.searchParams,
-            step: STEPS[index].id,
+            step: target.id,
         })
     }
 
     const advance = (): void => {
         if (isLast) {
-            // Marks onboarding complete (credits the sources turned on) and navigates out, so
-            // sceneLogic doesn't bounce the user back into onboarding.
-            completeSelfDrivingOnboarding()
+            // Marks onboarding complete (credits the sources turned on, plus the declared goal's
+            // product) and navigates out, so sceneLogic doesn't bounce the user back into onboarding.
+            completeSelfDrivingOnboarding(selectedGoal)
             return
         }
         goToStep(stepIndex + 1)
@@ -166,9 +225,9 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                     <div
                         className="flex-1 flex items-center justify-center gap-1.5"
                         role="group"
-                        aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}
+                        aria-label={`Step ${stepIndex + 1} of ${steps.length}`}
                     >
-                        {STEPS.map((s, i) => (
+                        {steps.map((s, i) => (
                             <div
                                 key={s.id}
                                 className={`h-1.5 rounded-full transition-all ${

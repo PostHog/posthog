@@ -12,6 +12,8 @@ export type SelfDrivingOnboardingStepId =
     | 'welcome'
     | 'goals'
     | 'install'
+    | 'authorized-urls'
+    | 'ai-observability'
     | 'analytics'
     | 'replay'
     | 'error-tracking'
