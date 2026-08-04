@@ -12,7 +12,7 @@ pnpm --dir nodejs exec jest --runInBand --forceExit src/cdp/services/monitoring/
 pnpm --dir nodejs exec jest --runInBand --forceExit src/cdp/services/monitoring/hog-watcher.service.test.ts
 ```
 
-Containers discover slots through the announced Docker-network address. Host-side tests connect through `127.0.0.1:6390`.
+Like AWS ElastiCache Serverless, CDP connects through one stable endpoint while the server enforces Redis Cluster slot rules. Containers use `valkey-cluster:6379`; host-side tests use `127.0.0.1:6390`.
 
 ## Running tests
 

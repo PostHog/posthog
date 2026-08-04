@@ -4,11 +4,11 @@ const host = process.env.CDP_VALKEY_HOST ?? '127.0.0.1'
 const port = Number(process.env.CDP_VALKEY_PORT ?? 6390)
 
 describe('Valkey cluster behavior', () => {
-    let valkey: Redis.Cluster
+    let valkey: Redis.Redis
 
     beforeAll(async () => {
-        valkey = new Redis.Cluster([{ host, port }], { redisOptions: { maxRetriesPerRequest: 1 } })
-        await valkey.cluster('info')
+        valkey = new Redis(port, host, { maxRetriesPerRequest: 1 })
+        await valkey.ping()
     })
 
     afterAll(async () => {

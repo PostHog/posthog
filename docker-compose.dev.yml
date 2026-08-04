@@ -170,7 +170,6 @@ services:
             CDP_VALKEY_HOST: valkey-cluster
             CDP_VALKEY_PORT: 6379
             CDP_VALKEY_DUAL_ENABLED: 'true'
-            CDP_VALKEY_CLUSTER_MODE: 'true'
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
             # PersonHog is required for CDP — point at the local gRPC router
@@ -396,7 +395,7 @@ services:
             - /bin/sh
             - -ec
             - |
-                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 --cluster-announce-ip "$$(hostname -i)" &
+                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
                 pid=$$!
                 until valkey-cli ping >/dev/null 2>&1; do sleep 0.1; done
                 valkey-cli cluster addslots $$(seq 0 16383)

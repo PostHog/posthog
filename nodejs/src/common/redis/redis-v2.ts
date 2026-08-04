@@ -39,12 +39,12 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
     const pool = createPool<RedisClient>(
         {
             create: async () => {
-                const client = (await createRedisFromConfig(config.connection)) as RedisClient
+                const client = await createRedisFromConfig(config.connection)
 
-                defineLuaTokenBucketV2(client as unknown as Redis)
-                defineLuaTokenBucketV3(client as unknown as Redis)
+                defineLuaTokenBucketV2(client)
+                defineLuaTokenBucketV3(client)
 
-                return client
+                return client as RedisClient
             },
             destroy: async (client) => {
                 await client.quit()

@@ -19,8 +19,6 @@ export interface RedisConnectionConfig {
     url: string
     options?: RedisOptions
     name?: string
-    /** Connect with ioredis' cluster-aware client instead of a standalone client. */
-    clusterMode?: boolean
 }
 
 /**
@@ -32,16 +30,14 @@ export interface RedisPoolConfig {
     poolMaxSize: number
 }
 
-export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis | Redis.Cluster> {
-    return config.clusterMode
-        ? createRedisClusterClient(config.url, config.options, config.name)
-        : createRedisClient(config.url, config.options, config.name)
+export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
+    return createRedisClient(config.url, config.options, config.name)
 }
 
 export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
     return createPool<Redis.Redis>(
         {
-            create: async () => (await createRedisFromConfig(config.connection)) as Redis.Redis,
+            create: () => createRedisFromConfig(config.connection),
             destroy: async (client) => {
                 await client.quit()
             },
@@ -130,19 +126,5 @@ export async function createRedisClient(
             }
         })
     await redis.info()
-    return redis
-}
-
-export async function createRedisClusterClient(
-    host: string,
-    options?: RedisOptions,
-    connectionName?: string
-): Promise<Redis.Cluster> {
-    const redis = new Redis.Cluster([{ host, port: options?.port ?? 6379 }], {
-        redisOptions: { ...options, maxRetriesPerRequest: -1 },
-    })
-    const connectionId = connectionName ? `[${connectionName}] ` : ''
-    redis.on('error', (error) => logger.error('🔴', `${connectionId}Valkey cluster error`, { error }))
-    await redis.cluster('info')
     return redis
 }
