@@ -9097,6 +9097,9 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
                     "holdout_id",
                     "conclusion",
                     "conclusion_comment",
+                    "parameters",
+                    "excluded_variants",
+                    "only_count_matured_users",
                 )
             },
         }
@@ -9357,6 +9360,34 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(stale_conflicting_edit.json()["conflicting_fields"], ["description"])
         experiment = Experiment.objects.get(id=snapshot["id"])
         self.assertEqual(experiment.description, "their rewrite")
+
+    def test_stale_variant_notes_write_merges_on_flag_linked_experiment(self) -> None:
+        # Incident replay for the variant notes/images path: reads project the linked flag's
+        # config into `parameters` while writes strip it before storage, so the client's base
+        # never matches the stored column byte-for-byte — the merge must compare `parameters`
+        # in stored shape instead of treating the projection as a concurrent edit.
+        snapshot = self._create_experiment("notes-over-autosave", metrics=[self._metric("base")])
+        self.assertIn("feature_flag_variants", snapshot["parameters"])
+
+        autosave = self._patch(
+            snapshot["id"],
+            {"running_time_calculation": {"recommended_running_time": 9, "recommended_sample_size": 1200}},
+        )
+        self.assertEqual(autosave.status_code, status.HTTP_200_OK)
+
+        stale_notes_write = self._patch(
+            snapshot["id"],
+            {
+                "parameters": {**snapshot["parameters"], "variant_notes": {"control": "baseline notes"}},
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_notes_write.status_code, status.HTTP_200_OK, stale_notes_write.json())
+        result = stale_notes_write.json()
+        self.assertEqual(result["parameters"]["variant_notes"], {"control": "baseline notes"})
+        self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 9)
 
     def test_stale_reorder_keeps_relative_order_and_appends_concurrent_addition(self) -> None:
         snapshot = self._create_experiment("reorder", metrics=[self._metric("m1"), self._metric("m2")])

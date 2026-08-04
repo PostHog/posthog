@@ -7059,6 +7059,34 @@ class TestScalarConcurrencyResolution(SimpleTestCase):
                 {"metrics": [{"uuid": "m1"}], "description": "same"},
                 [],
             ),
+            (
+                # Reads project the linked flag's config into `parameters` (with split_percent),
+                # so the client base carries keys the stored column and validated payload never
+                # hold; compared in stored shape this is "only mine changed", not a conflict.
+                "parameters_flag_projection_in_base_is_not_a_conflict",
+                {"parameters": {"variant_notes": {"control": "note"}}},
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "rollout_percentage": 50, "split_percent": 50},
+                            {"key": "test", "rollout_percentage": 50, "split_percent": 50},
+                        ],
+                        "rollout_percentage": 100,
+                        "ensure_experience_continuity": False,
+                    }
+                },
+                {"parameters": None},
+                {"parameters": {"variant_notes": {"control": "note"}}},
+                [],
+            ),
+            (
+                "parameters_double_edit_still_conflicts",
+                {"parameters": {"variant_notes": {"control": "mine"}}},
+                {"parameters": {"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]}},
+                {"parameters": {"variant_notes": {"control": "theirs"}}},
+                {"parameters": {"variant_notes": {"control": "mine"}}},
+                ["parameters"],
+            ),
         ]
     )
     def test_resolve_scalar_updates(
@@ -7087,3 +7115,25 @@ class TestScalarConcurrencyResolution(SimpleTestCase):
 
         self.assertEqual(conflicts, [])
         self.assertIn("end_date", update_data)
+
+    @parameterized.expand(
+        [
+            ("equal_deep_values_are_a_noop", "same", []),
+            ("differing_deep_values_conflict", "different", ["stats_config"]),
+        ]
+    )
+    def test_deeply_nested_payload_value_does_not_crash(self, _name: str, current_leaf: str, expected: list) -> None:
+        # stats_config/exposure_criteria/parameters are unrestricted JSONFields, so a stale
+        # write can nest a few thousand levels in a few KB of body; resolving it must not
+        # recurse past the interpreter stack.
+        def nested(depth: int, leaf: str) -> dict:
+            value: Any = leaf
+            for _ in range(depth):
+                value = {"a": value}
+            return value
+
+        update_data = {"stats_config": nested(5000, "same")}
+
+        conflicts = _resolve_scalar_updates(update_data, {}, {"stats_config": nested(5000, current_leaf)})
+
+        self.assertEqual(conflicts, expected)

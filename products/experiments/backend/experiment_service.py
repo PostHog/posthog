@@ -413,7 +413,14 @@ _SCALAR_BASE_ALIASES = {"holdout": "holdout_id"}
 _SCALAR_MISSING = object()
 
 
-def _concurrency_value_view(value: Any) -> Any:
+# Canonicalization depth bound: values needing conversion (datetimes, model instances) only
+# occur in the shallow, schema-shaped parts of a payload, while the unrestricted JSON fields
+# can nest arbitrarily deep — beyond this depth values are JSON-native on all three sides,
+# so plain equality compares them correctly without recursing down the interpreter stack.
+_CONCURRENCY_VIEW_MAX_DEPTH = 32
+
+
+def _concurrency_value_view(value: Any, depth: int = 0) -> Any:
     """A scalar value as compared for concurrency resolution, canonicalized so the three
     representations of one field agree: the client's base echoes API JSON (ISO datetime
     strings, related-object ids), the payload carries validated Python objects (datetimes,
@@ -427,11 +434,29 @@ def _concurrency_value_view(value: Any) -> Any:
     pk = getattr(value, "pk", None)
     if pk is not None:
         return pk
+    if depth >= _CONCURRENCY_VIEW_MAX_DEPTH:
+        return value
     if isinstance(value, dict):
-        return {key: _concurrency_value_view(item) for key, item in value.items()}
+        return {key: _concurrency_value_view(item, depth + 1) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_concurrency_value_view(item) for item in value]
+        return [_concurrency_value_view(item, depth + 1) for item in value]
     return value
+
+
+def _scalar_merge_view(field: str, value: Any) -> Any:
+    """The value of one scalar payload field as compared for concurrency resolution.
+
+    ``parameters`` needs shape normalization on top of value canonicalization: reads project
+    the linked flag's config into it (``ExperimentBaseSerializer._project_feature_flag_config``)
+    while writes strip that config before storage, so a client-echoed base only matches the
+    stored column when all sides are compared flag-stripped, with empty and null collapsed.
+    """
+    if field == "parameters":
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            value = ExperimentService._strip_feature_flag_config(value)
+    return _concurrency_value_view(value)
 
 
 def _resolve_scalar_updates(update_data: dict, original: Mapping, current_values: Mapping) -> list[str]:
@@ -448,13 +473,13 @@ def _resolve_scalar_updates(update_data: dict, original: Mapping, current_values
     conflicts: list[str] = []
     scalar_fields = sorted(set(update_data) - CONCURRENCY_MERGEABLE_FIELDS - {"get_feature_flag_key"})
     for field in scalar_fields:
-        mine = _concurrency_value_view(update_data[field])
-        current = _concurrency_value_view(current_values.get(field, _SCALAR_MISSING))
+        mine = _scalar_merge_view(field, update_data[field])
+        current = _scalar_merge_view(field, current_values.get(field, _SCALAR_MISSING))
         if mine == current:
             continue
         base = original.get(_SCALAR_BASE_ALIASES.get(field, field), _SCALAR_MISSING)
         if base is not _SCALAR_MISSING:
-            base = _concurrency_value_view(base)
+            base = _scalar_merge_view(field, base)
             if base == current:
                 continue
             if mine == base:
