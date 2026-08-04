@@ -81,10 +81,10 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
     [NodeKind.PathsV2Query]: {
-        name: 'Paths v2',
-        description: 'Trace the journeys users take within your product and where they drop off.',
+        name: 'Journeys',
+        description: 'Follow the steps users take through your product and where they stop.',
         icon: IconInsightUserPaths,
-        inMenu: false,
+        inMenu: true,
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
@@ -657,6 +657,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.FUNNELS]: QUERY_TYPES_METADATA[NodeKind.FunnelsQuery],
     [InsightType.RETENTION]: QUERY_TYPES_METADATA[NodeKind.RetentionQuery],
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
+    [InsightType.JOURNEYS]: QUERY_TYPES_METADATA[NodeKind.PathsV2Query],
     [InsightType.STICKINESS]: QUERY_TYPES_METADATA[NodeKind.StickinessQuery],
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
     [InsightType.SQL]: {

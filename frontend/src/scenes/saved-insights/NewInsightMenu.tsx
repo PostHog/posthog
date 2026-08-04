@@ -165,7 +165,8 @@ function useNewInsightCards(): {
         if (
             !metadata.inMenu ||
             insightType === InsightType.JSON ||
-            (!featureFlags[FEATURE_FLAGS.HOG] && insightType === InsightType.HOG)
+            (!featureFlags[FEATURE_FLAGS.HOG] && insightType === InsightType.HOG) ||
+            (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] && insightType === InsightType.JOURNEYS)
         ) {
             continue
         }
@@ -232,6 +233,7 @@ const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
     [InsightType.FUNNELS]: 'Conversion through a sequence of steps.',
     [InsightType.RETENTION]: 'How many users come back later.',
     [InsightType.PATHS]: 'The routes users take through your product.',
+    [InsightType.JOURNEYS]: 'The steps users take and where they stop.',
     [InsightType.SQL]: 'Query your data with SQL.',
     [InsightType.HOG]: 'Query your data with Hog.',
     ai: 'Describe an insight and let AI build it.',
@@ -264,7 +266,12 @@ function useQuestionSections(): QuestionSection[] {
         {
             title: 'How do users behave?',
             description: 'Funnels, retention, and journeys through your product.',
-            cards: [byType[InsightType.FUNNELS], byType[InsightType.RETENTION], byType[InsightType.PATHS]],
+            cards: [
+                byType[InsightType.FUNNELS],
+                byType[InsightType.RETENTION],
+                byType[InsightType.PATHS],
+                byType[InsightType.JOURNEYS],
+            ],
         },
         {
             title: 'Build your own',
