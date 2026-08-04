@@ -95,7 +95,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         response = self.client.get(self._path("total_rows_stats/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_managed_warehouse_status_excludes_blocked_sources(self):
+    def test_managed_warehouse_status_excludes_blocked_and_direct_sources(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self._create_access_control(self.viewer_user, resource="external_data_source", access_level="viewer")
         allowed_source = ExternalDataSource.objects.create(
@@ -112,8 +112,20 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             source_type="Postgres",
             status="Running",
         )
+        managed_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="managed",
+            connection_id="managed-connection",
+            source_type="Postgres",
+            status="Running",
+            prefix="managed_warehouse",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={"engine": "duckdb", "system_managed": True, "credential_kind": "org_root"},
+        )
         allowed_schema = ExternalDataSchema.objects.create(team=self.team, source=allowed_source, name="charges")
         ExternalDataSchema.objects.create(team=self.team, source=blocked_source, name="customers")
+        ExternalDataSchema.objects.create(team=self.team, source=managed_source, name="events")
         self._create_access_control(
             self.viewer_user,
             resource="external_data_source",

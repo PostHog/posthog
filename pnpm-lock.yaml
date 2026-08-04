@@ -644,6 +644,9 @@ importers:
       '@posthog/products-annotations':
         specifier: workspace:*
         version: link:../products/annotations
+      '@posthog/products-apm':
+        specifier: workspace:*
+        version: link:../products/apm
       '@posthog/products-batch-exports':
         specifier: workspace:*
         version: link:../products/batch_exports
@@ -2478,6 +2481,8 @@ importers:
   products/analytics_platform: {}
 
   products/annotations: {}
+
+  products/apm: {}
 
   products/approvals: {}
 

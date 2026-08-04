@@ -138,6 +138,9 @@ export const ChannelHomeComposer = forwardRef<
   const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
     null,
   );
+  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
+    string | null
+  >(null);
   const setWorkspaceMode = useCallback(
     (mode: WorkspaceMode) => {
       setWorkspaceModeState(mode);
@@ -269,6 +272,10 @@ export const ChannelHomeComposer = forwardRef<
       workspaceMode === "cloud" && selectedCloudEnvId
         ? selectedCloudEnvId
         : undefined,
+    customImageId:
+      workspaceMode === "cloud" && selectedCustomImageId
+        ? selectedCustomImageId
+        : undefined,
     editorIsEmpty,
     adapter,
     executionMode: currentExecutionMode,
@@ -373,6 +380,8 @@ export const ChannelHomeComposer = forwardRef<
             overrideModes={["local", "cloud"]}
             selectedCloudEnvironmentId={selectedCloudEnvId}
             onCloudEnvironmentChange={setSelectedCloudEnvId}
+            selectedCustomImageId={selectedCustomImageId}
+            onCustomImageChange={setSelectedCustomImageId}
             size="1"
             disabled={isBusy}
           />
