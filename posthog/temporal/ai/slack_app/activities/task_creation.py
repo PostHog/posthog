@@ -31,6 +31,11 @@ _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
+# Default the Slack bot to Opus 5 when neither the user nor the workspace has
+# pinned a model, instead of letting the agent server fall back to its own
+# default. Kept together as a valid (runtime_adapter, model) pair.
+_SLACK_DEFAULT_RUNTIME_ADAPTER = "claude"
+_SLACK_DEFAULT_MODEL = "claude-opus-5"
 _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
@@ -636,6 +641,12 @@ def create_posthog_code_task_for_repo_activity(
 
     ai_prefs = resolve_ai_preferences(integration, slack_user_id)
 
+    # `resolve_ai_preferences` guarantees runtime_adapter and model are set together,
+    # so falling back on both keeps the pair consistent — an explicit override wins,
+    # otherwise the Slack bot defaults to Opus 5.
+    runtime_adapter = ai_prefs.runtime_adapter or _SLACK_DEFAULT_RUNTIME_ADAPTER
+    model = ai_prefs.model or _SLACK_DEFAULT_MODEL
+
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
     personal_channel_id: uuid.UUID | None = None
@@ -664,8 +675,8 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes="full",
             initial_permission_mode="bypassPermissions",
-            runtime_adapter=ai_prefs.runtime_adapter,
-            model=ai_prefs.model,
+            runtime_adapter=runtime_adapter,
+            model=model,
             reasoning_effort=ai_prefs.reasoning_effort,
             channel_id=personal_channel_id,
         )

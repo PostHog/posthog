@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,8 +12,21 @@ from django.utils import timezone
 
 import psycopg
 
-from posthog.models import DuckgresSinkSchemaState, Organization, Team
+from posthog.models import Organization, Team
 
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresSinkState,
+    DuckgresSinkStateCreateInput,
+    DuckgresSinkStateRecord,
+)
+from products.managed_warehouse.backend.facade.testing import (
+    count_sink_states,
+    create_sink_state,
+    get_sink_state,
+    list_sink_states,
+    replace_sink_state,
+    sink_state_exists,
+)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -38,11 +52,23 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import create_job_model
 
-_State = DuckgresSinkSchemaState.State
+_State = DuckgresSinkState
 
 
-def _sink_state(team: Team, state: str) -> DuckgresSinkSchemaState:
-    return DuckgresSinkSchemaState.objects.create(team=team, schema_id=uuid.uuid4(), state=state)
+def _sink_state(team: Team, state: DuckgresSinkState) -> DuckgresSinkStateRecord:
+    return create_sink_state(DuckgresSinkStateCreateInput(team_id=team.id, schema_id=uuid.uuid4(), state=state))
+
+
+def _refresh_state(state: DuckgresSinkStateRecord) -> DuckgresSinkStateRecord:
+    refreshed = get_sink_state(state.id)
+    assert refreshed is not None
+    return refreshed
+
+
+def _replace_state(state: DuckgresSinkStateRecord, **changes: Any) -> DuckgresSinkStateRecord:
+    state = replace(state, **changes)
+    replace_sink_state(state)
+    return state
 
 
 class TestChunkGrouping:
@@ -123,17 +149,17 @@ def test_bootstrap_state_rows_streams_batches_and_skips_existing(monkeypatch):
 
     _bootstrap_state_rows([team.pk])
 
-    states = {s.schema_id: s.state for s in DuckgresSinkSchemaState.objects.all()}
+    states = {state.schema_id: state.state for state in list_sink_states()}
     assert states == {
-        needs_priming.id: DuckgresSinkSchemaState.State.PENDING_BACKFILL,
-        full_refresh.id: DuckgresSinkSchemaState.State.PRIMED,
-        cdc.id: DuckgresSinkSchemaState.State.PRIMED,
-        no_table.id: DuckgresSinkSchemaState.State.PRIMED,
+        needs_priming.id: _State.PENDING_BACKFILL,
+        full_refresh.id: _State.PRIMED,
+        cdc.id: _State.PRIMED,
+        no_table.id: _State.PRIMED,
     }
 
     # Re-running must not duplicate or revert anything — the anti-join skips all four.
     _bootstrap_state_rows([team.pk])
-    assert DuckgresSinkSchemaState.objects.count() == 4
+    assert count_sink_states() == 4
 
 
 def test_committed_batch_keys_filters_to_snapshot_version():
@@ -173,7 +199,7 @@ class TestPlanPendingConcurrencyCaps:
 
         _plan_pending(team_ids=[candidate.team_id])
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         # Different org, so per-org never blocks it — only the full global budget does.
         assert candidate.state == _State.PENDING_BACKFILL
 
@@ -188,7 +214,7 @@ class TestPlanPendingConcurrencyCaps:
 
         _plan_pending(team_ids=[team.id])
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.PENDING_BACKFILL
 
     def test_under_cap_claims_and_plans(self, monkeypatch):
@@ -204,7 +230,7 @@ class TestPlanPendingConcurrencyCaps:
 
         _plan_pending(team_ids=[candidate.team_id])
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.BACKFILLING
         assert planned == [candidate.id]
 
@@ -234,7 +260,7 @@ class TestBootstrapV3SourceGate:
 
         backfill_module._bootstrap_state_rows([team.id])
 
-        primed = set(DuckgresSinkSchemaState.objects.filter(team=team).values_list("schema_id", flat=True))
+        primed = {state.schema_id for state in list_sink_states() if state.team_id == team.id}
         assert v3_schema.id in primed
         assert non_v3_schema.id not in primed
 
@@ -259,17 +285,15 @@ class TestFailureStreak:
     def _team(self) -> Team:
         return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
 
-    def _backdate(self, state: DuckgresSinkSchemaState, seconds: int) -> None:
-        DuckgresSinkSchemaState.objects.filter(id=state.id).update(
-            updated_at=timezone.now() - timedelta(seconds=seconds)
-        )
+    def _backdate(self, state: DuckgresSinkStateRecord, seconds: int) -> None:
+        _replace_state(state, updated_at=timezone.now() - timedelta(seconds=seconds))
 
     def test_plan_failure_records_streak_and_first_failed_at_once(self, monkeypatch):
         monkeypatch.setattr(backfill_module, "_plan_one", Mock(side_effect=RuntimeError("no files in log segment")))
         candidate = _sink_state(self._team(), _State.PENDING_BACKFILL)
 
         _plan_pending(team_ids=[candidate.team_id])
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.PENDING_BACKFILL
         assert candidate.consecutive_failures == 1
         assert candidate.first_failed_at is not None
@@ -280,7 +304,7 @@ class TestFailureStreak:
         # must not move — it is the durable "backfill owed since" timestamp.
         self._backdate(candidate, seconds=3600)  # clear the retry backoff window
         _plan_pending(team_ids=[candidate.team_id])
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.consecutive_failures == 2
         assert candidate.first_failed_at == streak_started_at
 
@@ -292,7 +316,7 @@ class TestFailureStreak:
 
         _plan_pending(team_ids=[candidate.team_id])
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.NEEDS_RESYNC
         assert candidate.consecutive_failures == 1
         assert candidate.first_failed_at is not None
@@ -306,7 +330,7 @@ class TestFailureStreak:
 
         _plan_pending(team_ids=[candidate.team_id])
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.PENDING_BACKFILL
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
@@ -316,9 +340,7 @@ class TestFailureStreak:
         plan_one = Mock(side_effect=RuntimeError("still broken"))
         monkeypatch.setattr(backfill_module, "_plan_one", plan_one)
         candidate = _sink_state(self._team(), _State.PENDING_BACKFILL)
-        DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
-            consecutive_failures=10, first_failed_at=timezone.now()
-        )
+        _replace_state(candidate, consecutive_failures=10, first_failed_at=timezone.now())
 
         # Streak at cap, updated_at fresh: inside the backoff window, no attempt.
         _plan_pending(team_ids=[candidate.team_id])
@@ -332,13 +354,17 @@ class TestFailureStreak:
     @freeze_time("2026-01-15T12:00:00Z")
     def test_mark_primed_resets_streak(self):
         candidate = _sink_state(self._team(), _State.BACKFILLING)
-        DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
-            consecutive_failures=5, first_failed_at=timezone.now(), last_error="boom", backfill_run_uuid="run-1"
+        _replace_state(
+            candidate,
+            consecutive_failures=5,
+            first_failed_at=timezone.now(),
+            last_error="boom",
+            backfill_run_uuid="run-1",
         )
 
         backfill_module.mark_primed(str(candidate.schema_id), run_uuid="run-1")
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.PRIMED
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
@@ -347,13 +373,11 @@ class TestFailureStreak:
     @freeze_time("2026-01-15T12:00:00Z")
     def test_replan_backfill_resets_streak(self):
         candidate = _sink_state(self._team(), _State.NEEDS_RESYNC)
-        DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
-            consecutive_failures=5, first_failed_at=timezone.now(), last_error="boom"
-        )
+        _replace_state(candidate, consecutive_failures=5, first_failed_at=timezone.now(), last_error="boom")
 
         backfill_module.replan_backfill(str(candidate.schema_id))
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.PENDING_BACKFILL
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
@@ -364,7 +388,8 @@ class TestFailureStreak:
         # visible with zero rows in the (retention-bounded) batch queue.
         team = self._team()
         stuck = _sink_state(team, _State.PENDING_BACKFILL)
-        DuckgresSinkSchemaState.objects.filter(id=stuck.id).update(
+        _replace_state(
+            stuck,
             consecutive_failures=backfill_module.FAILING_THRESHOLD,
             first_failed_at=timezone.now() - timedelta(days=20),
         )
@@ -382,14 +407,12 @@ class TestFailureStreak:
         # so reconcile must classify the schema failing immediately or its
         # backlog sits in the pageable healthy bucket forever.
         candidate = _sink_state(self._team(), _State.BACKFILLING)
-        DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
-            backfill_run_uuid="bf-run", chunk_count=5, chunks_applied=1
-        )
-        candidate.refresh_from_db()
+        _replace_state(candidate, backfill_run_uuid="bf-run", chunk_count=5, chunks_applied=1)
+        candidate = _refresh_state(candidate)
 
         backfill_module._reconcile_one(_fake_conn([(1,), ("chunk exploded", None)]), candidate)
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.BACKFILLING
         assert candidate.consecutive_failures >= backfill_module.FAILING_THRESHOLD
         assert candidate.first_failed_at is not None
@@ -400,19 +423,19 @@ class TestFailureStreak:
         # A steady wedge stops churning the row once recorded (same error,
         # streak already at threshold, anchor stamped).
         backfill_module._reconcile_one(_fake_conn([(1,), ("chunk exploded", None)]), candidate)
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.first_failed_at == streak_started_at
         assert candidate.updated_at == marked_at
 
     def test_reconcile_supersession_is_streak_neutral(self):
         # Retirement by a newer live replace run is normal lifecycle, not failure.
         candidate = _sink_state(self._team(), _State.BACKFILLING)
-        DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(backfill_run_uuid="bf-run", chunk_count=5)
-        candidate.refresh_from_db()
+        _replace_state(candidate, backfill_run_uuid="bf-run", chunk_count=5)
+        candidate = _refresh_state(candidate)
 
         backfill_module._reconcile_one(_fake_conn([(0,), ("superseded", RETIRE_KIND_SUPERSEDED_BY_REPLACE)]), candidate)
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.state == _State.NEEDS_RESYNC
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
@@ -422,7 +445,8 @@ class TestFailureStreak:
         # Chunks landing again is forward progress: the streak (and with it the
         # failing classification) must end, or a healed schema stays unalerted.
         candidate = _sink_state(self._team(), _State.BACKFILLING)
-        DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
+        _replace_state(
+            candidate,
             backfill_run_uuid="bf-run",
             chunk_count=5,
             chunks_applied=1,
@@ -430,12 +454,12 @@ class TestFailureStreak:
             consecutive_failures=4,
             first_failed_at=timezone.now(),
         )
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
 
         # applied=3 (progress), no failed batch, all 5 chunk rows still present.
         backfill_module._reconcile_one(_fake_conn([(3,), None, (5,)]), candidate)
 
-        candidate.refresh_from_db()
+        candidate = _refresh_state(candidate)
         assert candidate.chunks_applied == 3
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
@@ -449,10 +473,9 @@ class TestFailingSchemaClassification:
     def test_failing_schema_ids_classification(self):
         team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
 
-        def _state_with(state: str, failures: int) -> DuckgresSinkSchemaState:
+        def _state_with(state: DuckgresSinkState, failures: int) -> DuckgresSinkStateRecord:
             row = _sink_state(team, state)
-            DuckgresSinkSchemaState.objects.filter(id=row.id).update(consecutive_failures=failures)
-            return row
+            return _replace_state(row, consecutive_failures=failures)
 
         healthy_pending = _state_with(_State.PENDING_BACKFILL, 0)
         below_threshold = _state_with(_State.PENDING_BACKFILL, backfill_module.FAILING_THRESHOLD - 1)
@@ -477,14 +500,16 @@ class TestGenerationPinnedPromotions:
     def _team(self) -> Team:
         return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
 
-    def _backfilling_state(self, run_uuid: str | None, chunk_count: int = 2) -> DuckgresSinkSchemaState:
-        return DuckgresSinkSchemaState.objects.create(
-            team=self._team(),
-            schema_id=uuid.uuid4(),
-            state=DuckgresSinkSchemaState.State.BACKFILLING,
-            backfill_run_uuid=run_uuid,
-            chunk_count=chunk_count,
-            chunks_applied=0,
+    def _backfilling_state(self, run_uuid: str | None, chunk_count: int = 2) -> DuckgresSinkStateRecord:
+        return create_sink_state(
+            DuckgresSinkStateCreateInput(
+                team_id=self._team().id,
+                schema_id=uuid.uuid4(),
+                state=_State.BACKFILLING,
+                backfill_run_uuid=run_uuid,
+                chunk_count=chunk_count,
+                chunks_applied=0,
+            )
         )
 
     def test_mark_primed_ignores_stale_generation(self):
@@ -493,12 +518,12 @@ class TestGenerationPinnedPromotions:
         row = self._backfilling_state("run-r2")
 
         backfill_module.mark_primed(str(row.schema_id), run_uuid="run-r1", chunks_applied=2)
-        row.refresh_from_db()
-        assert row.state == DuckgresSinkSchemaState.State.BACKFILLING
+        row = _refresh_state(row)
+        assert row.state == _State.BACKFILLING
 
         backfill_module.mark_primed(str(row.schema_id), run_uuid="run-r2", chunks_applied=2)
-        row.refresh_from_db()
-        assert row.state == DuckgresSinkSchemaState.State.PRIMED
+        row = _refresh_state(row)
+        assert row.state == _State.PRIMED
         assert row.chunks_applied == 2
 
     def test_reconcile_promotion_ignores_stale_generation(self):
@@ -506,15 +531,15 @@ class TestGenerationPinnedPromotions:
         # the top of the pass; a replan swapping generations mid-pass must not
         # be promoted on the old run's counts.
         row = self._backfilling_state("run-r1")
-        stale_snapshot = DuckgresSinkSchemaState.objects.get(id=row.id)
-        DuckgresSinkSchemaState.objects.filter(id=row.id).update(backfill_run_uuid="run-r2")
+        stale_snapshot = _refresh_state(row)
+        _replace_state(row, backfill_run_uuid="run-r2")
 
         conn = MagicMock()
         conn.execute.return_value.fetchone.return_value = (stale_snapshot.chunk_count,)
         backfill_module._reconcile_one(conn, stale_snapshot)
 
-        row.refresh_from_db()
-        assert row.state == DuckgresSinkSchemaState.State.BACKFILLING
+        row = _refresh_state(row)
+        assert row.state == _State.BACKFILLING
         assert row.backfill_run_uuid == "run-r2"
 
     def test_plan_one_defers_while_replace_run_inflight(self):
@@ -523,11 +548,13 @@ class TestGenerationPinnedPromotions:
             team=team, source_id="s", connection_id="c", source_type="Stripe", status="Running"
         )
         schema = ExternalDataSchema.objects.create(team=team, source=source, name="customers")
-        row = DuckgresSinkSchemaState.objects.create(
-            team=team,
-            schema_id=schema.id,
-            state=DuckgresSinkSchemaState.State.BACKFILLING,
-            backfill_run_uuid=None,
+        row = create_sink_state(
+            DuckgresSinkStateCreateInput(
+                team_id=team.id,
+                schema_id=schema.id,
+                state=_State.BACKFILLING,
+                backfill_run_uuid=None,
+            )
         )
 
         with (
@@ -539,9 +566,9 @@ class TestGenerationPinnedPromotions:
             backfill_module._plan_one(row)
 
         resolve.assert_not_called()
-        row.refresh_from_db()
+        row = _refresh_state(row)
         assert row.backfill_run_uuid is None
-        assert row.state == DuckgresSinkSchemaState.State.BACKFILLING
+        assert row.state == _State.BACKFILLING
 
 
 @pytest.mark.django_db
@@ -552,8 +579,13 @@ class TestDeletedSchemaPurge:
             team=team, source_id="s", connection_id="c", source_type="Stripe", status="Running"
         )
         schema = ExternalDataSchema.objects.create(team=team, source=source, name="customers", deleted=deleted)
-        state = DuckgresSinkSchemaState.objects.create(
-            team=team, schema_id=schema.id, state=DuckgresSinkSchemaState.State.BACKFILLING, backfill_run_uuid=run_uuid
+        state = create_sink_state(
+            DuckgresSinkStateCreateInput(
+                team_id=team.id,
+                schema_id=schema.id,
+                state=_State.BACKFILLING,
+                backfill_run_uuid=run_uuid,
+            )
         )
         return schema, state
 
@@ -563,7 +595,7 @@ class TestDeletedSchemaPurge:
         with patch.object(backfill_module, "retire_backfill_run") as retire:
             backfill_module._purge_deleted_schema_states(conn, None)
         retire.assert_called_once_with(conn, run_uuid="run-1")
-        assert not DuckgresSinkSchemaState.objects.filter(id=state.id).exists()
+        assert not sink_state_exists(state.id)
 
     def test_purge_leaves_live_schemas_untouched(self):
         _, state = self._fixture(deleted=False)
@@ -571,7 +603,7 @@ class TestDeletedSchemaPurge:
         with patch.object(backfill_module, "retire_backfill_run") as retire:
             backfill_module._purge_deleted_schema_states(conn, None)
         retire.assert_not_called()
-        assert DuckgresSinkSchemaState.objects.filter(id=state.id).exists()
+        assert sink_state_exists(state.id)
 
     def test_plan_one_skips_deleted_schema(self):
         _, state = self._fixture(deleted=True, run_uuid=None)
@@ -614,7 +646,7 @@ class TestMarkSchemaDiverged:
 
         backfill_module.mark_schema_diverged(str(row.schema_id), run_uuid="run-x", error="poison batch")
 
-        row.refresh_from_db()
+        row = _refresh_state(row)
         assert row.state == _State.NEEDS_RESYNC
         assert row.consecutive_failures >= backfill_module.FAILING_THRESHOLD
         assert row.first_failed_at is not None
@@ -624,7 +656,7 @@ class TestMarkSchemaDiverged:
         # the CAS is PRIMED-only.
         anchor = row.first_failed_at
         backfill_module.mark_schema_diverged(str(row.schema_id), run_uuid="run-y", error="later failure")
-        row.refresh_from_db()
+        row = _refresh_state(row)
         assert row.first_failed_at == anchor
         assert "run-x" in (row.last_error or "")
 
@@ -637,6 +669,6 @@ class TestMarkSchemaDiverged:
 
             backfill_module.mark_schema_diverged(str(row.schema_id), run_uuid="run-x", error="boom")
 
-            row.refresh_from_db()
+            row = _refresh_state(row)
             assert row.state == state
             assert row.consecutive_failures == 0

@@ -126,14 +126,29 @@ class TestValidateCredentials:
         assert ok is expected_ok, f"status={status}"
         assert (error is None) is expected_ok, f"status={status}"
 
-    def test_request_exception_is_handled(self, monkeypatch: Any) -> None:
+    def test_request_exception_returns_retry_message_without_leaking_raw_error(self, monkeypatch: Any) -> None:
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         monkeypatch.setattr(vercel, "make_tracked_session", lambda *a, **k: session)
 
         ok, error = validate_credentials("token")
         assert ok is False
-        assert error == "boom"
+        assert error == vercel._VERCEL_UNREACHABLE_ERROR
+        assert "boom" not in (error or "")
+
+    @parameterized.expand([(429,), (500,), (503,)])
+    def test_transient_status_returns_retry_message_not_token_advice(self, status: int) -> None:
+        response = requests.Response()
+        response.status_code = status
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+            ok, error = validate_credentials("token")
+
+        assert ok is False
+        assert error == vercel._VERCEL_UNREACHABLE_ERROR
+        # A transient Vercel-side error must not tell the user to fix their (possibly valid) token.
+        assert "Check that it's a valid token" not in (error or "")
 
     def test_unexpected_status_does_not_leak_raw_status_code(self) -> None:
         response = requests.Response()

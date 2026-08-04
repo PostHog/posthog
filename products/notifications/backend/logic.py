@@ -36,6 +36,9 @@ def _publish_to_kafka(event: NotificationEvent) -> None:
                 "title": event.title,
                 "body": event.body,
                 "resource_type": event.resource_type or "",
+                # The client groups rows by (type, target, resource) — a live-pushed notification
+                # without resource_id would land in the wrong group until the next refetch.
+                "resource_id": event.resource_id or "",
                 "source_url": event.source_url,
                 "source_type": event.source_type,
                 "source_id": event.source_id,

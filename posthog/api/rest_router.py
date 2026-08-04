@@ -210,23 +210,9 @@ projects_router.register(
 projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["team_id"])
 
 projects_router.register(
-    r"desktop_file_system",
-    file_system.DesktopFileSystemViewSet,
-    "project_desktop_file_system",
-    ["team_id"],
-)
-
-projects_router.register(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
     "project_file_system_shortcut",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"desktop_file_system_shortcut",
-    file_system_shortcut.DesktopFileSystemShortcutViewSet,
-    "project_desktop_file_system_shortcut",
     ["team_id"],
 )
 

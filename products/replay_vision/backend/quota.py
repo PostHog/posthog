@@ -13,20 +13,21 @@ from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 logger = structlog.get_logger(__name__)
 
-# Fallback monthly credit cap for orgs billing has never synced (self-hosted, pre-launch beta).
-MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", 15000, type_cast=int)
+# Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
+# limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
+# free-tier org; self-hosted deployments raise it via the env var.
+MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
 
 # Billing's usage_key for this product; see ee/billing/quota_limiting.QuotaResource.REPLAY_VISION_CREDITS.
 USAGE_KEY = "replay_vision_credits"
@@ -43,6 +44,8 @@ class QuotaSnapshot:
     period_end: datetime
     # Credit-weighted sum of enabled scanners' persisted estimates across the org; uncomputed estimates count 0.
     projected_monthly_credits: int
+    # Display-only: the slice of `credit_limit` that never bills; see FREE_TIER_MONTHLY_CREDITS.
+    free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
 
     @property
     def remaining(self) -> int | None:
@@ -167,7 +170,7 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
     from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_credits  # noqa: PLC0415
 
-    # Single `now` so the usage window, bonus expiry, and any caller comparisons are computed from one instant.
+    # Single `now` so the usage window and any caller comparisons are computed from one instant.
     now = datetime.now(UTC)
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
     # Billing is the source of truth once synced, falling back to the env cap and calendar months otherwise.
@@ -193,16 +196,10 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
     usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
-    bonus = ReplayQuotaGrant.objects.filter(
-        organization_id=organization_id,
-        expires_at__gt=now,
-    ).aggregate(total=Coalesce(Sum("amount"), Value(0)))["total"]
     projected = sum_enabled_scanner_estimated_credits(organization_id)
-    synced, base_limit = _billing_synced_limit(organization)
+    synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
-        base_limit = MONTHLY_CREDIT_QUOTA
-    # An uncapped synced org stays uncapped: bonuses only extend a real limit.
-    credit_limit = base_limit + bonus if base_limit is not None else None
+        credit_limit = MONTHLY_CREDIT_QUOTA
     return QuotaSnapshot(
         credit_limit=credit_limit,
         credits_used=usage,

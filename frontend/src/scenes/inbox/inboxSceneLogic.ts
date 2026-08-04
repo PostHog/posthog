@@ -63,6 +63,11 @@ const TASK_RUN_STATUS_TO_SCOUT_STATUS: Record<TaskRunStatus, SignalScoutRunStatu
  * `SignalRun[]`. Pure (no I/O) so the merge/sort/normalize contract is unit-testable directly.
  * Scout runs without a backing `task_id` are dropped (they can't deep-link to a task); signal rows
  * fall back to the task's own timestamp / a null status when no run exists yet.
+ *
+ * A signal task only counts as a run once it's linked to a report. `origin_product=signal_report`
+ * alone is too broad: the scout-authoring CTAs create chat threads under the same origin, and those
+ * are a "let's write a scout" conversation, not a pipeline run — listing them here drops the user
+ * into a thread with no report to go back to.
  */
 export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks: Task[]): SignalRun[] {
     const scoutRows = scoutRuns
@@ -77,17 +82,19 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
                 created_at: run.created_at,
             })
         )
-    const signalRows = signalTasks.map((task): SignalRun => {
-        const latestStatus = task.latest_run?.status
-        return {
-            task_id: task.id,
-            kind: 'signal',
-            title: task.title,
-            status: latestStatus ? TASK_RUN_STATUS_TO_SCOUT_STATUS[latestStatus] : null,
-            report_id: task.signal_report,
-            created_at: task.latest_run?.created_at ?? task.created_at,
-        }
-    })
+    const signalRows = signalTasks
+        .filter((task): task is Task & { signal_report: string } => !!task.signal_report)
+        .map((task): SignalRun => {
+            const latestStatus = task.latest_run?.status
+            return {
+                task_id: task.id,
+                kind: 'signal',
+                title: task.title,
+                status: latestStatus ? TASK_RUN_STATUS_TO_SCOUT_STATUS[latestStatus] : null,
+                report_id: task.signal_report,
+                created_at: task.latest_run?.created_at ?? task.created_at,
+            }
+        })
     return [...scoutRows, ...signalRows].sort(
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
