@@ -10,7 +10,7 @@ import { InboxReportFeedbackSentiment } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 
-// Matches the cap on the sibling inbox dialogs (Dismiss, Refund, Discuss); the note rides along as
+// Matches the cap on the sibling inbox dialogs (Dismiss, Refund, agent question); the note rides along as
 // an analytics property, so keep it under the client's per-property limit.
 const FEEDBACK_NOTE_MAX_LENGTH = 4000
 
@@ -83,7 +83,7 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
                 {feedbackNoteSent && <span>Note added</span>}
             </div>
             {feedbackNoteOpen && (
-                <div className="flex flex-col items-start gap-2 max-w-prose">
+                <div className="flex w-full max-w-prose flex-col items-start gap-2">
                     <LemonTextArea
                         value={feedbackNoteDraft}
                         onChange={setFeedbackNoteDraft}
@@ -92,8 +92,10 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
                         // keystroke, so the field carries its own name for screen readers.
                         aria-label="Add a note about this report"
                         maxLength={FEEDBACK_NOTE_MAX_LENGTH}
-                        rows={3}
+                        minRows={5}
+                        maxRows={12}
                         autoFocus={openedHere}
+                        className="w-full"
                         data-attr="inbox-report-feedback-note"
                     />
                     <LemonButton
