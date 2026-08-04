@@ -14,6 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
 import { BillingStep } from './steps/BillingStep'
+import { GoalsStep } from './steps/GoalsStep'
 import { InstallStep } from './steps/InstallStep'
 import { AnalyticsStep, ErrorTrackingStep, ReplayStep } from './steps/ProductEnablementSteps'
 import { WelcomeStep } from './steps/WelcomeStep'
@@ -48,6 +49,15 @@ interface StepDef {
  */
 const STEPS: StepDef[] = [
     { id: 'welcome', title: '', Content: WelcomeStep },
+    // One declared goal so the rest of the flow can drive toward it. Picking a card advances;
+    // "set up everything" is the step's skip.
+    {
+        id: 'goals',
+        title: 'What do you want to get done first?',
+        Content: GoalsStep,
+        hideContinue: true,
+        maxWidth: 'max-w-2xl',
+    },
     { id: 'install', title: 'Install PostHog', Content: InstallStep },
     // Signal sources for the agents, one per step: product analytics is on by default (a
     // confirmation, not a choice), the opt-in tools each get a single enable-or-skip decision.

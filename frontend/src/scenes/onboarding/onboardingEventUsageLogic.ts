@@ -8,7 +8,14 @@ import { resolveOnboardingFlowVariant } from './onboardingVariants'
 
 /** Steps the self-driving flow can report. Earlier versions also emitted `sources`, `warehouse`,
  * and `invite`; those events still exist in historical funnels. */
-export type SelfDrivingOnboardingStepId = 'welcome' | 'install' | 'analytics' | 'replay' | 'error-tracking' | 'billing'
+export type SelfDrivingOnboardingStepId =
+    | 'welcome'
+    | 'goals'
+    | 'install'
+    | 'analytics'
+    | 'replay'
+    | 'error-tracking'
+    | 'billing'
 
 // GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
 // by `version` (1 = legacy, 2 = redesign) and `flow_variant`. Reusing names keeps every existing
@@ -85,6 +92,9 @@ export interface onboardingEventUsageLogicActions {
     }
     reportSelfDrivingOnboardingCompleted: (productKey: string) => {
         productKey: string
+    }
+    reportSelfDrivingOnboardingGoalSelected: (goal: string) => {
+        goal: string
     }
     reportSelfDrivingOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => {
         mode: 'cloud' | 'local'
@@ -175,6 +185,7 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         reportSelfDrivingOnboardingStepCompleted: (stepId: SelfDrivingOnboardingStepId) => ({ stepId }),
         reportSelfDrivingOnboardingStepSkipped: (stepId: SelfDrivingOnboardingStepId) => ({ stepId }),
         reportSelfDrivingOnboardingCompleted: (productKey: string) => ({ productKey }),
+        reportSelfDrivingOnboardingGoalSelected: (goal: string) => ({ goal }),
         reportSelfDrivingOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => ({ mode }),
         reportSelfDrivingOnboardingPlanSelected: (plan: 'free' | 'pay_as_you_go') => ({ plan }),
         // Cloud-run funnel events mirror the backend `task_run_created` / `task_run_completed`
@@ -246,6 +257,12 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         reportSelfDrivingOnboardingCompleted: ({ productKey }) => {
             posthog.capture('onboarding completed', {
                 product_key: productKey,
+                ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        reportSelfDrivingOnboardingGoalSelected: ({ goal }) => {
+            posthog.capture('onboarding goal selected', {
+                goal,
                 ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
             })
         },
