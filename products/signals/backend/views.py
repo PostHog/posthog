@@ -812,10 +812,12 @@ class SignalReportViewSet(
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
     # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
     # can reach suppressed reports too. `refund` is included so an already-archived but
-    # billed report can still be refunded. Mutating-by-ID actions (delete, reingest) are
+    # billed report can still be refunded, and `feedback` because the detail view the
+    # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
+    # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund"})
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund", "feedback"})
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).

@@ -22,7 +22,8 @@ const FEEDBACK_NOTE_MAX_LENGTH = 4000
  */
 export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent } = useValues(logic)
+    const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent, feedbackNoteSubmitting } =
+        useValues(logic)
     const { rateReport, openFeedbackNote, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
 
     // Focus the note only when *this* instance opened it. `feedbackNoteOpen` is report-keyed state
@@ -99,6 +100,7 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
                     <LemonButton
                         size="xsmall"
                         type="primary"
+                        loading={feedbackNoteSubmitting}
                         disabledReason={feedbackNoteDraft.trim() ? undefined : 'Write a note first'}
                         onClick={() => submitFeedbackNote(feedbackNoteDraft)}
                         data-attr="inbox-report-feedback-note-send"

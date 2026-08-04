@@ -199,6 +199,7 @@ export interface inboxReportDetailLogicValues {
     feedbackNoteDraft: string
     feedbackNoteOpen: boolean
     feedbackNoteSent: boolean
+    feedbackNoteSubmitting: boolean
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
@@ -415,6 +416,9 @@ export interface inboxReportDetailLogicActions {
     setFeedbackNoteDraft: (draft: string) => {
         draft: string
     }
+    setFeedbackNoteSubmitting: (submitting: boolean) => {
+        submitting: boolean
+    }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
@@ -552,6 +556,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setFeedbackNoteDraft: (draft: string) => ({ draft }),
         // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
         submitFeedbackNote: (note: string) => ({ note }),
+        // Driven by the submit listener only, so the re-entrancy guard and the Send button's
+        // loading state read the same flag.
+        setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
     }),
 
     loaders(({ props, values }) => ({
@@ -758,6 +765,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 submitFeedbackNote: () => true,
                 rateReport: () => false,
+            },
+        ],
+        feedbackNoteSubmitting: [
+            false,
+            {
+                setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
             },
         ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
@@ -1079,29 +1092,34 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             }
             // Re-entrancy guard: the send button hides on submit, but a double-click within the same
             // frame can dispatch this twice before React unmounts it. `leave_note` mints a new row per
-            // call, so a second POST would leave the scout a duplicate steering note — bail before both
-            // the analytics event and the forward fire a second time.
-            if (cache.feedbackNoteSubmitting) {
+            // call, so bail before a second POST leaves the scout a duplicate steering note. The flag
+            // resets in `finally` so a revised note (after re-rating) can still submit, and the Send
+            // button shows it as a loading state in the meantime.
+            if (values.feedbackNoteSubmitting) {
                 return
             }
-            cache.feedbackNoteSubmitting = true
+            actions.setFeedbackNoteSubmitting(true)
             const sentiment = values.feedbackSentiment
-            captureInboxReportFeedbackNote({
-                report: values.report,
-                sentiment,
-                note: trimmed,
-                surface: 'detail_footer',
-            })
-            // Best-effort: also carry the note into the scout steering channel so the scout that filed
-            // the report reads it next run. The analytics event above is the durable record, so a
-            // failure here is swallowed rather than surfaced — the note is already captured.
             try {
-                await signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), values.report.id, {
+                captureInboxReportFeedbackNote({
+                    report: values.report,
                     sentiment,
                     note: trimmed,
+                    surface: 'detail_footer',
                 })
-            } catch {
-                // no-op: forwarding is a convenience on top of the recorded feedback
+                // Best-effort: also carry the note into the scout steering channel so the scout that filed
+                // the report reads it next run. The analytics event above is the durable record, so a
+                // failure here is swallowed rather than surfaced — the note is already captured.
+                try {
+                    await signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), values.report.id, {
+                        sentiment,
+                        note: trimmed,
+                    })
+                } catch {
+                    // no-op: forwarding is a convenience on top of the recorded feedback
+                }
+            } finally {
+                actions.setFeedbackNoteSubmitting(false)
             }
         },
         searchAvailableReviewers: async ({ query }, breakpoint) => {

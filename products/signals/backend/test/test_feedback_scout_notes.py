@@ -108,6 +108,21 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
         assert [note.skill_name for note in self._notes()] == [SCOUT_SKILL]
 
+    def test_feedback_reaches_a_suppressed_report(self) -> None:
+        # The Dismissed tab renders the same detail view, thumbs rating included, so feedback must
+        # resolve a suppressed report by ID instead of 404ing like mutating-by-ID actions do.
+        self._create_scout_skill()
+        report = self._create_report()
+        report.status = SignalReport.Status.SUPPRESSED
+        report.save()
+        self._create_run(emitted_report_ids=[str(report.id)])
+
+        body = self._feedback(report, sentiment="negative", note="dismissed because it was stale on arrival")
+
+        assert body["forwarded"] is True
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
     @parameterized.expand(
         [
             ("no_authoring_run", False, False),
