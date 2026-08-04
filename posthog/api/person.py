@@ -591,7 +591,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             select=["id"],
             properties=person_properties,
             search=filter.search or None,
-            orderBy=["created_at DESC", "id DESC"],
+            # `id` is a UUIDT, which embeds its creation timestamp, so ordering by it alone
+            # already yields (effectively) `created_at DESC` order. That matters because `id`
+            # is also the persons table's ClickHouse sort key: when there's no other filter,
+            # ordering by `id` lets the query use the sort key to satisfy LIMIT without
+            # aggregating every person row for the team, where ordering by `created_at` cannot.
+            orderBy=["id DESC"],
             limit=filter.limit,
             offset=filter.offset,
         )

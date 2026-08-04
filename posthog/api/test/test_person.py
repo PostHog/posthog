@@ -26,6 +26,7 @@ from rest_framework import status
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -1782,6 +1783,23 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             url = page["next"]
         self.assertEqual(len(paged), len(uuids))  # no person lost or repeated at a page boundary
         self.assertEqual(set(paged), expected)  # union of pages == full set, gapless and dup-free
+
+    def test_unfiltered_list_orders_by_id_not_created_at(self):
+        # `id` is a UUIDT (time-sortable) and matches the persons table's ClickHouse sort
+        # key, so an unfiltered query ordering by `id` alone can use that sort key to stop
+        # after `limit` rows instead of aggregating every person row for the team to sort by
+        # `created_at`. Reintroducing `created_at` as a sort key brings back a full-team-history
+        # scan on this default, unfiltered path, which times out for teams with many persons.
+        create_person(team=self.team, distinct_ids=["1"])
+
+        with mock.patch(
+            "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner", wraps=ActorsQueryRunner
+        ) as mock_runner:
+            response = self.client.get("/api/person/")
+
+        assert response.status_code == status.HTTP_200_OK
+        query = mock_runner.call_args.kwargs["query"]
+        assert query.orderBy == ["id DESC"]
 
     def test_retrieve_person(self):
         person = create_person(  # creating without _create_person to guarentee created_at ordering
