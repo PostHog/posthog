@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { parseCsvParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
@@ -15,8 +16,9 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
+import { replayScannersLogic } from './replayScannersLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
-import { defaultScannerTemplates } from './scannerTemplates'
+import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 describe('replayScannerLogic', () => {
@@ -660,6 +662,38 @@ describe('replayScannerLogic', () => {
             )
             expect(logic.values.triggeringOnDemandObservation).toBe(false)
             expect(observeSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('toggleEnabled', () => {
+        it('refreshes the scanner list and picker so the enabled state stays consistent elsewhere', async () => {
+            // Regression: toggling `enabled` from the config-editor switch only refreshed the quota
+            // meter, so the scanner table (replayScannersLogic) and the shared picker
+            // (visionScannersListLogic) kept showing the pre-toggle state until an unrelated reload.
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
+                },
+            })
+            const persisted = replayScannerLogic({ id: 'scanner-1' })
+            const scannersList = replayScannersLogic()
+            const pickerList = visionScannersListLogic()
+            persisted.mount()
+            scannersList.mount()
+            pickerList.mount()
+            try {
+                persisted.actions.loadScannerSuccess({ ...newScanner(null), id: 'scanner-1', enabled: false })
+                await expectLogic(persisted, () => persisted.actions.toggleEnabled()).toDispatchActions([
+                    'toggleEnabledSuccess',
+                    replayScannersLogic.actionTypes.loadScannerStats,
+                    replayScannersLogic.actionTypes.loadScanners,
+                    visionScannersListLogic.actionTypes.loadScanners,
+                ])
+            } finally {
+                persisted.unmount()
+                scannersList.unmount()
+                pickerList.unmount()
+            }
         })
     })
 

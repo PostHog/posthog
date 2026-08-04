@@ -398,4 +398,44 @@ describe('replayScannersLogic', () => {
         expect(logic.values.filters.page).toBe(1)
         expect(logic.values.scanners).toHaveLength(1)
     })
+
+    describe('scannerStats staleness', () => {
+        it('drops a slow response that resolves after a newer refetch already landed', async () => {
+            // Regression: loadScannerStats awaited breakpoint(50) up front (a debounce) but never
+            // called breakpoint() again after the response landed. A request that was already past
+            // its debounce and mid-flight (e.g. the mount-time load) could resolve after a later
+            // request (e.g. a post-toggle refetch) had already landed, silently reverting the tile.
+            let resolveSlowResponse: (() => void) | undefined
+            let requestCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/stats/': () => {
+                        requestCount += 1
+                        if (requestCount === 1) {
+                            return new Promise((resolve) => {
+                                resolveSlowResponse = () => resolve([200, { total: 1, enabled: 0, by_type: {} }])
+                            })
+                        }
+                        return [200, { total: 1, enabled: 1, by_type: {} }]
+                    },
+                },
+            })
+
+            // First dispatch: let it clear its own debounce and reach the (now in-flight) fetch.
+            logic.actions.loadScannerStats()
+            await new Promise((resolve) => setTimeout(resolve, 150))
+            expect(requestCount).toBe(1)
+
+            // Second dispatch, e.g. the refetch after a toggle: clears its debounce and resolves first.
+            await expectLogic(logic, () => logic.actions.loadScannerStats()).toDispatchActions([
+                'loadScannerStatsSuccess',
+            ])
+            expect(logic.values.scannerStats).toEqual(expect.objectContaining({ enabled: 1 }))
+
+            // The slow first response lands last. It must be dropped, not overwrite the newer state.
+            resolveSlowResponse?.()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.scannerStats).toEqual(expect.objectContaining({ enabled: 1 }))
+        })
+    })
 })

@@ -289,8 +289,8 @@ export function ReplayScannersScene(): JSX.Element {
 
             {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
                 <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
-                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
-                    launch, so re-enable the ones you want to keep running. See{' '}
+                    Replay vision is out of beta and scans now use billed credits. Check that your scanners are enabled
+                    the way you expect. See{' '}
                     <Link to="https://posthog.com/docs/replay-vision/quota-and-limits" target="_blank">
                         how credits are priced
                     </Link>{' '}

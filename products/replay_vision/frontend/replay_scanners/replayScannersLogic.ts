@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { metricCount } from 'lib/operationalMetrics'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -299,15 +300,21 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         creators: [
             [] as UserBasicApi[],
             {
-                loadCreators: async () => {
+                loadCreators: async (_, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.creators
                     }
                     try {
                         const response = await visionScannersCreatorsRetrieve(String(teamId))
+                        // Drop out-of-order responses — a slower request can otherwise land after a later one.
+                        breakpoint()
                         return response.creators ?? []
-                    } catch {
+                    } catch (error) {
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
+                        metricCount('replay_vision_frontend_creators_load_failures')
                         return values.creators
                     }
                 },
@@ -324,8 +331,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                         return values.scannerStats
                     }
                     try {
-                        return await visionScannersStatsRetrieve(String(teamId))
-                    } catch {
+                        const response = await visionScannersStatsRetrieve(String(teamId))
+                        // Drop out-of-order responses — a slower mount-time request can otherwise revert a
+                        // faster post-toggle refetch that landed first.
+                        breakpoint()
+                        return response
+                    } catch (error) {
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
+                        // Degrades silently to the stale stats, so count it or it is invisible.
+                        metricCount('replay_vision_frontend_scanner_stats_load_failures')
                         return values.scannerStats
                     }
                 },

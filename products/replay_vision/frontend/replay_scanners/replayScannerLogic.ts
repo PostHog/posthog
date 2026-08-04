@@ -48,9 +48,11 @@ import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { observationClipboardText } from '../utils/observation'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
+import { replayScannersLogic } from './replayScannersLogic'
 import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
@@ -1217,6 +1219,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.requestScannerEstimate()
                 // Saving recomputes the persisted estimate, which shifts the org-wide fleet sum.
                 refreshVisionQuota()
+                refreshScannerLists()
             },
 
             requestScannerEstimate: () => {
@@ -1281,6 +1284,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
                     refreshVisionQuota()
+                    refreshScannerLists()
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'
@@ -1608,4 +1612,11 @@ export function shouldGuardScannerNavigation(params: {
         return false
     }
     return true
+}
+
+/** Refresh after an `enabled` mutation made outside the list — keeps the table and pickers from going stale. */
+function refreshScannerLists(): void {
+    replayScannersLogic.findMounted()?.actions.loadScannerStats()
+    replayScannersLogic.findMounted()?.actions.loadScanners()
+    visionScannersListLogic.findMounted()?.actions.loadScanners()
 }
