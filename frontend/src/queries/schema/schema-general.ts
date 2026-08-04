@@ -98,6 +98,7 @@ export enum NodeKind {
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
+    PathsV2ActorsQuery = 'PathsV2ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
@@ -2089,6 +2090,13 @@ export type PathsV2Edge = {
     target: PathsV2Item | null
     /** Unique actors with a journey that transitions from source to target between these steps. */
     count: number
+    /**
+     * Unique actors who transition from source to target at any step of any of their whole
+     * journeys, the position-free count behind "went source → target at any step". Equals the
+     * two-step item-strict funnel's converted count. Only set in open mode on edges between two
+     * named items.
+     */
+    anyStepCount?: number
 }
 
 /**
@@ -2665,6 +2673,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
+        | PathsV2ActorsQuery
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
@@ -5209,6 +5218,53 @@ export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
     funnelCorrelationPropertyValues?: AnyPropertyFilter[]
 }
 
+/** The kind of journey grid element a PathsV2ActorsQuery drills into. */
+export enum PathsV2ElementType {
+    Node = 'node',
+    Edge = 'edge',
+    DropOff = 'dropOff',
+    Other = 'other',
+    Chain = 'chain',
+}
+
+/**
+ * Selects the journey grid element whose actors a PathsV2ActorsQuery returns. The same journeys
+ * that produced the grid produce these actor sets, so each element's modal equals its displayed
+ * number by construction.
+ */
+export type PathsV2ElementSelector = {
+    elementType: PathsV2ElementType
+    /**
+     * 0-based step index (column) of the element; for an edge, its source column. Required for
+     * node, other, dropOff, and positional edge elements.
+     */
+    stepIndex?: integer
+    /** The node card's path item. Node elements only. */
+    item?: PathsV2Item
+    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    source?: PathsV2Item
+    /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+    target?: PathsV2Item
+    /**
+     * Match the source → target transition at any step of any whole journey instead of at one step
+     * pair: the position-free set behind an edge's anyStepCount. Requires a named source and
+     * target and open mode. Edge elements only.
+     */
+    anyStep?: boolean
+    /**
+     * The chain's path items in order from the anchor. Returns the actors whose anchored sequence
+     * begins with exactly these items, the set behind a hover preview's per-chain counts. Chain
+     * elements only, anchored mode only.
+     */
+    chain?: PathsV2Item[]
+}
+
+export interface PathsV2ActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.PathsV2ActorsQuery
+    source: PathsV2Query
+    element: PathsV2ElementSelector
+}
+
 export interface EventDefinition {
     event: string
     properties: Record<string, any>
@@ -5317,6 +5373,7 @@ export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOption
         | FunnelCorrelationActorsQuery
         | StickinessActorsQuery
         | ExperimentActorsQuery
+        | PathsV2ActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
