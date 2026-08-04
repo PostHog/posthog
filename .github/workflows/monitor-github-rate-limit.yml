@@ -228,12 +228,12 @@ jobs:
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   MINTS: >-
-                      [{"source":"posthog-devex-general","configured":${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID != '' }},"minted":${{ steps.devex-token.outputs.token != '' }}},
-                      {"source":"posthog-tests","configured":${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID != '' }},"minted":${{ steps.tests-token.outputs.token != '' }}},
-                      {"source":"posthog-paths-filter","configured":${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID != '' }},"minted":${{ steps.paths-filter-token.outputs.token != '' }}},
-                      {"source":"posthog-telemetry","configured":${{ secrets.GH_APP_TELEMETRY_APP_ID != '' }},"minted":${{ steps.telemetry-token.outputs.token != '' }}},
-                      {"source":"posthog-setup-actions","configured":${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID != '' }},"minted":${{ steps.setup-actions-token.outputs.token != '' }}},
-                      {"source":"posthog-product-tests","configured":${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID != '' }},"minted":${{ steps.product-tests-token.outputs.token != '' }}}]
+                      [{"source":"posthog-devex-general","configured":${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID != '' && secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY != '' }},"minted":${{ steps.devex-token.outputs.token != '' }}},
+                      {"source":"posthog-tests","configured":${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.tests-token.outputs.token != '' }}},
+                      {"source":"posthog-paths-filter","configured":${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID != '' && secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY != '' }},"minted":${{ steps.paths-filter-token.outputs.token != '' }}},
+                      {"source":"posthog-telemetry","configured":${{ secrets.GH_APP_TELEMETRY_APP_ID != '' && secrets.GH_APP_TELEMETRY_PRIVATE_KEY != '' }},"minted":${{ steps.telemetry-token.outputs.token != '' }}},
+                      {"source":"posthog-setup-actions","configured":${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID != '' && secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY != '' }},"minted":${{ steps.setup-actions-token.outputs.token != '' }}},
+                      {"source":"posthog-product-tests","configured":${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.product-tests-token.outputs.token != '' }}}]
               with:
                   script: |
                       const script = require('./.github/scripts/monitor-github-rate-limit.js')
