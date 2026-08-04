@@ -360,6 +360,33 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.cpu_millicore_seconds == [(self.team.id, 125)]
         assert usage.memory_mib_seconds == [(self.team.id, 384)]
 
+    def test_integer_resource_units_support_large_values(self):
+        self._session(
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            cpu_request_cores=999.999,
+            memory_request_mb=1_048_576,
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 3_599_996_400)]
+        assert usage.memory_mib_seconds == [(self.team.id, 3_774_873_600)]
+
+    def test_pre_effective_usage_reports_explicit_integer_zeros(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        usage = get_billable_sandbox_compute_usage_by_team(
+            self.BEGIN, self.END, rate_cards=(self._rate(effective_at=self.BEGIN + timedelta(hours=3)),)
+        )
+
+        expected = [(self.team.id, 0)]
+        assert usage.credits == expected
+        assert usage.cpu_millicore_seconds == expected
+        assert usage.memory_mib_seconds == expected
+        assert usage.cpu_cost_microusd == expected
+        assert usage.memory_cost_microusd == expected
+        assert all(type(value) is int for rows in usage.__dict__.values() for _, value in rows)
+
     def test_compute_before_first_rate_is_free_and_rate_changes_are_applied(self):
         self._session(
             client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,

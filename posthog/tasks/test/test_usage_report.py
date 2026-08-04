@@ -4806,6 +4806,22 @@ class TestTaskSandboxUsageReport(APIBaseTest):
 
 
 class TestPostHogCodeComputeUsageReport(SimpleTestCase):
+    def test_component_contract_uses_integer_historical_metric_types(self) -> None:
+        from posthog.tasks.usage_report import UsageReportCounters
+
+        component_metrics = {
+            "posthog_code_token_credits_used_in_period",
+            "sandbox_compute_credits_used_in_period",
+            "sandbox_compute_cpu_millicore_seconds_in_period",
+            "sandbox_compute_memory_mib_seconds_in_period",
+            "sandbox_compute_cpu_cost_microusd_in_period",
+            "sandbox_compute_memory_cost_microusd_in_period",
+        }
+
+        assert all(UsageReportCounters.__annotations__[metric] is int for metric in component_metrics)
+        assert "sandbox_compute_cpu_core_seconds_in_period" not in UsageReportCounters.__annotations__
+        assert "sandbox_compute_memory_gib_seconds_in_period" not in UsageReportCounters.__annotations__
+
     def test_combined_credits_reconcile_with_components(self) -> None:
         from posthog.tasks.usage_report import combine_posthog_code_credits
 
