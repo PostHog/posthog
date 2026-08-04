@@ -958,8 +958,10 @@ def create_and_run_task(
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
     """
-    if origin_product == Task.OriginProduct.SIGNAL_REPORT:
-        enforce_self_driving_pr_quota(team)
+    # create_pr=False sessions (research, repo selection, custom agents) can never open the
+    # billable PR, so the quota gate must not block them.
+    if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
@@ -2176,6 +2178,12 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
         return
+    # Billing only ever counts GitHub PR URLs (billing.py validates the same prefix), so a
+    # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
+    # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
+    # must not import signals internals.
+    if not new_pr_url.startswith("https://github.com/"):
+        return
     organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
     if organization_id is None:
         return
@@ -2192,19 +2200,25 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     transaction.on_commit(_dispatch)
 
 
-def enforce_self_driving_pr_quota(team: Team) -> None:
-    """Refuse to create a self-driving implementation task while the team's org is over its self-driving credits
-    quota with enforcement on. The implementation task is the step that leads to the billable PR,
-    so the manual create-from-report path must respect the same limit as the pipeline auto-start
-    gate (products/signals/backend/auto_start.py). Raises ``QuotaLimitExceeded`` (402).
+def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None) -> None:
+    """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
+    credits quota with enforcement on. The implementation task is the step that leads to the
+    billable PR, so the manual create-from-report path must respect the same limit as the pipeline
+    auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
+    (stage `manual_create`) whenever the org is limited, so this gate stays measurable during the
+    dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
     """
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
     from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        capture_signal_report_quota_paused,
         self_driving_quota_gate,
     )
 
-    if self_driving_quota_gate(team).enforced:
+    gate = self_driving_quota_gate(team)
+    if gate.limited:
+        capture_signal_report_quota_paused(team, report_id=report_id, stage="manual_create", enforced=gate.enforced)
+    if gate.enforced:
         raise QuotaLimitExceeded(
             "Your organization reached its self-driving pull request limit. "
             "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
@@ -4333,12 +4347,13 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
 
     # The write serializer binds the report as `signal_report` (a PK field); direct callers may
     # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
+    report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
     if (
-        (validated_data.get("signal_report") or validated_data.get("signal_report_id"))
+        report_ref
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
         and signal_report_task_relationship in (None, "implementation")
     ):
-        enforce_self_driving_pr_quota(team)
+        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():

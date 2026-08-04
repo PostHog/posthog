@@ -510,6 +510,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._self_driving_quota_checks_active
             and self._context is not None
             and self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            # Research / repo-selection / custom-agent sessions run with create_pr=False and can
+            # never open the billable PR; rechecking them would let the quota gate cancel
+            # in-flight research.
+            and self.context.create_pr
             and workflow.patched(_PATCH_ID_SELF_DRIVING_QUOTA_KILL)
         )
 
