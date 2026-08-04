@@ -3467,6 +3467,139 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface PathsV2Item {
+      /** Event of the step source this item belongs to. */
+      event: string;
+      /** Label value from the source's naming property, after path cleaning. An empty string when the property is missing on the event. Null for sources without a naming property. */
+      label?: string | null;
+    }
+
+    export type PathsV2AnchorType = typeof PathsV2AnchorType[keyof typeof PathsV2AnchorType];
+
+
+    export const PathsV2AnchorType = {
+      Start: 'start',
+      End: 'end',
+    } as const;
+
+    export interface PathsV2Anchor {
+      /** The path item the chart anchors on. Its event must be one of the step sources. */
+      item: PathsV2Item;
+      /** `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the anchor item. Either way the anchor is the grid's single 100% node. */
+      type: PathsV2AnchorType;
+    }
+
+    export interface PathsV2StepSource {
+      /** Name of the event this source matches. */
+      event: string;
+      /** Event property whose value labels the path item, e.g. `$pathname` for pageviews. Team path cleaning rules are applied to the value. Without a naming property, the event itself is the path item. */
+      namingProperty?: string | null;
+    }
+
+    export interface PathsV2Filter {
+      /** Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead. */
+      anchor?: PathsV2Anchor | null;
+      /** Merge immediate repeats of the same path item within a journey. */
+      collapseRepeats?: boolean | null;
+      /** Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap. */
+      conversionWindowInterval?: number | null;
+      conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnit | null;
+      /** Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds. */
+      gapInterval?: number | null;
+      gapIntervalUnit?: FunnelConversionWindowTimeUnit | null;
+      /** Number of path item rows per step; items beyond this go into the "other" row. */
+      maxRowsPerStep?: number | null;
+      /** Number of journey steps (columns) shown. */
+      maxSteps?: number | null;
+      /** Step sources defining which events can become path items. Defaults to the pageviews preset: `$pageview` named by `$pathname`. */
+      stepSources?: PathsV2StepSource[] | null;
+    }
+
+    export interface PathsV2Edge {
+      /** Unique actors with a journey that transitions from source to target between these steps. */
+      count: number;
+      /** Source path item, or null for the source column's "other" row. */
+      source: PathsV2Item | null;
+      /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
+      stepIndex: number;
+      /** Target path item, or null for the target column's "other" row. */
+      target: PathsV2Item | null;
+    }
+
+    export interface PathsV2Prefix {
+      /** Unique actors whose anchored sequence begins with exactly these items. */
+      count: number;
+      /** The chain's path items in order, starting at the anchor. */
+      items: PathsV2Item[];
+    }
+
+    export interface PathsV2Row {
+      /** Unique actors with a journey whose item at this step is this path item. */
+      count: number;
+      item: PathsV2Item;
+    }
+
+    export interface PathsV2Step {
+      /** Unique actors whose journey ends at this step. */
+      dropOffCount: number;
+      /** Unique actors at this step whose path item is beyond the top rows. */
+      otherCount: number;
+      /** Top path items at this step, ordered by unique-actor count descending. */
+      rows: PathsV2Row[];
+      /** 0-based step index (column) in the journey grid. */
+      stepIndex: number;
+    }
+
+    export interface PathsV2Results {
+      edges: PathsV2Edge[];
+      /** Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain. */
+      prefixes: PathsV2Prefix[];
+      steps: PathsV2Step[];
+    }
+
+    export interface PathsV2QueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: PathsV2Results;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface PathsV2Query {
+      /** Colors used in the insight's visualization */
+      dataColorTheme?: number | null;
+      /** Date range for the query */
+      dateRange?: DateRange | null;
+      /** Exclude internal and test users by applying the respective filters */
+      filterTestAccounts?: boolean | null;
+      kind?: 'PathsV2Query';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Properties specific to the paths v2 insight */
+      pathsV2Filter?: PathsV2Filter | null;
+      /** Property filters for all series */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      response?: PathsV2QueryResponse | null;
+      /** Tags that will be added to the Query log comment */
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type StickinessQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface StickinessQueryResponse {
@@ -3913,7 +4046,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: ActorsQueryResponse | null;
       series?: number | null;
-      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
+      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
       status?: string | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -4993,7 +5126,7 @@ export namespace Schemas {
       showLastComputationRefresh?: boolean | null;
       showResults?: boolean | null;
       showTable?: boolean | null;
-      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
+      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
       suppressSessionAnalysisWarning?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -6216,7 +6349,7 @@ export namespace Schemas {
       sampling?: WebAnalyticsSampling | null;
       /** Sampling rate */
       samplingFactor?: number | null;
-      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
+      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
@@ -54645,139 +54778,6 @@ export namespace Schemas {
       variants?: unknown;
     }
 
-    export interface PathsV2Item {
-      /** Event of the step source this item belongs to. */
-      event: string;
-      /** Label value from the source's naming property, after path cleaning. An empty string when the property is missing on the event. Null for sources without a naming property. */
-      label?: string | null;
-    }
-
-    export type PathsV2AnchorType = typeof PathsV2AnchorType[keyof typeof PathsV2AnchorType];
-
-
-    export const PathsV2AnchorType = {
-      Start: 'start',
-      End: 'end',
-    } as const;
-
-    export interface PathsV2Anchor {
-      /** The path item the chart anchors on. Its event must be one of the step sources. */
-      item: PathsV2Item;
-      /** `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the anchor item. Either way the anchor is the grid's single 100% node. */
-      type: PathsV2AnchorType;
-    }
-
-    export interface PathsV2Edge {
-      /** Unique actors with a journey that transitions from source to target between these steps. */
-      count: number;
-      /** Source path item, or null for the source column's "other" row. */
-      source: PathsV2Item | null;
-      /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
-      stepIndex: number;
-      /** Target path item, or null for the target column's "other" row. */
-      target: PathsV2Item | null;
-    }
-
-    export interface PathsV2StepSource {
-      /** Name of the event this source matches. */
-      event: string;
-      /** Event property whose value labels the path item, e.g. `$pathname` for pageviews. Team path cleaning rules are applied to the value. Without a naming property, the event itself is the path item. */
-      namingProperty?: string | null;
-    }
-
-    export interface PathsV2Filter {
-      /** Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead. */
-      anchor?: PathsV2Anchor | null;
-      /** Merge immediate repeats of the same path item within a journey. */
-      collapseRepeats?: boolean | null;
-      /** Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap. */
-      conversionWindowInterval?: number | null;
-      conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnit | null;
-      /** Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds. */
-      gapInterval?: number | null;
-      gapIntervalUnit?: FunnelConversionWindowTimeUnit | null;
-      /** Number of path item rows per step; items beyond this go into the "other" row. */
-      maxRowsPerStep?: number | null;
-      /** Number of journey steps (columns) shown. */
-      maxSteps?: number | null;
-      /** Step sources defining which events can become path items. Defaults to the pageviews preset: `$pageview` named by `$pathname`. */
-      stepSources?: PathsV2StepSource[] | null;
-    }
-
-    export interface PathsV2Prefix {
-      /** Unique actors whose anchored sequence begins with exactly these items. */
-      count: number;
-      /** The chain's path items in order, starting at the anchor. */
-      items: PathsV2Item[];
-    }
-
-    export interface PathsV2Row {
-      /** Unique actors with a journey whose item at this step is this path item. */
-      count: number;
-      item: PathsV2Item;
-    }
-
-    export interface PathsV2Step {
-      /** Unique actors whose journey ends at this step. */
-      dropOffCount: number;
-      /** Unique actors at this step whose path item is beyond the top rows. */
-      otherCount: number;
-      /** Top path items at this step, ordered by unique-actor count descending. */
-      rows: PathsV2Row[];
-      /** 0-based step index (column) in the journey grid. */
-      stepIndex: number;
-    }
-
-    export interface PathsV2Results {
-      edges: PathsV2Edge[];
-      /** Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain. */
-      prefixes: PathsV2Prefix[];
-      steps: PathsV2Step[];
-    }
-
-    export interface PathsV2QueryResponse {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: PathsV2Results;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
-
-    export interface PathsV2Query {
-      /** Colors used in the insight's visualization */
-      dataColorTheme?: number | null;
-      /** Date range for the query */
-      dateRange?: DateRange | null;
-      /** Exclude internal and test users by applying the respective filters */
-      filterTestAccounts?: boolean | null;
-      kind?: 'PathsV2Query';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Properties specific to the paths v2 insight */
-      pathsV2Filter?: PathsV2Filter | null;
-      /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
-      response?: PathsV2QueryResponse | null;
-      /** Tags that will be added to the Query log comment */
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
     export interface PauseResponse {
       /** Always 'paused'. */
       status: string;
@@ -77668,6 +77668,7 @@ export namespace Schemas {
 
     export const InsightsListInsight = {
       Funnels: 'FUNNELS',
+      Journeys: 'JOURNEYS',
       Json: 'JSON',
       Lifecycle: 'LIFECYCLE',
       Paths: 'PATHS',
