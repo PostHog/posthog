@@ -22,8 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwav
     validate_credentials,
 )
 
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-FLUTTERWAVE_SESSION_PATCH = (
+# get_rows builds the tracked session (capture=False) and hands it to the REST client, and
+# validate_credentials builds its probe session, both via this import — so one patch covers both.
+SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.flutterwave.make_tracked_session"
 )
 SLEEP_PATCH = "tenacity.nap.time.sleep"
@@ -89,7 +90,7 @@ def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_walks_pages_until_total_pages(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params, auths = _wire(
@@ -107,7 +108,7 @@ class TestPagination:
         assert auths[0].token == "FLWSECK-test"
         assert "seckey" not in params[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_empty_page_stops_pagination(self, MockSession: mock.MagicMock) -> None:
         # A body that claims more pages than it has must not loop forever on empty responses.
         session = MockSession.return_value
@@ -116,7 +117,7 @@ class TestPagination:
         assert _rows(_source("subaccounts")) == []
         assert session.send.call_count == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params, _auths = _wire(session, [_response(_page([{"id": 7}], total_pages=4))])
@@ -126,7 +127,7 @@ class TestPagination:
         assert [r["id"] for r in rows] == [7]
         assert params[0]["page"] == 4
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_saves_page_after_yielding_and_only_while_pages_remain(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         _wire(
@@ -151,7 +152,7 @@ class TestDateWindow:
             ("payment_plans",),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_optional_window_endpoints_send_no_window_on_full_refresh(
         self, endpoint: str, MockSession: mock.MagicMock
     ) -> None:
@@ -177,7 +178,7 @@ class TestDateWindow:
             ("beneficiaries",),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_endpoints_without_a_window_never_send_one(self, endpoint: str, MockSession: mock.MagicMock) -> None:
         # These endpoints do not accept `from`/`to`; sending them risks 4xxing the whole run.
         session = MockSession.return_value
@@ -189,7 +190,7 @@ class TestDateWindow:
         assert "to" not in params[0]
 
     @freeze_time("2026-06-15T23:30:00Z")
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_transactions_always_sends_the_required_window(self, MockSession: mock.MagicMock) -> None:
         # /transactions documents `from`/`to` as required, so every full refresh sends the whole
         # history window. `to` is padded a day past UTC today so records booked "today" in a timezone
@@ -210,7 +211,7 @@ class TestNoRecordsResponses:
             ("capitalized", {"status": "error", "message": "Transaction Not Found", "data": None}),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_empty_range_400_reads_as_an_empty_table(
         self, _name: str, body: dict[str, Any], MockSession: mock.MagicMock
     ) -> None:
@@ -222,7 +223,7 @@ class TestNoRecordsResponses:
         assert _rows(_source("settlements")) == []
         assert session.send.call_count == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_genuine_parameter_error_still_raises(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         _wire(
@@ -242,7 +243,7 @@ class TestNoRecordsResponses:
 
 class TestErrorHandling:
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_credential_errors_surface_the_matchable_message(
         self, _name: str, status: int, reason: str, MockSession: mock.MagicMock
     ) -> None:
@@ -259,7 +260,7 @@ class TestErrorHandling:
 
     @parameterized.expand([("rate_limited", 429, "Too Many Requests"), ("server_error", 503, "Service Unavailable")])
     @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_transient_statuses_are_retried_by_the_transport(
         self, _name: str, status: int, reason: str, MockSession: mock.MagicMock, _sleep: mock.MagicMock
     ) -> None:
@@ -270,7 +271,7 @@ class TestErrorHandling:
         assert session.send.call_count == 2
 
     @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_persistent_rate_limit_raises_retryable(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
         session = MockSession.return_value
         _wire(session, [_response({}, status=429, reason="Too Many Requests")] * 5)
@@ -318,7 +319,7 @@ class TestValidateCredentials:
     def test_status_maps_to_validity(self, _name: str, status_code: int, expected: bool) -> None:
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=status_code)
-        with mock.patch(FLUTTERWAVE_SESSION_PATCH, return_value=session):
+        with mock.patch(SESSION_PATCH, return_value=session):
             valid, message = validate_credentials("FLWSECK-test", "v3")
         assert valid is expected
         assert (message is None) is expected
@@ -326,7 +327,7 @@ class TestValidateCredentials:
     def test_network_failure_is_not_valid(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(FLUTTERWAVE_SESSION_PATCH, return_value=session):
+        with mock.patch(SESSION_PATCH, return_value=session):
             valid, message = validate_credentials("FLWSECK-test", "v3")
         assert valid is False
         assert message is not None
@@ -334,6 +335,6 @@ class TestValidateCredentials:
     def test_probe_targets_the_pinned_api_version(self) -> None:
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(FLUTTERWAVE_SESSION_PATCH, return_value=session):
+        with mock.patch(SESSION_PATCH, return_value=session):
             validate_credentials("FLWSECK-test", "v3")
         assert session.get.call_args.args[0] == "https://api.flutterwave.com/v3/subaccounts"

@@ -64,9 +64,10 @@ def _window_end() -> str:
 
 def validate_credentials(secret_key: str, api_version: str) -> tuple[bool, str | None]:
     # /subaccounts is the cheapest authenticated probe: no required params, a small body, and it only
-    # needs the account's secret key.
+    # needs the account's secret key. Its response also carries subaccount bank details, so keep it
+    # out of the HTTP diagnostic sample store (capture=False).
     ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(secret_key,)),
+        lambda: make_tracked_session(redact_values=(secret_key,), capture=False),
         f"{base_url(api_version)}/subaccounts",
         headers={"Authorization": f"Bearer {secret_key}", "Accept": "application/json"},
     )
@@ -116,6 +117,9 @@ def get_rows(
             "base_url": base_url(api_version),
             "headers": {"Accept": "application/json"},
             "auth": _auth_config(secret_key),
+            # These bodies carry bank account numbers and transaction metadata, so keep them out of
+            # the HTTP diagnostic sample store (requests are still metered and logged).
+            "session": make_tracked_session(redact_values=(secret_key,), capture=False),
         },
         "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
