@@ -60,7 +60,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -88,6 +88,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
@@ -149,6 +150,7 @@ from products.signals.backend.temporal.reingestion import SignalReportReingestio
 from products.signals.backend.temporal.signal_queries import (
     fetch_live_report_ids_for_source_ids,
     fetch_report_ids_for_scout_names,
+    fetch_report_ids_for_scout_prefix,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
 )
@@ -583,6 +585,36 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
+# The thumbs rating at the end of the report body carries an optional note, capped in the UI at the
+# same length as the dismissal note.
+SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
+
+
+class SignalReportFeedbackRequestSerializer(serializers.Serializer):
+    sentiment = serializers.ChoiceField(
+        choices=[("positive", "positive"), ("negative", "negative")],
+        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+    )
+    note = serializers.CharField(
+        max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
+        help_text=(
+            "Free-form note explaining the rating. Capped at "
+            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Only submitted alongside a note — a "
+            "bare thumb carries none — and, for a report authored by a scout, forwarded to that scout "
+            "as a steering note."
+        ),
+    )
+
+
+class SignalReportFeedbackResponseSerializer(serializers.Serializer):
+    forwarded = serializers.BooleanField(
+        help_text=(
+            "Whether the note was forwarded to the report's authoring scout as a steering note. False "
+            "when the report has no resolvable authoring scout, or the caller lacks scout-steering access."
+        ),
+    )
+
+
 # Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
 # organization, matching the refund window (the org's billing period).
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
@@ -733,6 +765,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
+        qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
@@ -781,10 +814,12 @@ class SignalReportViewSet(
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
     # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
     # can reach suppressed reports too. `refund` is included so an already-archived but
-    # billed report can still be refunded. Mutating-by-ID actions (delete, reingest) are
+    # billed report can still be refunded, and `feedback` because the detail view the
+    # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
+    # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund"})
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund", "feedback"})
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
@@ -901,6 +936,14 @@ class SignalReportViewSet(
 
         report_ids_with_scout = fetch_report_ids_for_scout_names(self.team, scout_names)
         return queryset.filter(id__in=report_ids_with_scout)
+
+    def _apply_signal_report_scout_prefix_filter(self, queryset):
+        scout_prefix = (self.request.query_params.get("scout_prefix") or "").strip()
+        if not scout_prefix:
+            return queryset
+
+        report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
+        return queryset.filter(id__in=report_ids_with_prefix)
 
     def _latest_suggested_reviewers_qs(self):
         """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
@@ -1387,6 +1430,18 @@ class SignalReportViewSet(
                 ),
             ),
             OpenApiParameter(
+                name="scout_prefix",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at "
+                    "least one of their contributing signals was authored by a scout whose skill_name starts "
+                    "with this prefix — new scouts in the family match without callers listing every name. "
+                    "Combines with the other filters as an AND."
+                ),
+            ),
+            OpenApiParameter(
                 name="suggested_reviewers",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1679,6 +1734,43 @@ class SignalReportViewSet(
         )
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @extend_schema(
+        summary="Leave feedback on a report",
+        description=(
+            "Record a note left with the thumbs rating at the end of a report. The rating itself is a "
+            "product-analytics event; this endpoint exists to carry the note into the scout steering "
+            "channel. For a report authored by a scout, the note is forwarded to that scout as a "
+            "steering note it reads on its next run; for any other report there is nothing to steer and "
+            "the call is a no-op success. The report's state is never changed."
+        ),
+        request=SignalReportFeedbackRequestSerializer,
+        responses={200: SignalReportFeedbackResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    def feedback(self, request, pk=None, **kwargs):
+        """Forward a report's feedback note to the scout that authored it.
+
+        Feedback-only: unlike `state`, this never transitions the report. The note is a derived
+        convenience — the durable record of the rating is the analytics event the client fires —
+        so forwarding is best-effort and never fails the request.
+        """
+        report = cast(SignalReport, self.get_object())
+
+        serializer = SignalReportFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        note_id = forward_feedback_note(
+            team=self.team,
+            report_id=str(report.id),
+            sentiment=data["sentiment"],
+            note=data["note"],
+            user_id=request.user.id if isinstance(request.user, User) else None,
+            scoped_team_ids=get_authenticator_scoped_team_ids(request.successful_authenticator),
+            api_scopes=get_authenticator_scopes(request.successful_authenticator),
+        )
+        return Response(SignalReportFeedbackResponseSerializer({"forwarded": note_id is not None}).data)
 
     def _forward_dismissal_note(
         self,
