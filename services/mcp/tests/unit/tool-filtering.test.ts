@@ -859,6 +859,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'review-hog',
                 'warehouse-person-properties',
                 'streamlit-apps',
+                'tasks-orchestration',
             ])
         )
         expect(flags).toHaveLength(29)
