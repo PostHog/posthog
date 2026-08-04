@@ -644,6 +644,9 @@ importers:
       '@posthog/products-annotations':
         specifier: workspace:*
         version: link:../products/annotations
+      '@posthog/products-apm':
+        specifier: workspace:*
+        version: link:../products/apm
       '@posthog/products-batch-exports':
         specifier: workspace:*
         version: link:../products/batch_exports
@@ -2479,6 +2482,8 @@ importers:
 
   products/annotations: {}
 
+  products/apm: {}
+
   products/approvals: {}
 
   products/batch_exports: {}
@@ -2512,6 +2517,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/canvas: {}
 
   products/cdp: {}
 

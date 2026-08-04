@@ -3385,7 +3385,7 @@ describe('Workflows E2E (email queue)', () => {
     //
     // Email assets used to be produced one-at-a-time via a fire-and-forget Kafka call
     // from `email.service.ts → MessageAssetsService.captureSentEmail`. We've moved that
-    // to a buffer-then-flush pattern that drains `result.emailAssets` at the batch
+    // to a buffer-then-flush pattern that drains `result.messageAssets` at the batch
     // boundary and bulk-produces, gated on broker ack before the consumer commits
     // offsets. These tests pin the end-to-end behavior: one workflow → one asset row in
     // the `message_assets` Kafka topic with the right metadata, and a single batch with
