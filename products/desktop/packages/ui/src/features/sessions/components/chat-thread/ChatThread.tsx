@@ -1088,6 +1088,14 @@ const FlatRowView = memo(
  * (`ChatMessageFooter`) — see `UserBubble`.
  */
 interface SharedChatThreadProps {
+  /**
+   * Fold each run of tool calls into one collapsible row. Defaults to true.
+   *
+   * Embedded surfaces (the live-agent chat preview) pass false: they are short, they are the whole
+   * point of the pane they sit in, and folding the agent's work behind a chip there hides the only
+   * thing there is to look at.
+   */
+  groupToolCalls?: boolean;
   isPromptPending: boolean | null;
   promptStartedAt?: number | null;
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
@@ -1161,6 +1169,7 @@ interface ChatThreadRendererProps extends SharedChatThreadProps {
 function ChatThreadRenderer({
   conversationItems,
   footerEvents,
+  groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
   repoPath,
@@ -1188,8 +1197,8 @@ function ChatThreadRenderer({
   );
 
   const rows = useMemo<TurnRow[]>(
-    () => groupIntoTurns(groupToolRuns(items)),
-    [items],
+    () => groupIntoTurns(groupToolCalls ? groupToolRuns(items) : items),
+    [items, groupToolCalls],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and
