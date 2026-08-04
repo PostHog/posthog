@@ -1258,8 +1258,14 @@ function computeTargets(changedFiles, context) {
             // is still backend: the workspace says the directory holds a JS
             // package, not that Python cannot be checked into it.
             const isWorkspaceOnly = !isBackend && !isFrontend && isInProductWorkspace(product, file, productWorkspaces)
+            // Markdown reaches this branch only as a product skill, which the
+            // prose rule exempts above because the skill build and the
+            // product's own backend read those files. Both readers are Python,
+            // so it takes the backend half of the "neither" default below and
+            // not the frontend one: no frontend suite reads a skill.
+            const isMarkdown = /\.mdx?$/.test(file)
 
-            if (isFrontend || (!isBackend && !isFrontend)) {
+            if (isFrontend || (!isBackend && !isFrontend && !isMarkdown)) {
                 targets.add(feProduct(product))
             }
             if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
