@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import ROUND_UP, Decimal
 
 from django.utils import timezone
@@ -109,10 +109,19 @@ def calculate_sandbox_compute_cost(
     if effective_end <= pricing_start:
         return _empty_cost()
 
-    rounded_duration = _decimal_seconds(effective_end - pricing_start).to_integral_value(rounding=ROUND_UP)
-    rounded_end = pricing_start + timedelta(seconds=int(rounded_duration))
+    actual_duration = _decimal_seconds(effective_end - pricing_start)
+    rounded_duration = actual_duration.to_integral_value(rounding=ROUND_UP)
+
+    def scaled_elapsed(at: datetime) -> Decimal:
+        elapsed = _decimal_seconds(at - pricing_start)
+        if elapsed == 0:
+            return Decimal(0)
+        if elapsed == actual_duration:
+            return rounded_duration
+        return elapsed * rounded_duration / actual_duration
+
     start = max(pricing_start, reporting_start)
-    stop = min(rounded_end, reporting_end)
+    stop = min(effective_end, reporting_end)
     if stop <= start:
         return _empty_cost()
 
@@ -121,9 +130,9 @@ def calculate_sandbox_compute_cost(
         segment_start = max(start, card.effective_at)
         segment_stop = min(stop, card.expires_at or stop)
         if segment_stop > segment_start:
-            segments.append((card, _decimal_seconds(segment_stop - segment_start)))
+            segments.append((card, scaled_elapsed(segment_stop) - scaled_elapsed(segment_start)))
 
-    if sum((seconds for _, seconds in segments), Decimal(0)) != _decimal_seconds(stop - start):
+    if sum((seconds for _, seconds in segments), Decimal(0)) != scaled_elapsed(stop) - scaled_elapsed(start):
         raise ComputeRateCardConfigurationError("compute rate cards do not cover the billable window")
 
     cpu_cores, memory_gib = _billable_resources(session)

@@ -196,6 +196,23 @@ def test_rate_boundary_apportions_one_session_without_rounding_twice():
     assert cost.line_items[1].billable_seconds == Decimal("0.5")
 
 
+def test_rate_boundary_apportions_rounded_duration_proportionally():
+    session = _session(
+        created_at=NEXT_RATE_AT - timedelta(hours=1),
+        user_attributed_at=NEXT_RATE_AT - timedelta(microseconds=900_000),
+        ended_at=NEXT_RATE_AT + timedelta(microseconds=300_000),
+        ttl_expires_at=NEXT_RATE_AT + timedelta(hours=5),
+    )
+
+    cost = _calculate(session, NEXT_RATE_AT - timedelta(seconds=1), NEXT_RATE_AT + timedelta(seconds=1))
+
+    assert cost.billable_seconds == 2
+    assert cost.line_items[0].rate_card.version == RATE_V1.version
+    assert cost.line_items[0].billable_seconds == Decimal("1.5")
+    assert cost.line_items[1].rate_card.version == RATE_V2.version
+    assert cost.line_items[1].billable_seconds == Decimal("0.5")
+
+
 def test_rounds_once_before_apportioning_across_reporting_periods():
     boundary = EFFECTIVE_AT + timedelta(hours=1)
     session = _session(
@@ -206,8 +223,8 @@ def test_rounds_once_before_apportioning_across_reporting_periods():
     first = _calculate(session, EFFECTIVE_AT, boundary)
     second = _calculate(session, boundary, EFFECTIVE_AT + timedelta(hours=2))
 
-    assert first.billable_seconds == Decimal("0.6")
-    assert second.billable_seconds == Decimal("1.4")
+    assert first.billable_seconds == Decimal("1")
+    assert second.billable_seconds == Decimal("1")
     assert first.billable_seconds + second.billable_seconds == Decimal("2")
 
 
