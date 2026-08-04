@@ -122,12 +122,22 @@ export const ToolGroup = memo(function ToolGroup({
           thoughtComplete={item.thoughtComplete}
         />
       ))}
-      className="opacity-50 hover:opacity-100"
+      // Matches ToolRow: aligned to the text column, no hover fill, inset ring,
+      // and open looks the same as hover.
+      className={cn(
+        "mx-0 px-0 opacity-50 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent",
+        "data-panel-open:bg-transparent data-panel-open:opacity-100",
+        // The installed quill parks the chevron with `margin-inline-start: auto`;
+        // unset it so it sits against the text it opens. Newer quill already
+        // hugs, at which point this is inert.
+        "[&>svg:last-child]:ms-0",
+        "focus-visible:shadow-none focus-visible:ring-(--ring)/50 focus-visible:ring-2 focus-visible:ring-inset",
+      )}
     >
       <ChatMarkerIcon>{isActive ? <Spinner /> : <LeadIcon />}</ChatMarkerIcon>
       <ChatMarkerContent
         className={cn(
-          "flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm",
+          "flex min-w-0 items-center gap-1.5 overflow-hidden text-muted-foreground text-sm",
           isActive && "shimmer",
         )}
       >
