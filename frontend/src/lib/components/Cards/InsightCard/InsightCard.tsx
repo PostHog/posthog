@@ -374,12 +374,13 @@ function InsightCardInternal(
                 return (
                     <InsightErrorState
                         title={apiError.detail}
+                        query={insight.query}
                         queryId={apiError.data?.queryId}
                         supportOnly={isDashboardTileError}
                     />
                 )
             }
-            return <InsightErrorState />
+            return <InsightErrorState query={insight.query} />
         }
 
         if (timedOut) {

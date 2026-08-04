@@ -3554,6 +3554,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                         actions.setRefreshStatus(insight.short_id)
                     }
+                } else if (refreshedInsight) {
+                    // isRefreshRejectionStub(refreshedInsight) here - it carries the real query error, just no result
+                    actions.setRefreshError(insight.short_id, getInsightQueryError(refreshedInsight) ?? undefined)
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
@@ -3667,6 +3670,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     false
                                 )
                             }
+                        } else if (refreshedInsight) {
+                            // isRefreshRejectionStub(refreshedInsight) here - it carries the real query error, just no result
+                            actions.setRefreshError(
+                                insight.short_id,
+                                getInsightQueryError(refreshedInsight) ?? undefined
+                            )
+                            tilesErroredCount++
                         } else {
                             actions.setRefreshError(insight.short_id)
                             tilesErroredCount++

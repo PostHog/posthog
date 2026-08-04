@@ -1479,6 +1479,14 @@ describe('dashboardLogic', () => {
                     expect(logic.values.refreshStatus[insight2.short_id]).toEqual(
                         expect.objectContaining({ errored: true })
                     )
+                    // and carry the query_status's queryId/code through, rather than discarding it -
+                    // without this the dashboard tile renders a blind error with no queryId to trace
+                    expect(logic.values.refreshStatus[insight1.short_id].error).toEqual(
+                        expect.objectContaining({ data: expect.objectContaining({ queryId: 'rejected-query' }) })
+                    )
+                    expect(logic.values.refreshStatus[insight2.short_id].error).toEqual(
+                        expect.objectContaining({ data: expect.objectContaining({ queryId: 'rejected-query' }) })
+                    )
                 } finally {
                     getInsightWithRetrySpy.mockRestore()
                 }
