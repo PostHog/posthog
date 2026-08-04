@@ -44,7 +44,11 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
     """
-    if isinstance(error, botocore.exceptions.NoCredentialsError):
+    if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
+        # Already classified and wrapped by a prior call to this same function (see
+        # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
+        # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
+        # wraps, must still treat it as transient.
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
