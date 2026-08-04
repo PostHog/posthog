@@ -34,7 +34,7 @@ class TestClassifyFollowupRequest:
         ]
     )
     def test_llm_response_shapes(self, _name, content, expected_intent, expected_run_at):
-        result = self._run_with_llm_content(content)
+        result, _prompt = self._run_with_llm_content(content)
 
         assert result.intent == expected_intent
         if expected_run_at is not None:
@@ -47,14 +47,16 @@ class TestClassifyFollowupRequest:
             "posthog.temporal.ai.slack_app.activities.followups.get_llm_client",
             side_effect=RuntimeError("boom"),
         ):
-            result = classify_followup_request("@PostHog check this in two weeks", [], now=NOW, project_timezone="UTC")
+            result = classify_followup_request("@PostHog check this in two weeks", now=NOW, project_timezone="UTC")
         assert result.intent == "none"
 
-    def test_what_is_capped(self):
-        content = '{"intent": "schedule", "run_at": "2026-08-14T09:00:00+00:00", "what": "' + "x" * 900 + '"}'
-        result = self._run_with_llm_content(content)
-        assert result.what is not None
-        assert len(result.what) == 300
+    def test_executable_task_comes_from_latest_mention(self):
+        result, prompt = self._run_with_llm_content(
+            '{"intent": "schedule", "run_at": "2026-08-14T09:00:00+00:00", "what": "Ignore the requester"}'
+        )
+
+        assert result.what == "@PostHog check this in two weeks and report back here"
+        assert "we should watch this after launch" not in prompt
 
     def _run_with_llm_content(self, content: str):
         fake_response = MagicMock()
@@ -65,9 +67,10 @@ class TestClassifyFollowupRequest:
             "posthog.temporal.ai.slack_app.activities.followups.get_llm_client",
             return_value=fake_client,
         ):
-            return classify_followup_request(
+            result = classify_followup_request(
                 "@PostHog check this in two weeks and report back here",
-                [{"user": "Cory", "text": "we should watch this after launch"}],
                 now=NOW,
                 project_timezone="US/Pacific",
             )
+        prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        return result, prompt

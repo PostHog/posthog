@@ -1,4 +1,3 @@
-import re
 import uuid
 import textwrap
 from typing import Any
@@ -15,7 +14,13 @@ from posthog.temporal.ai.slack_app.attachments import (
     get_slack_bot_token,
     prepare_slack_file_artifacts,
 )
-from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
+from posthog.temporal.ai.slack_app.helpers import (
+    SLACK_THREAD_CONTEXT_TAG,
+    SLACK_THREAD_CONTEXT_UPDATE_TAG,
+    block_if_team_over_quota,
+    safe_react,
+    strip_slack_thread_context_tags,
+)
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 from posthog.temporal.common.utils import close_db_connections
 
@@ -28,8 +33,6 @@ _SLACK_RECOVERY_STRATEGY_RETRY = "retry"
 _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
-_THREAD_CONTEXT_TAG = "slack_thread_context"
-_THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
 # Default the Slack bot to Opus 5 when neither the user nor the workspace has
 # pinned a model, instead of letting the agent server fall back to its own
@@ -92,14 +95,6 @@ def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str,
     )
 
     return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
-
-
-def _strip_context_tag(text: str) -> str:
-    return re.sub(rf"</?\s*{_THREAD_CONTEXT_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
-
-
-def _strip_context_update_tag(text: str) -> str:
-    return re.sub(rf"</?\s*{_THREAD_CONTEXT_UPDATE_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
 
 
 def _max_ts(*candidates: str | None) -> str:
@@ -321,7 +316,7 @@ def _build_posthog_code_task_description(
         if is_initiator_slot:
             body = _INITIATOR_PLACEHOLDER
         else:
-            body = _strip_context_tag(msg["text"])
+            body = strip_slack_thread_context_tags(msg["text"])
 
         context_entries.append(f"{author}:\n{_indent_body(body)}")
 
@@ -385,7 +380,7 @@ def _build_posthog_code_task_description(
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""
     context_block = "\n".join(context_entries)
     return (
-        f"<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>"
+        f"<{SLACK_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{SLACK_THREAD_CONTEXT_TAG}>"
         f"\n\n{_with_slack_delivery_constraints(prompt, canvas_file_artifacts_enabled=canvas_file_artifacts_enabled, living_artifacts_enabled=living_artifacts_enabled)}"
     )
 
@@ -479,7 +474,7 @@ def build_thread_context_update_block(
     entries: list[str] = []
     for msg in in_window:
         author = _format_author_token(msg.get("user_id"), msg.get("user"))
-        body = _strip_context_tag(_strip_context_update_tag(msg["text"]))
+        body = strip_slack_thread_context_tags(msg["text"])
         entries.append(f"{author}:\n{_indent_body(body)}")
 
     header_lines = [
@@ -495,7 +490,7 @@ def build_thread_context_update_block(
         )
     header = "\n".join(header_lines)
     body = "\n".join(entries)
-    block = f"<{_THREAD_CONTEXT_UPDATE_TAG}>\n{header}\n\n{body}\n</{_THREAD_CONTEXT_UPDATE_TAG}>"
+    block = f"<{SLACK_THREAD_CONTEXT_UPDATE_TAG}>\n{header}\n\n{body}\n</{SLACK_THREAD_CONTEXT_UPDATE_TAG}>"
     return block, new_watermark
 
 

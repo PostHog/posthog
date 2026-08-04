@@ -5,9 +5,20 @@ These helpers exist outside the activity modules so that any activity in
 between activity files.
 """
 
+import re
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
+
+SLACK_THREAD_CONTEXT_TAG = "slack_thread_context"
+SLACK_THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
+_THREAD_CONTEXT_TAGS = (SLACK_THREAD_CONTEXT_TAG, SLACK_THREAD_CONTEXT_UPDATE_TAG)
+
+
+def strip_slack_thread_context_tags(text: str) -> str:
+    for tag in _THREAD_CONTEXT_TAGS:
+        text = re.sub(rf"</?\s*{tag}\s*/?>", "", text, flags=re.IGNORECASE)
+    return text
 
 
 def block_if_team_over_quota(
