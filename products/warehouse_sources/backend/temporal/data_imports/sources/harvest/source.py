@@ -80,12 +80,18 @@ class HarvestSource(ResumableSource[HarvestSourceConfig, HarvestResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        ok, _status = validate_harvest_credentials(
+        ok, status = validate_harvest_credentials(
             config.account_id, config.access_token, self.resolve_api_version(api_version)
         )
         if ok:
             return True, None
-
+        if status is None:
+            return False, "Could not reach Harvest to validate the credentials. Check your connection and try again."
+        if status == 403:
+            return (
+                False,
+                "This Harvest user does not have permission to read this data. Check the user's role and reconnect.",
+            )
         return False, "Invalid Harvest account ID or access token"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HarvestResumeConfig]:

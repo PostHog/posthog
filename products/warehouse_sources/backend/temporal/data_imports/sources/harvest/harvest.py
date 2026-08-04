@@ -45,7 +45,10 @@ def _to_iso8601(value: Any) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime.datetime):
-        return value.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # A naive watermark can't be shifted with astimezone(); treat it as UTC, like the
+        # other sources do, so incremental sync never crashes on a tz-less stored cursor.
+        utc = value.replace(tzinfo=datetime.UTC) if value.tzinfo is None else value.astimezone(datetime.UTC)
+        return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(value, datetime.date):
         return value.isoformat()
     return str(value)

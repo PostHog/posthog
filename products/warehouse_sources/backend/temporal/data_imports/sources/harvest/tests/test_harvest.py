@@ -108,6 +108,7 @@ class TestHarvestTransport:
         [
             ("none", None, None),
             ("aware_datetime", datetime.datetime(2026, 5, 4, 9, 30, tzinfo=datetime.UTC), "2026-05-04T09:30:00Z"),
+            ("naive_datetime", datetime.datetime(2026, 5, 4, 9, 30), "2026-05-04T09:30:00Z"),
             (
                 "offset_datetime",
                 datetime.datetime(2026, 5, 4, 9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2))),

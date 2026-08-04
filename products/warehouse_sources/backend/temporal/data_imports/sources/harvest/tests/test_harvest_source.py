@@ -80,13 +80,25 @@ class TestHarvestSource:
         assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
 
     @parameterized.expand(
-        [("valid", True, None, True), ("invalid", False, 401, False), ("no_scope", False, 403, False)]
+        [
+            ("valid", True, None, True, None),
+            ("invalid", False, 401, False, "Invalid Harvest account ID"),
+            ("no_scope", False, 403, False, "does not have permission"),
+            ("unreachable", False, None, False, "Could not reach Harvest"),
+        ]
     )
-    def test_validate_credentials(self, _name: str, probe_ok: bool, status: int | None, expected_ok: bool) -> None:
+    def test_validate_credentials(
+        self, _name: str, probe_ok: bool, status: int | None, expected_ok: bool, expected_error: str | None
+    ) -> None:
+        # Distinct messages keep a 403 (missing permission) and an unreachable probe from both
+        # reading as "bad credentials", which would send the user chasing the wrong fix.
         with patch(VALIDATE_PATCH, return_value=(probe_ok, status)):
             ok, error = HarvestSource().validate_credentials(_config(), team_id=1)
         assert ok is expected_ok
-        assert (error is None) is expected_ok
+        if expected_error is None:
+            assert error is None
+        else:
+            assert error is not None and expected_error in error
 
     def test_non_retryable_errors_cover_auth_and_permissions(self) -> None:
         errors = HarvestSource().get_non_retryable_errors()
