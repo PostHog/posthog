@@ -178,6 +178,16 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
             )
         raise
+    except dns.resolver.NoNameservers:
+        # The customer's own nameserver returned SERVFAIL. This is usually transient
+        # (e.g. the zone is still propagating, or their DNS provider is flaking), so
+        # keep retrying - but let the customer know in case it's a persistent problem
+        # on their end.
+        await update_record(
+            proxy_record_id=inputs.proxy_record_id,
+            message="We're having trouble resolving your DNS record - your nameserver returned an error. We'll keep retrying, but you may want to check with your DNS provider if this doesn't resolve itself.",
+        )
+        raise
     except (dns.resolver.NXDOMAIN, dns.resolver.Timeout, ApplicationError):
         # retriable
         raise
