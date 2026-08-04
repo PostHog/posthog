@@ -301,8 +301,6 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
         assert usage.memory_mib_seconds == [(self.team.id, 58_982_400)]
-        assert usage.cpu_cost_microusd == [(self.team.id, 14_400_000)]
-        assert usage.memory_cost_microusd == [(self.team.id, 5_760_000)]
         assert usage.credits == [(self.team.id, 2016)]
 
     def test_billable_compute_includes_user_loops_and_excludes_internal_loops(self):
@@ -339,8 +337,6 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(rate,))
 
         assert usage.credits == [(self.team.id, 1)]
-        assert usage.cpu_cost_microusd == [(self.team.id, 5000)]
-        assert usage.memory_cost_microusd == [(self.team.id, 5000)]
 
     def test_integer_resource_units_round_only_after_exact_aggregation(self):
         for sandbox_id in ("sb-units-a", "sb-units-b"):
@@ -383,8 +379,6 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.credits == expected
         assert usage.cpu_millicore_seconds == expected
         assert usage.memory_mib_seconds == expected
-        assert usage.cpu_cost_microusd == expected
-        assert usage.memory_cost_microusd == expected
         assert all(type(value) is int for rows in usage.__dict__.values() for _, value in rows)
 
     def test_compute_before_first_rate_is_free_and_rate_changes_are_applied(self):
@@ -410,8 +404,6 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=rates)
 
         assert usage.cpu_millicore_seconds == [(self.team.id, 2000)]
-        assert usage.cpu_cost_microusd == [(self.team.id, 3000)]
-        assert usage.memory_cost_microusd == [(self.team.id, 300)]
 
     def test_empty_rate_card_is_not_launched_but_invalid_configuration_fails(self):
         self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)

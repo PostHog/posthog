@@ -4814,8 +4814,6 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
             "sandbox_compute_credits_used_in_period",
             "sandbox_compute_cpu_millicore_seconds_in_period",
             "sandbox_compute_memory_mib_seconds_in_period",
-            "sandbox_compute_cpu_cost_microusd_in_period",
-            "sandbox_compute_memory_cost_microusd_in_period",
         }
 
         assert all(UsageReportCounters.__annotations__[metric] is int for metric in component_metrics)
@@ -4843,7 +4841,7 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
             datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
         )
 
-        assert result == SandboxComputeUsageByTeam([], [], [], [], [])
+        assert result == SandboxComputeUsageByTeam([], [], [])
         mock_capture.assert_called_once_with(error)
 
 

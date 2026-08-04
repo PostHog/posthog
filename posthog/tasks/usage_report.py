@@ -255,8 +255,6 @@ class UsageReportCounters:
     sandbox_compute_credits_used_in_period: int
     sandbox_compute_cpu_millicore_seconds_in_period: int
     sandbox_compute_memory_mib_seconds_in_period: int
-    sandbox_compute_cpu_cost_microusd_in_period: int
-    sandbox_compute_memory_cost_microusd_in_period: int
 
     # Cloud task sandbox compute, all task origins (raw user-attributed usage from the
     # SandboxSession ledger — unpriced until a billing model is decided; pre-warm time excluded)
@@ -1764,7 +1762,7 @@ def get_teams_with_billable_sandbox_compute_usage_in_period(
     except Exception as err:
         logger.exception("sandbox_compute.usage_report_failed")
         capture_exception(err)
-        return SandboxComputeUsageByTeam([], [], [], [], [])
+        return SandboxComputeUsageByTeam([], [], [])
 
 
 def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> int:
@@ -2813,8 +2811,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_sandbox_compute_credits_used_in_period": sandbox_compute_usage.credits,
         "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": sandbox_compute_usage.cpu_millicore_seconds,
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": sandbox_compute_usage.memory_mib_seconds,
-        "teams_with_sandbox_compute_cpu_cost_microusd_in_period": sandbox_compute_usage.cpu_cost_microusd,
-        "teams_with_sandbox_compute_memory_cost_microusd_in_period": sandbox_compute_usage.memory_cost_microusd,
         "teams_with_task_sandbox_seconds_in_period": task_sandbox_usage.seconds,
         "teams_with_task_sandbox_cpu_core_seconds_in_period": task_sandbox_usage.cpu_core_seconds,
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
@@ -3022,12 +3018,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ].get(team.id, 0),
         sandbox_compute_memory_mib_seconds_in_period=all_data[
             "teams_with_sandbox_compute_memory_mib_seconds_in_period"
-        ].get(team.id, 0),
-        sandbox_compute_cpu_cost_microusd_in_period=all_data[
-            "teams_with_sandbox_compute_cpu_cost_microusd_in_period"
-        ].get(team.id, 0),
-        sandbox_compute_memory_cost_microusd_in_period=all_data[
-            "teams_with_sandbox_compute_memory_cost_microusd_in_period"
         ].get(team.id, 0),
         task_sandbox_seconds_in_period=all_data["teams_with_task_sandbox_seconds_in_period"].get(team.id, 0),
         task_sandbox_cpu_core_seconds_in_period=all_data["teams_with_task_sandbox_cpu_core_seconds_in_period"].get(
