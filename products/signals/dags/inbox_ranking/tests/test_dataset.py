@@ -144,19 +144,32 @@ def test_label_stream_columns_all_exist_in_defaults():
 
 
 @pytest.mark.parametrize(
-    "pg_status,pg_updated_at,latest_event,expected",
+    "pg_status,pg_updated_at,latest_event,event_team_id,expected",
     [
-        (None, None, "resolved", False),
-        ("resolved", T1, None, True),
-        ("resolved", T1, "resolved", True),
+        (None, None, "resolved", 2, False),
+        ("resolved", T1, None, None, True),
+        ("resolved", T1, "resolved", 2, True),
         # A mismatch is only excused by a Postgres write after the cutoff — the transition the label
         # window couldn't see. An earlier one is unrelated activity (ingestion bumps updated_at).
-        ("potential", AFTER_SNAPSHOT_END, "resolved", True),
-        ("potential", T2, "resolved", False),
+        ("potential", AFTER_SNAPSHOT_END, "resolved", 2, True),
+        ("potential", T2, "resolved", 2, False),
+        # Telemetry naming another tenant isn't about this report, however well the status lines up.
+        ("resolved", T1, "resolved", 99, False),
+        ("resolved", T1, "resolved", None, False),
     ],
 )
-def test_label_provenance_cross_check(pg_status, pg_updated_at, latest_event, expected):
-    assert label_provenance_ok(pg_status, pg_updated_at, latest_event, snapshot_end=SNAPSHOT_END) is expected
+def test_label_provenance_cross_check(pg_status, pg_updated_at, latest_event, event_team_id, expected):
+    assert (
+        label_provenance_ok(
+            pg_status,
+            pg_updated_at,
+            latest_event,
+            report_team_id=2,
+            status_event_team_id=event_team_id,
+            snapshot_end=SNAPSHOT_END,
+        )
+        is expected
+    )
 
 
 def _state_row(report_id: str, **overrides):
@@ -190,7 +203,15 @@ def test_assemble_model_rows_spine_and_join():
         _embedding_row("r2", embedding_small=None, is_tombstone=True),
         _embedding_row("r4"),
     ]
-    labels = [{"report_id": "r1", "open_count": 4, "latest_status_event": "ready", "latest_status_event_at": T1}]
+    labels = [
+        {
+            "report_id": "r1",
+            "open_count": 4,
+            "latest_status_event": "ready",
+            "latest_status_event_at": T1,
+            "status_event_team_id": 2,
+        }
+    ]
 
     rows = {
         row["report_id"]: row

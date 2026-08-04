@@ -540,11 +540,14 @@ def label_provenance_ok(
     pg_updated_at: datetime.datetime | None,
     latest_status_event: str | None,
     *,
+    report_team_id: int | None,
+    status_event_team_id: int | None,
     snapshot_end: datetime.datetime,
 ) -> bool:
     """Status labels cross-checked against Postgres current state (the label-telemetry PR's
-    security-review requirement): the report must exist in Postgres, and its latest status event
-    must either match the current status or be explained by the cutoff.
+    security-review requirement): the report must exist in Postgres, its status telemetry must be
+    about that report's tenant, and its latest status event must either match the current status or
+    be explained by the cutoff.
 
     The only legitimate mismatch is a status that moved after the label window closed — labels are
     bounded at the cutoff, Postgres is read at run time. Any *earlier* write is no excuse: signal
@@ -554,6 +557,11 @@ def label_provenance_ok(
         return False
     if latest_status_event is None:
         return True
+    # The transition reported a tenant; a real emit always carries the report's own. Naming a
+    # different team (or no readable team at all) means the event isn't about this report, however
+    # well its status happens to line up.
+    if report_team_id is None or status_event_team_id != report_team_id:
+        return False
     if latest_status_event == pg_status:
         return True
     return pg_updated_at is not None and pg_updated_at >= snapshot_end
@@ -620,6 +628,8 @@ def assemble_model_rows(
             row["status"],
             row["pg_updated_at"],
             row["latest_status_event"],
+            report_team_id=row["report_team_id"],
+            status_event_team_id=row["status_event_team_id"],
             snapshot_end=snapshot_end,
         )
         # Desktop Code app does not emit impressions yet, so p(open) negatives are cloud-only;
