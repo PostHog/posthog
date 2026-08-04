@@ -243,24 +243,29 @@ Have: `issues`, `issue_comments`, `issue_events`, `issue_types`, `labels`, `mile
 - [ ] `code-quality/findings` and `pulls/stacks` (skipped: both back GitHub features that are still rolling out, and neither endpoint returns anything on an account without the feature enabled, so they would ship as tables that stay empty or error for nearly everyone. Worth revisiting once the features are generally available).
 - [ ] `repos/{repo}/events` (skipped: GitHub caps this feed at 300 events over 90 days and it restates what `repository_activity`, `issues`, and `pull_requests` already carry).
 
-### HubSpot — our side code-verified, vendor side needs confirmation
+### HubSpot — spec-verified 2026-08-04
 
-`ENDPOINTS` in `hubspot/settings.py` is exactly seven CRM objects.
-Two small additions would unblock most real analysis.
+Diffed against HubSpot's public spec catalog (<https://api.hubspot.com/public/api/spec/v1/specs>) and the
+individual 2026-03 OpenAPI specs behind it.
 
-- [ ] `pipelines` (and pipeline stages) — deals and tickets return `dealstage` and `pipeline` as opaque IDs today, so no one can group by stage name without hardcoding a mapping. Highest value item here.
-- [ ] `owners` — same problem for owner IDs. Also unblocks rep-level reporting.
-- [ ] `line_items` and `products` — deal composition and what was actually sold.
-- [ ] `calls`, `notes`, `tasks`, `communications` — the rest of the engagement objects. We have `emails` and `meetings` only.
-- [ ] `lists` and list memberships.
-- [ ] Marketing emails and marketing campaigns, with their statistics.
-- [ ] `forms` and form submissions.
-- [ ] Custom objects. Currently impossible to sync, and most mature HubSpot portals have them.
-- [ ] Property definitions — needed to interpret and label custom properties.
-- [ ] Associations as a first-class table. Today they ride along as a query param on contacts and companies only, so deal-to-contact links are not queryable.
-- [ ] Feedback submissions (NPS/CSAT surveys).
-- [ ] Workflows.
-- [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build.
+Have: contacts, companies, deals, tickets, quotes, emails, meetings, leads, calls, notes, tasks,
+communications, feedback_submissions, line_items, products, invoices, orders, subscriptions,
+commerce_payments, pipelines, pipeline_stages, properties, owners.
+
+- [x] `pipelines` (and pipeline stages) — deals and tickets return `dealstage` and `pipeline` as opaque IDs today, so no one can group by stage name without hardcoding a mapping. Highest value item here.
+- [x] `owners` — same problem for owner IDs. Also unblocks rep-level reporting.
+- [x] `line_items` and `products` — deal composition and what was actually sold.
+- [x] `calls`, `notes`, `tasks`, `communications` — the rest of the engagement objects. We have `emails` and `meetings` only.
+- [ ] `lists` and list memberships. (skipped: the v3 Lists API is a POST `/crm/v3/lists/search` with its own paging, and memberships are an unbounded per-list fan-out — neither fits the CRM object machinery)
+- [ ] Marketing emails and marketing campaigns, with their statistics. (skipped: `/marketing/v3/*` is a separate API family needing its own scopes and paginator)
+- [ ] `forms` and form submissions. (skipped: the only published Forms spec is version `2026-09-beta`, not GA)
+- [ ] Custom objects. Currently impossible to sync, and most mature HubSpot portals have them. (skipped: needs schema discovery per portal rather than a fixed table)
+- [x] Property definitions — needed to interpret and label custom properties.
+- [ ] Associations as a first-class table. Today they ride along as a query param on contacts and companies only, so deal-to-contact links are not queryable. (skipped: needs a pair-by-pair batch read across every object type; `line_items` now carries its deal association inline)
+- [x] Feedback submissions (NPS/CSAT surveys).
+- [ ] Workflows. (skipped: Automation v4 is a separate API family)
+- [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build. (skipped: `/events/v3/events` requires an objectId per request, so it is a per-record fan-out over the whole portal rather than a listable table)
+- [x] Commerce: `invoices`, `orders`, `subscriptions`, `commerce_payments`. Not covered: `carts`, `discounts`, `fees`, `taxes`, `tax_rates`, `payment_links` — configuration-shaped objects with little query value.
 
 ### LinkedIn Ads — spec-verified
 
