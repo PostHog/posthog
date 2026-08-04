@@ -6752,6 +6752,34 @@
         },
         "feature_flag": "revamped-py-notebooks"
     },
+    "opt-outs-add": {
+        "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Add recipients to the opt-out list",
+        "title": "Add recipients to the opt-out list",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "opt-outs-list": {
+        "description": "List recipients opted out of a message category, most recently updated first. Omit category_key to list recipients opted out of all marketing messages.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "List opt-outs",
+        "title": "List opt-outs",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "org-member-get-github-login": {
         "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
         "category": "Platform Features",
