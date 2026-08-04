@@ -79,13 +79,16 @@ export function AllSpacesSection() {
   return (
     <div className="shrink-0 border-border border-t">
       <div className="flex flex-col gap-px px-2 pt-1 pb-2">
-        {/* Same shape as a pinned space row, so the carets line up. */}
+        {/* Same shape as a pinned space row, so the carets line up. The
+            directory stays open most of the time, so quill's expanded fill
+            would read as a permanent highlight — the rotated caret already
+            says "open"; hover feedback stays. */}
         <Button
           variant="default"
           left
           aria-expanded={open}
           onClick={toggle}
-          className="w-full gap-1.5 text-left"
+          className="w-full gap-1.5 text-left aria-expanded:bg-transparent! aria-expanded:hover:bg-fill-hover!"
         >
           <CaretRightIcon
             size={12}
