@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -547,6 +548,12 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
     pa_memory_pool.release_unused()
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class IncrementalFieldValues:
+    last_value: Any
+    earliest_value: Any
+
+
 async def update_incremental_field_values(
     schema: "ExternalDataSchema",
     pa_table: pa.Table,
@@ -556,7 +563,7 @@ async def update_incremental_field_values(
     logger: FilteringBoundLogger,
     log_prefix: str = "",
     staging_run_uuid: str | None = None,
-) -> tuple[Any, Any]:
+) -> IncrementalFieldValues:
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
@@ -589,7 +596,9 @@ async def update_incremental_field_values(
                         earliest_value, type="earliest"
                     )
 
-    return last_incremental_field_value, earliest_incremental_field_value
+    return IncrementalFieldValues(
+        last_value=last_incremental_field_value, earliest_value=earliest_incremental_field_value
+    )
 
 
 async def update_row_tracking_after_batch(
