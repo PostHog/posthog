@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -484,6 +486,96 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Expected: Should return ADMIN level (role access trumps direct access)
         # Currently fails: Returns MEMBER level (direct access returned early)
         assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def _grant_project_access(self, access_level: str, *, member=None, role=None) -> None:
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=member,
+            role=role,
+            access_level=access_level,
+        )
+
+    def _grant_project_access_via_new_role(self, access_level: str) -> None:
+        from ee.models.rbac.role import Role, RoleMembership
+
+        role = Role.objects.create(name=f"Role {access_level}", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        self._grant_project_access(access_level, role=role)
+
+    @parameterized.expand(
+        [
+            ("member_none_without_default", "none", None, None, None),
+            ("member_none_with_admin_default", "none", None, "admin", None),
+            ("role_none_without_default", None, "none", None, None),
+            ("role_none_with_member_default", None, "none", "member", None),
+            ("member_none_role_admin", "none", "admin", None, OrganizationMembership.Level.ADMIN),
+            ("member_admin_role_none", "admin", "none", None, OrganizationMembership.Level.ADMIN),
+            ("member_none_role_member", "none", "member", "none", OrganizationMembership.Level.MEMBER),
+        ]
+    )
+    def test_team_effective_membership_level_explicit_denial(
+        self, _name, member_level, role_level, default_level, expected_level
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        if default_level is not None:
+            self._grant_project_access(default_level)
+        if member_level is not None:
+            self._grant_project_access(member_level, member=self.organization_membership)
+        if role_level is not None:
+            self._grant_project_access_via_new_role(role_level)
+
+        assert self.permissions().current_team.effective_membership_level == expected_level
+
+    def test_team_effective_membership_level_stale_role_denial_inert_without_role_based_access(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self._grant_project_access_via_new_role("none")
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    @parameterized.expand([("member_specific", True), ("role_based", False)])
+    def test_team_denied_by_explicit_rule_is_not_visible(self, _name, via_member):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        if via_member:
+            self._grant_project_access("none", member=self.organization_membership)
+        else:
+            self._grant_project_access_via_new_role("none")
+
+        assert self.team.id not in self.permissions().team_ids_visible_for_user
+        assert self.team.project_id not in self.permissions().project_ids_visible_for_user
+
+    @parameterized.expand([("member_specific", True), ("role_based", False)])
+    def test_team_effective_membership_level_agrees_with_user_access_control(self, _name, via_member):
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # An open project default, so only the explicit denial can deny
+        self._grant_project_access("admin")
+        if via_member:
+            self._grant_project_access("none", member=self.organization_membership)
+        else:
+            self._grant_project_access_via_new_role("none")
+
+        # `get_user_access_level` is what `check_access_level_for_object` gates project API access
+        # on, so an effective membership level here must not contradict it
+        user_access_control = UserAccessControl(user=self.user, team=self.team)
+        assert user_access_control.get_user_access_level(self.team) == "none"
+        assert self.permissions().current_team.effective_membership_level is None
 
 
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):

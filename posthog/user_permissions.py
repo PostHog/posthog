@@ -198,33 +198,16 @@ class UserTeamPermissions:
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return cast("OrganizationMembership.Level", organization_membership.level)
 
-        # Use prefetched data to check team privacy and access
-        access_controls = self.p._prefetched_access_controls.get(self.team.id, [])
-
-        # For private teams, check if the user has specific access
+        # Project rules for this team, from prefetched data
+        access_controls = [
+            ac
+            for ac in self.p._prefetched_access_controls.get(self.team.id, [])
+            if ac["resource_id"] == str(self.team.id)
+        ]
 
         # Organization admins and owners always have access
         if organization_membership.level >= OrganizationMembership.Level.ADMIN:
             return cast("OrganizationMembership.Level", organization_membership.level)
-
-        # Check for direct admin access first - highest priority
-        user_has_admin_access = any(
-            ac["resource_id"] == str(self.team.id)
-            and ac["organization_member_id"] == organization_membership.id
-            and ac["access_level"] == "admin"
-            for ac in access_controls
-        )
-
-        if user_has_admin_access:
-            return OrganizationMembership.Level.ADMIN
-
-        # Check for direct member access
-        user_has_member_access = any(
-            ac["resource_id"] == str(self.team.id)
-            and ac["organization_member_id"] == organization_membership.id
-            and ac["access_level"] == "member"
-            for ac in access_controls
-        )
 
         # Role-backed project AccessControl rows only take effect if the organization has
         # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
@@ -232,53 +215,45 @@ class UserTeamPermissions:
         role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
         user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
 
-        if user_roles and role_based_access_supported:
-            role_has_admin_access = any(
-                ac["resource_id"] == str(self.team.id) and ac["role_id"] in user_roles and ac["access_level"] == "admin"
-                for ac in access_controls
-            )
+        # Rules naming this user — directly, or through a role they hold. These decide on their
+        # own: the highest of them wins, and an explicit "none" is a denial rather than a miss
+        # that falls through to the team default. Same explicit-wins precedence as
+        # `_object_access_level_from_rows` in `posthog/rbac/user_access_control.py`.
+        explicit_access_levels = [
+            ac["access_level"]
+            for ac in access_controls
+            if ac["organization_member_id"] == organization_membership.id
+            or (role_based_access_supported and ac["role_id"] is not None and ac["role_id"] in user_roles)
+        ]
 
-            if role_has_admin_access:
-                return OrganizationMembership.Level.ADMIN
+        if explicit_access_levels:
+            return self._highest_membership_level(explicit_access_levels)
 
-            role_has_member_access = any(
-                ac["resource_id"] == str(self.team.id)
-                and ac["role_id"] in user_roles
-                and ac["access_level"] == "member"
-                for ac in access_controls
-            )
-
-            if role_has_member_access:
-                return OrganizationMembership.Level.MEMBER
-
-        # Return direct member access only if no higher role permissions found
-        if user_has_member_access:
-            return OrganizationMembership.Level.MEMBER
-
-        # Check for a default access level for this team (applies to all org members)
+        # Fall back to the default access level for this team (applies to all org members)
         default_access_level = next(
             (
                 ac["access_level"]
                 for ac in access_controls
-                if ac["resource_id"] == str(self.team.id)
-                and ac["organization_member_id"] is None
-                and ac["role_id"] is None
+                if ac["organization_member_id"] is None and ac["role_id"] is None
             ),
             None,
         )
 
-        if default_access_level == "none":
-            # Team is private and user has no specific access
-            return None
-
-        if default_access_level == "admin":
-            return OrganizationMembership.Level.ADMIN
-
-        if default_access_level == "member":
-            return OrganizationMembership.Level.MEMBER
+        if default_access_level is not None:
+            return self._highest_membership_level([default_access_level])
 
         # No access control row in the database, admin by default. See: `default_access_level()` in `posthog/rbac/user_access_control.py`
         return OrganizationMembership.Level.ADMIN
+
+    @staticmethod
+    def _highest_membership_level(access_levels: list[str]) -> Optional["OrganizationMembership.Level"]:
+        """Highest of the given project access levels as a membership level. None for "none", which
+        is a denial — callers gate on `effective_membership_level is not None`."""
+        if "admin" in access_levels:
+            return OrganizationMembership.Level.ADMIN
+        if "member" in access_levels:
+            return OrganizationMembership.Level.MEMBER
+        return None
 
 
 class UserDashboardPermissions:
