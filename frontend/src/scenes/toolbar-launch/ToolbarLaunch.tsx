@@ -84,8 +84,9 @@ export function ToolbarLaunch(): JSX.Element {
                     displaySuggestions={canEdit}
                 />
                 <LemonBanner type="info">
-                    Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or
-                    the latest <code>posthog-js</code> version.
+                    Make sure you're using the{' '}
+                    <Link to={urls.settings('project-details', 'snippet')}>HTML snippet</Link> or the latest{' '}
+                    <code>posthog-js</code> version.
                 </LemonBanner>
             </SceneSection>
 

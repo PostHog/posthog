@@ -388,7 +388,7 @@ export function PersonScene(): JSX.Element | null {
                                             Session recordings are currently disabled for this project. To use this
                                             feature, please go to your{' '}
                                             <Link
-                                                to={`${urls.settings('project')}#recordings`}
+                                                to={urls.settings('project-replay', 'replay')}
                                                 onClick={() => {
                                                     addProductIntentForCrossSell({
                                                         from: ProductKey.PERSONS,

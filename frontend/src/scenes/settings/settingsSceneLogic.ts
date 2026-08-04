@@ -38,6 +38,9 @@ const MOVED_SETTINGS: Record<string, SettingSectionId> = {
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)
 
+// `/settings/:section` is this scene's only route, so anything else means we're not the active page.
+const isOnSettingsUrl = (): boolean => /\/settings\/[^/]/.test(router.values.location.pathname)
+
 const sectionForMovedSetting = (section: string, hashParams: Params): SettingSectionId | null => {
     for (const [settingId, currentSection] of Object.entries(MOVED_SETTINGS)) {
         if (section === currentSection) {
@@ -275,13 +278,27 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     actionToUrl(({ values }) => ({
         // Replace history for level changes, so the environments<>project redirect doesn't leave dead history entries.
         // Section/setting changes push real history entries so the back button works between settings.
+        //
+        // These actions alias settingsLogic({ logicKey: 'settingsScene' }), whose own urlToAction handlers (e.g.
+        // for `*/replay/settings`) fire on every mounted keyed instance, not just the one owning the current URL —
+        // so a stale mount here can redispatch selectSetting while the browser is on an unrelated page. Bail out
+        // unless we're actually on a settings URL, so that can't yank the address bar back to a stale section.
         selectLevel({ level }) {
+            if (!isOnSettingsUrl()) {
+                return
+            }
             return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
+            if (!isOnSettingsUrl()) {
+                return
+            }
             return [urls.settings(section), router.values.searchParams, router.values.hashParams]
         },
         selectSetting({ setting }) {
+            if (!isOnSettingsUrl()) {
+                return
+            }
             return [
                 urls.settings(values.selectedSectionId ?? values.selectedLevel),
                 router.values.searchParams,

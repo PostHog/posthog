@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
+import { settingsLogic } from './settingsLogic'
 import { settingsSceneLogic } from './settingsSceneLogic'
 
 // Mock the survey preview functions
@@ -198,5 +199,25 @@ describe('settingsSceneLogic', () => {
             selectedSectionId: 'project-autocapture',
         })
         expect(router.values.location.pathname).toMatch(/\/settings\/project$/)
+    })
+
+    it('does not hijack navigation when a differently-keyed settingsLogic selects a setting off-scene', async () => {
+        // Reproduces the replay-settings flicker: settingsLogic has a generic urlToAction handler
+        // for `*/replay/settings` that fires on every mounted keyed instance, including this scene's
+        // own 'settingsScene'-keyed instance if it's still mounted. That redispatches selectSetting
+        // here, and without the active-URL guard this scene's actionToUrl would push the browser
+        // back to whatever settings section was last selected, away from the page the user is on.
+        router.actions.push('/settings/user-api-keys')
+        await expectLogic(logic).toMatchValues({ selectedSectionId: 'user-api-keys' })
+
+        router.actions.push('/replay/settings')
+
+        const embeddedLogic = settingsLogic({ logicKey: 'replaySettings', sectionId: 'environment-replay' })
+        embeddedLogic.mount()
+        embeddedLogic.actions.selectSetting('replay-log-capture')
+
+        await expectLogic(embeddedLogic).toDispatchActions(['selectSetting'])
+
+        expect(router.values.location.pathname).toContain('/replay/settings')
     })
 })
