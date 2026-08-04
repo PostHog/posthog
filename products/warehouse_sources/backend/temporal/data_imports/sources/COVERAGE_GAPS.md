@@ -152,21 +152,29 @@ Lower priority: `issuing/*`, `treasury/*`, `terminal/*`, `identity/*`, `financia
 `country_specs`, `exchange_rates`, `radar/value_lists`, `billing_portal/configurations`,
 `payment_method_configurations`, `payment_method_domains`, `invoice_rendering_templates`.
 
-### Google Ads — needs confirmation
+### Google Ads — spec-verified
 
-21 tables and the best-covered source we have.
-Remaining gaps are mostly breakdown views and account-config resources.
+Diffed against the [Google Ads API v25 field reference](https://developers.google.com/google-ads/api/fields/v25/overview)
+on 2026-08-04, using each resource's attributed/segmenting resource lists and the per-field
+"selectable with" lists to check every field, segment and metric combination.
+35 tables and the best-covered source we have.
 
-- [ ] `campaign_budget` — budgets and budget pacing.
-- [ ] `age_range_view`, `gender_view` — demographic breakdowns.
-- [ ] `detail_placement_view`, `landing_page_view` — where ads actually ran and landed.
-- [ ] `change_event` — audit of who changed what in the account.
-- [ ] `user_location_view` / `location_view` — distinct from the existing `geographic_stats`.
-- [ ] `audience`, `bidding_strategy`, `label`, `recommendation`.
-- [ ] `product_group_view` — Shopping campaign structure beyond `shopping_performance_view`.
-- [ ] `asset` — individual asset performance, complements `asset_group`.
-- [ ] Device segmentation and hourly segmentation on the existing stats views.
-- [ ] Conversion stats segmented by `conversion_action` (we have the actions but not their stats).
+- [x] `campaign_budget` — budgets and budget pacing.
+- [x] `age_range_view`, `gender_view` — demographic breakdowns.
+- [x] `detail_placement_view`, `landing_page_view` — where ads actually ran and landed.
+- [ ] `change_event` — audit of who changed what in the account. (skipped: GAQL requires a mandatory
+      `LIMIT` of at most 10,000 rows and a `change_date_time` filter inside a 30-day window, neither of
+      which the shared query composer or the page-token pagination loop can express)
+- [x] `user_location_view` / `location_view` — distinct from the existing `geographic_stats`.
+- [x] `audience`, `bidding_strategy`, `label`. (`recommendation` skipped: recommendations are ephemeral
+      suggestions that vanish once applied or dismissed and have no stable ID, so a merge-only table
+      would accumulate rows that no longer exist)
+- [x] `product_group_view` — Shopping campaign structure beyond `shopping_performance_view`.
+- [x] `asset` — asset metadata, complements `asset_group`. Per-asset performance would need
+      `ad_group_ad_asset_view` or `asset_field_type_view` and is still open.
+- [x] Hourly segmentation, as `campaign_hourly_stats`. (device segmentation was already there — every
+      existing `*_stats` table selects `segments.device`)
+- [x] Conversion stats segmented by `conversion_action` (we have the actions but not their stats).
 
 ### Meta Ads — needs confirmation
 
