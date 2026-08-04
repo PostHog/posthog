@@ -123,11 +123,17 @@ class SweepScannerWorkflow(PostHogWorkflow):
             )
             return
 
+        # Retried with backoff: ClickHouse admission rejections (code 202) are transient concurrency spikes.
         find_result = await wf.execute_activity(
             find_scanner_candidates_activity,
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
             start_to_close_timeout=dt.timedelta(seconds=200),
-            retry_policy=common.RetryPolicy(maximum_attempts=1),
+            retry_policy=common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=5),
+                backoff_coefficient=2.0,
+                maximum_interval=dt.timedelta(seconds=30),
+                maximum_attempts=4,
+            ),
         )
         if not find_result.candidates:
             return

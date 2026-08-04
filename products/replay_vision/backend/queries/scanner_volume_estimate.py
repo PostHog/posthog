@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -112,6 +113,7 @@ def estimate_scanner_session_volume(
         team=team,
         query_type="ReplayVisionScannerEstimateQuery",
         settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
+        ch_user=ClickHouseUser.REPLAY_VISION,
     )
     results = response.results or []
     matched = int(results[0][0]) if results else 0

@@ -13,6 +13,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -157,6 +158,8 @@ class ScannerCandidateQuery:
                 team=self._team,
                 query_type="ReplayVisionScannerCandidateQuery",
                 settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
+                # Dedicated user keeps sweep admission out of the contended shared `default` pool.
+                ch_user=ClickHouseUser.REPLAY_VISION,
             )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
 
