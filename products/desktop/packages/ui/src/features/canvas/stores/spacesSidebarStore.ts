@@ -2,18 +2,15 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /**
- * View state for the static spaces sidebar: which space sections are expanded.
- * Unexpanded is the default (mock shows collapse chevron-down for the first
- * space only), so the map stores explicit expansions. `openAgents` toggles the
- * pinned-agents placeholder section.
+ * View state for the static spaces sidebar: per-space expands, and the
+ * "All spaces" list toggle. `openSections` stores explicit space expansion
+ * (default collapsed); `openAddSpace` stores the all-spaces list toggle.
  */
 interface SpacesSidebarState {
   openSections: Record<string, boolean>;
-  openAgents: boolean;
   openAddSpace: boolean;
   setOpen: (channelId: string, open: boolean) => void;
   toggle: (channelId: string) => void;
-  toggleAgents: () => void;
   toggleAddSpace: () => void;
 }
 
@@ -21,7 +18,6 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
   persist(
     (set) => ({
       openSections: {},
-      openAgents: false,
       openAddSpace: false,
       setOpen: (channelId, open) =>
         set((state) => ({
@@ -34,7 +30,6 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
             [channelId]: !state.openSections[channelId],
           },
         })),
-      toggleAgents: () => set((state) => ({ openAgents: !state.openAgents })),
       toggleAddSpace: () =>
         set((state) => ({ openAddSpace: !state.openAddSpace })),
     }),

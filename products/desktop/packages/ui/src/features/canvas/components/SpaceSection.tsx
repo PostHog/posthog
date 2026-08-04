@@ -1,54 +1,68 @@
-import {
-  CaretRightIcon,
-  LinkIcon,
-  PencilSimpleIcon,
-  StarIcon,
-  TrashIcon,
-} from "@phosphor-icons/react";
+import { CaretLeftIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
-  cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CHANNEL_SECTIONS } from "@posthog/ui/features/canvas/channelSections";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
-import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
+import { channelPageLabel } from "@posthog/ui/features/canvas/components/channelPages";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
-import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
+import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 const RECENTS_CAP = 10;
 
+function RowStar({ channel }: { channel: Channel }) {
+  const { isStarred, toggleStar } = useChannelStarToggle(channel);
+  return (
+    <Button
+      variant="default"
+      size="icon-sm"
+      aria-label={isStarred ? "Unpin space" : "Pin space"}
+      onClick={() => {
+        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          action_type: isStarred ? "unstar" : "star",
+          surface: "sidebar",
+          channel_id: channel.id,
+        });
+        toggleStar();
+      }}
+      className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground"
+    >
+      <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
+    </Button>
+  );
+}
+
 /**
- * One pinned space in the static sidebar: an expandable header row, and beneath
- * it the space's tasks (the same `ChannelItemRow`s the channel pane renders).
- * Expand state is local view state in `spacesSidebarStore`; the space's
- * presence in the sidebar is the user's star.
+ * One pinned space in the static sidebar: the channel's header row (a
+ * full-width row like ChannelBackRow, expanding on click), and beneath it the
+ * space's tasks rendered as ChannelItemRows. Expand state is local view state
+ * in `spacesSidebarStore`; the space's presence in the sidebar is its star.
  */
 export function SpaceSection({ channel }: { channel: Channel }) {
   const open = useSpacesSidebarStore((s) => !!s.openSections[channel.id]);
   const toggle = useSpacesSidebarStore((s) => s.toggle);
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const base = `/website/${channel.id}`;
   const isActive = pathname === base || pathname.startsWith(`${base}/`);
+  const spacesLayout = useChannelsLayout();
 
   const { items, actions, isLoading } = useChannelItems(channel.id);
-  const { toggleStar } = useChannelStarToggle(channel);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const { renameTask } = useRenameTask();
 
@@ -87,98 +101,105 @@ export function SpaceSection({ channel }: { channel: Channel }) {
   };
 
   return (
-    <div className="group/space">
-      {/* Header: chevron toggles the task list; the row itself opens the space. */}
-      <div className="flex w-full items-center">
-        <button
-          type="button"
-          aria-label={open ? "Collapse space" : "Expand space"}
-          aria-expanded={open}
-          className="flex h-7 w-5 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-          onClick={() => toggle(channel.id)}
-        >
-          <CaretRightIcon
-            size={12}
-            className={cn("transition-transform", open && "rotate-90")}
-          />
-        </button>
-        <Button
-          variant="default"
-          size="default"
-          left
-          data-selected={isActive || undefined}
-          className="min-w-0 flex-1 justify-start gap-2 data-selected:bg-fill-selected data-selected:text-foreground"
-          onClick={() => toggle(channel.id)}
-        >
-          <span
-            className={cn(
-              "truncate font-medium text-[13px]",
-              isActive && "font-semibold",
-            )}
-          >
-            {channel.name}
-          </span>
-        </Button>
-        <span className="ml-auto flex shrink-0 items-center pr-1">
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={`Actions for ${channel.name}`}
-                  className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-opacity hover:bg-gray-4 focus:opacity-100",
-                    menuOpen
-                      ? "opacity-100"
-                      : "opacity-0 group-hover/space:opacity-100",
-                  )}
-                />
-              }
+    <div className="relative">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="default"
+              left
+              aria-expanded={open}
+              data-selected={isActive || undefined}
+              className="w-full gap-1.5 text-left"
+              onClick={() => toggle(channel.id)}
             >
-              <span className="text-[13px] leading-none">···</span>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
+              <CaretLeftIcon
+                size={12}
+                className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
+              />
+              <span className="min-w-0 flex-1 truncate font-medium text-[13px]">
+                {channel.name}
+              </span>
+              {/* Star well, reserved so the row doesn't shift when a space is pinned */}
+              <span aria-hidden className="size-6 shrink-0" />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">{channel.name}</TooltipContent>
+      </Tooltip>
+      <RowStar channel={channel} />
+
+      {/* Tabs + tasks under the space. The tab row mirrors the space pages
+          (Feed/Context/Loops/Artifacts/Settings), each navigating to the
+          space's own route; Settings opens the global settings as in the nav
+          row, since a per-space settings sheet doesn't exist yet. */}
+      {open && (
+        <nav className="flex items-center gap-px pb-1 pl-7">
+          <Button
+            variant="default"
+            size="sm"
+            data-selected={pathname === `/website/${channel.id}` || undefined}
+            className={
+              pathname === `/website/${channel.id}` ? "bg-fill-selected" : ""
+            }
+            onClick={() =>
+              void navigate({
+                to: "/website/$channelId",
+                params: { channelId: channel.id },
+              })
+            }
+          >
+            {channelPageLabel("home")}
+          </Button>
+          {CHANNEL_SECTIONS.filter(
+            (s) => spacesLayout || s.key !== "loops",
+          ).map((section) => {
+            const href = `/website/${channel.id}/${section.key}`;
+            const active = pathname === href;
+            return (
+              <Button
+                key={section.key}
+                variant="default"
+                size="sm"
+                data-selected={active || undefined}
+                className={active ? "bg-fill-selected" : ""}
                 onClick={() => {
-                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                    action_type: "unstar",
-                    surface: "sidebar",
-                    channel_id: channel.id,
-                  });
-                  toggleStar();
+                  if (section.key === "context") {
+                    void navigate({
+                      to: "/website/$channelId/context",
+                      params: { channelId: channel.id },
+                    });
+                  } else if (section.key === "loops") {
+                    void navigate({
+                      to: "/website/$channelId/loops",
+                      params: { channelId: channel.id },
+                    });
+                  } else if (section.key === "artifacts") {
+                    void navigate({
+                      to: "/website/$channelId/artifacts",
+                      params: { channelId: channel.id },
+                    });
+                  } else {
+                    void navigate({
+                      to: "/website/$channelId/history",
+                      params: { channelId: channel.id },
+                    });
+                  }
                 }}
               >
-                <StarIcon size={14} weight="fill" />
-                Remove from sidebar
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => void copyChannelLink(channel.id, "sidebar")}
-              >
-                <LinkIcon size={14} />
-                Copy link
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setRenameOpen(true)}>
-                <PencilSimpleIcon size={14} />
-                Rename
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() =>
-                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                    action_type: "delete",
-                    surface: "sidebar",
-                    channel_id: channel.id,
-                  })
-                }
-              >
-                <TrashIcon size={14} />
-                Delete space
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </span>
-      </div>
+                {section.label}
+              </Button>
+            );
+          })}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => openSettings("agents")}
+          >
+            Settings
+          </Button>
+        </nav>
+      )}
 
       {/* Tasks under the space */}
       {open && (
@@ -237,12 +258,6 @@ export function SpaceSection({ channel }: { channel: Channel }) {
           )}
         </div>
       )}
-
-      <RenameChannelModal
-        open={renameOpen}
-        onOpenChange={setRenameOpen}
-        channel={channel}
-      />
     </div>
   );
 }
