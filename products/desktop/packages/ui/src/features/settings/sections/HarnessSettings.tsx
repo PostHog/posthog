@@ -69,7 +69,7 @@ function SettingDescription({
   );
 }
 
-export function ClaudeCodeSettings() {
+export function HarnessSettings() {
   const { allowBypassPermissions, setAllowBypassPermissions } =
     useSettingsStore();
 
@@ -104,8 +104,8 @@ export function ClaudeCodeSettings() {
 
   return (
     <Flex direction="column">
-      {/* Extensions */}
-      <Text className="mt-1 mb-2 font-medium text-sm">Extensions</Text>
+      {/* Claude Code */}
+      <Text className="mt-1 mb-2 font-medium text-sm">Claude Code</Text>
 
       <SettingRow
         label="MCP servers"
@@ -156,14 +156,68 @@ export function ClaudeCodeSettings() {
         <CopyableCommand command="claude /hooks" />
       </SettingRow>
 
+      {/* Codex */}
+      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
+        Codex
+      </Text>
+
+      <SettingRow
+        label="MCP servers"
+        description={
+          <SettingDescription
+            text="Extend Codex's capabilities with MCP servers"
+            docsUrl="https://learn.chatgpt.com/docs/extend/mcp"
+          />
+        }
+      >
+        <CopyableCommand command="codex mcp" />
+      </SettingRow>
+
+      <SettingRow
+        label="Skills"
+        description={
+          <SettingDescription
+            text="Reusable instructions in .agents/skills/, mentioned with $skill-name"
+            docsUrl="https://learn.chatgpt.com/docs/build-skills"
+          />
+        }
+      >
+        <span />
+      </SettingRow>
+
+      <SettingRow
+        label="Memory"
+        description={
+          <SettingDescription
+            text="Persistent context stored in AGENTS.md files"
+            docsUrl="https://learn.chatgpt.com/docs/agent-configuration/agents-md"
+          />
+        }
+      >
+        <span />
+      </SettingRow>
+
+      <SettingRow
+        label="Hooks"
+        description={
+          <SettingDescription
+            text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml. Review them with /hooks inside a session"
+            docsUrl="https://learn.chatgpt.com/docs/hooks"
+          />
+        }
+        noBorder
+      >
+        <span />
+      </SettingRow>
+
       {/* Permissions */}
       <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
         Permissions
       </Text>
 
       <SettingRow
-        label="Permission rules"
-        description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked"
+        label="Claude permission rules"
+        description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked. Codex keeps its own rules in config.toml"
       >
         <CopyableCommand command="claude config" />
       </SettingRow>
@@ -171,8 +225,8 @@ export function ClaudeCodeSettings() {
       <PermissionsSettings />
 
       <SettingRow
-        label="Bypass permissions"
-        description="Skip all permission prompts. Claude will run bash commands, edit files, browse the web and use any tool without asking first"
+        label="Allow bypass permissions mode"
+        description="Adds bypass permissions to the mode menu so you can pick it per session. Sessions keep asking for approval until you pick it. This also unlocks Full access in Codex"
         noBorder
       >
         <Switch
@@ -188,9 +242,10 @@ export function ClaudeCodeSettings() {
             <Warning weight="fill" />
           </Callout.Icon>
           <Callout.Text>
-            Bypass Permissions is enabled. All actions (shell commands, file
-            edits, web requests) run without approval. Pick this mode from the
-            mode menu in the prompt input per session.
+            Bypass permissions, and Full access in Codex, are now available in
+            the mode menu in the prompt input. Pick one per session when you
+            want that session to run shell commands, file edits and web requests
+            without approval. Other sessions are unaffected.
           </Callout.Text>
         </Callout.Root>
       )}
@@ -204,31 +259,36 @@ export function ClaudeCodeSettings() {
             <Flex align="center" gap="2">
               <Warning size={20} weight="fill" color="var(--red-9)" />
               <Text color="red" className="font-bold">
-                Enable bypass permissions
+                Allow bypass permissions mode
               </Text>
             </Flex>
           </AlertDialog.Title>
           <AlertDialog.Description className="text-sm">
             <Flex direction="column" gap="3">
+              <Text>
+                This makes bypass permissions selectable in the mode menu. It
+                does not turn it on for your tasks. Each session keeps its
+                current mode until you pick bypass for it.
+              </Text>
               <Text color="red" className="font-medium">
-                With bypass enabled, Claude will execute every action without
-                asking -- including shell commands, file edits, web requests and
+                A session running in bypass mode executes every action without
+                asking, including shell commands, file edits, web requests and
                 any installed MCP tools.
               </Text>
               <Text>
-                This mode is intended for sandboxed environments (containers or
-                VMs) with restricted network access that can be easily restored.
+                Pick it for sandboxed environments (containers or VMs) with
+                restricted network access that can be easily restored.
               </Text>
               <Text className="font-medium">
                 By proceeding, you accept all responsibility for actions taken
-                while bypass is enabled.
+                in sessions you run with bypass.
               </Text>
             </Flex>
           </AlertDialog.Description>
           <Flex gap="3" mt="4" justify="end">
             <AlertDialog.Cancel>
               <Button variant="soft" color="gray">
-                No, exit
+                Cancel
               </Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action>
@@ -237,7 +297,7 @@ export function ClaudeCodeSettings() {
                 color="red"
                 onClick={handleConfirmBypassPermissions}
               >
-                Yes, I accept
+                Allow bypass mode
               </Button>
             </AlertDialog.Action>
           </Flex>
