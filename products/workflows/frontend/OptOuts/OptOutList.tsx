@@ -50,6 +50,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         newOptOutIdentifier,
         showImportCsvModal,
         csvFile,
+        csvImportProgress,
         csvImportResult,
         csvImportResultLoading,
         csvExportLoading,
@@ -317,13 +318,19 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                             }
                         />
                     )}
+                    {csvImportResultLoading && csvImportProgress && csvImportProgress.total > 1000 && (
+                        <div className="text-sm text-muted">
+                            Processed {csvImportProgress.processed.toLocaleString()} of{' '}
+                            {csvImportProgress.total.toLocaleString()} recipients
+                        </div>
+                    )}
                     {csvImportResult && (
                         <LemonBanner type={csvImportResult.errors.length > 0 ? 'warning' : 'success'}>
                             <div>
                                 Added {csvImportResult.opted_out.toLocaleString()} opt-outs from{' '}
-                                {csvImportResult.total_rows.toLocaleString()} rows.
-                                {csvImportResult.skipped_rows > 0 &&
-                                    ` Skipped ${csvImportResult.skipped_rows.toLocaleString()} rows.`}
+                                {csvImportResult.total.toLocaleString()} rows.
+                                {csvImportResult.skipped > 0 &&
+                                    ` Skipped ${csvImportResult.skipped.toLocaleString()} rows.`}
                             </div>
                             {csvImportResult.errors.length > 0 && (
                                 <ul className="mt-2 mb-0 text-xs">

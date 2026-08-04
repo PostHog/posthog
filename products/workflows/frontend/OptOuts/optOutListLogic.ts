@@ -1,16 +1,28 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import Papa from 'papaparse'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { downloadFile } from 'lib/utils/dom'
 
-import type { ImportOptOutsCsvResultApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { BulkAddOptOutsResultApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { MessageCategory } from './optOutCategoriesLogic'
+import { BULK_OPT_OUT_CHUNK_SIZE, MAX_REPORTED_ERRORS, parseOptOutRows, remapEntryErrors } from './optOutCsvImport'
 import { optOutSceneLogic } from './optOutSceneLogic'
 import type { OptOutEntry, OptOutPersonPreference } from './types'
+
+async function parseCsvFile(file: File): Promise<string[][]> {
+    return new Promise((resolve, reject) => {
+        Papa.parse<string[]>(file, {
+            skipEmptyLines: 'greedy',
+            complete: (results) => resolve(results.data),
+            error: (error: Error) => reject(error),
+        })
+    })
+}
 
 export type { OptOutEntry, OptOutPersonPreference }
 
@@ -28,7 +40,8 @@ export interface optOutListLogicValues {
     csvExport: null
     csvExportLoading: boolean
     csvFile: File | null
-    csvImportResult: ImportOptOutsCsvResultApi | null
+    csvImportProgress: { processed: number; total: number } | null
+    csvImportResult: BulkAddOptOutsResultApi | null
     csvImportResultLoading: boolean
     currentPage: number
     managePreferencesModalOpen: boolean
@@ -68,10 +81,10 @@ export interface optOutListLogicActions {
         errorObject?: any
     }
     clearCsvImportResultSuccess: (
-        csvImportResult: ImportOptOutsCsvResultApi | null,
+        csvImportResult: BulkAddOptOutsResultApi | null,
         payload?: any
     ) => {
-        csvImportResult: ImportOptOutsCsvResultApi | null
+        csvImportResult: BulkAddOptOutsResultApi | null
         payload?: any
     }
     exportCsv: () => any
@@ -98,10 +111,10 @@ export interface optOutListLogicActions {
         errorObject?: any
     }
     importCsvSuccess: (
-        csvImportResult: ImportOptOutsCsvResultApi | null,
+        csvImportResult: BulkAddOptOutsResultApi | null,
         payload?: any
     ) => {
-        csvImportResult: ImportOptOutsCsvResultApi | null
+        csvImportResult: BulkAddOptOutsResultApi | null
         payload?: any
     }
     loadNextPage: () => {
@@ -167,6 +180,9 @@ export interface optOutListLogicActions {
     setCsvFile: (file: File | null) => {
         file: File | null
     }
+    setCsvImportProgress: (progress: { processed: number; total: number } | null) => {
+        progress: { processed: number; total: number } | null
+    }
     setCurrentPage: (page: number) => {
         page: number
     }
@@ -222,6 +238,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
         setNewOptOutIdentifier: (identifier: string) => ({ identifier }),
         setShowImportCsvModal: (show: boolean) => ({ show }),
         setCsvFile: (file: File | null) => ({ file }),
+        setCsvImportProgress: (progress: { processed: number; total: number } | null) => ({ progress }),
     }),
     reducers({
         personsModalOpen: [
@@ -291,6 +308,15 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 setShowImportCsvModal: () => null,
             },
         ],
+        csvImportProgress: [
+            null as { processed: number; total: number } | null,
+            {
+                setCsvImportProgress: (_, { progress }) => progress,
+                importCsvSuccess: () => null,
+                importCsvFailure: () => null,
+                clearCsvImportResult: () => null,
+            },
+        ],
     }),
     loaders(({ props, values, actions }) => ({
         addOptOut: {
@@ -351,26 +377,71 @@ export const optOutListLogic = kea<optOutListLogicType>([
             },
         },
         csvImportResult: {
-            __default: null as ImportOptOutsCsvResultApi | null,
-            clearCsvImportResult: (): ImportOptOutsCsvResultApi | null => null,
-            importCsv: async (): Promise<ImportOptOutsCsvResultApi | null> => {
+            __default: null as BulkAddOptOutsResultApi | null,
+            clearCsvImportResult: (): BulkAddOptOutsResultApi | null => null,
+            importCsv: async (): Promise<BulkAddOptOutsResultApi | null> => {
                 const file = values.csvFile
                 if (!file) {
                     return null
                 }
+
+                let rows: string[][]
                 try {
-                    const result = await api.messaging.importOptOutsCsv(file, props.category?.key)
-                    if (result.opted_out > 0) {
-                        lemonToast.success(`Added ${result.opted_out} opt-outs`)
-                        actions.loadOptOutPersons()
-                    } else {
-                        lemonToast.warning('No opt-outs were added. Check the file and try again.')
-                    }
-                    return result
-                } catch (e: any) {
-                    lemonToast.error(e?.error || e?.detail || 'Failed to import opt-outs')
+                    rows = await parseCsvFile(file)
+                } catch {
+                    lemonToast.error("Couldn't read the file. Check that it's a valid CSV and try again.")
                     return null
                 }
+
+                const parsed = parseOptOutRows(rows)
+                const result: BulkAddOptOutsResultApi = {
+                    total: parsed.total,
+                    opted_out: 0,
+                    skipped: parsed.skipped,
+                    errors: [...parsed.errors],
+                }
+
+                if (parsed.entries.length > 0) {
+                    actions.setCsvImportProgress({ processed: 0, total: parsed.entries.length })
+                }
+                for (let start = 0; start < parsed.entries.length; start += BULK_OPT_OUT_CHUNK_SIZE) {
+                    const chunk = parsed.entries.slice(start, start + BULK_OPT_OUT_CHUNK_SIZE)
+                    try {
+                        const chunkResult = await api.messaging.bulkAddOptOuts(
+                            chunk.map(({ identifier, category_key }) => ({ identifier, category_key })),
+                            props.category?.key
+                        )
+                        result.opted_out += chunkResult.opted_out
+                        result.skipped += chunkResult.skipped
+                        for (const error of remapEntryErrors(chunkResult.errors, chunk)) {
+                            if (result.errors.length < MAX_REPORTED_ERRORS) {
+                                result.errors.push(error)
+                            }
+                        }
+                    } catch (e: any) {
+                        // Already-applied chunks stay applied; re-uploading is safe because
+                        // importing only ever opts recipients out.
+                        const remaining = parsed.entries.length - start
+                        result.errors.push(
+                            e?.error ||
+                                e?.detail ||
+                                `The import stopped with ${remaining.toLocaleString()} recipients left. Upload the same file again to finish. Recipients that were already imported stay opted out.`
+                        )
+                        break
+                    }
+                    actions.setCsvImportProgress({
+                        processed: Math.min(start + BULK_OPT_OUT_CHUNK_SIZE, parsed.entries.length),
+                        total: parsed.entries.length,
+                    })
+                }
+
+                if (result.opted_out > 0) {
+                    lemonToast.success(`Added ${result.opted_out.toLocaleString()} opt-outs`)
+                    actions.loadOptOutPersons()
+                } else {
+                    lemonToast.warning('No opt-outs were added. Check the file and try again.')
+                }
+                return result
             },
         },
     })),

@@ -164,20 +164,31 @@ export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Opt every recipient in an uploaded CSV out of the category named on their row, or a default category.
- * @summary Import an opt-out list from a CSV file
+ * Opt every recipient in the list out of the category named on their entry, or a default category.
+ * @summary Add multiple recipients to the opt-out list
  */
-export const MessagingPreferencesImportOptOutsCsvCreateBody = /* @__PURE__ */ zod.object({
-    csv_file: zod
-        .url()
-        .describe(
-            'CSV file with a recipient column (identifier, email, recipient or email_address) and an optional category_key column.'
-        ),
+export const messagingPreferencesBulkAddOptOutsCreateBodyOptOutsItemIdentifierMax = 512
+
+export const MessagingPreferencesBulkAddOptOutsCreateBody = /* @__PURE__ */ zod.object({
+    opt_outs: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingPreferencesBulkAddOptOutsCreateBodyOptOutsItemIdentifierMax)
+                    .describe('The recipient identifier to opt out (e.g. email address).'),
+                category_key: zod
+                    .string()
+                    .optional()
+                    .describe('Message category key for this recipient. Overrides the request-level category_key.'),
+            })
+        )
+        .describe('Recipients to opt out, at most 1000 per request.'),
     category_key: zod
         .string()
         .optional()
         .describe(
-            "Message category key applied to rows that don't name their own category_key. If omitted, recipients are opted out of all marketing messages."
+            'Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages.'
         ),
 })
 

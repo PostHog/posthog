@@ -11,19 +11,21 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddOptOutRequestApi,
     AddSuppressionRequestApi,
-    ImportOptOutsCsvRequestApi,
-    ImportOptOutsCsvResultApi,
+    BulkAddOptOutsRequestApi,
+    BulkAddOptOutsResultApi,
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
+    MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
+    PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
@@ -357,6 +359,27 @@ export const messagingPreferencesAddOptOutCreate = async (
     })
 }
 
+export const getMessagingPreferencesBulkAddOptOutsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_preferences/bulk_add_opt_outs/`
+}
+
+/**
+ * Opt every recipient in the list out of the category named on their entry, or a default category.
+ * @summary Add multiple recipients to the opt-out list
+ */
+export const messagingPreferencesBulkAddOptOutsCreate = async (
+    projectId: string,
+    bulkAddOptOutsRequestApi: BulkAddOptOutsRequestApi,
+    options?: RequestInit
+): Promise<BulkAddOptOutsResultApi> => {
+    return apiMutator<BulkAddOptOutsResultApi>(getMessagingPreferencesBulkAddOptOutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkAddOptOutsRequestApi),
+    })
+}
+
 export const getMessagingPreferencesExportOptOutsCsvRetrieveUrl = (
     projectId: string,
     params?: MessagingPreferencesExportOptOutsCsvRetrieveParams
@@ -408,41 +431,35 @@ export const messagingPreferencesGenerateLinkCreate = async (
     })
 }
 
-export const getMessagingPreferencesImportOptOutsCsvCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging_preferences/import_opt_outs_csv/`
-}
-
-/**
- * Opt every recipient in an uploaded CSV out of the category named on their row, or a default category.
- * @summary Import an opt-out list from a CSV file
- */
-export const messagingPreferencesImportOptOutsCsvCreate = async (
+export const getMessagingPreferencesOptOutsRetrieveUrl = (
     projectId: string,
-    importOptOutsCsvRequestApi: ImportOptOutsCsvRequestApi,
-    options?: RequestInit
-): Promise<ImportOptOutsCsvResultApi> => {
-    const formData = new FormData()
-    formData.append(`csv_file`, importOptOutsCsvRequestApi.csv_file)
-    if (importOptOutsCsvRequestApi.category_key !== undefined) {
-        formData.append(`category_key`, importOptOutsCsvRequestApi.category_key)
-    }
+    params?: MessagingPreferencesOptOutsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
 
-    return apiMutator<ImportOptOutsCsvResultApi>(getMessagingPreferencesImportOptOutsCsvCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        body: formData,
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
     })
-}
 
-export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging_preferences/opt_outs/`
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_preferences/opt_outs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_preferences/opt_outs/`
 }
 
 /**
  * Get opt-outs filtered by category or overall opt-outs if no category specified
+ * @summary List recipients opted out of a message category
  */
-export const messagingPreferencesOptOutsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getMessagingPreferencesOptOutsRetrieveUrl(projectId), {
+export const messagingPreferencesOptOutsRetrieve = async (
+    projectId: string,
+    params?: MessagingPreferencesOptOutsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedOptOutsApi> => {
+    return apiMutator<PaginatedOptOutsApi>(getMessagingPreferencesOptOutsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

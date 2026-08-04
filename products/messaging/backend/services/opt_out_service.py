@@ -1,6 +1,6 @@
 import csv
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -17,11 +17,6 @@ logger = logging.getLogger(__name__)
 
 EXPORT_HEADER = ["identifier", "category_key", "updated_at"]
 
-# Accepted spellings for the two columns we read, so a list exported from another
-# messaging tool usually imports without being reshaped first.
-IDENTIFIER_COLUMNS = ("identifier", "email", "recipient", "email_address")
-CATEGORY_COLUMNS = ("category_key", "category")
-
 BATCH_SIZE = 1000
 MAX_REPORTED_ERRORS = 10
 
@@ -33,10 +28,16 @@ class UnknownCategoryError(Exception):
 
 
 @dataclass(frozen=True, kw_only=True)
-class OptOutCsvImportResult:
-    total_rows: int
+class BulkOptOutEntry:
+    identifier: str
+    category_key: Optional[str] = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class BulkOptOutResult:
+    total: int
     opted_out: int
-    skipped_rows: int
+    skipped: int
     errors: list[str]
 
 
@@ -47,8 +48,8 @@ class _Echo:
         return value
 
 
-class OptOutCsvService:
-    """Reads and writes opt-out lists as CSV, so recipients can be moved in and out of PostHog."""
+class OptOutService:
+    """Reads and writes opt-out lists in bulk, so recipients can be moved in and out of PostHog."""
 
     def __init__(self, team_id: int, user: Optional[Any] = None):
         self.team_id = team_id
@@ -101,58 +102,33 @@ class OptOutCsvService:
 
         return rows()
 
-    def import_csv(self, csv_file: Any, default_category_key: Optional[str] = None) -> OptOutCsvImportResult:
-        """Opt every recipient in the CSV out of the category named on their row, or the default one."""
+    def opt_out_recipients(
+        self, entries: Sequence[BulkOptOutEntry], default_category_key: Optional[str] = None
+    ) -> BulkOptOutResult:
+        """Opt every recipient out of the category named on their entry, or the default one.
+
+        An entry naming a category that doesn't exist is skipped and reported rather
+        than failing the request, so one bad entry can't block the rest of the list.
+        """
         default_category_id = self.resolve_category_id(default_category_key)
         key_to_id = self._category_key_to_id()
 
-        reader = csv.reader(_decoded_lines(csv_file))
-        try:
-            header = next(reader)
-        except StopIteration:
-            return OptOutCsvImportResult(total_rows=0, opted_out=0, skipped_rows=0, errors=["The file is empty"])
-
-        normalized_header = [column.strip().lower() for column in header]
-        identifier_index = _find_column(normalized_header, IDENTIFIER_COLUMNS)
-        if identifier_index is None:
-            return OptOutCsvImportResult(
-                total_rows=0,
-                opted_out=0,
-                skipped_rows=0,
-                errors=[f"No recipient column found. Add a column named one of: {', '.join(IDENTIFIER_COLUMNS)}"],
-            )
-        category_index = _find_column(normalized_header, CATEGORY_COLUMNS)
-
-        total_rows = 0
         opted_out = 0
-        skipped_rows = 0
+        skipped = 0
         errors: list[str] = []
         pending: dict[str, set[str]] = {}
 
-        for row_number, row in enumerate(reader, start=2):
-            if not any(cell.strip() for cell in row):
-                continue
-
-            total_rows += 1
-
-            identifier = row[identifier_index].strip() if identifier_index < len(row) else ""
-            if not identifier:
-                skipped_rows += 1
-                _record_error(errors, f"Row {row_number}: missing a recipient")
-                continue
-
+        for entry_number, entry in enumerate(entries, start=1):
             category_id = default_category_id
-            if category_index is not None and category_index < len(row):
-                row_category_key = row[category_index].strip()
-                if row_category_key:
-                    resolved = key_to_id.get(row_category_key)
-                    if resolved is None:
-                        skipped_rows += 1
-                        _record_error(errors, f"Row {row_number}: no message category with key '{row_category_key}'")
-                        continue
-                    category_id = resolved
+            if entry.category_key:
+                resolved = key_to_id.get(entry.category_key)
+                if resolved is None:
+                    skipped += 1
+                    _record_error(errors, f"Entry {entry_number}: no message category with key '{entry.category_key}'")
+                    continue
+                category_id = resolved
 
-            categories = pending.setdefault(identifier, set())
+            categories = pending.setdefault(entry.identifier, set())
             if category_id not in categories:
                 categories.add(category_id)
                 opted_out += 1
@@ -164,9 +140,7 @@ class OptOutCsvService:
         if pending:
             self._save_batch(pending)
 
-        return OptOutCsvImportResult(
-            total_rows=total_rows, opted_out=opted_out, skipped_rows=skipped_rows, errors=errors
-        )
+        return BulkOptOutResult(total=len(entries), opted_out=opted_out, skipped=skipped, errors=errors)
 
     def _save_batch(self, batch: dict[str, set[str]]) -> None:
         with transaction.atomic():
@@ -201,19 +175,6 @@ class OptOutCsvService:
                 MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
             if to_update:
                 MessageRecipientPreference.objects.bulk_update(to_update, ["preferences", "updated_at"], batch_size=500)
-
-
-def _decoded_lines(csv_file: Any) -> Iterator[str]:
-    """Stream an uploaded file as text lines without holding the whole upload in memory twice."""
-    for line in csv_file:
-        yield line.decode("utf-8-sig") if isinstance(line, bytes) else line
-
-
-def _find_column(header: list[str], candidates: tuple[str, ...]) -> Optional[int]:
-    for candidate in candidates:
-        if candidate in header:
-            return header.index(candidate)
-    return None
 
 
 def _record_error(errors: list[str], message: str) -> None:

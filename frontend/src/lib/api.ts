@@ -237,7 +237,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import type { ImportOptOutsCsvResultApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -2009,11 +2009,11 @@ export class ApiRequest {
             .addPathComponent('export_opt_outs_csv')
     }
 
-    public messagingPreferencesImportOptOutsCsv(): ApiRequest {
+    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
         return this.environments()
             .current()
             .addPathComponent('messaging_preferences')
-            .addPathComponent('import_opt_outs_csv')
+            .addPathComponent('bulk_add_opt_outs')
     }
 
     public hogFlows(): ApiRequest {
@@ -6701,13 +6701,10 @@ const api = {
                 .getResponse()
             return await response.blob()
         },
-        async importOptOutsCsv(file: File, categoryKey?: string): Promise<ImportOptOutsCsvResultApi> {
-            const formData = new FormData()
-            formData.append('csv_file', file)
-            if (categoryKey) {
-                formData.append('category_key', categoryKey)
-            }
-            return await new ApiRequest().messagingPreferencesImportOptOutsCsv().create({ data: formData })
+        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
+            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
+                data: { opt_outs: optOuts, category_key: categoryKey },
+            })
         },
     },
     hogFlows: {

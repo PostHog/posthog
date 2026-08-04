@@ -5,7 +5,6 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
@@ -19,9 +18,9 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
-from products.messaging.backend.services.opt_out_csv_service import OptOutCsvService, UnknownCategoryError
+from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, OptOutService, UnknownCategoryError
 
-MAX_OPT_OUT_CSV_SIZE_BYTES = 10 * 1024 * 1024
+MAX_BULK_OPT_OUT_ENTRIES = 1000
 UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
 
 
@@ -68,33 +67,84 @@ class MessagingErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human-readable description of what went wrong.")
 
 
-class ImportOptOutsCsvRequestSerializer(serializers.Serializer):
-    csv_file = serializers.FileField(
-        help_text="CSV file with a recipient column (identifier, email, recipient or email_address) and an optional category_key column."
+class PaginatedOptOutsSerializer(serializers.Serializer):
+    """OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+    {count, next, previous, results} envelope instead of an untyped object."""
+
+    count = serializers.IntegerField(help_text="Total number of opted-out recipients for the category.")
+    next = serializers.URLField(allow_null=True, help_text="URL for the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL for the previous page, or null on the first page.")
+    results = MessagePreferencesSerializer(many=True)
+
+
+class BulkOptOutEntrySerializer(serializers.Serializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text="The recipient identifier to opt out (e.g. email address).",
     )
     category_key = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Message category key applied to rows that don't name their own category_key. If omitted, recipients are opted out of all marketing messages.",
+        help_text="Message category key for this recipient. Overrides the request-level category_key.",
     )
 
 
-class ImportOptOutsCsvResultSerializer(serializers.Serializer):
-    total_rows = serializers.IntegerField(help_text="Number of non-empty data rows read from the file.")
+class BulkAddOptOutsRequestSerializer(serializers.Serializer):
+    opt_outs = BulkOptOutEntrySerializer(
+        many=True,
+        allow_empty=False,
+        help_text=f"Recipients to opt out, at most {MAX_BULK_OPT_OUT_ENTRIES} per request.",
+    )
+    category_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages.",
+    )
+
+    def validate_opt_outs(self, value: list[dict]) -> list[dict]:
+        if len(value) > MAX_BULK_OPT_OUT_ENTRIES:
+            raise serializers.ValidationError(f"Send at most {MAX_BULK_OPT_OUT_ENTRIES} opt-outs per request.")
+        return value
+
+
+class BulkAddOptOutsResultSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Number of opt-out entries received.")
     opted_out = serializers.IntegerField(help_text="Number of recipient and category pairs recorded as opted out.")
-    skipped_rows = serializers.IntegerField(help_text="Number of rows skipped because they were missing or invalid.")
+    skipped = serializers.IntegerField(help_text="Number of entries skipped because their category_key doesn't exist.")
     # The metaclass pops declared fields off the class, so this doesn't actually shadow
     # Serializer.errors at runtime — mypy just can't see that.
     errors = serializers.ListField(  # type: ignore[assignment]
         child=serializers.CharField(),
-        help_text="The first few row-level problems, so the user can fix their file.",
+        help_text="The first few entry-level problems, so the caller can fix their list.",
     )
 
 
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "hog_flow"
+    # Only the opt-out list endpoints are reachable with API keys (and therefore MCP);
+    # webhook_url and generate_link stay session-only by being listed in neither.
+    scope_object_read_actions = ["opt_outs", "export_opt_outs_csv"]
+    scope_object_write_actions = ["add_opt_out", "bulk_add_opt_outs"]
     serializer_class = _FallbackSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="category_key",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
+            ),
+            OpenApiParameter(name="page", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="page_size", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
+        ],
+        responses={
+            200: PaginatedOptOutsSerializer,
+            404: OpenApiResponse(response=MessagingErrorSerializer),
+        },
+        summary="List recipients opted out of a message category",
+    )
     @action(detail=False, methods=["get"])
     def opt_outs(self, request, **kwargs):
         """Get opt-outs filtered by category or overall opt-outs if no category specified"""
@@ -182,7 +232,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def export_opt_outs_csv(self, request, **kwargs):
         """Stream the opt-out list for a category as a CSV file that can be re-imported as-is."""
         category_key = request.query_params.get("category_key")
-        service = OptOutCsvService(team_id=self.team_id, user=request.user)
+        service = OptOutService(team_id=self.team_id, user=request.user)
 
         try:
             rows = service.export_rows(category_key)
@@ -199,42 +249,31 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
     @extend_schema(
-        request={"multipart/form-data": ImportOptOutsCsvRequestSerializer},
+        request=BulkAddOptOutsRequestSerializer,
         responses={
-            200: ImportOptOutsCsvResultSerializer,
-            400: OpenApiResponse(response=MessagingErrorSerializer),
+            200: BulkAddOptOutsResultSerializer,
             404: OpenApiResponse(response=MessagingErrorSerializer),
         },
-        summary="Import an opt-out list from a CSV file",
+        summary="Add multiple recipients to the opt-out list",
     )
-    @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
-    def import_opt_outs_csv(self, request, **kwargs):
-        """Opt every recipient in an uploaded CSV out of the category named on their row, or a default category."""
-        csv_file = request.FILES.get("csv_file")
-        if not csv_file:
-            return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
+    @action(detail=False, methods=["post"])
+    def bulk_add_opt_outs(self, request, **kwargs):
+        """Opt every recipient in the list out of the category named on their entry, or a default category."""
+        serializer = BulkAddOptOutsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if not csv_file.name.lower().endswith(".csv"):
-            return Response({"error": "File must be a CSV"}, status=status.HTTP_400_BAD_REQUEST)
+        entries = [
+            BulkOptOutEntry(identifier=entry["identifier"], category_key=entry.get("category_key") or None)
+            for entry in serializer.validated_data["opt_outs"]
+        ]
 
-        if csv_file.size > MAX_OPT_OUT_CSV_SIZE_BYTES:
-            return Response(
-                {"error": f"File is too large. The limit is {MAX_OPT_OUT_CSV_SIZE_BYTES // (1024 * 1024)}MB"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        service = OptOutCsvService(team_id=self.team_id, user=request.user)
+        service = OptOutService(team_id=self.team_id, user=request.user)
         try:
-            result = service.import_csv(csv_file, request.data.get("category_key"))
+            result = service.opt_out_recipients(entries, serializer.validated_data.get("category_key") or None)
         except UnknownCategoryError as e:
             return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
-        except UnicodeDecodeError:
-            return Response(
-                {"error": "The file isn't valid UTF-8 text. Re-export it as a UTF-8 CSV and try again."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
-        return Response(ImportOptOutsCsvResultSerializer(result).data, status=status.HTTP_200_OK)
+        return Response(BulkAddOptOutsResultSerializer(result).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"])
     def webhook_url(self, request, **kwargs):
