@@ -19,6 +19,16 @@ Data sources: `$mcp_tool_call` events (tool names, ordering per `$session_id`) a
 
 **Live today:** `MCP: catalog checked before KPI derivation` (Hog, trace target, inactivity settle 5 min, 100% rollout, N/A allowed). Fails a session with KPI intent and data-bearing SQL but no prior successful catalog lookup and no `data-catalog-metric-run` span. Deterministic, no LLM cost. Its Hog source mirrors the tile classification above; results land as `$ai_evaluation` events.
 
+### Writing Hog that survives real traces
+
+A trace evaluation runs against traces of up to 500 events under a 10 second budget and a 64 MB VM, and **any** Hog failure disables the evaluation outright (`disables_evaluation=True` on `hog_error`), so a slow evaluation stops scoring until someone re-enables it. The first version of the evaluation above was disabled within minutes by `Execution timed out (10s limit exceeded)`. Three things caused it, all worth avoiding:
+
+- **`and` does not short-circuit.** `Operation.AND` pops every operand, so `e.event == '$ai_span' and e.properties.$ai_span_name == '...'` does the property lookups on every event regardless of type. Nest `if` blocks instead of chaining conditions.
+- **Regexes are compiled per call.** `=~*` with an alternation, evaluated once per event, dominated the budget. Use `lower()` once and then `like`.
+- **Stop scanning once the verdict is latched.** Guard the expensive string work behind the state that makes it irrelevant, and `return` from inside the loop when no later event can change the answer.
+
+Memory is a separate, rarer failure: reading a global does `deepcopy(...)` onto the 64 MB stack, so an oversized trace can exceed it before any of your code runs. Traces above 500 events are skipped upstream (`trace_too_large`), which catches the worst runaways, but a trace that passes that check with large payloads can still fail, and there is no Hog-side mitigation. Validate with `llma-evaluation-test-hog` against real traces before enabling, and check the evaluation's `status_reason_detail` if it goes quiet.
+
 **Pending `trackToolSpan` deployment** (`services/mcp/src/hono/analytics.ts`): three LLM-judge trace evaluations, sampled low (5-10%) via `rollout_percentage`:
 
 1. **Metric bypass**: the `$ai_span` for a catalog lookup carries the results (`$ai_output_state`), so the judge sees which metrics the lookup returned. Verdict: given an approved, non-drifted metric matching the session's intent, did the client run it via `data-catalog-metric-run`, or hand-write SQL for the same number?
@@ -38,5 +48,5 @@ Evaluation definitions are per-team database rows, not repo code; this document 
 
 - The evaluation scheduler triggers only on `$ai_generation`, so sessions with no `execute-sql` call are never evaluated; they remain visible in the dashboard tiles via `$mcp_tool_call`.
 - `posthog.ai_events` retention (~30 days) bounds every SQL-text-based measure.
-- Oversized traces can exceed the Hog memory limit and record an error instead of a verdict.
+- A single failing trace disables the whole evaluation rather than skipping that trace, so a rare oversized trace can silently stop scoring. Watch for the auto-disable email.
 - The customer's catalog contents are not directly joinable from telemetry; "a matching metric existed" is judged from lookup results in spans, not from the source of truth.
