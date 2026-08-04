@@ -86,6 +86,18 @@ class RepartitionUnpartitionableError(Exception):
     """The table has no column suitable for partitioning — repartition is skipped, not retried."""
 
 
+class RepartitionBudgetExceededError(Exception):
+    """The rewrite ran out of activity budget before it finished streaming the table.
+
+    Raised by the rewrite loop on reaching the deadline derived from the activity's
+    `start_to_close_timeout`. It exists so the activity observes its own budget exhaustion instead of
+    being killed by Temporal, which records nothing: the killed attempt keeps running as a zombie
+    until a claim check makes it stand down, standing down burns no attempt, so
+    `MAX_REPARTITION_ATTEMPTS` is never reached and the table re-enters the rewrite ahead of every
+    later sync forever. A table whose rewrite cannot fit in one activity needs to be told so.
+    """
+
+
 class RepartitionSupersededError(Exception):
     """A newer repartition attempt has claimed this schema — this stale attempt must stop.
 
@@ -402,6 +414,7 @@ async def _rewrite_into_temp(
     logger: FilteringBoundLogger,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
     claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
+    deadline: float | None = None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a fresh temp table under the new partition scheme.
 
@@ -410,6 +423,9 @@ async def _rewrite_into_temp(
     `ensure_claim` runs before the first batch and then at most once per
     `claim_recheck_interval_seconds`, so a superseded attempt stops within that window rather than
     paying a database round-trip per batch (see `CLAIM_RECHECK_INTERVAL_SECONDS`).
+
+    `deadline` is a `time.monotonic()` value past which the rewrite gives up with
+    `RepartitionBudgetExceededError` rather than run until Temporal kills it. None runs unbounded.
     """
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
@@ -446,6 +462,10 @@ async def _rewrite_into_temp(
     last_claim_check: float | None = None
 
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RepartitionBudgetExceededError(
+                f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}"
+            )
         if ensure_claim is not None:
             now = time.monotonic()
             if last_claim_check is None or now - last_claim_check >= claim_recheck_interval_seconds:
@@ -527,6 +547,7 @@ async def repartition_table_in_place(
     *,
     batch_size: int = DEFAULT_REPARTITION_BATCH_SIZE,
     claim_token: str | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
@@ -539,6 +560,10 @@ async def repartition_table_in_place(
     writers can never share one, and the claim is re-checked before every destructive step — and,
     during the rewrite, at most once per `CLAIM_RECHECK_INTERVAL_SECONDS` (raising
     `RepartitionSupersededError` when a newer attempt has taken over).
+
+    `deadline` (a `time.monotonic()` value) bounds the rewrite phase only. The swap that follows
+    needs no bound of its own: it records `repartition_swap` before touching live, so a swap cut
+    short by the activity timeout resumes from the intact temp table on a later run.
     """
     live_uri = await table_ref.get_table_uri()
     storage_options = table_ref.get_storage_options()
@@ -636,8 +661,9 @@ async def repartition_table_in_place(
                 batch_size=batch_size,
                 logger=logger,
                 ensure_claim=ensure_claim,
+                deadline=deadline,
             )
-        except (RepartitionSupersededError, RepartitionUnpartitionableError):
+        except (RepartitionSupersededError, RepartitionUnpartitionableError, RepartitionBudgetExceededError):
             raise
         except Exception as e:
             missing_path = _missing_live_object_path(e, live_uri)
