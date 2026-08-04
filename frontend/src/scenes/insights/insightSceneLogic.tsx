@@ -741,7 +741,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     }
                 )
             } else {
-                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
+                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery, true)
             }
         },
     })),
@@ -887,6 +887,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     }
 
                     eventUsageLogic.actions.reportInsightStarted(query)
+                } else if (q && queryFromUrl) {
+                    // In-app navigation to a shared link — the saved insight loads fresh, so the
+                    // query the link carries has to be applied on top of it.
+                    actions.upgradeQuery(queryFromUrl)
                 }
             }
         },
