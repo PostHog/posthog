@@ -928,8 +928,11 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 
-    def test_create_task_blocked_for_manual_report_implementation_when_enforced(self):
+    @parameterized.expand([(None,), ("implementation",), ("discussion",)])
+    def test_create_task_blocked_for_manual_report_creation_when_enforced(self, relationship):
         # The inbox "start work from report" path (write serializer binds `signal_report`).
+        # Every relationship label is gated: the label is client-selected and manual tasks run
+        # PR-capable by default, so a "discussion" label must not dodge the limit.
         from django.apps import apps
 
         from posthog.exceptions import QuotaLimitExceeded
@@ -945,7 +948,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                     "description": "d",
                     "origin_product": Task.OriginProduct.SIGNAL_REPORT,
                     "signal_report": report,
-                    "signal_report_task_relationship": None,
+                    "signal_report_task_relationship": relationship,
                 },
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())

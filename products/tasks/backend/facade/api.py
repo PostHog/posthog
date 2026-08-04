@@ -4348,12 +4348,10 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
 
     # The write serializer binds the report as `signal_report` (a PK field); direct callers may
     # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
+    # Gated regardless of the relationship label: the label is client-selected and manually
+    # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
-    if (
-        report_ref
-        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
-        and signal_report_task_relationship in (None, "implementation")
-    ):
+    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
         enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
 
     logger.info("Creating task with data: %s", validated_data)
