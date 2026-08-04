@@ -1,9 +1,12 @@
 import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
+import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+
+import { ReplayScanner } from './types'
 
 export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'self_driving'
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers', 'self_driving']
@@ -12,6 +15,31 @@ export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     configure: 1,
     triggers: 2,
     self_driving: 3,
+}
+
+/**
+ * The scanner form validates every field on every step, so an error on one step blocks the others. Grouping
+ * each error under the step that renders its field lets both the stepper and the footer button point at the
+ * field to fix, which they can't do from the flat error map: a blank name belongs to `configure` but blocks
+ * `triggers`, where the name field isn't rendered at all.
+ *
+ * Every field `replayScannerLogic`'s `errors()` can reject has to be claimed by a step here. An unclaimed
+ * one blocks the submit while leaving the footer button enabled, which makes clicking it a silent no-op.
+ */
+export function scannerStepErrors(
+    validationErrors: DeepPartialMap<ReplayScanner, ValidationErrorType> | undefined,
+    durationValidationError: string | null
+): Record<ScannerEditorStep, string[]> {
+    const messages = (...candidates: unknown[]): string[] => candidates.filter((c): c is string => !!c)
+
+    return {
+        template: [],
+        self_driving: [],
+        configure: messages(validationErrors?.name, ...Object.values(validationErrors?.scanner_config ?? {})),
+        // durationValidationError isn't a form error (kea-forms can't attach a scalar error to the
+        // object-typed `query` field), but it blocks the same submit, so it belongs to the same step.
+        triggers: messages(validationErrors?.sampling_rate, durationValidationError),
+    }
 }
 
 export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): string {

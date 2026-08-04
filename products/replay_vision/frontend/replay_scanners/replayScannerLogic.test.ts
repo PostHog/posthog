@@ -15,9 +15,17 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
+import { SCANNER_EDITOR_STEPS, ScannerEditorStep, scannerStepErrors } from './scannerEditorSceneLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
+
+const collectErrorMessages = (errors: unknown): string[] => {
+    if (typeof errors === 'string') {
+        return [errors]
+    }
+    return errors && typeof errors === 'object' ? Object.values(errors).flatMap(collectErrorMessages) : []
+}
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
@@ -366,6 +374,60 @@ describe('replayScannerLogic', () => {
                 isScannerValid: true,
             })
         })
+
+        // kea-forms refuses a submit with validation errors before running the submit handler, and that
+        // handler holds the wizard's navigation. So an error no step claims blocks the wizard while leaving
+        // the footer button enabled and untooltipped: clicking it does nothing and explains nothing.
+        it.each([
+            { case: 'a missing name', setup: () => undefined, owner: 'configure' },
+            {
+                case: 'a missing prompt',
+                setup: () => logic.actions.setScannerValues({ name: 'My scanner' }),
+                owner: 'configure',
+            },
+            {
+                case: 'a scorer scale with min >= max',
+                setup: () => {
+                    logic.actions.setScannerType('scorer')
+                    logic.actions.setScannerValues({
+                        name: 'My scanner',
+                        scanner_config: {
+                            prompt: 'rate this',
+                            scale: { min: 10, max: 5 },
+                        } as ScorerScanner['scanner_config'],
+                    })
+                },
+                owner: 'configure',
+            },
+            {
+                case: 'a sampling rate of 0',
+                setup: () =>
+                    logic.actions.setScannerValues({
+                        name: 'My scanner',
+                        scanner_config: { prompt: 'Q?' },
+                        sampling_rate: 0,
+                    }),
+                owner: 'triggers',
+            },
+        ] as { case: string; setup: () => void; owner: ScannerEditorStep }[])(
+            'assigns $case to the $owner step, leaving no error unclaimed',
+            ({ setup, owner }) => {
+                setup()
+
+                const flatErrors = collectErrorMessages(logic.values.scannerValidationErrors)
+                expect(flatErrors).not.toHaveLength(0)
+
+                const stepErrors = scannerStepErrors(
+                    logic.values.scannerValidationErrors,
+                    logic.values.durationValidationError
+                )
+                expect(stepErrors[owner]).toEqual(expect.arrayContaining(flatErrors))
+                // A step that doesn't own the error must stay clean, so the button names the step to go to.
+                expect(
+                    SCANNER_EDITOR_STEPS.filter((step) => step !== owner).flatMap((step) => stepErrors[step])
+                ).toHaveLength(0)
+            }
+        )
     })
 
     describe('buildObservationListParams', () => {

@@ -42,6 +42,7 @@ import {
     SCANNER_EDITOR_STEP_ORDER,
     ScannerEditorStep,
     scannerEditorSceneLogic,
+    scannerStepErrors,
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
@@ -80,6 +81,13 @@ const STEP_HEADERS: Record<
     },
 }
 
+const NO_STEP_ERRORS: Record<ScannerEditorStep, string[]> = {
+    template: [],
+    configure: [],
+    triggers: [],
+    self_driving: [],
+}
+
 export function ScannerEditorSceneComponent(): JSX.Element {
     const { scannerId, step, isNew, visibleSteps } = useValues(scannerEditorSceneLogic)
 
@@ -116,12 +124,16 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
+    // Hold the stepper's error markers back until the user has tried to advance or save, so a form they
+    // haven't filled in yet doesn't start out covered in warnings.
+    const stepErrorMessages = showScannerErrors
+        ? scannerStepErrors(scannerValidationErrors, durationValidationError)
+        : NO_STEP_ERRORS
     const stepErrors: Record<ScannerEditorStep, boolean> = {
-        template: false,
-        self_driving: false,
-        configure: showScannerErrors && !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
-        triggers:
-            showScannerErrors && (scannerValidationErrors?.sampling_rate != null || durationValidationError != null),
+        template: stepErrorMessages.template.length > 0,
+        configure: stepErrorMessages.configure.length > 0,
+        triggers: stepErrorMessages.triggers.length > 0,
+        self_driving: stepErrorMessages.self_driving.length > 0,
     }
 
     // Validate the current step and move on: submit routes to the next visible step on success.
@@ -356,15 +368,28 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, scannerValidationErrors, durationValidationError } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
-    // A broken duration filter (scans nothing) blocks the save — surface it as a disabled reason so the
-    // button explains itself instead of silently doing nothing. RBAC takes priority: it's the more
-    // fundamental blocker, and this must match the backend's create/update requirement exactly — a
-    // disabled-looking button that the backend would still accept (or vice versa) is a real bug here.
-    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationValidationError
+
+    // Every reason the submit would be refused has to reach this prop. kea-forms stops a submit with
+    // validation errors before it runs the submit handler, and that handler holds all the navigation, toasts
+    // and API calls, so an error the button doesn't know about leaves it enabled and makes clicking it a
+    // no-op with no feedback at all. Naming the blocking field keeps the button honest about why it's off.
+    // RBAC takes priority: it's the more fundamental blocker, and this must match the backend's
+    // create/update requirement exactly, since a disabled-looking button that the backend would still
+    // accept (or vice versa) is a real bug here.
+    const stepErrors = scannerStepErrors(scannerValidationErrors, durationValidationError)
+    const blockingStep = visibleSteps.find((s) => stepErrors[s].length > 0)
+    const blockingError = blockingStep
+        ? blockingStep === step
+            ? stepErrors[blockingStep][0]
+            : `${stepErrors[blockingStep][0]}. Fix it on the ${STEP_LABELS[blockingStep]} step.`
+        : null
+    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? blockingError
 
     return (
         <div className="flex items-center justify-between">
