@@ -2,7 +2,6 @@ import { IconExternal } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { safeHttpUrl } from 'scenes/inbox/utils/reportPresentation'
@@ -104,11 +103,6 @@ export function PgAnalyzeSignalCard({ signal }: SignalCardProps): JSX.Element {
         <ExternalSignalCard
             signal={signal}
             metaChips={metaChips}
-            footerLeft={
-                <span className="flex items-center gap-1">
-                    Synced <TZLabel time={extra.synced_at} />
-                </span>
-            }
             link={externalUrl ? { to: externalUrl, label: 'View in pganalyze' } : undefined}
         >
             <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>

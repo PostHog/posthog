@@ -379,6 +379,16 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
                 "allow_null": True,
             },
+            "merge_queue_billable_minutes": {
+                "help_text": "Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); "
+                "null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_billable_minutes_prev": {
+                "help_text": "Merge-queue billable minutes over the previous window; null when the job-level "
+                "source isn't synced.",
+                "allow_null": True,
+            },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
             "cost_series_granularity": {

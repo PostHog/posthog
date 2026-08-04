@@ -93,7 +93,7 @@ function FiringBody({ extra }: { extra: LogsAlertStateChangeSignalExtraApi }): J
             </p>
             <div className="flex items-baseline gap-2">
                 <span className="text-lg font-semibold">
-                    <span className="text-danger">{extra.result_count === null ? '–' : extra.result_count}</span>
+                    <span className="text-danger">{extra.result_count === null ? 'N/A' : extra.result_count}</span>
                     {' / '}
                     {extra.threshold_count}
                 </span>
