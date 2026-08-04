@@ -258,6 +258,44 @@ tools:
                 - metrics_secondary
                 - conclusion
                 - conclusion_comment
+    experiment-create-from-prompt:
+        operation: experiments_create_from_prompt_create
+        enabled: true
+        scopes:
+            - experiment:write
+            - llm_prompt:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create experiment from LLM prompt
+        description: >
+            Create a draft experiment that compares versions of an existing LLM prompt (managed with the llma-prompt
+            tools). Pass the prompt's exact name (call llma-prompt-list to discover names), two or more of its version
+            numbers (the first entry becomes the control variant), and one or more metric templates — call
+            experiment-prompt-templates for the allowed template keys. Builds one variant per version, each carrying a
+            feature flag payload with the prompt name and version so the SDK can resolve which version to serve, and
+            attaches one primary metric per template, scoped to the prompt. The feature flag is auto-created — do not
+            create one separately. Launch the experiment with the launch tool when ready.
+        ui_app: experiment
+        response:
+            include:
+                - id
+                - name
+                - description
+                - type
+                - feature_flag_key
+                - status
+                - archived
+                - start_date
+                - end_date
+                - created_at
+                - parameters
+                - metrics
+                - metrics_secondary
+                - conclusion
+                - conclusion_comment
     experiment-delete:
         operation: experiments_destroy
         enabled: true
@@ -785,6 +823,19 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+    experiment-prompt-templates:
+        operation: experiments_prompt_templates_retrieve
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List LLM prompt metric templates
+        description: >
+            List the metric templates accepted by experiment-create-from-prompt. Each entry has a key (the value to pass
+            in that tool's templates parameter), a label, and a description of what the metric measures.
     experiment-reset:
         operation: experiments_reset_create
         enabled: true
@@ -1251,17 +1302,11 @@ tools:
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
-    experiments-create-from-prompt-create:
-        operation: experiments_create_from_prompt_create
-        enabled: false
     experiments-flag-cleanup-target-retrieve:
         operation: experiments_flag_cleanup_target_retrieve
         enabled: false
     experiments-flag-cleanup-task-retrieve:
         operation: experiments_flag_cleanup_task_retrieve
-        enabled: false
-    experiments-prompt-templates-retrieve:
-        operation: experiments_prompt_templates_retrieve
         enabled: false
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
