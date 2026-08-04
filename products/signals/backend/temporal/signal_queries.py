@@ -46,10 +46,6 @@ CH_CONFIRM_GRACE_PERIOD_SECONDS = 300
 # store keeps polling every attempt, ClickHouse only every Nth — 3x fewer CH queries.
 CH_CONFIRM_EVERY_N_ATTEMPTS = 3
 
-# Slack when comparing the store's emitted_at against the signal's expected timestamp, to
-# absorb sub-second precision loss in serialization round-trips.
-RECENTLY_SEEN_TIMESTAMP_TOLERANCE = timedelta(seconds=2)
-
 
 def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
     """Coerce a ClickHouse timestamp (usually a datetime, occasionally a string) to a tz-aware datetime."""
@@ -90,7 +86,7 @@ def _deduped_signals_subquery(
     ]
     if include_embedding:
         selected_columns.append("argMax(embedding, inserted_at) as embedding")
-    selected_columns.append("argMax(timestamp, inserted_at) as timestamp")
+    selected_columns.extend(["argMax(timestamp, inserted_at) as timestamp", "max(inserted_at) as latest_inserted_at"])
     selected_columns_sql = ",\n            ".join(selected_columns)
 
     if extra_where:
@@ -164,7 +160,8 @@ def _signals_for_report_query(*, include_deleted: bool = False, limit: int | Non
             document_id,
             content,
             metadata,
-            timestamp
+            timestamp,
+            latest_inserted_at
         FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
         WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
         ORDER BY timestamp ASC{limit_clause}
@@ -179,8 +176,8 @@ def _report_placeholders(report_id: str) -> dict:
 
 
 def _parse_signal_row(row: tuple) -> SignalData:
-    """Turn a (document_id, content, metadata_str, timestamp) row into a SignalData."""
-    document_id, content, metadata_str, timestamp_raw = row
+    """Turn a ClickHouse document embedding row into a SignalData."""
+    document_id, content, metadata_str, timestamp_raw, inserted_at_raw = row
     timestamp_raw = _ensure_tz_aware(timestamp_raw)
     # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
     # no defensive parsing, we want to fail loudly.
@@ -193,6 +190,7 @@ def _parse_signal_row(row: tuple) -> SignalData:
         source_id=metadata.get("source_id", ""),
         weight=metadata.get("weight", 0.0),
         timestamp=timestamp_raw,
+        inserted_at=_ensure_tz_aware(inserted_at_raw),
         extra=metadata.get("extra", {}),
         remediation=metadata.get("remediation"),
     )
@@ -219,7 +217,7 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
     )
 
     for row in result.results or []:
-        document_id, content, metadata_str, timestamp_raw = row
+        document_id, content, metadata_str, timestamp_raw, _inserted_at_raw = row
         metadata = json.loads(metadata_str)
         metadata["deleted"] = True
 
@@ -407,6 +405,7 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
 class WaitForClickHouseSignal:
     signal_id: str
     timestamp: datetime
+    inserted_at: datetime | None = None
 
 
 class WaitForClickHouseMode(StrEnum):
@@ -414,21 +413,16 @@ class WaitForClickHouseMode(StrEnum):
 
     OPTIMISTIC: return as soon as the store confirms the emission, without querying
     ClickHouse at all — cheapest and fastest, but blind to the Kafka-to-ClickHouse
-    insert gap, and effectively a no-op for soft-delete re-emissions (which reuse the
-    original timestamp, so the original emission's store record confirms them
-    instantly). ClickHouse still polls on the post-grace fallback cadence when the
+    insert gap. ClickHouse still polls on the post-grace fallback cadence when the
     store never confirms.
 
     CH_CONFIRMED: a store confirmation triggers an immediate ClickHouse confirm, and
     ClickHouse stays authoritative — the store only decides when to start querying.
 
-    CH_ONLY: ignore the store and poll ClickHouse every attempt, for callers that must
-    know the rows actually landed and can't wait for the fallback cadence.
     """
 
     OPTIMISTIC = "optimistic"
     CH_CONFIRMED = "ch_confirmed"
-    CH_ONLY = "ch_only"
 
 
 @dataclass
@@ -442,16 +436,12 @@ class WaitForClickHouseInput:
 async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHouseSignal]) -> bool:
     """Check the embedding worker's recently-seen store for every signal's emission.
 
-    True only when each signal's document reports an emit timestamp at or after the
-    signal's own timestamp (minus a small precision tolerance) — the store records the
-    request's timestamp field verbatim, so a fresh emission is confirmed the moment the
-    worker commits it, while a record left over from an older emission of the same
-    document_id fails the comparison. False on any miss, stale record, or store error.
+    True only when each document is present and, when its current ClickHouse inserted_at
+    is known, the worker emitted it after that version. False on any miss, stale record,
+    or store error.
 
     A True result is not proof of ClickHouse visibility: "seen" means committed to the
-    output Kafka topic, and a soft-delete re-emission reuses the original timestamp so
-    it is indistinguishable from the original emission here. WaitForClickHouseMode
-    decides how much the caller trusts it.
+    output Kafka topic. WaitForClickHouseMode decides how much the caller trusts it.
     """
     documents = [
         DocumentKey(
@@ -465,6 +455,7 @@ async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHou
     try:
         seen = await async_get_recently_seen_documents(documents, team_id=team_id)
     except Exception:
+        metrics.increment_recently_seen_lookup("error")
         logger.warning(
             "Recently-seen lookup failed, falling back to ClickHouse polling",
             team_id=team_id,
@@ -474,8 +465,13 @@ async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHou
 
     for document, signal in zip(documents, signals):
         emitted_at = seen.get(document)
-        if emitted_at is None or emitted_at < _ensure_tz_aware(signal.timestamp) - RECENTLY_SEEN_TIMESTAMP_TOLERANCE:
+        if emitted_at is None:
+            metrics.increment_recently_seen_lookup("pending")
             return False
+        if signal.inserted_at is not None and emitted_at <= _ensure_tz_aware(signal.inserted_at):
+            metrics.increment_recently_seen_lookup("pending")
+            return False
+    metrics.increment_recently_seen_lookup("confirmed")
     return True
 
 
@@ -485,10 +481,10 @@ async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHou
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
     """Wait until all emitted signals are processed, or give up after max_wait_time_seconds.
 
-    Two-tier poll, tuned by input.mode (see WaitForClickHouseMode). Unless the mode is
-    CH_ONLY, every attempt checks the embedding worker's recently-seen store (a cheap
-    key-value lookup): a store confirmation ends the wait outright in OPTIMISTIC mode,
-    or triggers the ClickHouse confirmation query in CH_CONFIRMED mode. For the first
+    Two-tier poll, tuned by input.mode (see WaitForClickHouseMode). Every attempt checks
+    the embedding worker's recently-seen store (a cheap key-value lookup): a store
+    confirmation ends the wait outright in OPTIMISTIC mode, or triggers the ClickHouse
+    confirmation query in CH_CONFIRMED mode. For the first
     CH_CONFIRM_GRACE_PERIOD_SECONDS the wait is otherwise store-exclusive; after that,
     ClickHouse also polls on every CH_CONFIRM_EVERY_N_ATTEMPTS-th attempt (a third of
     the store's rate) as a fallback for when the store is lossy, plus once on the
@@ -544,7 +540,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
     for attempt in range(max_attempts):
         temporalio.activity.heartbeat(attempt)
 
-        if input.mode != WaitForClickHouseMode.CH_ONLY and not store_confirmed:
+        if not store_confirmed:
             store_confirmed = await _all_signals_recently_seen(input.team_id, input.signals)
             if store_confirmed:
                 logger.debug(
@@ -553,16 +549,23 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
                     team_id=input.team_id,
                 )
                 if input.mode == WaitForClickHouseMode.OPTIMISTIC:
+                    metrics.increment_ch_wait_completion(input.mode.value, "recently_seen")
                     return
 
         past_grace_period = attempt * WAIT_POLL_INTERVAL_SECONDS >= CH_CONFIRM_GRACE_PERIOD_SECONDS
         ch_confirm_due = (
-            input.mode == WaitForClickHouseMode.CH_ONLY
-            or store_confirmed
+            store_confirmed
             or (past_grace_period and attempt % CH_CONFIRM_EVERY_N_ATTEMPTS == CH_CONFIRM_EVERY_N_ATTEMPTS - 1)
             or attempt == max_attempts - 1
         )
         if ch_confirm_due:
+            if store_confirmed:
+                query_reason = "store_confirmed"
+            elif attempt == max_attempts - 1:
+                query_reason = "final"
+            else:
+                query_reason = "fallback"
+            metrics.increment_ch_wait_query(input.mode.value, query_reason)
             result = await execute_hogql_query_with_retry(
                 query_type="SignalsWaitForClickHouse",
                 query=query,
@@ -582,6 +585,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
                     signal_ids=signal_ids,
                     team_id=input.team_id,
                 )
+                metrics.increment_ch_wait_completion(input.mode.value, "clickhouse")
                 return
 
         # Sleep in chunks so we keep heartbeating during the poll interval
@@ -593,6 +597,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             temporalio.activity.heartbeat(attempt)
 
     metrics.increment_ch_wait_timeout()
+    metrics.increment_ch_wait_completion(input.mode.value, "timeout")
     logger.warning(
         f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
         signal_ids=signal_ids,
@@ -660,7 +665,7 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
 
     signals_list = []
     for row in result.results or []:
-        document_id, content, metadata_str, timestamp = row
+        document_id, content, metadata_str, timestamp, _inserted_at = row
         metadata = json.loads(metadata_str)
         signals_list.append(
             {

@@ -21,9 +21,16 @@ MODULE = "products.signals.backend.temporal.signal_queries"
 TEAM_ID = 1
 
 
-def _signals(count: int) -> list[WaitForClickHouseSignal]:
+def _signals(count: int, *, include_inserted_at: bool = True) -> list[WaitForClickHouseSignal]:
     now = timezone.now()
-    return [WaitForClickHouseSignal(signal_id=str(uuid.uuid4()), timestamp=now) for _ in range(count)]
+    return [
+        WaitForClickHouseSignal(
+            signal_id=str(uuid.uuid4()),
+            timestamp=now,
+            inserted_at=now if include_inserted_at else None,
+        )
+        for _ in range(count)
+    ]
 
 
 def _ch_result(count: int) -> SimpleNamespace:
@@ -31,7 +38,7 @@ def _ch_result(count: int) -> SimpleNamespace:
 
 
 def _store_returning(offset: timedelta | None):
-    # Answers the lookup with each document's expected timestamp shifted by `offset`
+    # Answers the lookup relative to the document's expected inserted_at
     # (None means "never emitted" for every document).
     async def lookup(documents, *, team_id):
         if offset is None:
@@ -92,20 +99,18 @@ async def test_store_confirmation_short_circuits(mode, expected_ch_queries):
 
 
 @pytest.mark.asyncio
-async def test_ch_only_mode_never_consults_the_store():
-    signals = _signals(1)
+async def test_signal_without_inserted_at_accepts_any_store_hit():
+    signals = _signals(1, include_inserted_at=False)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
-        patch(f"{MODULE}.async_get_recently_seen_documents", side_effect=_store_returning(timedelta(0))) as store,
+        patch(f"{MODULE}.async_get_recently_seen_documents", side_effect=_store_returning(timedelta(days=-1))) as store,
         patch(f"{MODULE}.execute_hogql_query_with_retry", AsyncMock(return_value=_ch_result(1))) as ch,
         patch(f"{MODULE}.asyncio.sleep", AsyncMock()) as sleep,
     ):
-        await _run(signals, mode=WaitForClickHouseMode.CH_ONLY)
+        await _run(signals, mode=WaitForClickHouseMode.OPTIMISTIC)
 
-    # ch_only is for waits the store can't see (soft-deletes): ClickHouse polls from
-    # the first attempt with no grace-period deferral, and the store is never queried.
-    assert ch.await_count == 1
-    assert store.call_count == 0
+    assert ch.await_count == 0
+    assert store.call_count == 1
     assert sleep.await_count == 0
 
 

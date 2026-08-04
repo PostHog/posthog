@@ -95,6 +95,7 @@ class SignalReportDeletionWorkflow:
                     WaitForClickHouseSignal(
                         signal_id=s.signal_id,
                         timestamp=s.timestamp,
+                        inserted_at=s.inserted_at,
                     )
                     for s in fetch_result.signals
                 ],

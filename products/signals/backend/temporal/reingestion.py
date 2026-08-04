@@ -180,7 +180,8 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 document_id,
                 content,
                 metadata,
-                timestamp
+                timestamp,
+                inserted_at
             FROM ({_DEDUPED_SIGNALS_SUBQUERY})
             WHERE NOT JSONExtractBool(metadata, 'deleted')
             ORDER BY timestamp DESC, document_id DESC
@@ -195,7 +196,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
 
     signals: list[SignalData] = []
     for row in result.results or []:
-        document_id, content, metadata_str, timestamp_raw = row
+        document_id, content, metadata_str, timestamp_raw, inserted_at_raw = row
         metadata = json.loads(metadata_str)
         signals.append(
             SignalData(
@@ -206,6 +207,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 source_id=metadata.get("source_id", ""),
                 weight=metadata.get("weight", 0.0),
                 timestamp=_ensure_tz_aware(timestamp_raw),
+                inserted_at=_ensure_tz_aware(inserted_at_raw),
                 extra=metadata.get("extra", {}),
                 remediation=metadata.get("remediation"),
                 metadata=dict(metadata),
@@ -252,7 +254,12 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
         WaitForClickHouseInput(
             team_id=input.team_id,
             signals=[
-                WaitForClickHouseSignal(signal_id=signal.signal_id, timestamp=signal.timestamp) for signal in signals
+                WaitForClickHouseSignal(
+                    signal_id=signal.signal_id,
+                    timestamp=signal.timestamp,
+                    inserted_at=signal.inserted_at,
+                )
+                for signal in signals
             ],
             max_wait_time_seconds=3600,
             # Bulk reprocessing is non-interactive: let the store gate the polling, but
@@ -395,14 +402,12 @@ class SignalReportReingestionWorkflow:
                     WaitForClickHouseSignal(
                         signal_id=s.signal_id,
                         timestamp=s.timestamp,
+                        inserted_at=s.inserted_at,
                     )
                     for s in fetch_result.signals
                 ],
                 max_wait_time_seconds=3600,
-                # Interactive reingestion re-emits these signals right after this wait,
-                # and the store can't see soft-deletes (they reuse the original
-                # timestamp) — only ClickHouse can prove the stale rows were replaced.
-                mode=WaitForClickHouseMode.CH_ONLY,
+                mode=WaitForClickHouseMode.CH_CONFIRMED,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=5),

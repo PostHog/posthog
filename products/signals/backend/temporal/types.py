@@ -186,6 +186,7 @@ class SignalData:
     source_id: str
     weight: float
     timestamp: datetime
+    inserted_at: Optional[datetime] = None
     extra: dict = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     # Optional fix guidance (separate from `extra`); see EmitSignalInputs.remediation.
