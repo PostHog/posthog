@@ -459,6 +459,9 @@ tools:
     tasks-runs-create:
         operation: tasks_runs_create
         enabled: false
+    tasks-runs-defer-followup-create:
+        operation: tasks_runs_defer_followup_create
+        enabled: false
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
