@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 DELTA_WRITE_DURATION_SECONDS = Histogram(
     "warehouse_load_delta_write_duration_seconds",
@@ -59,4 +59,36 @@ DELTALITE_WRITE_TOTAL = Counter(
 DELTALITE_WRITE_DURATION_SECONDS = Histogram(
     "warehouse_load_deltalite_write_duration_seconds",
     "Wall-clock time of a deltalite real write (DeltaLiteTable.upsert)",
+)
+
+# deltalite memory governor (capacity planning). Sizes each upsert's knobs to the pod's live
+# memory headroom and applies admission control across concurrent upserts on the process.
+#   mode    - off | advisory | enforce
+#   outcome - admitted | no_fit | pod_full | source_too_big
+DELTALITE_GOVERNOR_DECISION_TOTAL = Counter(
+    "warehouse_load_deltalite_governor_decision_total",
+    "deltalite governor admission decisions, by mode and outcome",
+    labelnames=["mode", "outcome"],
+)
+
+DELTALITE_GOVERNOR_ADMISSION_WAIT_SECONDS = Histogram(
+    "warehouse_load_deltalite_governor_admission_wait_seconds",
+    "Time an upsert waited for pod memory headroom before admission or fallback",
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+
+DELTALITE_GOVERNOR_PREDICTED_PEAK_MB = Histogram(
+    "warehouse_load_deltalite_governor_predicted_peak_mb",
+    "Predicted marginal peak RSS (MB) the governor sized an upsert against",
+    buckets=(128, 256, 512, 1024, 2048, 4096, 8192, 16384),
+)
+
+DELTALITE_GOVERNOR_INFLIGHT = Gauge(
+    "warehouse_load_deltalite_governor_inflight",
+    "deltalite upserts currently admitted and in flight on this process",
+)
+
+DELTALITE_GOVERNOR_RESERVED_MB = Gauge(
+    "warehouse_load_deltalite_governor_reserved_mb",
+    "Total memory (MB) currently reserved by in-flight deltalite upserts on this process",
 )
