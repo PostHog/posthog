@@ -1619,6 +1619,18 @@ export interface LogsRetentionRuleReorderApi {
     ordered_ids: string[]
 }
 
+export interface LogsRetentionRuleSuggestNameApi {
+    /** Retention tier the rule would assign, in days. */
+    retention_days: number
+    /** PropertyGroupFilter tree the rule would match on. */
+    filter_group: unknown
+}
+
+export interface LogsRetentionRuleNameSuggestionApi {
+    /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+    name: string
+}
+
 /**
  * * `severity_sampling` - Severity-based reduction
  * * `path_drop` - Path exclusion
