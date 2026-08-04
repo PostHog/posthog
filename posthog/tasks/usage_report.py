@@ -2809,7 +2809,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
         ),
-        "teams_with_posthog_code_token_credits_used_in_period": token_credits,
+        "teams_with_posthog_code_credits_used_in_period": token_credits,
         "teams_with_sandbox_compute_credits_used_in_period": sandbox_compute_usage.credits,
         "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": sandbox_compute_usage.cpu_millicore_seconds,
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": sandbox_compute_usage.memory_mib_seconds,
@@ -3008,10 +3008,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
-            all_data["teams_with_posthog_code_token_credits_used_in_period"].get(team.id, 0),
+            all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),
         ),
-        posthog_code_token_credits_used_in_period=all_data["teams_with_posthog_code_token_credits_used_in_period"].get(
+        posthog_code_token_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(
             team.id, 0
         ),
         sandbox_compute_credits_used_in_period=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(
