@@ -5,21 +5,30 @@ import { DataModelingJob } from '~/types'
 
 const LOGS_FILTER_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 
-/** When the run ended, best-effort. Failed and cancelled runs historically never advanced
- * `last_run_at` past the job's start, so `updated_at` (stamped on the terminal save) is the
- * more reliable end marker for them. Running jobs have no end yet. */
+function isParseableDate(value: string | null | undefined): value is string {
+    return !!value && dayjs(value).isValid()
+}
+
+function latestOf(...values: (string | null | undefined)[]): string | null {
+    const parseable = values.filter(isParseableDate)
+    if (!parseable.length) {
+        return null
+    }
+    return parseable.reduce((latest, value) => (dayjs(value).isAfter(dayjs(latest)) ? value : latest))
+}
+
+/** When the run ended, best-effort. Running jobs have no end yet. Failed and cancelled runs are
+ * stamped by different write paths: a model save advances both fields, a bulk `QuerySet.update()`
+ * skips the `auto_now` on `updated_at`, and rows predating the failure stamp still carry the run's
+ * start time in `last_run_at`. Whichever is later is the end in all three cases. */
 function jobEndTimestamp(job: DataModelingJob): string | null {
     if (job.status === 'Running') {
         return null
     }
     if (job.status === 'Completed') {
-        return job.last_run_at ?? null
+        return isParseableDate(job.last_run_at) ? job.last_run_at : null
     }
-    return job.updated_at ?? job.last_run_at ?? null
-}
-
-function isParseableDate(value: string | null | undefined): value is string {
-    return !!value && dayjs(value).isValid()
+    return latestOf(job.updated_at, job.last_run_at)
 }
 
 export function computeJobDuration(job: DataModelingJob): string {

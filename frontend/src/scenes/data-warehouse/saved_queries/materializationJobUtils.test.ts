@@ -33,6 +33,11 @@ describe('materializationJobUtils', () => {
             { status: 'Failed', last_run_at: START, updated_at: START_PLUS_90S },
             NINETY_SECONDS,
         ],
+        [
+            'cancelled job stamped by a bulk update, where updated_at is the stale one',
+            { status: 'Cancelled', last_run_at: START_PLUS_90S, updated_at: START },
+            NINETY_SECONDS,
+        ],
         ['failed job with stale last_run_at and no updated_at', { status: 'Failed', last_run_at: START }, '-'],
         ['unparseable created_at', { created_at: 'not-a-date' }, '-'],
         ['missing last_run_at on completed job', { last_run_at: undefined as unknown as string }, '-'],
@@ -51,6 +56,12 @@ describe('materializationJobUtils', () => {
         [
             'failed job uses updated_at for the window end',
             { status: 'Failed', last_run_at: START, updated_at: START_PLUS_90S },
+            '2024-01-10 10:00:00',
+            '2024-01-10 11:01:30',
+        ],
+        [
+            'cancelled job stamped by a bulk update uses the fresher last_run_at',
+            { status: 'Cancelled', last_run_at: START_PLUS_90S, updated_at: START },
             '2024-01-10 10:00:00',
             '2024-01-10 11:01:30',
         ],
