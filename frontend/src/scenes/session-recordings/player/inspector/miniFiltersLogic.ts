@@ -137,6 +137,14 @@ export const MiniFilters: SharedListMiniFilter[] = [
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
+// Some sub-filters of a type are enabled by default and some aren't (e.g. console-app-state isn't),
+// so "some enabled" is true from the first render and a click on the group toggle would hide
+// filters the user never asked to hide. Requiring every sub-filter to be on makes a click reveal
+// the rest instead, unless the group is already fully shown.
+export function isMiniFilterGroupFullyEnabled(filters: SharedListMiniFilter[]): boolean {
+    return filters.every((x) => !!x.enabled)
+}
+
 const defaultMinifilters = [
     'events-posthog',
     'events-custom',
@@ -369,9 +377,10 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     }),
     listeners(({ actions }) => ({
         setMiniFilter: ({ key, enabled }) => {
-            if (enabled) {
-                actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
-            }
+            actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
+        },
+        setMiniFilters: ({ keys, enabled }) => {
+            keys.forEach((key) => actions.reportRecordingInspectorMiniFilterViewed(key, enabled))
         },
     })),
     events(({ values, actions }) => ({

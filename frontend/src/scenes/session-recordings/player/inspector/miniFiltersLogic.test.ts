@@ -1,6 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import {
+    SharedListMiniFilter,
+    isMiniFilterGroupFullyEnabled,
+    miniFiltersLogic,
+} from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -78,6 +82,31 @@ describe('miniFiltersLogic', () => {
                     'logs-error',
                 ],
             })
+        })
+    })
+
+    describe('setMiniFilters reporting', () => {
+        it('reports each affected key, including on disable', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setMiniFilters(['console-info', 'console-app-state'], false)
+            }).toDispatchActions([
+                eventLogic.actionCreators.reportRecordingInspectorMiniFilterViewed('console-info', false),
+                eventLogic.actionCreators.reportRecordingInspectorMiniFilterViewed('console-app-state', false),
+            ])
+        })
+    })
+
+    describe('isMiniFilterGroupFullyEnabled', () => {
+        const asFilters = (enabledFlags: boolean[]): SharedListMiniFilter[] =>
+            enabledFlags.map((enabled, i) => ({ type: 'console', key: `k${i}`, name: `k${i}`, enabled }))
+
+        it.each([
+            { enabledFlags: [true, true, true], expected: true },
+            { enabledFlags: [true, false, true], expected: false },
+            { enabledFlags: [false, false, false], expected: false },
+            { enabledFlags: [], expected: true },
+        ])('returns $expected for $enabledFlags', ({ enabledFlags, expected }) => {
+            expect(isMiniFilterGroupFullyEnabled(asFilters(enabledFlags))).toEqual(expected)
         })
     })
 })

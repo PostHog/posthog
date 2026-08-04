@@ -21,7 +21,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { SharedListMiniFilter, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import {
+    SharedListMiniFilter,
+    isMiniFilterGroupFullyEnabled,
+    miniFiltersLogic,
+} from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     FilterableInspectorListItemTypes,
     InspectorListItem,
@@ -111,7 +115,7 @@ function FilterSettingsButton({
 
     const filteredMiniFiltersForType = miniFiltersForType(type)?.filter((x) => x.name !== 'All')
     const filterKeys = filteredMiniFiltersForType.map((x) => x.key)
-    const isEnabled = filteredMiniFiltersForType.some((x) => !!x.enabled)
+    const isFullyEnabled = isMiniFilterGroupFullyEnabled(filteredMiniFiltersForType)
 
     return (
         <SettingsButton
@@ -129,10 +133,10 @@ function FilterSettingsButton({
             label={label || capitalizeFirstLetter(type)}
             icon={icon}
             onClick={() => {
-                setMiniFilters(filterKeys, !isEnabled)
+                setMiniFilters(filterKeys, !isFullyEnabled)
             }}
             disabledReason={disabledReason}
-            active={isEnabled}
+            active={isFullyEnabled}
         />
     )
 }
