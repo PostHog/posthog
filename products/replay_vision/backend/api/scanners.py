@@ -8,7 +8,13 @@ from django.utils import timezone
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -21,10 +27,12 @@ from posthog.schema import RecordingsQuery
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
     OrderByFilter,
@@ -488,10 +496,18 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
         if is_replay_vision_actions_enabled(user, team):
             provision_scanner_digest(scanner, user)
-        report_user_action(user, "replay vision scanner created", _scanner_lifecycle_properties(scanner), team=team)
+        report_user_action(
+            user,
+            "replay_vision_scanner_created",
+            _scanner_lifecycle_properties(scanner),
+            team=team,
+            request=self.context["request"],
+        )
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
+        # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
+        before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
         try:
             scanner = super().update(instance, validated_data)
@@ -504,12 +520,26 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
+        changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
+        request = self.context["request"]
+        user = cast(User, request.user)
+        team = self.context["get_team"]()
         if scanner.enabled != was_enabled:
             report_user_action(
-                cast(User, self.context["request"].user),
-                "replay vision scanner enabled" if scanner.enabled else "replay vision scanner disabled",
+                user,
+                "replay_vision_scanner_enabled" if scanner.enabled else "replay_vision_scanner_disabled",
                 _scanner_lifecycle_properties(scanner),
-                team=self.context["get_team"](),
+                team=team,
+                request=request,
+            )
+        # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
+        if any(field != "enabled" for field in changed_fields):
+            report_user_action(
+                user,
+                "replay_vision_scanner_edited",
+                {**_scanner_lifecycle_properties(scanner), "edited_fields": changed_fields},
+                team=team,
+                request=request,
             )
         return scanner
 
@@ -1044,6 +1074,30 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
 
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().retrieve(request, *args, **kwargs)
+        # Funnel entry point (created → viewed → rated).
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_viewed",
+            {"scanner_id": str(response.data["id"])},
+            team=self.team,
+            request=request,
+        )
+        return response
+
+    def perform_destroy(self, instance: ReplayScanner) -> None:
+        # Snapshot lifecycle props before the row is deleted.
+        properties = _scanner_lifecycle_properties(instance)
+        super().perform_destroy(instance)
+        report_user_action(
+            cast(User, self.request.user),
+            "replay_vision_scanner_deleted",
+            properties,
+            team=self.team,
+            request=self.request,
+        )
+
     @extend_schema(responses={200: ScannerCreatorsResponseSerializer})
     @action(detail=False, methods=["get"], pagination_class=None)
     def creators(self, request: Request, **kwargs: Any) -> Response:
@@ -1081,7 +1135,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     @extend_schema(
         request=ObserveRequestSerializer,
-        responses={202: ObserveResponseSerializer},
+        responses={
+            202: ObserveResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The observation workflow couldn't be started."
+            ),
+        },
     )
     @action(
         detail=True,
@@ -1092,17 +1151,21 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def observe(self, request: Request, **kwargs: Any) -> Response:
         """Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle."""
         scanner = self.get_object()
+        user = cast(User, request.user)
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
 
-        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        try:
+            check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        except QuotaLimitExceeded:
+            self._report_quota_exhausted(scanner, "on_demand")
+            raise
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
-        user = cast(User, request.user)
 
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
@@ -1112,10 +1175,22 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
-                {"error": "Failed to start observation workflow"},
+                # `detail` (not `error`) so ApiError carries the message into the frontend toast.
+                {"detail": "Failed to start the observation. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        report_user_action(
+            user,
+            "replay_vision_scan_requested_on_demand",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "model": scanner.model,
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
@@ -1180,9 +1255,39 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             else:
                 results.append({"session_id": session_id, "scan_outcome": "failed"})
 
+        report_user_action(
+            user,
+            "replay_vision_bulk_scan_started",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "requested": len(session_ids),
+                "started": started,
+            },
+            team=self.team,
+            request=request,
+        )
+        # Key off the outcomes, not skip_reason: skip_reason only names the limit that would bind
+        # first, and a batch that never reached the cap must not report exhaustion.
+        if any(result["scan_outcome"] == "skipped_quota" for result in results):
+            self._report_quota_exhausted(scanner, "bulk")
         return Response(
             BulkObserveResponseSerializer({"started": started, "results": results}).data,
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _report_quota_exhausted(self, scanner: ReplayScanner, trigger: str) -> None:
+        """A scan was blocked or capped by the org's monthly Replay vision credit limit."""
+        report_user_action(
+            cast(User, self.request.user),
+            "replay_vision_quota_exhausted",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "trigger": trigger,
+            },
+            team=self.team,
+            request=self.request,
         )
 
     def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
@@ -1200,8 +1305,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         snapshot = compute_quota_snapshot(self.team.organization_id)
         cost = observation_credits_for_model(scanner.model)
-        # Uncapped org (remaining None) → quota never binds; otherwise how many of THIS model's cost fit.
-        quota_limit = in_flight_limit if snapshot.remaining is None else (snapshot.remaining // cost if cost else 0)
+        # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of
+        # THIS model's cost fit.
+        quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
         # Report quota as the reason only when it's the strictly tighter limit.
         if quota_limit < in_flight_limit:
             return quota_limit, "skipped_quota", team_in_flight, scanner_in_flight
@@ -1270,6 +1376,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_affected_cohort_created",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "cohort_id": cohort.id,
+                "users_in_cohort": inserted,
+                "window_days": window_days,
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(
             AffectedCohortResponseSerializer(
                 {
@@ -1345,7 +1464,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     @extend_schema(
         request=SuggestTagsRequestSerializer,
-        responses={200: SuggestTagsResponseSerializer},
+        responses={
+            200: SuggestTagsResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="Tag suggestions couldn't be generated."
+            ),
+        },
     )
     @action(
         detail=False,
@@ -1384,7 +1508,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         except SuggestionError:
             return Response(
-                {"error": "Couldn't generate tag suggestions right now. Please try again."},
+                {"detail": "Couldn't generate tag suggestions right now. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 

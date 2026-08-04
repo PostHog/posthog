@@ -44,6 +44,9 @@ from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    first_pageview_aware_properties_to_expr,
+)
 
 SEPARATOR = "','"
 
@@ -302,19 +305,29 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         else:
             return ast.Constant(value=True)
 
+    def _properties_to_expr(self, properties: Any) -> ast.Expr:
+        # The Active Hours tiles pass the web analytics drill-down filter on the series.
+        return first_pageview_aware_properties_to_expr(
+            properties,
+            team=self.team,
+            modifiers=self.modifiers,
+            date_range=self.query_date_range,
+            timings=self.timings,
+        )
+
     def _all_properties(self) -> ast.Expr:
         # Collect all property expressions
         property_exprs = []
 
         # Add top-level properties if they exist
         if self.query.properties is not None and self.query.properties != []:
-            property_exprs.append(property_to_expr(self.query.properties, team=self.team))
+            property_exprs.append(self._properties_to_expr(self.query.properties))
 
         # Add series-level properties if they exist (from the first series)
         if self.query.series and len(self.query.series) > 0:
             series = self.query.series[0]
             if hasattr(series, "properties") and series.properties is not None and series.properties != []:
-                property_exprs.append(property_to_expr(series.properties, team=self.team))
+                property_exprs.append(self._properties_to_expr(series.properties))
 
         if len(property_exprs) == 0:
             return ast.Constant(value=True)

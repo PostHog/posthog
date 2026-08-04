@@ -7,7 +7,6 @@ from urllib.parse import urlencode, urljoin
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -30,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
     BASE_PATH_BY_VERSION,
     DEFAULT_PAGE_SIZE,

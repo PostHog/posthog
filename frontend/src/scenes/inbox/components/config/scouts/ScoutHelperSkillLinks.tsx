@@ -1,5 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
+
 // General "learn more" entry point for scouts.
 const SCOUTS_DOCS_URL = 'https://posthog.com/docs/self-driving/scouts'
 
@@ -27,7 +29,17 @@ export function ScoutHelperSkillLinks(): JSX.Element {
             {HELPER_SKILLS.map((skill, index) => (
                 <span key={skill.label}>
                     {index > 0 ? ' · ' : null}
-                    <Link to={skill.url} target="_blank">
+                    <Link
+                        to={skill.url}
+                        target="_blank"
+                        onClick={() =>
+                            captureScoutAction({
+                                actionType: 'open_helper_skill',
+                                surface: 'fleet_list',
+                                extra: { helper_skill: skill.label },
+                            })
+                        }
+                    >
                         {skill.label}
                     </Link>
                 </span>

@@ -335,6 +335,11 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
+        "pause_reason": "pause reason",
+        "auto_pause_exempt": "never pause for inactivity",
+    },
+    "OAuthApplication": {
+        "_provisioning_config": "provisioning config",
     },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
@@ -392,11 +397,13 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
-    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout).
-    # When that is the only change, suppress the activity signal entirely so run bookkeeping
-    # never spams the audit log.
+    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
+    # and the failure streak by the runner on every run outcome. When those are the only
+    # change, suppress the activity signal entirely so run bookkeeping never spams the audit
+    # log. A breaker trip is NOT suppressed: it moves `status`, which logs like any pause.
     "SignalScoutConfig": [
         "last_run_at",
+        "consecutive_failure_count",
     ],
 }
 
@@ -418,6 +425,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     {
         "scope": "User",
         "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Staff-only email sending suspension flips: the acting staff user must not leak into the
+        # org activity log. The customer is told via email and in-app notification instead.
+        "scope": "Team",
+        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -522,6 +537,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "holdout",
         "saved_metrics",
         "experimenttosavedmetric_set",
+        # Optimistic-concurrency counter, not a user-meaningful change.
+        "version",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -739,6 +756,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+        # Pipeline-assigned, not user intent. Diffing it resolves the FK through
+        # DataWarehouseTable.objects, whose manager adds two joins and a prefetch on every
+        # schema save (even ones that don't touch this field) — the extra queries have
+        # deadlocked with concurrent DDL in production.
+        "table",
     ],
     "Evaluation": [
         # Reverse relations — auto-managed by FK creates, not user intent.
@@ -748,6 +770,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Run bookkeeping, not user intent — keep it out of change detection even when it
         # rides along with a real change (belt-and-suspenders with signal_exclusions above).
         "last_run_at",
+        "consecutive_failure_count",
+        # Companion bookkeeping that rides along with every logged `status` change; the
+        # activity log entry itself already carries who and when.
+        "status_changed_at",
+        "status_changed_by",
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
     ],
@@ -755,7 +782,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Secrets — never diff these, even masked.
         "client_secret",
         "hash_client_secret",
-        "provisioning_signing_secret",
         # Reverse token relations can hold tens of thousands of rows; reading
         # through them in `changes_between` would scan the token tables.
         "oauthaccesstoken",

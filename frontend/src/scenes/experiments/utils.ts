@@ -411,6 +411,40 @@ export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFilt
         .filter((filter): filter is UniversalFiltersGroupValue => filter !== null)
 }
 
+export const NOT_A_FUNNEL_REASON =
+    'This filter compares a funnel’s first and last step, so it needs a funnel metric with at least two steps that can be matched to recordings.'
+
+export const FUNNEL_SERVER_SIDE_BOUNDARY_REASON =
+    "This filter compares a funnel's first and last step. One of them is captured server-side without a session ID, so recordings can't be matched."
+
+export const FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON =
+    "This filter compares a funnel's first and last step. One of them is measured in the data warehouse, which has no session events to match recordings on."
+
+/**
+ * Why drop-off can't be asked of this metric, or null when it can. It compares the funnel's first
+ * step against its last, so both of those have to be matchable — which the whole-metric
+ * linkability check can't stand in for, since a funnel stays matchable on the steps between them.
+ * Mirrors the `session_buckets` endpoint, which refuses the same shapes rather than counting a
+ * completion no recording can show as zero in every session.
+ */
+export function getFunnelDropoffReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+    if (!isExperimentFunnelMetric(metric) || getMetricSessionFilters(metric).length < 2) {
+        return NOT_A_FUNNEL_REASON
+    }
+    const boundaries = [metric.series[0], metric.series[metric.series.length - 1]]
+    if (boundaries.some((step) => step.kind === NodeKind.ExperimentDataWarehouseNode)) {
+        return FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON
+    }
+    if (
+        boundaries.some(
+            (step) => step.kind === NodeKind.EventsNode && step.event && unlinkableEventNames.has(step.event)
+        )
+    ) {
+        return FUNNEL_SERVER_SIDE_BOUNDARY_REASON
+    }
+    return null
+}
+
 /**
  * Whether a recordings event filter can only match zero sessions: the project has never seen the
  * event with a `$session_id` (e.g. it is captured server-side). Action and data warehouse filters
@@ -1226,6 +1260,54 @@ export type ExperimentWritePayload<T> = Omit<T, 'feature_flag' | 'feature_flag_c
 export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> & {
     feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
     update_feature_flag_params?: boolean
+    original_experiment?: Record<string, any>
+}
+
+/** Concurrency context for experiment PATCHes: the version last read plus the metric collections
+ * that version belongs to, so the server can merge concurrent metric edits safely and reject
+ * everything else with a 409 instead of letting a stale write clobber it. */
+export function toConcurrencyPayload(
+    unmodified: Experiment | null
+): Pick<ExperimentUpdatePayload, 'version' | 'original_experiment'> {
+    if (!unmodified || typeof unmodified.id !== 'number') {
+        return {}
+    }
+    return {
+        version: unmodified.version ?? 0,
+        original_experiment: {
+            metrics: unmodified.metrics,
+            metrics_secondary: unmodified.metrics_secondary,
+            saved_metrics_ids: (unmodified.saved_metrics || []).map((sharedMetric) => ({
+                id: sharedMetric.saved_metric,
+                metadata: sharedMetric.metadata,
+            })),
+        },
+    }
+}
+
+/** Whether an API error is the experiment concurrency conflict (as opposed to any other 409,
+ * e.g. an approval-required response, which carries no `current_version`). */
+export function isExperimentConflictError(error: any): boolean {
+    return error?.status === 409 && error?.data?.current_version !== undefined
+}
+
+const CONFLICT_UNPRESERVABLE_KEYS = new Set([
+    'metrics',
+    'metrics_secondary',
+    'saved_metrics_ids',
+    'primary_metrics_ordered_uuids',
+    'secondary_metrics_ordered_uuids',
+    'version',
+    'original_experiment',
+    'update_feature_flag_params',
+    'feature_flag',
+])
+
+/** The fields of a 409-rejected update worth keeping in local state: the user's scalar edits.
+ * Collection and bookkeeping fields are dropped — re-applying a stale metric array over the
+ * fresh state would reintroduce exactly the clobbering the conflict prevented. */
+export function conflictPreservedFields(payload: ExperimentUpdatePayload): Partial<Experiment> {
+    return Object.fromEntries(Object.entries(payload).filter(([key]) => !CONFLICT_UNPRESERVABLE_KEYS.has(key)))
 }
 
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */

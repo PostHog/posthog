@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "channel": {
+            "description": "Only return canvases in this channel (channel id).",
+            "type": "string"
+        },
+        "is_home": {
+            "description": "Filter by channel-home status.",
+            "type": "boolean"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

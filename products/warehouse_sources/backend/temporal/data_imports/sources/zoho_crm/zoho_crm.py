@@ -5,12 +5,12 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import (
     MODIFIED_TIME_FIELD,
     ZOHO_CRM_ENDPOINTS,
@@ -41,6 +41,12 @@ MAX_PAGE = 2000 // PAGE_SIZE
 # several field slices walked in lockstep and merged per page.
 MAX_FIELDS_PER_REQUEST = 50
 REQUEST_TIMEOUT_SECONDS = 60
+
+# Shown when the refresh-token exchange is rejected. The raw Zoho `error` code (e.g. `invalid_code`)
+# is kept on the exception for logs but never surfaced to users, who can't act on it.
+REFRESH_TOKEN_REJECTED_MESSAGE = (
+    "Zoho CRM rejected your refresh token. Generate a new one for your self client and reconnect."
+)
 
 
 class ZohoCRMAuthError(Exception):
@@ -321,8 +327,8 @@ def validate_credentials(
 
     try:
         client.get(f"/crm/{api_version}/settings/modules")
-    except ZohoCRMAuthError as e:
-        return False, str(e)
+    except ZohoCRMAuthError:
+        return False, REFRESH_TOKEN_REJECTED_MESSAGE
     except Exception:
         return False, None
     return True, None

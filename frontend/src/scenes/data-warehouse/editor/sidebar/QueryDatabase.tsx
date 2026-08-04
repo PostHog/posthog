@@ -52,6 +52,7 @@ import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/l
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
@@ -158,7 +159,10 @@ export const QueryDatabase = ({
     )
     const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
     const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
-    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
+    // Embedded editors mount no modals (SQLEditor gates them on FullScene), so an access control
+    // item there opens nothing. Most embedded callers hide the tree entirely, but not all.
+    const warehouseAccessControlEnabled =
+        !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL] && !isEmbeddedMode
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -414,6 +418,12 @@ export const QueryDatabase = ({
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const certification =
+                    item.record?.type === 'table'
+                        ? item.record?.table?.certification
+                        : item.record?.type === 'view'
+                          ? item.record?.certification
+                          : undefined
                 const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
@@ -460,6 +470,7 @@ export const QueryDatabase = ({
                                         {item.displayName ?? item.name}
                                     </span>
                                 )}
+                                <TableCertificationIcon certification={certification} />
                                 {isColumn && columnType ? (
                                     <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
                                         {columnType === 'field_traverser' && item?.record?.field.chain
@@ -1004,6 +1015,48 @@ export const QueryDatabase = ({
                                                 >
                                                     {source.label}
                                                 </Link>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            ) : null}
+                            {warehouseAccessControlEnabled && sources.length === 1 ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.ExternalDataSource,
+                                            resourceId: sources[0].id,
+                                            name: sources[0].label || sourceType || 'Source',
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : warehouseAccessControlEnabled && sources.length > 1 ? (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger asChild>
+                                        <ButtonPrimitive menuItem>
+                                            Access control
+                                            <IconChevronRight className="ml-auto size-3" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {sources.map((source) => (
+                                            <DropdownMenuItem
+                                                key={source.id}
+                                                asChild
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    openAccessControlModal({
+                                                        resource: AccessControlResourceType.ExternalDataSource,
+                                                        resourceId: source.id,
+                                                        name: source.label || sourceType || 'Source',
+                                                    })
+                                                }}
+                                            >
+                                                <ButtonPrimitive menuItem>{source.label}</ButtonPrimitive>
                                             </DropdownMenuItem>
                                         ))}
                                     </DropdownMenuSubContent>

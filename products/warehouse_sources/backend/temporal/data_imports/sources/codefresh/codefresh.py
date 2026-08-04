@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import (
     CODEFRESH_ENDPOINTS,
     CodefreshEndpointConfig,
@@ -20,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Only the US SaaS host is supported. EU / self-hosted installs use a different host, which we don't
 # let the user retarget yet (it would mean sending the stored API key to an arbitrary host).
