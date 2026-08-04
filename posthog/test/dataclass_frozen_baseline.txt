@@ -22,6 +22,7 @@
 1 posthog/dags/postgres_to_clickhouse_etl.py
 1 posthog/dags/tests/test_events_backfill_to_duckling.py
 1 posthog/dags/tests/test_property_definitions.py
+1 posthog/ducklake/cp_teams.py
 1 posthog/errors.py
 1 posthog/helpers/two_factor_session.py
 1 posthog/hogql/compiler/javascript.py
@@ -1352,11 +1353,13 @@
 2 common/hogvm/python/objects.py
 2 ee/tasks/subscriptions/slack_subscriptions.py
 2 posthog/api/embedding_worker.py
+2 posthog/api/file_system/folder_instructions_service.py
 2 posthog/dags/common/overrides_manager.py
 2 posthog/dags/data_deletion_requests.py
 2 posthog/dags/part_breaker.py
 2 posthog/dags/person_overrides.py
 2 posthog/dags/scripts/extract_reconciliation_results.py
+2 posthog/ducklake/client.py
 2 posthog/helpers/email_utils.py
 2 posthog/hogql/context.py
 2 posthog/hogql/database/database.py
@@ -1385,6 +1388,7 @@
 2 posthog/temporal/data_modeling/activities/succeed_materialization.py
 2 posthog/temporal/data_modeling/workflows/materialize_view.py
 2 posthog/temporal/dlq_replay/workflow.py
+2 posthog/temporal/ducklake/types.py
 2 posthog/temporal/ingestion_acceptance_test/client.py
 2 posthog/temporal/ingestion_acceptance_test/results.py
 2 posthog/temporal/ingestion_acceptance_test/runner.py
@@ -1546,6 +1550,7 @@
 4 posthog/tasks/usage_report.py
 4 posthog/temporal/ai_observability/eval_reports/report_agent/schema.py
 4 posthog/temporal/ai_observability/evaluation_workflow_activities.py
+4 posthog/temporal/ducklake/ducklake_register_data_imports_workflow.py
 4 posthog/temporal/proxy_service/monitor.py
 4 posthog/temporal/salesforce_enrichment/conversations_slack_workflow.py
 4 posthog/temporal/salesforce_enrichment/usage_workflow.py
@@ -1566,6 +1571,7 @@
 5 posthog/dags/person_property_reconciliation.py
 5 posthog/temporal/ai_observability/evaluation_clustering/models.py
 5 posthog/temporal/ai_observability/run_trace_evaluation.py
+5 posthog/temporal/ducklake/ducklake_copy_data_modeling_workflow.py
 5 posthog/temporal/messaging/realtime_cohort_calculation_workflow_coordinator.py
 5 posthog/temporal/proxy_service/create.py
 5 posthog/temporal/session_replay/surfacing_score_export_sweep/types.py
@@ -1583,6 +1589,7 @@
 6 posthog/hogql/scripts/build_grammar_strategies.py
 6 posthog/local_bootstrap/config.py
 6 posthog/temporal/ai/sync_vectors.py
+6 posthog/temporal/ducklake/ducklake_copy_data_imports_workflow.py
 6 posthog/temporal/messaging/reconcile_precalculated_data_workflow.py
 6 posthog/temporal/salesforce_enrichment/stripe_workflow.py
 6 products/batch_exports/backend/temporal/destinations/redshift_batch_export.py
