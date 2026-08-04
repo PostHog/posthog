@@ -15,21 +15,24 @@ import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
 import { BillingStep } from './steps/BillingStep'
 import { InstallStep } from './steps/InstallStep'
+import { AnalyticsStep, ErrorTrackingStep, ReplayStep } from './steps/ProductEnablementSteps'
 import { WelcomeStep } from './steps/WelcomeStep'
 
 /**
- * The self-driving onboarding: run the wizard, pick a plan, land in the inbox.
+ * The self-driving onboarding: run the wizard, turn on the built-in signal sources, pick a plan,
+ * land in the inbox.
  *
- * The wizard's `self-driving` program does the actual configuration — GitHub, signal sources,
- * scouts — so this flow deliberately owns almost nothing. It shows the command, streams the run's
- * progress, and takes payment. Anything it asked for itself would be a second place to set the
- * same thing.
+ * The wizard's `self-driving` program does the repo-side configuration — GitHub, signal sources,
+ * scouts. Team-level tool opt-ins (session replay, error tracking) live here instead: the wizard's
+ * API key deliberately never gets the product_enablement scope, so the app is the only place that
+ * turns tools on. Everything else this flow shows — the command, the run's progress, payment — it
+ * streams rather than owns.
  */
 
 interface StepDef {
     id: SelfDrivingOnboardingStepId
     title: string
-    Content: (props: { onContinue: () => void; completing: boolean }) => JSX.Element
+    Content: (props: { onContinue: () => void; onSkip: () => void; completing: boolean }) => JSX.Element
     skippable?: boolean
     /** Step provides its own primary action (e.g. plan picks), so suppress the footer Continue. */
     hideContinue?: boolean
@@ -39,13 +42,20 @@ interface StepDef {
 }
 
 /**
- * Say what this is, run the wizard, pick a plan. The wizard does the real configuration (sources,
- * scouts, GitHub), so the app's job is to show the run and get out of the way — anything this flow
- * asked for separately would be a second place to set the same thing.
+ * Say what this is, run the wizard, turn on the sources the wizard can't, pick a plan. The wizard
+ * does the repo-side configuration (sources, scouts, GitHub); the team-level opt-ins are enabled
+ * here because only the signed-in app carries the product_enablement scope.
  */
 const STEPS: StepDef[] = [
     { id: 'welcome', title: '', Content: WelcomeStep },
     { id: 'install', title: 'Install PostHog', Content: InstallStep },
+    // Signal sources for the agents, one per step: product analytics is on by default (a
+    // confirmation, not a choice), the opt-in tools each get a single enable-or-skip decision.
+    // These steps render their own state-dependent title and a single action zone (primary +
+    // skip), so the flow's header title and footer are suppressed.
+    { id: 'analytics', title: '', Content: AnalyticsStep, hideContinue: true },
+    { id: 'replay', title: '', Content: ReplayStep, hideContinue: true },
+    { id: 'error-tracking', title: '', Content: ErrorTrackingStep, hideContinue: true },
     {
         id: 'billing',
         title: 'Pick a plan',
@@ -164,7 +174,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
 
             {/* Scrollable middle: fade edges + hover scrollbar so tall steps don't hard-crop. */}
             <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 min-h-0" contentClassName="px-1">
-                <step.Content onContinue={completeStep} completing={isLast && isCompleting} />
+                <step.Content onContinue={completeStep} onSkip={skipStep} completing={isLast && isCompleting} />
             </ScrollableShadows>
 
             {/* Pinned footer — omitted when the step has neither Skip nor a footer Continue (it supplies

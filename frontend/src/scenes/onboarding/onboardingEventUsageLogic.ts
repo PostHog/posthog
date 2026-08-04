@@ -8,7 +8,7 @@ import { resolveOnboardingFlowVariant } from './onboardingVariants'
 
 /** Steps the self-driving flow can report. Earlier versions also emitted `sources`, `warehouse`,
  * and `invite`; those events still exist in historical funnels. */
-export type SelfDrivingOnboardingStepId = 'welcome' | 'install' | 'billing'
+export type SelfDrivingOnboardingStepId = 'welcome' | 'install' | 'analytics' | 'replay' | 'error-tracking' | 'billing'
 
 // GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
 // by `version` (1 = legacy, 2 = redesign) and `flow_variant`. Reusing names keeps every existing
