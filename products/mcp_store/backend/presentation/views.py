@@ -50,7 +50,7 @@ from ..composio import ComposioError, composio_enabled, composio_user_id, ensure
 from ..composio_session import invalidate_session as _invalidate_composio_session
 from ..composio_sync import COMPOSIO_HUB_URL, ensure_hub_template
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
-from ..icons import composio_logo_http_response
+from ..icons import composio_logo_http_response, is_valid_toolkit_slug
 from ..models import (
     APPROVAL_STATES,
     PROVIDER_CHOICES,
@@ -270,22 +270,26 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
     def icon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         # Canonicalized (lowercase, no FQDN trailing dot) before validation so case variants
         # share one cache entry downstream.
+        # Composio publishes a logo per toolkit slug, which is the only unambiguous key: its
+        # `app_url` is coarse (five Microsoft products share microsoft.com, six Zoho products share
+        # zoho.com) and sometimes a placeholder, so resolving a toolkit from a domain served the
+        # wrong brand's logo. The slug is checked against an active template so a caller can't
+        # point this at an arbitrary path on Composio's host.
+        toolkit = request.GET.get("toolkit", "").strip().lower()
+        if toolkit:
+            if not is_valid_toolkit_slug(toolkit):
+                raise serializers.ValidationError("toolkit must be a Composio toolkit slug")
+            if not MCPServerTemplate.objects.filter(
+                provider="composio", composio_toolkit_slug=toolkit, is_active=True
+            ).exists():
+                return HttpResponse(status=404)
+            return composio_logo_http_response(toolkit, team_id=self.team_id)
+
         domain = request.GET.get("domain", "").strip().lower().rstrip(".")
         try:
             _ICON_DOMAIN_VALIDATOR(domain)
         except DjangoValidationError:
             raise serializers.ValidationError("domain must be a bare hostname, e.g. linear.app")
-
-        # Composio publishes a logo per toolkit, so apps we serve through it get an icon by
-        # construction instead of depending on logo.dev having heard of the vendor. Resolved from
-        # the domain the client already sends, so every existing caller benefits without change.
-        toolkit_slug = (
-            MCPServerTemplate.objects.filter(provider="composio", icon_domain=domain, is_active=True)
-            .values_list("composio_toolkit_slug", flat=True)
-            .first()
-        )
-        if toolkit_slug:
-            return composio_logo_http_response(toolkit_slug, team_id=self.team_id)
 
         theme = request.GET.get("theme")
         return CDPIconsService().get_icon_http_response(

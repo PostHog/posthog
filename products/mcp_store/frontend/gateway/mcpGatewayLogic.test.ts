@@ -120,6 +120,7 @@ function serverTemplate(overrides: Partial<MCPServerTemplateApi>): MCPServerTemp
         icon_key: '',
         icon_domain: '',
         category: 'dev',
+        provider: 'direct',
         ...overrides,
     }
 }

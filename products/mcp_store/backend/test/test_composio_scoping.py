@@ -166,3 +166,48 @@ class TestComposioInstallationListing(APIBaseTest):
 
         assert entry["pending_oauth"] is False
         assert entry["needs_reauth"] is False
+
+
+class TestComposioIconRouting(APIBaseTest):
+    """Composio's app_url is ambiguous — five Microsoft products report microsoft.com, and some
+    toolkits report Composio's own site — so icons resolve by toolkit slug, not by domain."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.template = MCPServerTemplate.objects.create(
+            name="Google Ads",
+            url="https://composio.dev/toolkits/googleads",
+            provider="composio",
+            composio_toolkit_slug="googleads",
+            auth_type="oauth",
+            is_active=True,
+        )
+
+    def _icon(self, query: str) -> int:
+        return self.client.get(f"/api/environments/{self.team.id}/mcp_servers/icon/?{query}").status_code
+
+    def test_unknown_toolkit_is_refused_rather_than_proxied(self) -> None:
+        # Without this the slug would reach an outbound path on Composio's host unchecked.
+        assert self._icon("toolkit=not_a_real_toolkit") == 404
+
+    def test_malformed_toolkit_is_rejected(self) -> None:
+        assert self._icon("toolkit=../../etc/passwd") == 400
+
+    def test_ambiguous_domain_no_longer_resolves_a_toolkit_logo(self) -> None:
+        # Two toolkits shared this domain, so a domain lookup served whichever row came back first.
+        # It must now fall through to the logo provider instead of guessing a toolkit.
+        MCPServerTemplate.objects.create(
+            name="Discord",
+            url="https://composio.dev/toolkits/discord",
+            provider="composio",
+            composio_toolkit_slug="discord",
+            icon_domain="shared.example.com",
+            auth_type="oauth",
+            is_active=True,
+        )
+        self.template.icon_domain = "shared.example.com"
+        self.template.save(update_fields=["icon_domain"])
+
+        # No logo.dev key in tests, so the provider path reports itself unavailable (503) rather
+        # than silently returning one of the two toolkits' logos.
+        assert self._icon("domain=shared.example.com") == 503

@@ -88,8 +88,11 @@ def _icon_domain_for(toolkit: ToolkitInfo) -> str:
     host = normalize_mcp_icon_domain(urlparse(toolkit.app_url).netloc or toolkit.app_url)
     for prefix in ("www.", "about.", "console.", "app.", "my."):
         if host.startswith(prefix):
-            return host[len(prefix) :]
-    return host
+            host = host[len(prefix) :]
+            break
+    # Some toolkits carry Composio's own site as their app_url. That is a placeholder, not the
+    # vendor's brand, and storing it would render Composio's logo on someone else's card.
+    return "" if host in ("composio.dev", "logos.composio.dev") else host
 
 
 # Toolkits PostHog already serves, which must never appear as a Composio card. Deliberately an
