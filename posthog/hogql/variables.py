@@ -24,7 +24,12 @@ class ReplaceVariables(CloningVisitor):
     def __init__(self, variables: list[HogQLVariable], team: Team):
         super().__init__()
 
-        insight_vars = InsightVariable.objects.filter(team_id=team.pk, id__in=[v.variableId for v in variables]).all()
+        # Matched by code_name, not by the variable's saved id, because that id goes stale
+        # whenever the InsightVariable it pointed at is deleted, renamed, or the insight was
+        # duplicated into another project — the query's own code_name still resolves fine.
+        insight_vars = InsightVariable.objects.filter(
+            team_id=team.pk, code_name__in=[v.code_name for v in variables]
+        ).all()
 
         self.insight_variables = list(insight_vars)
         self.variables = variables
@@ -42,22 +47,23 @@ class ReplaceVariables(CloningVisitor):
 
             matching_variable = matching_variables[0]
 
+            if matching_variable.isNull:
+                return ast.Constant(value=None)
+
+            if matching_variable.value is not None:
+                return ast.Constant(value=matching_variable.value)
+
+            # No value was saved on the query itself, so we need the InsightVariable's
+            # default_value — this is the only case where the DB row is actually required.
             matching_insight_variable = [
                 variable for variable in self.insight_variables if variable.code_name == variable_code_name
             ]
             if not matching_insight_variable:
-                raise QueryError(f"Variable {variable_code_name} does not exist")
+                # Message intentionally omits the variable name so these group into one error
+                # tracking issue instead of splitting per variable name.
+                raise QueryError("Variable does not exist")
 
-            if matching_variable.isNull:
-                return ast.Constant(value=None)
-
-            value = (
-                matching_variable.value
-                if matching_variable.value is not None
-                else matching_insight_variable[0].default_value
-            )
-
-            return ast.Constant(value=value)
+            return ast.Constant(value=matching_insight_variable[0].default_value)
 
         return super().visit_placeholder(node)
 

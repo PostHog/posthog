@@ -1732,6 +1732,37 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "Variable variable_two is missing from query. Did you mean: variable_one?",
         )
 
+    def test_variables_with_stale_variable_id_but_value_set_still_resolves(self):
+        # The InsightVariable this id pointed at was deleted/renamed, but the query already
+        # carries a concrete value, so the stale id shouldn't block resolution.
+        variables = {
+            "variable_one": HogQLVariable(
+                code_name="variable_one",
+                value="value",
+                variableId="00000000-0000-0000-0000-000000000000",
+            )
+        }
+
+        query = "SELECT {variables.variable_one}"
+        response = execute_hogql_query(query, team=self.team, variables=variables)
+        self.assertEqual(response.results, [("value",)])
+
+    def test_variables_with_stale_variable_id_and_no_value_raises(self):
+        # No value was saved on the query and the id doesn't resolve to any InsightVariable,
+        # so there's no default_value to fall back to.
+        variables = {
+            "variable_one": HogQLVariable(
+                code_name="variable_one",
+                value=None,
+                variableId="00000000-0000-0000-0000-000000000000",
+            )
+        }
+
+        query = "SELECT {variables.variable_one}"
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(query, team=self.team, variables=variables)
+        self.assertEqual(str(e.exception), "Variable does not exist")
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
         with freeze_time("2020-01-10"):
