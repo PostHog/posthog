@@ -63,7 +63,9 @@ jobs:
         # No synchronize: board status only transitions on reviewer/draft
         # changes, and pushes change neither. Re-asserting the same status on
         # every push wasted the run and fought manual card moves.
-        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository
+        # No trunk-merge/**: the queue's copy of the PR would add a second,
+        # throwaway card for work the real PR already tracks.
+        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
         uses: PostHog/.github/.github/workflows/flags-project-board.yml@2db3d3b946aeb9e479ce9f0078139a67f8ef38ce
         permissions:
             contents: read
@@ -76,7 +78,9 @@ jobs:
             PROJECT_BOARD_BOT_PRIVATE_KEY: ${{ secrets.PROJECT_BOARD_BOT_PRIVATE_KEY }}
 
     pr-opened:
-        if: contains(fromJSON('["opened", "ready_for_review"]'), github.event.action)
+        # The queue's PR is authored by the Trunk bot, so assigning it and
+        # nudging about the git email has nobody to reach.
+        if: contains(fromJSON('["opened", "ready_for_review"]'), github.event.action) && !startsWith(github.head_ref, 'trunk-merge/')
         uses: ./.github/workflows/pr-opened.yml
         permissions:
             pull-requests: write
@@ -92,7 +96,15 @@ jobs:
             GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
 
     migrations-separation:
-        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        # Same reason the desktop coupling check skips trunk-merge/**: the queue's
+        # batch PR is the union of several PRs that each passed separately, so a
+        # migration PR batched with a nodejs or rust PR trips a coupling nobody wrote.
+        # Same-repo scoping too, so a fork can't skip the check by branch name.
+        if: |
+            contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action) && !(
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         uses: ./.github/workflows/ci-migrations-service-separation-check.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
