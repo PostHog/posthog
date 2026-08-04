@@ -135,6 +135,8 @@ class BrokenTestState(StrEnum):
 
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
+    READY_FOR_REVIEW = "ready_for_review"
+    CONVERTED_TO_DRAFT = "converted_to_draft"
     CI_STARTED = "ci_started"
     CI_FINISHED = "ci_finished"
     MERGED = "merged"
@@ -762,6 +764,10 @@ class PullRequestListItem:
     merged_at: datetime | None
     # merged_at - created_at; coarse (fuses draft + ready-for-review time). None until merged.
     open_to_merge_seconds: int | None
+    # merged_at minus the LAST observed ready_for_review transition, falling back to created_at
+    # for a merged PR verifiably never drafted. None when unmerged, re-drafted, or not observed
+    # (the PR's life isn't fully inside the synced issue-event window); never "never drafted".
+    ready_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup
     # CI triggers attributed to this PR: distinct head SHAs across its workflow runs (a run
