@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -12,6 +14,9 @@ from django.apps import apps
 from parameterized import parameterized
 from rest_framework import status
 
+# Load the API URLconf (and its pydantic.v1 import chain) before any freeze_time window:
+# first-importing date-subclassing modules under freezegun's fake date raises a metaclass conflict.
+import posthog.api.rest_router  # noqa: F401
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -26,10 +31,14 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
 )
+from products.signals.backend.test.test_billing import _make_pr_run
 from products.skills.backend.models.skills import LLMSkill
 
 SCOUT_SKILL = "signals-scout-error-tracking"
 UNFORWARDED_NOTE = "feedback that never made it to a note"
+_REFUND_PERIOD = ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"]
+_REFUND_NOW = "2026-06-15T12:00:00Z"
+_PR_RUN_AT = datetime(2026, 6, 10, tzinfo=UTC)
 
 
 class TestDismissalScoutNotes(APIBaseTest):
@@ -38,6 +47,15 @@ class TestDismissalScoutNotes(APIBaseTest):
 
     def _bulk_state_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+
+    def _refund(self, report: SignalReport, **body):
+        # Refund eligibility is scored against the org's current billing period, so the tests that
+        # use this run inside `_REFUND_NOW` with the period that contains it.
+        self.organization.usage = {"period": _REFUND_PERIOD}
+        self.organization.save()
+        return self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/refund/", body, format="json"
+        )
 
     def _create_report(self, title: str = "Checkout errors spiked") -> SignalReport:
         return SignalReport.objects.create(
@@ -168,6 +186,50 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert len(self._notes()) == expected_notes
         # The artefact is the record of truth either way, so a resolve still keeps the feedback.
         assert self._dismissal_notes_on(report) == ["context the scout should have"]
+
+    @freeze_time(_REFUND_NOW)
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_refund_feedback_reaches_the_authoring_scout(self, _flag) -> None:
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        _make_pr_run(self.team, report, created_at=_PR_RUN_AT)
+
+        response = self._refund(report, reason="pr_incorrect", note="the PR edits a different endpoint")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        note = self._notes()[0]
+        assert note.skill_name == SCOUT_SKILL
+        assert note.origin == SignalScoutNote.Origin.REPORT_DISMISSAL
+        assert "the PR edits a different endpoint" in note.content
+        # The refund's own reason rather than the flat `refunded` code the artefact carries, because
+        # `pr_incorrect` is what tells the scout its report promised something the PR did not deliver.
+        assert "pr_incorrect" in note.content
+
+    @freeze_time(_REFUND_NOW)
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_no_note_when_a_refund_leaves_a_merged_pr_report_resolved(self, _flag) -> None:
+        self._create_scout_skill()
+        report = self._create_report()
+        report.status = SignalReport.Status.RESOLVED
+        report.save(update_fields=["status"])
+        self._create_run(emitted_report_ids=[str(report.id)])
+        _make_pr_run(
+            self.team,
+            report,
+            created_at=_PR_RUN_AT,
+            output={"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True},
+        )
+
+        response = self._refund(report, reason="duplicate", note="the checkout scout already filed this")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # A merged PR leaves the report RESOLVED, and a resolve says the report did its job rather
+        # than that filing it was wrong, so the refund has nothing to teach the authoring scout.
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+        assert self._notes() == []
+        assert self._dismissal_notes_on(report) == ["the checkout scout already filed this"]
 
     def test_bulk_dismissal_writes_one_note_per_scout_not_one_per_report(self) -> None:
         self._create_scout_skill()

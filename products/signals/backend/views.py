@@ -2091,6 +2091,18 @@ class SignalReportViewSet(
                 refund_id = str(refund.id)
                 transaction.on_commit(lambda: sync_signals_refund_credit.delay(refund_id))
 
+        # A refund suppresses the report, which is a judgement the authoring scout should hear, so it
+        # forwards on the same channel as any other dismissal. `refund.reason` rather than the
+        # `refunded` code the artefact records, because `pr_incorrect` tells a scout the PR missed
+        # what its report promised while `refunded` only says money moved. Outside the atomic block
+        # because forwarding writes rows of its own and must not be able to roll back the refund it
+        # reports; a report left RESOLVED by a merged PR is dropped by the forwarding path itself.
+        self._forward_dismissal_note(
+            reports=[report],
+            dismissal_reason=refund.reason,
+            dismissal_note=note,
+        )
+
         report_user_action(
             user,
             "signals_pr_refund_created",
