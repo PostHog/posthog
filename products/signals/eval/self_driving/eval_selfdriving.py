@@ -10,6 +10,7 @@ a bare Python process.
 
 from __future__ import annotations
 
+import os
 import json
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
@@ -19,12 +20,26 @@ from typing import Any
 from braintrust import EvalAsync, EvalCase, Score
 from braintrust.framework import EvalHooks, EvalResultWithSummary
 
+from products.posthog_ai.eval_harness.engines.braintrust import QUIET_REPORTER
 from products.signals.eval.self_driving.harness.grade import TASKS_DIR, grade_result, load_task_spec
 
 PROJECT_NAME = "signals-self-driving"
 
 RunFn = Callable[[str, int], Awaitable[dict[str, Any]]]
 """(task_id, trial) -> TaskRunResult.to_json() dict; drives the real pipeline inside Django."""
+
+
+class BraintrustEvalError(RuntimeError):
+    pass
+
+
+class MissingBraintrustApiKey(BraintrustEvalError):
+    pass
+
+
+class BraintrustUploadError(BraintrustEvalError):
+    pass
+
 
 SCORER_NAMES: tuple[str, ...] = (
     # Stage R - research
@@ -114,14 +129,25 @@ async def run_eval(
     expected under workspace/repos/<task_id> (the mounted repos the agents
     committed into).
     """
+    if not os.environ.get("BRAINTRUST_API_KEY"):
+        raise MissingBraintrustApiKey(
+            "BRAINTRUST_API_KEY is required. Set it in the eval command's environment before starting the pipeline."
+        )
+    if max_concurrency < 1:
+        raise ValueError("max_concurrency must be at least 1")
+
+    cases = build_cases(task_ids, trials)
     repos_workspace = workspace / "repos"
+    pipeline_slots = asyncio.Semaphore(max_concurrency)
+    grading_slots = asyncio.Semaphore(max_concurrency)
 
     async def eval_task(input: dict[str, Any], hooks: EvalHooks[dict[str, Any]]) -> dict[str, Any]:
         task_id = input["task_id"]
-        result = await run_fn(task_id, input["trial"])
+        async with pipeline_slots:
+            result = await run_fn(task_id, input["trial"])
         spec = load_task_spec(task_id)
-        # Grading is blocking (subprocesses + judge HTTP calls) - keep it off the loop.
-        grades = await asyncio.to_thread(grade_result, spec, result, repos_workspace)
+        async with grading_slots:
+            grades = await asyncio.to_thread(grade_result, spec, result, repos_workspace)
         report = result.get("report") or {}
         hooks.meta(
             team_id=result.get("team_id"),
@@ -134,15 +160,32 @@ async def run_eval(
         )
         return {"result": result, "grades": grades}
 
-    return await EvalAsync(
+    result = await EvalAsync(
         PROJECT_NAME,
         experiment_name=experiment_name,
-        data=build_cases(task_ids, trials),
+        data=cases,
         task=eval_task,
         scores=[_make_scorer(name) for name in SCORER_NAMES],
-        metadata={"task_ids": list(task_ids), "trials": trials, "workspace": str(workspace)},
-        max_concurrency=max_concurrency,
+        metadata={
+            "suite": PROJECT_NAME,
+            "task_ids": list(task_ids),
+            "task_count": len(task_ids),
+            "trials": trials,
+            "pipeline_concurrency": max_concurrency,
+        },
+        is_public=False,
+        update=True,
+        reporter=QUIET_REPORTER,
+        timeout=None,
+        max_concurrency=max(len(cases), 1),
+        description="End-to-end evaluation of Signals research and implementation on synthetic tasks.",
+        no_send_logs=False,
     )
+    if not result.summary.experiment_url:
+        raise BraintrustUploadError(
+            "Braintrust did not return an experiment URL. Check BRAINTRUST_API_KEY and the selected organization, then rerun."
+        )
+    return result
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ This suite stays under `products/signals/eval/` because it exercises a full prod
 It follows the same core conventions:
 
 - one Braintrust case per task and trial;
+- one uploaded Braintrust experiment per named run;
 - isolated data for every case;
 - deterministic scorers where possible and model judges only for qualitative dimensions;
 - bounded case concurrency and explicit stage timeouts;
@@ -77,6 +78,8 @@ Start with one task and one trial:
     --experiment-name self-driving-smoke
 ```
 
+The command checks `BRAINTRUST_API_KEY` before it starts the first case. Set the key in the environment loaded by the command. Use a descriptive experiment name so teammates can find the run later.
+
 After the smoke case succeeds, omit `--task` to run all tasks:
 
 ```bash
@@ -105,7 +108,18 @@ Do not put credentials in task fixtures, result files, commits, or Braintrust me
 
 ## Results
 
-Braintrust receives one row per task and trial in the `signals-self-driving` project. The row includes research, implementation, and end-to-end scores. See [DESIGN.md](DESIGN.md) for the scorer definitions.
+Braintrust receives one row per task and trial in the `signals-self-driving` project. Each row contains the synthetic task input, ground truth, pipeline output, filterable case metadata, and all research, implementation, and end-to-end scores. See [DESIGN.md](DESIGN.md) for the scorer definitions.
+
+The experiment is private to the Braintrust organization. When the run finishes, the command prints the Braintrust experiment URL, aggregate scores, and local results directory. Share the Braintrust URL with teammates who have access to the organization.
+
+```text
+Self-driving eval finished.
+Braintrust: https://www.braintrust.dev/app/.../experiments/...
+Scores:
+  behavioral_correctness: 75.0%
+  root_cause_identified: 83.3%
+Local results: /tmp/selfdriving-eval-workspace/results
+```
 
 Raw pipeline results are also written to:
 
@@ -149,5 +163,7 @@ Read [TASK_SPEC.md](TASK_SPEC.md), then add or update the task under `tasks/<tas
 GitHub authentication should not run for mapped fixture repositories. If it does, confirm `DEBUG=1`, `SANDBOX_PROVIDER=docker`, and that the workspace path exists when the implementation activity begins.
 
 If research produces no findings, check the MCP server and `PERSONHOG_ADDR`. If the implementation never starts, inspect the report status and actionability and priority artifacts in the raw result.
+
+If the run finishes locally but no Braintrust URL appears, confirm that `BRAINTRUST_API_KEY` belongs to the expected Braintrust organization and rerun the smoke case. The command does not support a local-only mode because an unshared run would defeat the purpose of this benchmark entrypoint.
 
 The first sandbox run may take several minutes while the local image is built. The fixture verification tests use only language standard libraries and do not install package dependencies.

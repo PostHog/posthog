@@ -72,9 +72,9 @@ A lucky patch without correct diagnosis scores ≤ 0.5; full credit needs both s
 
 ## Platform
 
-Braintrust project **`signals-self-driving`**: one experiment per run, one row per task and trial, stage scores as Braintrust scores, and the full report, patch, and logs as span data.
+Braintrust project **`signals-self-driving`**: one experiment per named run, one row per task and trial, stage scores as Braintrust scores, and the full report, patch, and implementation log tail in the case output.
 
-The asyncio runner drives the pipeline through management commands and Temporal workflows. Braintrust records cases, metadata, and scores in the same shape as the shared eval harness. This suite remains separate because it evaluates a multi-stage product workflow rather than a direct agent invocation.
+The asyncio runner drives the pipeline through management commands and Temporal workflows. Pipeline and grading concurrency are bounded separately, so a completed sandbox run does not hold a slot while hidden tests and judges run. Braintrust receives all cases concurrently and records the same case, metadata, score, and experiment-summary concepts as the shared eval harness. This suite remains separate because it evaluates a multi-stage product workflow rather than a direct agent invocation.
 
 ## Difficulty tiers
 

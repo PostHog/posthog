@@ -18,6 +18,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from braintrust.framework import EvalResultWithSummary
+
 from products.signals.eval.self_driving.eval_selfdriving import run_eval
 from products.signals.eval.self_driving.harness import runner as runner_mod
 
@@ -50,6 +52,19 @@ def _check_prereqs() -> None:
                 raise RuntimeError(f"prereq {name} unreachable at {url}: {e}")
 
 
+def format_eval_summary(result: EvalResultWithSummary[Any, Any], results_dir: Path) -> str:
+    summary = result.summary
+    lines = [f"Braintrust: {summary.experiment_url or '(not uploaded)'}"]
+    scores = sorted((name, score.score) for name, score in summary.scores.items() if score.score is not None)
+    if scores:
+        lines.append("Scores:")
+        lines.extend(f"  {name}: {score * 100:.1f}%" for name, score in scores)
+    else:
+        lines.append("Scores: none")
+    lines.append(f"Local results: {results_dir}")
+    return "\n".join(lines)
+
+
 def drive(
     task_ids: list[str] | None = None,
     trials: int = 1,
@@ -58,7 +73,7 @@ def drive(
     research_timeout_s: float = 3600,
     implementation_timeout_s: float = 2700,
     experiment_name: str | None = None,
-) -> Any:
+) -> EvalResultWithSummary[dict[str, Any], dict[str, Any]]:
     ws = Path(workspace)
     ids = task_ids or all_task_ids()
     _check_prereqs()

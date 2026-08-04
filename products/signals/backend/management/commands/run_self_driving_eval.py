@@ -1,9 +1,11 @@
+from pathlib import Path
 from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from products.signals.eval.self_driving.harness.drive import DEFAULT_WORKSPACE, all_task_ids, drive
+from products.signals.eval.self_driving.eval_selfdriving import BraintrustEvalError
+from products.signals.eval.self_driving.harness.drive import DEFAULT_WORKSPACE, all_task_ids, drive, format_eval_summary
 
 
 class Command(BaseCommand):
@@ -36,13 +38,18 @@ class Command(BaseCommand):
         if options["parallelism"] < 1:
             raise CommandError("--parallelism must be at least 1.")
 
-        drive(
-            task_ids=options["task_ids"],
-            trials=options["trials"],
-            parallelism=options["parallelism"],
-            workspace=options["workspace"],
-            research_timeout_s=options["research_timeout"],
-            implementation_timeout_s=options["implementation_timeout"],
-            experiment_name=options["experiment_name"],
-        )
+        try:
+            result = drive(
+                task_ids=options["task_ids"],
+                trials=options["trials"],
+                parallelism=options["parallelism"],
+                workspace=options["workspace"],
+                research_timeout_s=options["research_timeout"],
+                implementation_timeout_s=options["implementation_timeout"],
+                experiment_name=options["experiment_name"],
+            )
+        except BraintrustEvalError as error:
+            raise CommandError(str(error)) from error
+
         self.stdout.write(self.style.SUCCESS("Self-driving eval finished."))
+        self.stdout.write(format_eval_summary(result, Path(options["workspace"]) / "results"))
