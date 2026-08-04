@@ -78,7 +78,7 @@ export function FindingsPanel(): JSX.Element {
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     type="search"
-                    placeholder="Search findings…"
+                    placeholder="Search signals…"
                     value={searchText}
                     onChange={setSearchText}
                     className="flex-1 min-w-[12rem]"
@@ -126,7 +126,7 @@ export function FindingsPanel(): JSX.Element {
                         type="warning"
                         action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
                     >
-                        Some findings couldn't be loaded, so this list may be incomplete.
+                        Some signals couldn't be loaded, so this list may be incomplete.
                     </LemonBanner>
                 )}
 
@@ -203,14 +203,14 @@ export function FindingsPanel(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             {hasReports && (
                                 <span className="text-xs font-medium text-default uppercase tracking-wide">
-                                    Findings
+                                    Signals
                                 </span>
                             )}
                             {emissionsLoadFailed && totalCount === 0 ? (
                                 <FindingsErrorState onRetry={() => loadEmissions()} loading={emissionsLoading} />
                             ) : filteredRows.length === 0 ? (
                                 <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
-                                    No findings match your search and filters.
+                                    No signals match your search and filters.
                                 </div>
                             ) : (
                                 filteredRows.map((row) => (
@@ -248,7 +248,7 @@ function FindingsHeader({
 }): JSX.Element {
     const tallyParts: string[] = []
     if (totalCount > 0) {
-        tallyParts.push(pluralize(totalCount, 'finding'))
+        tallyParts.push(pluralize(totalCount, 'signal'))
     }
     if (authoredReportCount > 0) {
         tallyParts.push(`${pluralize(authoredReportCount, 'report')} authored`)
@@ -260,7 +260,7 @@ function FindingsHeader({
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
                 <IconSparkles className="size-5 text-primary-3000" />
-                <span className="text-base font-semibold text-default">Scout findings</span>
+                <span className="text-base font-semibold text-default">Scout signals</span>
             </div>
             <p className="mb-0 text-sm text-secondary">
                 Everything your scouts have surfaced recently, in one place — newest first: the signals they emitted and
@@ -279,7 +279,7 @@ function FindingsHeader({
                 </span>
             )}
             <span className="text-xs text-muted">
-                Covers the most recent {SCOUT_RUNS_WINDOW_SPAN} of troop runs. Older findings live on in the inbox
+                Covers the most recent {SCOUT_RUNS_WINDOW_SPAN} of troop runs. Older signals live on in the inbox
                 reports they produced.
             </span>
         </div>
@@ -290,7 +290,7 @@ function FindingsErrorState({ onRetry, loading }: { onRetry: () => void; loading
     return (
         <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
             <span>
-                Couldn't load findings. The scout API may be unavailable or this project may not be enrolled yet.
+                Couldn't load signals. The scout API may be unavailable or this project may not be enrolled yet.
             </span>
             <LemonButton type="secondary" size="small" onClick={onRetry} loading={loading}>
                 Retry
@@ -303,8 +303,8 @@ function FindingsEmptyState({ isFiltering }: { isFiltering: boolean }): JSX.Elem
     return (
         <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
             {isFiltering
-                ? 'No findings or reports match your search and filters.'
-                : "Your scouts haven't surfaced anything yet. As they scan your project, the findings they emit and the reports they author show up here."}
+                ? 'No signals or reports match your search and filters.'
+                : "Your scouts haven't surfaced anything yet. As they scan your project, the signals they emit and the reports they author show up here."}
         </div>
     )
 }

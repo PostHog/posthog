@@ -30,8 +30,9 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { formatCredits } from '../../utils/credits'
+import { formatCreditsMaybeUsd } from '../../utils/credits'
 import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
@@ -243,6 +244,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
 
 export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
+    const { showUsd } = useValues(visionQuotaLogic)
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
@@ -385,7 +387,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         <LabeledRow label="Estimated monthly cost">
                             {scanner.estimated_monthly_credits != null ? (
                                 <span className="tabular-nums">
-                                    {formatCredits(scanner.estimated_monthly_credits)}{' '}
+                                    {formatCreditsMaybeUsd(scanner.estimated_monthly_credits, showUsd)}{' '}
                                     <span className="text-muted">
                                         · {(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations
                                     </span>

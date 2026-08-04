@@ -34,6 +34,12 @@ from products.error_tracking.backend.models import (
 
 SERVER_ONLY_PROPERTIES = frozenset({"$exception_sources", "$exception_functions"})
 
+# Operators posthog-js implements in propertyComparisons. Anything outside this set is undefined when
+# the SDK looks it up and throws on call, which drops the exception rather than skipping the rule.
+CLIENT_EVALUABLE_OPERATORS = frozenset(
+    {"exact", "is_not", "regex", "not_regex", "icontains", "not_icontains", "gt", "lt"}
+)
+
 
 class ErrorTrackingReleaseHashInUseError(Exception):
     pass
@@ -815,16 +821,18 @@ def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
 def get_client_safe_filters(filters: dict) -> dict | None:
     """Return the filters if every leaf is client-safe, otherwise None.
 
-    A filter that references a server-only property cannot be evaluated
-    client-side, so the whole rule is excluded.
+    A filter that references a server-only property, or an operator the SDK does not implement,
+    cannot be evaluated client-side, so the whole rule is excluded and left to server-side
+    evaluation during ingestion.
     """
     for value in filters.get("values", []):
-        if "key" in value:
-            if value.get("key") in SERVER_ONLY_PROPERTIES:
-                return None
-        elif "values" in value:
+        if "values" in value:
             if get_client_safe_filters(value) is None:
                 return None
+        elif value.get("key") in SERVER_ONLY_PROPERTIES:
+            return None
+        elif value.get("operator") not in CLIENT_EVALUABLE_OPERATORS:
+            return None
     return filters
 
 

@@ -1000,6 +1000,29 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_sso"] is True
         mock_login.assert_not_called()
 
+    @patch("posthog.api.user.login")
+    def test_email_verification_skips_auto_login_for_blocked_member(self, mock_login):
+        # A blocked member gets their email verified but no session; only blocked admins get the
+        # gated session (covered in the password login tests).
+        self.client.logout()
+        # The class fixture joins the user to a second organization; drop it so no organization
+        # admits them and the blocked path is the one exercised.
+        OrganizationMembership.objects.filter(user=self.user).exclude(organization=self.organization).delete()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_login"] is True
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified is True
+        mock_login.assert_not_called()
+
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
@@ -1116,6 +1139,20 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.current_team, first_team)
         self.assertEqual(self.user.current_organization, org)
+
+    def test_cannot_switch_current_organization_into_one_that_blocks_the_member(self):
+        # /api/users/@me/ is on the enforcement whitelist, so the switch must refuse on its own —
+        # otherwise a blocked member could point their session back at the org that moved them off.
+        blocking_org = Organization.objects.create(name="Enforcing org", enforce_verified_domains=True)
+        OrganizationMembership.objects.create(organization=blocking_org, user=self.user)
+        OrganizationDomain.objects.create(domain="hogflix.com", organization=blocking_org, verified_at=timezone.now())
+
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(blocking_org.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, self.organization)
 
     def test_cannot_set_an_organization_without_permissions(self):
         org = Organization.objects.create(name="Isolated Org")
