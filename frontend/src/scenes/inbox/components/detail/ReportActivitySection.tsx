@@ -15,7 +15,9 @@ import { DetailSection } from './DetailSection'
  * `ReportActivitySection`.
  */
 export function ReportActivitySection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportArtefacts, reportTasks } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { reportArtefacts, reportSignals, reportTasks } = useValues(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
 
     if (!reportArtefacts || reportArtefacts.length === 0) {
         return null
@@ -24,6 +26,7 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
     // The logic already resolved the research/implementation tasks; hand them to the `task_run` rows
     // so they don't re-fetch the same tasks the Runs section just loaded.
     const knownTasks = new Map((reportTasks ?? []).map((entry) => [entry.task.id, entry.task]))
+    const knownSignals = new Map((reportSignals ?? []).map((signal) => [signal.signal_id, signal]))
 
     return (
         <DetailSection
@@ -31,13 +34,18 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
             title="Activity"
             collapsible
             defaultCollapsed
-            rightSlot={
-                <span className="text-[0.6875rem] text-tertiary tabular-nums">
+            meta={
+                <span className="text-xs text-tertiary tabular-nums">
                     {reportArtefacts.length} {reportArtefacts.length === 1 ? 'entry' : 'entries'}
                 </span>
             }
         >
-            <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} knownTasks={knownTasks} />
+            <ArtefactLogList
+                reportId={report.id}
+                artefacts={reportArtefacts}
+                knownTasks={knownTasks}
+                knownSignals={knownSignals}
+            />
         </DetailSection>
     )
 }
