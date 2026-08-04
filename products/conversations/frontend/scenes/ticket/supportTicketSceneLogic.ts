@@ -31,6 +31,7 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
+import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType } from '~/types'
@@ -174,6 +175,7 @@ export function getEmailReplyBlockedReason(
 export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
+    availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     assignee: TicketAssignee
@@ -220,6 +222,7 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    loadTags: () => any // tagsModel
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -453,7 +456,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        actions: [supportTicketsSceneLogic, ['loadTickets']],
+        actions: [supportTicketsSceneLogic, ['loadTickets'], tagsModel, ['loadTags']],
         values: [
             teamLogic,
             ['currentTeam'],
@@ -463,6 +466,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['user'],
             assigneeSelectLogic,
             ['resolveAssignee'],
+            tagsModel,
+            ['tags as availableTags'],
         ],
     })),
     actions({
@@ -1065,6 +1070,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
+                // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
+                if (values.tags.some((tag) => !values.availableTags.includes(tag))) {
+                    actions.loadTags()
+                }
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error

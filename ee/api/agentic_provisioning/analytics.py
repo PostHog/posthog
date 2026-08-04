@@ -26,8 +26,6 @@ def capture_provisioning_event(
     if partner is not None:
         properties.setdefault("partner_id", str(partner.id))
         properties.setdefault("client_name", partner.name)
-        if partner.provisioning_partner_type:
-            properties.setdefault("partner_type", partner.provisioning_partner_type)
     posthoganalytics.capture(
         f"agentic_provisioning {event_type}",
         distinct_id=distinct_id,
@@ -45,7 +43,7 @@ def capture_auth_event(app: OAuthApplication, outcome: str, **extra: object) -> 
         distinct_id=_anonymous_distinct_id(),
         properties={
             "outcome": outcome,
-            "partner_type": app.provisioning_partner_type,
+            "client_name": app.name,
             "client_type": app.client_type,
             "app_id": str(app.id),
             **extra,

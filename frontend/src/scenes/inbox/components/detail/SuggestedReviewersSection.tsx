@@ -97,6 +97,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         <DetailSection
             icon={<IconPeople />}
             title="Reviewers"
+            collapsible
             afterTitle={
                 <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">
                     <span className="-m-1 flex cursor-help items-center p-1 text-base text-tertiary">

@@ -251,7 +251,10 @@ export interface QueryTab {
 export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
 
 export interface DataWarehouseAccessControlModalProps {
-    resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
+    resource:
+        | AccessControlResourceType.WarehouseTable
+        | AccessControlResourceType.WarehouseView
+        | AccessControlResourceType.ExternalDataSource
     resourceId: string
     name: string
 }
@@ -667,6 +670,9 @@ export interface sqlEditorLogicActions {
     ) => {
         force?: boolean
     } // databaseTableListLogic
+    resetConnectionScope: () => {
+        value: true
+    } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
         connectionId: string | null
     } // databaseTableListLogic
@@ -836,6 +842,13 @@ export interface sqlEditorLogicActions {
     }
     reportAIQueryRejected: () => {
         value: true
+    }
+    reviewViewUpdate: (
+        view: UpdateViewPayload,
+        draftId?: string
+    ) => {
+        draftId: string | undefined
+        view: UpdateViewPayload
     }
     runQuery: (
         queryOverride?: string,
@@ -1104,6 +1117,25 @@ export type sqlEditorLogicType = MakeLogicType<
     sqlEditorLogicMeta
 >
 
+// Which mounted editors currently want the shared schema catalog scoped to a connection, keyed by
+// tab id. Several editors can be mounted at once (notebook SQL nodes, metrics, endpoints) on the
+// same connection, so the last one out is the one that hands the catalog back unscoped.
+const connectionScopeOwners = new Map<string, string>()
+
+function claimConnectionScope(tabId: string, connectionId: string | null | undefined): void {
+    if (connectionId) {
+        connectionScopeOwners.set(tabId, connectionId)
+    } else {
+        connectionScopeOwners.delete(tabId)
+    }
+}
+
+// Drops this tab's claim and reports whether the scoped connection is now unclaimed.
+function releaseConnectionScope(tabId: string, scopedConnectionId: string | null): boolean {
+    connectionScopeOwners.delete(tabId)
+    return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -1149,7 +1181,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
-            ['setConnection', 'loadDatabase'],
+            ['setConnection', 'loadDatabase', 'resetConnectionScope'],
             connectionSelectorLogic,
             ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
@@ -1288,6 +1320,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
+            view,
+            draftId,
+        }),
         updateView: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -1791,6 +1827,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else if (insightVisualizationQuery) {
                     actions.setQueryInput(insightVisualizationQuery.source.query || '')
                 }
+
+                // Opening another query can replace sourceQuery without changing the connection,
+                // so the selectedConnectionId subscription does not run again.
+                actions.enforceConnectionRawQueryMode()
 
                 // Focus the editor after creating a new tab
                 props.editor?.focus()
@@ -2746,16 +2786,43 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
             },
+            reviewViewUpdate: ({ view, draftId }) => {
+                // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate
+                // modal: show the saved query alongside the user's edits, and only run the update
+                // once they accept. Mirrors the conflict-review diff in updateView below.
+                const savedQuery = values.activeTab?.view?.query?.query ?? ''
+                const editedQuery = values.queryInput ?? ''
+                if (savedQuery === editedQuery) {
+                    actions.updateView(view, draftId)
+                    return
+                }
+                actions._setSuggestionPayload({
+                    suggestedValue: editedQuery,
+                    originalValue: savedQuery,
+                    acceptText: view.shouldRematerialize ? 'Update and re-materialize view' : 'Update view',
+                    rejectText: 'Cancel',
+                    diffShowRunButton: false,
+                    onAccept: () => {
+                        actions.updateView(view, draftId)
+                    },
+                    onReject: () => {},
+                })
+            },
             updateView: async ({ view, draftId }) => {
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
-                // Only check for conflicts if there's an activity log (latest_history_id exists)
-                // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
-                // and we should allow the update to proceed without showing a false conflict
-                if (
+                // A real conflict means someone else changed the query text since this edit began.
+                // Detect it by comparing the server's current query against the baseline this edit
+                // started from (the tab's saved query) — not against the user's edited query, which
+                // always differs. Keying off history ids alone gives false positives when the
+                // editor's cached head has drifted from the server's (e.g. the head advanced for a
+                // non-query reason, or the view was opened without one), wrongly telling a sole
+                // editor the view was changed by someone else.
+                const baselineQuery = values.activeTab?.view?.query?.query
+                const foreignEdit =
                     latestView?.latest_history_id != null &&
-                    view.edited_history_id !== latestView.latest_history_id &&
-                    view.query?.query !== latestView?.query?.query
-                ) {
+                    baselineQuery != null &&
+                    latestView.query?.query !== baselineQuery
+                if (foreignEdit) {
                     actions._setSuggestionPayload({
                         suggestedValue: values.queryInput!,
                         originalValue: latestView?.query?.query,
@@ -2774,7 +2841,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                     lemonToast.error('View has been edited by another user. Review changes to update.')
                 } else {
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(view)
+                    // No foreign edit — send the server's current head so the backend's own
+                    // edited_history_id check accepts the save even if the editor's cached head drifted.
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                        ...view,
+                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
+                    })
                     actions.updateViewSuccess(view, draftId)
                 }
             },
@@ -2819,7 +2891,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         }
     }),
-    subscriptions(({ actions, values, cache }) => ({
+    subscriptions(({ actions, values, cache, props }) => ({
         queryInput: (queryInput: string | null) => {
             // Subquery validation results are keyed by subquery text — but the same text
             // may now refer to a subquery with different surrounding context, so drop
@@ -2903,6 +2975,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             cache.lastSelectedConnectionId = selectedConnectionId
+            claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase()
             if (selectedConnectionId) {
@@ -3463,6 +3536,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     })),
     afterMount(({ actions, props, values, cache }) => {
         cache.lastSelectedConnectionId = values.selectedConnectionId
+        claimConnectionScope(props.tabId, values.selectedConnectionId)
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
 
@@ -3667,7 +3741,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
         }
     }),
-    beforeUnmount(({ cache, props }) => {
+    beforeUnmount(({ actions, values, cache, props }) => {
+        // The editor scopes the shared schema catalog to whichever connection it was querying, and
+        // that logic stays mounted after the editor closes. Hand it back unscoped so pages like the
+        // sources list don't render the connection's tables as if they were the project's own. Only
+        // once no mounted editor still wants that connection though, or closing one of two editors
+        // sharing a connection would leave the survivor with the wrong schema tree.
+        if (releaseConnectionScope(props.tabId, values.databaseConnectionId)) {
+            actions.resetConnectionScope()
+        }
+
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
         clearQueryOutlineOverlay(cache, props.editor)

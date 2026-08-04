@@ -27,8 +27,18 @@ PADDLE_SESSION_PATCH = (
 )
 
 
-def _response(items: list[dict[str, Any]] | None, *, next_url: str | None = None, drop_data: bool = False) -> Response:
-    body: dict[str, Any] = {"meta": {"pagination": {"per_page": 200, "next": next_url}}}
+def _response(
+    items: list[dict[str, Any]] | None,
+    *,
+    next_url: str | None = None,
+    has_more: bool | None = None,
+    drop_data: bool = False,
+) -> Response:
+    # Real Paddle bodies always carry has_more; default it from next_url so fixture
+    # pages terminate the way real responses do (via has_more, not a null next).
+    if has_more is None:
+        has_more = next_url is not None
+    body: dict[str, Any] = {"meta": {"pagination": {"per_page": 200, "next": next_url, "has_more": has_more}}}
     if not drop_data:
         body["data"] = items or []
     resp = Response()
@@ -107,6 +117,27 @@ class TestPagination:
 
         assert [r["id"] for r in rows] == ["a", "b"]
         assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_terminates_when_last_page_repeats_next_url(self, MockSession) -> None:
+        # Real Paddle populates `next` on every page, including the last, where it
+        # points back at the page just fetched; has_more is the only stop signal.
+        # Following `next` alone refetches the final page forever.
+        session = MockSession.return_value
+        last_url = f"{PADDLE_BASE_URL}/customers?after=c_1"
+        _wire(
+            session,
+            [
+                _response([{"id": "c_1"}], next_url=last_url, has_more=True),
+                _response([{"id": "c_2"}], next_url=last_url, has_more=False),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("customers", manager))
+
+        assert [r["id"] for r in rows] == ["c_1", "c_2"]
+        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
@@ -190,6 +221,23 @@ class TestResume:
         # A resumed run starts at the saved next-page URL with no re-appended list params.
         assert urls[0] == saved_url
         assert params[0] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoint_saved_on_last_page_terminates_on_resume(self, MockSession) -> None:
+        # A checkpoint saved while looping on the final page points at that page.
+        # The resumed fetch sees has_more=false, completes, and writes the empty
+        # terminal marker instead of re-saving the same URL.
+        session = MockSession.return_value
+        saved_url = f"{PADDLE_BASE_URL}/customers?after=c_9"
+        _wire(session, [_response([], next_url=saved_url, has_more=False)])
+
+        manager = _make_manager(PaddleResumeConfig(next_url=saved_url))
+        rows = _rows(_source("customers", manager))
+
+        assert rows == []
+        assert session.send.call_count == 1
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [PaddleResumeConfig(next_url="")]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_saved_url_starts_fresh(self, MockSession) -> None:

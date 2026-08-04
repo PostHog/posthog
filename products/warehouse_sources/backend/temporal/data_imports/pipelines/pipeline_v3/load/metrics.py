@@ -46,3 +46,17 @@ DELTA_REPARTITION_SKIP_TOTAL = Counter(
     "Tables over the partition-size budget that the controller skipped, by reason",
     labelnames=["team_id", "reason"],
 )
+
+# deltalite real-write path (phase 2). `outcome` is one of:
+#   written    - deltalite performed the incremental merge and committed
+#   fallback   - deltalite was enabled but failed (or refused), so the delta-rs MERGE ran instead
+DELTALITE_WRITE_TOTAL = Counter(
+    "warehouse_load_deltalite_write_total",
+    "Incremental merges routed to deltalite's real write path, by outcome",
+    labelnames=["outcome"],
+)
+
+DELTALITE_WRITE_DURATION_SECONDS = Histogram(
+    "warehouse_load_deltalite_write_duration_seconds",
+    "Wall-clock time of a deltalite real write (DeltaLiteTable.upsert)",
+)

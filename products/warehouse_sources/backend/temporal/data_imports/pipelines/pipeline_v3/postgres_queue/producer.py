@@ -9,6 +9,7 @@ inserts are durable on commit — no async delivery pipeline to drain.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Optional
 
 import psycopg
@@ -27,6 +28,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 )
 
 logger = structlog.get_logger(__name__)
+
+# PgBouncer occasionally closes a just-opened connection under load or failover ("server
+# closed the connection unexpectedly"). A short local retry clears it without failing the
+# whole Temporal activity attempt, which would re-run the entire pipeline setup for what is
+# usually a one-off blip.
+_CONNECT_MAX_ATTEMPTS = 3
+_CONNECT_RETRY_BACKOFF_SECONDS = 0.5
+
+
+def _connect_with_retry(database_url: str) -> psycopg.Connection:
+    for _ in range(_CONNECT_MAX_ATTEMPTS - 1):
+        try:
+            return psycopg.Connection.connect(database_url, autocommit=True)
+        except psycopg.OperationalError:
+            time.sleep(_CONNECT_RETRY_BACKOFF_SECONDS)
+    return psycopg.Connection.connect(database_url, autocommit=True)
 
 
 class PostgresProducer:
@@ -77,7 +94,7 @@ class PostgresProducer:
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
 
-        self._conn = psycopg.Connection.connect(database_url, autocommit=True)
+        self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
 
     @property

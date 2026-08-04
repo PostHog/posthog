@@ -32,7 +32,11 @@ Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](refer
 
 After **any** patch, re-test the path you changed (step 3). A patch that validates structurally can still route the wrong way.
 
-Email templates follow the same rule: edit a template's design with **`workflows-patch-email-template`** (surgical, id-addressed ops over the Unlayer blocks), not `workflows-update-email-template`, which resends the entire design JSON. Compose and edit templates with the **`designing-email-templates`** skill.
+Email content follows the same rule.
+The email inside a `function_email` step is edited with **`workflows-patch-action-email`**: the same id-addressed design ops as the template patch, plus an `email_patch` merge for subject/preheader/text/recipients, with the HTML re-rendered server-side so it always matches the design.
+Prefer it over `workflows-patch-graph` `update_action` for email content - an `update_action` that changes `design` leaves the stored `html` stale.
+Library templates are edited with **`workflows-patch-email-template`**, not `workflows-update-email-template` (which resends the entire design JSON).
+Compose and edit email designs with the **`designing-email-templates`** skill.
 
 ## Changing a live workflow
 

@@ -88,6 +88,7 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .describe(
             "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
+    runner: zod.enum(['jest', 'pytest']).optional().describe("Optional test runner to return: 'pytest' or 'jest'."),
     source_id: zod
         .string()
         .optional()
