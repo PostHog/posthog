@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.models import DAG, Node
@@ -13,6 +14,21 @@ SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
+
+
+def _no_schedules():
+    """A Temporal client whose schedule listing is empty — a DAG nothing has ever scheduled."""
+
+    async def list_schedules(*_args, **_kwargs):
+        async def gen():
+            return
+            yield  # pragma: no cover - makes gen an async generator
+
+        return gen()
+
+    temporal = mock.Mock()
+    temporal.list_schedules = list_schedules
+    return temporal
 
 
 class TestScheduleMaterializationV2Guard(BaseTest):
@@ -45,16 +61,95 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         assert self.sq.sync_frequency_interval is None
 
     def test_creates_v1_schedule_when_dag_not_on_v2(self):
+        # an unmigrated v1 DAG: a live per-query schedule already covers this query, so the
+        # bootstrap below must not fire and stack tiers on top of it
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
             mock.patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
-            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=True),
+            mock.patch(f"{RECONCILE}.schedule_exists", return_value=True),
             mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
         ):
             self.sq.schedule_materialization()
         sync_wf.assert_called_once()
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval == timedelta(hours=12)
+
+    def test_virgin_dag_is_born_on_tiers_instead_of_minting_a_v1_schedule(self):
+        # a brand-new team's DAG has no v2 schedule *and* no v1 schedules, so the v2 lookup says
+        # "not on v2" and the query would get a per-query v1 schedule — that is how every new team
+        # lands on v1 and why the v1 population grows on its own
+        node = Node.objects.get(saved_query=self.sq)
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{NODE_MAT}.sync_connect"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.sq.schedule_materialization()
+
+        sync_wf.assert_not_called()
+        create.assert_called_once()
+        assert is_tier_schedule_id(create.call_args.kwargs["id"])
+        node.refresh_from_db()
+        assert get_declared_target(node) == timedelta(hours=12)
+        self.sq.refresh_from_db()
+        assert self.sq.sync_frequency_interval is None
+
+    def test_dag_with_a_v1_scheduled_sibling_is_not_treated_as_virgin(self):
+        # adding a query to an unmigrated team's DAG must keep using v1 — bootstrapping tiers
+        # here would double-schedule every query the sibling's v1 schedule already materializes
+        sibling = DataWarehouseSavedQuery.objects.create(
+            name="sibling",
+            team=self.team,
+            query={"query": "SELECT 2", "kind": "HogQLQuery"},
+            sync_frequency_interval=timedelta(hours=12),
+        )
+        Node.objects.create(team=self.team, dag=self.dag, saved_query=sibling, type=NodeType.VIEW)
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            # only the sibling still has a live v1 schedule
+            mock.patch(
+                f"{RECONCILE}.schedule_exists", side_effect=lambda _t, schedule_id: schedule_id == str(sibling.id)
+            ),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
+        ):
+            self.sq.schedule_materialization()
+        sync_wf.assert_called_once()
+
+    def test_rejected_frequency_leaves_a_virgin_dag_unbootstrapped(self):
+        # the bootstrap is all side effects, and on_commit fires immediately for the callers that
+        # are not inside an atomic block — so seeding or scheduling before the frequency is
+        # validated converts the DAG to v2 on a request that then 400s
+        node = Node.objects.get(saved_query=self.sq)
+        self.sq.sync_frequency_interval = timedelta(minutes=45)
+        self.sq.save(update_fields=["sync_frequency_interval"])
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch(f"{SERVICE}.sync_saved_query_workflow"),
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            self.captureOnCommitCallbacks(execute=True),
+            self.assertRaises(UnsupportedFrequencyTargetError),
+        ):
+            self.sq.schedule_materialization()
+
+        create.assert_not_called()
+        node.refresh_from_db()
+        assert get_declared_target(node) is None
 
     def test_tiered_flag_writes_target_through_and_nulls_interval(self):
         node = Node.objects.get(saved_query=self.sq)

@@ -42,7 +42,7 @@ function sessionUpdate(
 }
 
 function toolGroup(id: string, tools: SessionUpdateItem[]): ToolGroupItem {
-  return { type: "tool_group", id, tools };
+  return { type: "tool_group", id, items: tools };
 }
 
 function agentTurn(
