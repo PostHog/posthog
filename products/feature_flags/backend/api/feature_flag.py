@@ -1928,9 +1928,11 @@ class FeatureFlagSerializer(
                     counter += 1
                 validated_data["key"] = candidate
 
-        # Check for dependency conflicts when disabling a flag
+        # Check for dependency conflicts when disabling a flag. Archiving a flag also sets
+        # active=False in the same request, so word the error off what the user actually did.
         if "active" in validated_data and validated_data["active"] is False and instance.active is True:
-            raise_if_flag_has_dependents(instance)
+            action = "archive" if validated_data.get("archived") is True else "disable"
+            raise_if_flag_has_dependents(instance, action=action)
 
         # Check for dependency conflicts when enabling a flag
         if "active" in validated_data and validated_data["active"] is True and instance.active is False:

@@ -182,7 +182,11 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // A 400 with a user-facing detail is a validation error the request itself
+                // triggered (e.g. an unmet dependency), not a code regression — it's already
+                // toasted above, so don't also file it as an error tracking issue.
+                const isExpectedValidationError = error?.status === 400 && !!error?.detail
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isExpectedValidationError) {
                     posthog.captureException(error)
                 }
             },

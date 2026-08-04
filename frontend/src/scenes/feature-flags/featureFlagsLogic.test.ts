@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -416,6 +417,19 @@ describe('updateFeatureFlagArchived', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(capturesOf('feature flag archived')).toHaveLength(0)
+    })
+
+    it('does not report a dependency-guard rejection to error tracking', async () => {
+        jest.spyOn(api, 'update').mockRejectedValueOnce(
+            new ApiError(undefined, 400, undefined, {
+                detail: 'Cannot archive this feature flag because other flags depend on it: dependent-flag.',
+            })
+        )
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
     it('marks the row as updating until the archive resolves', async () => {

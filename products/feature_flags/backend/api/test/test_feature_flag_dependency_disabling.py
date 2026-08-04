@@ -65,6 +65,22 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
         self.assertIn("Cannot disable this feature flag because other flags depend on it", response.json()["detail"])
         self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
 
+    def test_cannot_archive_flag_with_active_dependents(self):
+        # Archiving sends active=False alongside archived=True; the error should say
+        # "archive", not "disable".
+        base_flag = self.create_flag("base_flag")
+        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
+            {"archived": True, "active": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot archive this feature flag because other flags depend on it", response.json()["detail"])
+        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
+
     def test_can_disable_flag_with_no_dependents(self):
         """Test that a flag can be disabled if no other flags depend on it."""
         # Create flag with no dependents
