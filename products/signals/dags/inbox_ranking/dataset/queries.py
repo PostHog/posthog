@@ -89,14 +89,22 @@ def valid_report_uuids(report_ids: set[str]) -> set[str]:
     return {canonical for report_id in report_ids if (canonical := canonical_report_uuid(report_id)) is not None}
 
 
-LABELED_REPORT_IDS_SQL = """
+# The `Inbox report feedback` producer contract (frontend/src/scenes/inbox/inboxAnalytics.ts emits
+# exactly these two). Applied to the labeled-id spine and the feedback stream alike, so an event
+# whose sentiment is missing or off-contract carries no label and can neither mint a label-only
+# training row nor stamp a feedback label onto a real report.
+FEEDBACK_SENTIMENTS_SQL = "toString(properties.sentiment) IN ('positive', 'negative')"
+
+# The feedback filter rides as a second predicate rather than its own UNION branch so the whole
+# select keeps one sort-key-aligned `event IN (...)` scan.
+LABELED_REPORT_IDS_SQL = f"""
 SELECT DISTINCT report_id
 FROM (
     SELECT JSONExtractString(imp, 'report_id') AS report_id
     FROM events
     ARRAY JOIN JSONExtractArrayRaw(coalesce(properties.impressions, '[]')) AS imp
     WHERE event = 'Inbox reports impressed'
-      AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+      AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
     UNION ALL
     SELECT toString(properties.report_id) AS report_id
     FROM events
@@ -106,12 +114,13 @@ FROM (
         'Inbox report feedback',
         'signal_report_status_changed'
     )
-      AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+      AND (event != 'Inbox report feedback' OR {FEEDBACK_SENTIMENTS_SQL})
+      AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
     UNION ALL
     SELECT toString(properties.signal_report_id) AS report_id
     FROM events
     WHERE event IN ('pr_created', 'pr_merged', 'pr_closed')
-      AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+      AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
 )
 WHERE report_id != ''
 """
@@ -257,8 +266,12 @@ SELECT
     -- intended semantic: reasons only accompany dismissals/snoozes), not necessarily paired with
     -- latest_status_event above.
     argMax(dismissal_reason, timestamp) AS dismissal_reason,
-    argMax(event_priority, timestamp) AS status_event_priority,
-    argMax(event_actionability, timestamp) AS status_event_actionability
+    -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
+    -- skipping a null: a judgment artefact can be deleted, and then the latest transition
+    -- genuinely carries none. Plain argMax would reach back to an older transition and present
+    -- its classification as the one this outcome was judged at.
+    nullIf(argMax(coalesce(event_priority, ''), timestamp), '') AS status_event_priority,
+    nullIf(argMax(coalesce(event_actionability, ''), timestamp), '') AS status_event_actionability
 FROM (
     SELECT
         min(events.timestamp) AS timestamp,
@@ -320,16 +333,17 @@ FEEDBACK_COLUMNS = (
 # The thumbs at the end of a report body. Feedback-only (the report stays in the inbox), so it is
 # not recoverable from the action or status streams. Only the rating event is aggregated; the
 # optional `Inbox report feedback note` rides separately and carries no additional label.
-FEEDBACK_SQL = """
+FEEDBACK_SQL = f"""
 SELECT
     toString(properties.report_id) AS report_id,
     countIf(toString(properties.sentiment) = 'positive') AS feedback_positive_count,
     countIf(toString(properties.sentiment) = 'negative') AS feedback_negative_count,
     min(timestamp) AS first_feedback_at,
-    argMax(nullIf(toString(properties.sentiment), ''), timestamp) AS latest_feedback_sentiment
+    argMax(toString(properties.sentiment), timestamp) AS latest_feedback_sentiment
 FROM events
 WHERE event = 'Inbox report feedback'
-  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND {FEEDBACK_SENTIMENTS_SQL}
+  AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
   AND toString(properties.report_id) != ''
 GROUP BY report_id
 """

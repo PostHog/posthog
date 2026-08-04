@@ -43,6 +43,7 @@ from posthog.dags.common import dagster_tags
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, EMBEDDING_RENDERING
 from products.signals.dags.inbox_ranking.common import (
+    DATASET_VERSION,
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
@@ -72,7 +73,6 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-DATASET_VERSION = "v1"
 FEATURE_SCHEMA_VERSION = 1
 
 STATE_TABLE = "inbox_report_state"

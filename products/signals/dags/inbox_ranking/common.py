@@ -43,7 +43,7 @@ def is_inbox_ranking_registered() -> bool:
 
 def dataset_unconfigured() -> bool:
     # On Cloud the dataset must never fall back to the shared object-storage bucket: assets skip
-    # until the dedicated bucket is provisioned. Local dev falls back to MinIO.
+    # until the dedicated bucket is provisioned. Local dev falls back to the object-storage service.
     return bool(settings.CLOUD_DEPLOYMENT) and not settings.INBOX_RANKING_DATASET_S3_BUCKET
 
 
