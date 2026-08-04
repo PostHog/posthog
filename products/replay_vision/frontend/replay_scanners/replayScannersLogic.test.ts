@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -74,6 +76,7 @@ describe('replayScannersLogic', () => {
             },
         })
         initKeaTests()
+        router.actions.push(urls.replayVision())
         logic = replayScannersLogic()
         logic.mount()
     })
@@ -283,6 +286,17 @@ describe('replayScannersLogic', () => {
             }).toFinishAllListeners()
             expect(router.values.searchParams.page).toBeUndefined()
             expect(router.values.searchParams.sort).toBeUndefined()
+        })
+
+        it('does not stomp the URL once the user has navigated away from the list', async () => {
+            // Simulates a late-firing listener (e.g. the out-of-range page correction) racing the
+            // async-loaded editor scene after "Create scanner" has already pushed a new URL.
+            router.actions.push(urls.replayVisionTemplates())
+            const editorPath = router.values.location.pathname
+            await expectLogic(logic, () => {
+                logic.actions.setScannersFilters({ page: 2 })
+            }).toFinishAllListeners()
+            expect(router.values.location.pathname).toBe(editorPath)
         })
     })
 
