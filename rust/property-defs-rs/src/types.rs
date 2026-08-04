@@ -1,6 +1,6 @@
 use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
-use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -227,17 +227,35 @@ pub struct Event {
 
 impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
-        EventDefinition {
-            name: sanitize_string(&event.event),
-            team_id: event.team_id,
-            project_id: event.project_id,
-            last_seen_at: get_floored_last_seen(),
-        }
+        event.to_event_definition(DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
     }
 }
 
 impl Event {
+    fn to_event_definition(&self, last_seen_floor_secs: i64) -> EventDefinition {
+        let name = sanitize_string(&self.event);
+        // Seed on the sanitized name because that is what ends up in the dedup key.
+        let jitter_seed = last_seen_jitter_seed(self.team_id, &name);
+
+        EventDefinition {
+            last_seen_at: floor_last_seen(Utc::now(), last_seen_floor_secs, jitter_seed),
+            name,
+            team_id: self.team_id,
+            project_id: self.project_id,
+        }
+    }
+
     pub fn into_updates(self, skip_threshold: usize) -> Vec<Update> {
+        self.into_updates_with(skip_threshold, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
+    }
+
+    /// As `into_updates`, but with an explicit flooring period for the event-definition dedup
+    /// key. See `floor_last_seen` for what the period controls.
+    pub fn into_updates_with(
+        self,
+        skip_threshold: usize,
+        last_seen_floor_secs: i64,
+    ) -> Vec<Update> {
         if EVENTS_WITHOUT_PROPERTIES.contains(&self.event.as_str()) {
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "no_properties_event")]).increment(1);
             return vec![];
@@ -252,7 +270,7 @@ impl Event {
         let team_id = self.team_id;
         let event = self.event.clone();
 
-        let updates = self.into_updates_inner();
+        let updates = self.into_updates_inner(last_seen_floor_secs);
         if updates.len() > skip_threshold {
             warn!(
                 "Event {} for team {} has more than {} properties, skipping",
@@ -265,8 +283,10 @@ impl Event {
         updates
     }
 
-    fn into_updates_inner(self) -> Vec<Update> {
-        let mut updates = vec![Update::Event(EventDefinition::from(&self))];
+    fn into_updates_inner(self, last_seen_floor_secs: i64) -> Vec<Update> {
+        let mut updates = vec![Update::Event(
+            self.to_event_definition(last_seen_floor_secs),
+        )];
         let Some(props) = &self.properties else {
             return updates;
         };
@@ -525,21 +545,50 @@ impl Hash for GroupType {
     }
 }
 
-// We round last seen to the nearest hour. Unwrap is safe here because
-// the duration is positive, non-zero, and smaller than time since epoch
-pub fn get_floored_last_seen() -> DateTime<Utc> {
-    floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
+// An event definition's `last_seen_at` participates in its Hash and Eq, so flooring it is what
+// bounds how often we re-issue the definition's write: one per (team, name) per period, per pod.
+// The value itself never reaches Postgres — the write path binds a fresh Utc::now() per attempt —
+// so a coarser period trades a staler stored last_seen_at for proportionally fewer writes.
+pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 3600;
+
+/// Start of the current `period_secs` window containing `now`, offset per identity by
+/// `jitter_seed` so that different identities roll over at different points in the period.
+///
+/// Without the offset every pod rotates every key at the same wall-clock instant, so each rollover
+/// makes the entire active keyspace writable at once. That is tolerable hourly and decidedly not
+/// at coarser periods, where a day's worth of definition writes would land in the minutes after
+/// the boundary, on a table that already struggles to keep autovacuum ahead of its dead tuples.
+///
+/// The result always falls in `(now - period, now]`, matching un-jittered flooring, so it can
+/// never produce a future timestamp. A non-positive period disables flooring entirely.
+pub fn floor_last_seen(now: DateTime<Utc>, period_secs: i64, jitter_seed: u64) -> DateTime<Utc> {
+    if period_secs <= 0 {
+        return now;
+    }
+
+    let offset = (jitter_seed % period_secs as u64) as i64;
+    let shifted = now.timestamp() + offset;
+    let bucket_start = shifted.div_euclid(period_secs) * period_secs - offset;
+
+    DateTime::from_timestamp(bucket_start, 0).unwrap_or(now)
 }
 
-fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
-    let rounded = dt.duration_round(duration)?;
+/// Stable per-identity hash used to spread definition rollovers across the flooring period.
+///
+/// Hand-rolled FNV-1a rather than a standard library or `ahash` hasher because the offset has to
+/// be identical on every pod, across restarts, and across dependency upgrades. `DefaultHasher` and
+/// `ahash`'s default state are randomized per process, and any change to the hash shifts every
+/// key's boundary at once, which is the synchronized rewrite the offset exists to prevent.
+pub fn last_seen_jitter_seed(team_id: i32, name: &str) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
-    // If we rounded up
-    if rounded > dt {
-        Ok(rounded - duration)
-    } else {
-        Ok(rounded)
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in team_id.to_le_bytes().iter().chain(name.as_bytes()) {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
     }
+    hash
 }
 
 // We impose some limits on some fields for legacy reasons, and drop updates that don't conform to them
@@ -573,7 +622,9 @@ impl EventDefinition {
             self.name,
             self.team_id,
             self.project_id,
-            Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
+            // last_seen_at is floored only to bound how often we re-issue this write; the stored
+            // value is the real time we saw the event.
+            Utc::now()
         ).execute(executor).await.map(|_| ());
 
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);

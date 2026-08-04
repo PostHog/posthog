@@ -1,25 +1,132 @@
 use chrono::Utc;
 use property_defs_rs::types::{
-    detect_property_type, get_floored_last_seen, Event, PropertyValueType, Update,
+    detect_property_type, floor_last_seen, last_seen_jitter_seed, Event, PropertyValueType, Update,
 };
 use rstest::rstest;
 use serde_json::{json, Map, Number, Value};
 
+// The floored value is a dedup key, so what matters is which window it identifies, not that it
+// lands on a round clock boundary (per-identity jitter means it usually won't). It must stay in
+// (now - period, now]: a future value would defeat the write path's
+// `last_seen_at < EXCLUDED.last_seen_at` guard, and one a full period old would re-issue the
+// definition's write early.
+#[rstest]
+#[case(3600)]
+#[case(86400)]
+fn test_floor_last_seen_lands_in_the_current_window(#[case] period_secs: i64) {
+    let now = Utc::now();
+
+    for seed in [0, 1, 12345, u64::MAX] {
+        let floored = floor_last_seen(now, period_secs, seed);
+        assert!(floored <= now, "seed {seed} produced a future timestamp");
+        assert!(
+            now - floored < chrono::Duration::seconds(period_secs),
+            "seed {seed} produced a timestamp a full period old"
+        );
+        assert_eq!(floored.timestamp_subsec_nanos(), 0);
+    }
+}
+
+// The whole point of the period is that it reaches the dedup key. EventDefinition's Hash and Eq
+// both cover last_seen_at, so two periods must produce keys that don't compare equal, and the
+// default entry point has to agree with the documented default period.
 #[test]
-fn test_date_flooring() {
-    use chrono::Timelike;
+fn test_flooring_period_changes_the_event_definition_dedup_key() {
+    let event = || Event {
+        team_id: 111,
+        project_id: 111,
+        event: "$pageview".to_string(),
+        properties: None,
+    };
+
+    let def_of = |updates: Vec<Update>| match updates.into_iter().next().unwrap() {
+        Update::Event(ed) => ed,
+        other => panic!("expected an event definition first, got {other:?}"),
+    };
+
+    let hourly = def_of(event().into_updates_with(10_000, 3600));
+    let daily = def_of(event().into_updates_with(10_000, 86400));
+    let defaulted = def_of(event().into_updates(10_000));
+
+    assert_ne!(
+        hourly, daily,
+        "a coarser period must produce a different dedup key, or it cannot reduce writes"
+    );
+    assert_eq!(
+        hourly, defaulted,
+        "into_updates must agree with the documented default period"
+    );
+}
+
+// Jitter has to be a pure function of the identity: every pod computes it independently, and if
+// they disagree the same definition gets written once per pod per period instead of once.
+#[test]
+fn test_jitter_seed_is_stable_and_identity_scoped() {
+    assert_eq!(
+        last_seen_jitter_seed(111, "$pageview"),
+        last_seen_jitter_seed(111, "$pageview")
+    );
+    assert_ne!(
+        last_seen_jitter_seed(111, "$pageview"),
+        last_seen_jitter_seed(112, "$pageview")
+    );
+    assert_ne!(
+        last_seen_jitter_seed(111, "$pageview"),
+        last_seen_jitter_seed(111, "$identify")
+    );
+}
+
+// This is the test that guards the reason jitter exists. Un-jittered, every key in the fleet rolls
+// over at the same instant, so a coarse period dumps a period's worth of definition writes into
+// the moments after the boundary. Spreading window starts across the period turns that burst into
+// a steady trickle.
+#[test]
+fn test_jitter_spreads_window_starts_across_the_period() {
+    const PERIOD: i64 = 86400;
+    const BUCKETS: i64 = 24;
 
     let now = Utc::now();
-    let rounded = get_floored_last_seen();
+    let mut occupied = std::collections::HashSet::new();
+    for team_id in 0..2000 {
+        let seed = last_seen_jitter_seed(team_id, "$pageview");
+        let age = now.timestamp() - floor_last_seen(now, PERIOD, seed).timestamp();
+        occupied.insert(age / (PERIOD / BUCKETS));
+    }
 
-    // Time should be rounded to the nearest hour
-    assert_eq!(rounded.minute(), 0);
-    assert_eq!(rounded.second(), 0);
-    assert_eq!(rounded.nanosecond(), 0);
-    assert!(rounded <= now);
+    assert_eq!(
+        occupied.len() as i64,
+        BUCKETS,
+        "expected window starts in all {BUCKETS} sub-ranges of the period, got {occupied:?}"
+    );
+}
 
-    // The difference between now and rounded should be less than 1 hour
-    assert!(now - rounded < chrono::Duration::hours(1));
+// Advancing by exactly one period must advance the window by exactly one period, for every
+// identity. An off-by-one here re-issues writes twice per period, or skips one entirely.
+#[test]
+fn test_window_advances_by_exactly_one_period() {
+    const PERIOD: i64 = 86400;
+    let now = Utc::now();
+
+    for team_id in 0..50 {
+        let seed = last_seen_jitter_seed(team_id, "$pageview");
+        let first = floor_last_seen(now, PERIOD, seed);
+        let next = floor_last_seen(now + chrono::Duration::seconds(PERIOD), PERIOD, seed);
+        assert_eq!(
+            (next - first).num_seconds(),
+            PERIOD,
+            "team {team_id} did not advance by exactly one period"
+        );
+    }
+}
+
+// The period is env-driven, so a misconfigured deploy has to degrade to "no flooring" rather than
+// producing a nonsense window or dividing by zero on every event.
+#[rstest]
+#[case(0)]
+#[case(-1)]
+fn test_non_positive_period_disables_flooring(#[case] period_secs: i64) {
+    let now = Utc::now();
+    assert_eq!(floor_last_seen(now, period_secs, 12345), now);
 }
 
 #[test]
