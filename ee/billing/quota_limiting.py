@@ -38,7 +38,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_logs_bytes_in_period,
-    get_teams_with_posthog_code_token_credits_used_in_period,
+    get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_rows_exported_in_period,
@@ -1064,7 +1064,7 @@ def update_all_orgs_billing_quotas(
     token_credits = convert_team_usage_rows_to_dict(
         _timed_query(
             "posthog_code_token_credits",
-            get_teams_with_posthog_code_token_credits_used_in_period,
+            get_teams_with_posthog_code_credits_used_in_period,
             period_start,
             period_end,
         )
