@@ -78,6 +78,27 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain('count(*) AS count')
     })
 
+    it('ignores blank shelf fields until they are configured', () => {
+        const blankField: BIField = {
+            id: 'blank-field',
+            name: '',
+            expression: '',
+            type: 'unknown',
+            source: { table: 'events' },
+        }
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.Auto,
+            rows: [blankField],
+            columns: [blankField],
+            values: [{ field: blankField, aggregation: 'count_distinct' }],
+            filters: [{ field: blankField, operator: 'equals', value: 'signup' }],
+            limit: 100,
+        })
+
+        expect(result?.query).toEqual(['SELECT', '    count(*) AS count', 'FROM events', 'LIMIT 100'].join('\n'))
+    })
+
     it('keeps nested object paths and explicit SQL expressions in the generated query', () => {
         const browserField: BIField = {
             id: 'warehouse:events:properties',

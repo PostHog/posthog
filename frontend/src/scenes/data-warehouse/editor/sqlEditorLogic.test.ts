@@ -1481,24 +1481,24 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('BI editor hash parameters', () => {
-        it('restores BI mode and configuration from the URL and keeps changes in the hash', async () => {
-            const eventField: BIField = {
-                id: 'warehouse:events:event',
-                name: 'event',
-                expression: 'event',
-                type: 'string',
-                source: { table: 'events' },
-            }
-            const config: BIConfig = {
-                source: { table: 'events' },
-                chartType: ChartDisplayType.ActionsBar,
-                rows: [eventField],
-                columns: [],
-                values: [],
-                filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
-                limit: 1000,
-            }
+        const eventField: BIField = {
+            id: 'warehouse:events:event',
+            name: 'event',
+            expression: 'event',
+            type: 'string',
+            source: { table: 'events' },
+        }
+        const config: BIConfig = {
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsBar,
+            rows: [eventField],
+            columns: [],
+            values: [],
+            filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
+            limit: 1000,
+        }
 
+        it('restores BI mode and configuration from the URL and keeps changes in the hash', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -1530,6 +1530,53 @@ describe('sqlEditorLogic', () => {
                 ...config,
                 filters: [{ ...config.filters[0], value: 'purchase' }],
             })
+
+            biLogic.unmount()
+        })
+
+        it('clears incompatible fields when the source changes and persists blank shelf fields', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT event, count(*) FROM events GROUP BY event',
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(biLogic, () => biLogic.actions.setDataSource({ table: 'persons' }))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    config: partial({
+                        source: { table: 'persons' },
+                        rows: [],
+                        columns: [],
+                        values: [],
+                        filters: [],
+                    }),
+                })
+
+            await expectLogic(biLogic, () => biLogic.actions.addBlankFieldToShelf('rows')).toFinishAllListeners()
+
+            expect(biLogic.values.config.rows).toEqual([
+                expect.objectContaining({
+                    name: '',
+                    expression: '',
+                    type: 'unknown',
+                    source: { table: 'persons' },
+                }),
+            ])
+            expect(logic.values.queryInput).toEqual(
+                ['SELECT', '    count(*) AS count', 'FROM persons', 'LIMIT 1000'].join('\n')
+            )
+            expect(router.values.hashParams.bi).toEqual(biLogic.values.config)
 
             biLogic.unmount()
         })

@@ -8,6 +8,7 @@ import {
     IconGraph,
     IconPencil,
     IconPieChart,
+    IconPlus,
     IconTrends,
     IconX,
 } from '@posthog/icons'
@@ -67,12 +68,14 @@ const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
 
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
-    const { config } = useValues(logic)
+    const { availableDataSources, config, databaseConnectionId, databaseLoading } = useValues(logic)
     const {
+        addBlankFieldToShelf,
         addFieldToShelf,
         removeFieldFromShelf,
         resetConfig,
         setChartType,
+        setDataSource,
         setFieldExpression,
         setFilterCustomExpression,
         setFilterOperator,
@@ -86,12 +89,27 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="flex min-w-0 flex-col gap-1">
                     <LemonLabel>Data source</LemonLabel>
-                    <div className="flex min-h-8 items-center gap-2">
-                        <IconDatabase className="text-tertiary" />
-                        <span className="truncate font-medium">
-                            {config.source?.table ?? 'Drag a field from the sidebar'}
-                        </span>
-                    </div>
+                    <LemonSelect
+                        value={config.source?.table}
+                        options={availableDataSources.map((source) => ({
+                            value: source.table,
+                            label: source.table,
+                        }))}
+                        onSelect={(table) => setDataSource({ table, connectionId: databaseConnectionId ?? undefined })}
+                        icon={<IconDatabase />}
+                        loading={databaseLoading}
+                        disabledReason={
+                            !databaseLoading && availableDataSources.length === 0
+                                ? 'No tables available for this connection'
+                                : undefined
+                        }
+                        placeholder="Select a table"
+                        size="small"
+                        className="min-w-64 max-w-120"
+                        truncateText={{ maxWidthClass: 'max-w-96' }}
+                        dropdownMaxContentWidth
+                        data-attr="bi-editor-data-source"
+                    />
                     {config.source ? (
                         <span className="text-xs text-secondary">
                             Fields are limited to this table and its related folders.
@@ -135,6 +153,8 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Group results by these fields"
                     icon={<IconTableChart />}
                     onDropField={addFieldToShelf}
+                    onAddField={() => addBlankFieldToShelf('rows')}
+                    addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
                     {config.rows.map((field, index) => (
                         <FieldExpressionEditor
@@ -152,6 +172,8 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Add a second grouping for charts that use one"
                     icon={<IconTableChart />}
                     onDropField={addFieldToShelf}
+                    onAddField={() => addBlankFieldToShelf('columns')}
+                    addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
                     {config.columns.map((field, index) => (
                         <FieldExpressionEditor
@@ -169,6 +191,8 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Calculate the values shown in the chart"
                     icon={<IconCalculator />}
                     onDropField={addFieldToShelf}
+                    onAddField={() => addBlankFieldToShelf('values')}
+                    addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
                     {config.values.map((value, index) => (
                         <div
@@ -193,6 +217,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                 value={value.field.expression}
                                 field={value.field}
                                 label="Edit field expression"
+                                emptyLabel="Select field"
                                 onChange={(expression) => setFieldExpression('values', index, expression)}
                             />
                             {value.aggregation === 'custom' ? (
@@ -222,6 +247,8 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     description="Limit which rows are included"
                     icon={<IconFilter />}
                     onDropField={addFieldToShelf}
+                    onAddField={() => addBlankFieldToShelf('filters')}
+                    addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
                 >
                     {config.filters.map((filter, index) => {
                         const filterNeedsValue = !['is_set', 'is_not_set', 'custom'].includes(filter.operator)
@@ -234,6 +261,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                     value={filter.field.expression}
                                     field={filter.field}
                                     label="Edit field expression"
+                                    emptyLabel="Select field"
                                     onChange={(expression) => setFieldExpression('filters', index, expression)}
                                 />
                                 <LemonSelect
@@ -302,6 +330,7 @@ function FieldExpressionEditor({
                 value={field.expression}
                 field={field}
                 label="Edit field expression"
+                emptyLabel="Select field"
                 onChange={onChange}
             />
             <RemoveFieldButton field={field} onClick={onRemove} />
@@ -310,6 +339,8 @@ function FieldExpressionEditor({
 }
 
 function RemoveFieldButton({ field, onClick }: { field: BIField; onClick: () => void }): JSX.Element {
+    const fieldName = field.name || 'field'
+
     return (
         <LemonButton
             icon={<IconX />}
@@ -317,8 +348,8 @@ function RemoveFieldButton({ field, onClick }: { field: BIField; onClick: () => 
             type="tertiary"
             noPadding
             className="shrink-0"
-            tooltip={`Remove ${field.name}`}
-            aria-label={`Remove ${field.name}`}
+            tooltip={`Remove ${fieldName}`}
+            aria-label={`Remove ${fieldName}`}
             onClick={onClick}
         />
     )
@@ -347,7 +378,7 @@ function ExpressionEditorButton({
             buttonIcon={<IconPencil />}
             buttonLabel={value ? <code className="truncate">{value}</code> : emptyLabel}
             buttonTooltip={label}
-            buttonAriaLabel={`${label} for ${field.name}`}
+            buttonAriaLabel={`${label} for ${field.name || 'field'}`}
         />
     )
 }
@@ -385,6 +416,8 @@ function Shelf({
     icon,
     children,
     onDropField,
+    onAddField,
+    addFieldDisabledReason,
 }: {
     shelf: BIShelf
     title: string
@@ -392,6 +425,8 @@ function Shelf({
     icon: ReactNode
     children: ReactNode
     onDropField: (field: NonNullable<ReturnType<typeof parseBIField>>, shelf: BIShelf) => void
+    onAddField: () => void
+    addFieldDisabledReason?: string
 }): JSX.Element {
     const handleDrop = (event: DragEvent<HTMLDivElement>): void => {
         event.preventDefault()
@@ -412,9 +447,22 @@ function Shelf({
                 }}
                 onDrop={handleDrop}
             >
-                <div className="flex items-center gap-2 font-medium">
-                    <span className="text-tertiary">{icon}</span>
-                    {title}
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-medium">
+                        <span className="text-tertiary">{icon}</span>
+                        {title}
+                    </div>
+                    <LemonButton
+                        icon={<IconPlus />}
+                        size="xsmall"
+                        type="tertiary"
+                        noPadding
+                        tooltip="Add field"
+                        aria-label={`Add field to ${title.toLowerCase()}`}
+                        disabledReason={addFieldDisabledReason}
+                        onClick={onAddField}
+                        data-attr={`bi-editor-${shelf}-add-field`}
+                    />
                 </div>
                 <span className="text-xs text-secondary">{description}</span>
                 <div className="flex flex-1 flex-col gap-2">{children}</div>

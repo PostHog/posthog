@@ -353,17 +353,33 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         return null
     }
 
-    const dimensions = [...config.rows, ...config.columns]
+    const dimensions = [...config.rows, ...config.columns].filter(
+        (field) => field.expression.trim() || field.name.trim()
+    )
     const dimensionExpressions = dimensions.map(fieldExpression)
+    const configuredValues = config.values.filter(
+        (value) =>
+            value.field.expression.trim() ||
+            value.field.name.trim() ||
+            (value.aggregation === 'custom' && value.customExpression?.trim())
+    )
     const valueExpressions =
-        config.values.length > 0
-            ? config.values.map((value, index) => {
+        configuredValues.length > 0
+            ? configuredValues.map((value, index) => {
                   const alias = `${value.aggregation}_${sanitizeAlias(value.field.name)}${index > 0 ? `_${index + 1}` : ''}`
                   return `${aggregationExpression(value)} AS ${escapePropertyAsHogQLIdentifier(alias)}`
               })
             : ['count(*) AS count']
     const selectExpressions = [...dimensionExpressions, ...valueExpressions]
-    const filters = config.filters.map(filterExpression).filter((filter): filter is string => !!filter)
+    const filters = config.filters
+        .filter(
+            (filter) =>
+                filter.field.expression.trim() ||
+                filter.field.name.trim() ||
+                (filter.operator === 'custom' && filter.customExpression?.trim())
+        )
+        .map(filterExpression)
+        .filter((filter): filter is string => !!filter)
     const queryParts = [
         `SELECT\n    ${selectExpressions.join(',\n    ')}`,
         `FROM ${escapePropertyAsHogQLIdentifier(config.source.table)}`,
