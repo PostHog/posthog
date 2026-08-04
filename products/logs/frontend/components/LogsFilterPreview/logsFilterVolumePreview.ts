@@ -37,18 +37,6 @@ export function buildSparklineSeries(
     points: LogsFilterPreviewPoint[] | null,
     metric: LogsFilterPreviewMetric
 ): LogsFilterPreviewSeriesData {
-    if (!points || points.length === 0) {
-        return {
-            labels: [],
-            series: [],
-            total: 0,
-            truncatedServiceCount: 0,
-            bucketSeconds: 0,
-            chartMax: 0,
-            bucketCount: 0,
-            firstBucketTime: null,
-        }
-    }
     const timeOrder: string[] = []
     const seenTimes = new Set<string>()
     // A Map, not a plain object: service names come from ingested logs, so a log claiming
@@ -58,7 +46,9 @@ export function buildSparklineSeries(
     const serviceTotals = new Map<string, number>()
     const bucketTotals = new Map<string, number>()
     let total = 0
-    for (const point of points) {
+    // No early return for the empty case — the accumulators below already yield the zeroed shape,
+    // so a separate literal would just be a second copy of it to keep in sync.
+    for (const point of points ?? []) {
         if (!seenTimes.has(point.time)) {
             seenTimes.add(point.time)
             timeOrder.push(point.time)
