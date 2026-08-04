@@ -1469,13 +1469,18 @@ describe('sessionRecordingPlayerLogic', () => {
             pushSpy.mockRestore()
         })
 
-        it('navigates to the heatmap scene when the write succeeds', () => {
+        it('navigates to the heatmap scene with the key that was written, when the write succeeds', () => {
             const pushSpy = jest.spyOn(router.actions, 'push')
 
             logic.actions.openHeatmap()
 
             expect(pushSpy).toHaveBeenCalledTimes(1)
-            expect(pushSpy.mock.calls[0]?.[0]).toContain('heatmaps')
+            const pushedUrl = pushSpy.mock.calls[0]?.[0] as string
+            const key = new URLSearchParams(pushedUrl.split('?')[1]).get('iframeStorage')
+            expect(pushedUrl).toBe(urls.heatmapRecording(`iframeStorage=${key}`))
+            const written = JSON.parse(localStorage.getItem(key as string) as string)
+            expect(written).toMatchObject({ width: 2560, height: 1304 })
+            expect(written.html).toBeTruthy()
 
             pushSpy.mockRestore()
         })
