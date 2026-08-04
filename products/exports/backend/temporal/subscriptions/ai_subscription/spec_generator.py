@@ -225,8 +225,12 @@ def sanitize_prompt(raw: str | None) -> str:
 
 
 def _top_event_names(team: Team, limit: int) -> list[str]:
-    query = TeamTaxonomyQuery(limit=limit)
-    response = TeamTaxonomyQueryRunner(query, team).run(
+    # Deliberately unlimited: the taxonomy is an unfiltered 30-day `GROUP BY event` over the whole
+    # events table, and the limit is applied to its *output* rows — so asking for fewer costs
+    # ClickHouse exactly the same. What the limit does change is the cache key (`limit` is hashed
+    # into it), which partitions us off the limit-less entry the other AI callers share and makes
+    # every run recompute a scan that may not fit its budget. Share their key; slice below.
+    response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
     )
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
@@ -235,7 +239,7 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     # events with arbitrary names). Sanitize so an attacker can't seed the LLM
     # context with prompt-injection payloads via crafted event names.
     sanitized = (sanitize_user_text(item.event, EVENT_NAME_MAX_LENGTH) for item in response.results)
-    return [name for name in sanitized if name]
+    return [name for name in sanitized if name][:limit]
 
 
 def _no_data_event_names(team: Team, limit: int) -> list[str]:
@@ -435,7 +439,19 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
 
 
 def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
-    event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
+    # The volume-ranked top events are a context *hint* — every event the planner is asked to reason
+    # about arrives via `relevant_events`, whose names come from the Postgres taxonomy. On a
+    # high-volume project the 30-day scan behind this can exceed ClickHouse's execution limit, and
+    # letting that abort the run costs the whole report to save a hint, so it degrades instead —
+    # matching how `_llm_selected_events` already treats its own failures. None carries "we couldn't
+    # find out" through to the Top events line, which must not render it as "there are none"; typed
+    # Optional rather than a parallel bool so `ty` rejects any use that ignores the difference.
+    event_names: list[str] | None
+    try:
+        event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
+    except Exception:
+        logger.warning("ai_subscription.top_event_names_failed", team_id=team.pk, exc_info=True)
+        event_names = None
 
     # Team / org names are also user-controlled and end up in the LLM context, so
     # apply the same sanitization as event names.
@@ -460,12 +476,17 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
     ]
     if event_names:
         lines.append("- Top events: " + ", ".join(event_names))
+    elif event_names is None:
+        # Never claim "none recorded yet" after a failed lookup. The projects big enough to break that
+        # lookup are exactly the ones with the most data, so the reassuring version of this line is the
+        # one that would make the planner report that nothing happened.
+        lines.append("- Top events: (could not be retrieved this run — do NOT infer the project has no data)")
     else:
         lines.append("- Top events: (none recorded yet)")
 
     if relevant_events:
         props_by_event = _event_property_names(team, list(relevant_events), EVENT_PROPERTIES_PER_EVENT_LIMIT)
-        top_set = set(event_names)
+        top_set = set(event_names or ())
         seen: set[str] = set()
         matched: list[tuple[str, str]] = []  # (raw, clean), deduped on the sanitized name
         for raw in relevant_events:
