@@ -1,0 +1,146 @@
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
+
+from parameterized import parameterized
+
+from posthog.schema import DateRange, MCPUnmetDemandItem, MCPUnmetDemandQuery
+
+from posthog.rbac.user_access_control import UserAccessControlError
+
+from products.mcp_analytics.backend.hogql_queries.unmet_demand import MCPUnmetDemandQueryRunner
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+
+
+class TestMCPUnmetDemandQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _emit(
+        self,
+        *,
+        intent: str = "export a dashboard as a PDF",
+        event: str = "$mcp_missing_capability",
+        client_name: str | None = "claude-ai",
+        session_id: str = "s1",
+        distinct_id: str = "d1",
+        timestamp: datetime | None = None,
+    ) -> None:
+        properties: dict[str, Any] = {"$session_id": session_id, "$mcp_intent": intent}
+        if client_name is not None:
+            properties["$mcp_client_name"] = client_name
+        _create_event(
+            team=self.team,
+            event=event,
+            distinct_id=distinct_id,
+            timestamp=timestamp or datetime.now(tz=UTC),
+            properties=properties,
+        )
+
+    def _run(self, **kwargs: Any) -> list[MCPUnmetDemandItem]:
+        return self._response(**kwargs).results
+
+    def _response(self, *, date_from: str = "-30d", **kwargs: Any) -> Any:
+        runner = MCPUnmetDemandQueryRunner(
+            query=MCPUnmetDemandQuery(dateRange=DateRange(date_from=date_from), **kwargs),
+            team=self.team,
+        )
+        return runner.calculate()
+
+    def test_returns_reports_newest_first_with_their_text(self) -> None:
+        now = datetime.now(tz=UTC)
+        self._emit(intent="older ask", timestamp=now - timedelta(hours=2))
+        self._emit(intent="newer ask", timestamp=now - timedelta(hours=1))
+        # Only $mcp_missing_capability is the unmet-demand signal; a tool call carrying an
+        # intent is what the agent *did*, not what it couldn't do.
+        self._emit(intent="a tool call intent", event="$mcp_tool_call")
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert [row.intent for row in rows] == ["newer ask", "older ask"]
+        assert rows[0].session_id == "s1"
+        assert rows[0].distinct_id == "d1"
+        assert rows[0].harness == "Claude.ai"
+
+    def test_date_range_excludes_older_reports(self) -> None:
+        now = datetime.now(tz=UTC)
+        self._emit(intent="last month", timestamp=now - timedelta(days=20))
+        self._emit(intent="this week", timestamp=now - timedelta(days=1))
+        flush_persons_and_events()
+
+        assert [row.intent for row in self._run(date_from="-7d")] == ["this week"]
+
+    @parameterized.expand(
+        [
+            ("lower_case_term", "pdf", ["export a dashboard as a PDF"]),
+            ("upper_case_term", "PDF", ["export a dashboard as a PDF"]),
+            ("mixed_case_term", "DaShBoArD", ["export a dashboard as a PDF"]),
+            ("mid_word_substring", "board", ["export a dashboard as a PDF"]),
+            ("no_match", "webhooks", []),
+        ]
+    )
+    def test_search_matches_case_insensitively(self, _name: str, term: str, expected: list[str]) -> None:
+        self._emit(intent="export a dashboard as a PDF")
+        self._emit(intent="rename a project")
+        flush_persons_and_events()
+
+        assert [row.intent for row in self._run(search=term)] == expected
+
+    def test_report_without_a_client_name_still_returns_a_row(self) -> None:
+        # The SDK only stamps $mcp_client_name on $mcp_initialize, so most reports carry no
+        # client identity at all. They are the whole point of this surface — they must never
+        # be filtered out, and they must be distinguishable from an unrecognized client.
+        self._emit(intent="no client identity", client_name=None)
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert [row.intent for row in rows] == ["no client identity"]
+        assert rows[0].harness == "Unidentified client"
+
+    def test_unrecognized_client_is_named_verbatim(self) -> None:
+        self._emit(client_name="some-inhouse-agent")
+        flush_persons_and_events()
+
+        assert self._run()[0].harness == "some-inhouse-agent"
+
+    @parameterized.expand(
+        [
+            ("first_page", 0, ["r3", "r2"], True),
+            ("last_page", 2, ["r1"], False),
+            ("past_the_end", 3, [], False),
+        ]
+    )
+    def test_paging_reports_whether_more_remain(
+        self, _name: str, offset: int, expected: list[str], expected_has_next: bool
+    ) -> None:
+        now = datetime.now(tz=UTC)
+        for index, intent in enumerate(["r1", "r2", "r3"]):
+            self._emit(intent=intent, timestamp=now - timedelta(hours=3 - index))
+        flush_persons_and_events()
+
+        response = self._response(limit=2, offset=offset)
+
+        assert [row.intent for row in response.results] == expected
+        assert response.has_next is expected_has_next
+
+    def test_carries_only_the_person_fields_the_row_renders(self) -> None:
+        _create_person(team=self.team, distinct_ids=["d1"], properties={"email": "a@b.com", "plan": "enterprise"})
+        self._emit()
+        flush_persons_and_events()
+
+        person_properties = self._run()[0].person_properties
+
+        assert '"email":"a@b.com"' in person_properties.replace(" ", "")
+        assert "enterprise" not in person_properties
+
+    def test_allows_access_when_flag_enabled(self) -> None:
+        # The mixin enables only the mcp-analytics flag, mirroring the DRF gate.
+        runner = MCPUnmetDemandQueryRunner(query=MCPUnmetDemandQuery(), team=self.team, user=self.user)
+        assert runner.validate_query_runner_access(self.user) is True
+
+    def test_blocks_access_when_flag_disabled(self) -> None:
+        runner = MCPUnmetDemandQueryRunner(query=MCPUnmetDemandQuery(), team=self.team, user=self.user)
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with self.assertRaises(UserAccessControlError):
+                runner.validate_query_runner_access(self.user)

@@ -25,6 +25,7 @@ import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
+import { MCPAnalyticsUnmetDemand } from './unmetDemand/MCPAnalyticsUnmetDemand'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -49,7 +50,8 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
-    // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
+    // search belongs to the Sessions and Unmet demand tabs (both free-text filters over their
+    // own list) — drop it for every other tab; the date range stays shared everywhere.
     const { search: _search, ...sharedParams } = searchParams
 
     const activityTab: LemonTab<MCPAnalyticsTab> = {
@@ -92,6 +94,13 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             content: <MCPAnalyticsClustering />,
             link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
             'data-attr': 'mcp-analytics-intent-clustering-tab',
+        },
+        {
+            key: 'unmet-demand',
+            label: 'Unmet demand',
+            content: <MCPAnalyticsUnmetDemand />,
+            link: combineUrl(urls.mcpAnalyticsUnmetDemand(), searchParams).url,
+            'data-attr': 'mcp-analytics-unmet-demand-tab',
         },
         {
             key: 'notifications',

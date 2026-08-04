@@ -41,6 +41,7 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
         '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+        '/mcp-analytics/unmet-demand': ['MCPAnalytics', 'mcpAnalyticsUnmetDemand'],
         '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     },
     redirects: {
@@ -57,6 +58,7 @@ export const manifest: ProductManifest = {
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+        mcpAnalyticsUnmetDemand: (): string => '/mcp-analytics/unmet-demand',
         mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     },
     setupProbe: {

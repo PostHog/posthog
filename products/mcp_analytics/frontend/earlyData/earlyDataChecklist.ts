@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 export interface EarlyStats {
     totalCalls: number
     distinctTools: number
@@ -16,6 +18,10 @@ export interface ChecklistItem {
     detail: string
     status: ChecklistStatus
     docsUrl: string
+    /** In-app surface for what this check counted, once there is something to look at.
+     * A passing check whose number has nowhere to go is a dead end; this closes it.
+     * Rendered in place of the "Learn more" docs link. */
+    appLink?: { to: string; label: string }
 }
 
 const DOCS = {
@@ -73,6 +79,10 @@ export function buildChecklist(stats: EarlyStats): ChecklistItem[] {
                     : 'No missing-capability reports yet. Enable reportMissing so agents can tell you which tools they wish you had.',
             status: stats.missingCapabilityReports > 0 ? 'ok' : 'pending',
             docsUrl: DOCS.missingCapability,
+            appLink:
+                stats.missingCapabilityReports > 0
+                    ? { to: urls.mcpAnalyticsUnmetDemand(), label: 'Read the reports' }
+                    : undefined,
         },
     ]
 }

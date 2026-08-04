@@ -59,6 +59,7 @@ from posthog.schema import (
     MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
+    MCPUnmetDemandQuery,
     MetricsQuery,
     NodeKind,
     PathsQuery,
@@ -385,6 +386,7 @@ RunnableQueryNode = Union[
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
+    MCPUnmetDemandQuery,
 ]
 
 
@@ -956,6 +958,17 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPUnmetDemandQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPUnmetDemandQueryRunner
+
+        return MCPUnmetDemandQueryRunner(
+            query=cast(MCPUnmetDemandQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

@@ -205,6 +205,7 @@ export enum NodeKind {
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
+    MCPUnmetDemandQuery = 'MCPUnmetDemandQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -285,6 +286,7 @@ export type AnyDataNode =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
+    | MCPUnmetDemandQuery
 
 /**
  * @discriminator kind
@@ -412,6 +414,7 @@ export type QuerySchema =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
+    | MCPUnmetDemandQuery
 
     // Property values
     | PropertyValuesQuery
@@ -3257,6 +3260,42 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
 }
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
+
+/** One unmet-demand report: a capability an agent asked for and could not get. */
+export interface MCPUnmetDemandItem {
+    timestamp: string
+    /** The agent's own words for the capability it wanted, from $mcp_intent. */
+    intent: string
+    /** Resolved client label, the client's own self-reported name when unrecognized, or
+     * "Unidentified client" when the report carried no client identity at all. */
+    harness: string
+    /** Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set. */
+    session_id: string
+    distinct_id: string
+    /** JSON-encoded person email/name for display; "{}" when neither resolved. */
+    person_properties: string
+}
+
+export interface MCPUnmetDemandQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPUnmetDemandItem[]
+    /** Whether more reports exist past this page. */
+    has_next: boolean
+}
+
+/** Chronological feed of $mcp_missing_capability reports — what agents asked for and could not get. */
+export interface MCPUnmetDemandQuery extends DataNode<MCPUnmetDemandQueryResponse> {
+    kind: NodeKind.MCPUnmetDemandQuery
+    dateRange?: DateRange
+    /** Case-insensitive substring match over the report text. */
+    search?: string
+    /** Page size; defaults to 100, capped at 500. */
+    limit?: integer
+    /** Reports to skip before returning results. Combine with limit to page through them;
+     * the response's has_next flag indicates whether more remain. */
+    offset?: integer
+}
+
+export type CachedMCPUnmetDemandQueryResponse = CachedQueryResponse<MCPUnmetDemandQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
