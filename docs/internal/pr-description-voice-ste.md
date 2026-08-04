@@ -1,8 +1,11 @@
-# What a PR description looks like in Simplified Technical English
+# Why the PR description shape rule looks like this
 
-Two of our own merged PRs, rewritten in ASD-STE100, next to what actually shipped.
-The point is to see the difference and judge whether it reads better.
-This is the reasoning behind the shape rule in `/writing-pr-descriptions`. Nothing here is enforced by a check.
+Background for the shape rule in the `/writing-pr-descriptions` skill: where it comes from, how much of our existing prose it touches, and what other teams standardized on instead.
+This is a decision record, not instructions. The rules and their worked examples live in the skill.
+Nothing here is enforced by a check.
+
+One finding here drove the skill's structure directly. Applying the writing rules alone made every rewrite longer, because splitting a dense paragraph moves a reviewer's cost rather than removing it.
+That is why the skill cuts before it splits, and why its self-check fails a draft that grew. The two rewrites below predate that cut, and both come out longer.
 
 ## The standard, in short
 

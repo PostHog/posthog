@@ -3,8 +3,8 @@ name: writing-pr-descriptions
 description: >
   Shapes a PR body into something a reviewer understands at a glance.
   Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
-  Routes each fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), then holds the prose to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
-  Ends with a self-check the agent runs over its own draft.
+  Routes each fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
+  Ends with a self-check the agent runs over its own draft, including the test that the rewrite got shorter.
   Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
 ---
 
@@ -12,7 +12,7 @@ description: >
 
 A reviewer scans a description in seconds and decides where to spend attention. The body is a scanning surface, not an essay. Everything below serves one goal: a reviewer understands the change without reading twice.
 
-Work in three passes. Route, write, check. Do not skip the check.
+Work in four passes: route, cut, shape, check. Run all four.
 
 ## Pass 1: route each fact to a form
 
@@ -48,7 +48,31 @@ classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
 
 Assign by role (`class NodeA,NodeB phBlue;`): `phBlue` agents and primary paths, `phRed` APIs and external systems, `phYellow` entry and exit, `phGray` data and artifacts. Shape by kind: `{{hexagon}}` agents, `[rect]` steps.
 
-## Pass 2: write the bullets to a shape
+## Pass 2: cut
+
+One fact per bullet makes prose checkable. It does not make it shorter. Explode a dense paragraph into twelve bullets and you have moved the reviewer's cost, not removed it.
+
+So cut first, and shape only what survives. A fact that earns a line is one a reviewer needs to judge the change, approve it, or know what to watch after it ships.
+
+Delete:
+
+- Anything reconstructable from the diff. The reviewer can read the code.
+- Rationale for a choice nobody would question. Keep the reason only where you rejected an obvious alternative.
+- Restatements of the title, and summaries of the sections above.
+- Process narration. "Then I ran X, then Y" is a fact about your session, not about the change.
+- Hedges on facts that are not in doubt.
+- The follow-up sentence in any "here is the reason, and here is why the reason matters" pair.
+- Any bullet whose reader you cannot name.
+
+Budget, as a ceiling and not a target:
+
+- A one-file fix: 3 to 6 bullets across the whole body.
+- A typical PR: Problem and Changes together fit in about 10 bullets.
+- Numbers, file paths and identifiers survive cutting. Adjectives and second explanations do not.
+
+The test: **the body must come out shorter than your first draft.** If it grew, you split without cutting. Go back.
+
+## Pass 3: shape what survives
 
 The shape is checkable. Tone is not, which is why this skill does not ask for one.
 
@@ -65,18 +89,19 @@ This governs prose only. A table cell is not a sentence, and a diagram is not pr
 
 ### Worked example
 
-❌ One bullet, five links in a causal chain:
+❌ One bullet, five links in a causal chain, 28 words:
 
 > When the signals job's artifact glob matches one artifact (every selective-mode run), `download-artifact` extracts it flat, so spans get `job_key ...:None` and re-run recovery joins miss.
 
-✅ Four bullets, each checkable on its own:
+✅ Three bullets, each checkable on its own, 22 words:
 
-> - In selective mode the glob matches one artifact.
-> - `download-artifact` then extracts the files flat.
+> - In selective mode, `download-artifact` extracts the files flat.
 > - The span gets the job key `...:None`.
-> - The re-run recovery cannot join on that key.
+> - Re-run recovery cannot join on that key.
 
-Copy the shape of the second one.
+Note what the cut removed: the glob matching one artifact is the mechanism behind "in selective mode", and the reviewer reaches it from the diff. Note also what it kept: every identifier and every link in the chain a reviewer has to check.
+
+Copy the second one. It is shorter, not just flatter. Four bullets that restate the paragraph at greater length would be a worse description than the one you started with.
 
 ### Other prose rules
 
@@ -86,23 +111,25 @@ Copy the shape of the second one.
 - Do not hard-wrap at a column width and do not space-align tables. GitHub renders markdown and flows the text.
 - Write in first person as the author. When an agent did the work, say so: "I (actually Claude) moved the derivation into one place."
 
-## Pass 3: check your own draft
+## Pass 4: check your own draft
 
 Run this over the body you just wrote, before `gh pr create` or `gh pr edit`. Fix what fails.
 
-1. Read each bullet alone. Does it state one fact? If it states two, split it.
-2. Count the words in the longest sentence. Over 25, split it.
-3. Find every sentence without a subject doing something. Rewrite it in active voice.
-4. Does the PR change anything a person sees? If yes, is a screenshot in the body?
-5. Does it change a flow or topology? If yes, are the before and after diagrams there?
-6. Is any comparison sitting in prose that belongs in a table?
-7. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-8. Does the body claim manual testing that did not happen? Delete it.
-9. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
-10. Read the first three bullets only. Do they tell a reviewer what changed and why? If not, reorder.
+1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 2.
+2. Read each bullet and name the reader who needs it. Delete the ones you cannot.
+3. Read each bullet alone. Does it state one fact? If it states two, split it.
+4. Count the words in the longest sentence. Over 25, split it.
+5. Find every sentence without a subject doing something. Rewrite it in active voice.
+6. Does the PR change anything a person sees? If yes, is a screenshot in the body?
+7. Does it change a flow or topology? If yes, are the before and after diagrams there?
+8. Is any comparison sitting in prose that belongs in a table?
+9. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+10. Does the body claim manual testing that did not happen? Delete it.
+11. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+12. Read the first three bullets only. Do they tell a reviewer what changed and why? If not, reorder.
 
 ## Background
 
-`references/ste.md` carries the reasoning: the ASD-STE100 rules this shape is adapted from, two of our merged PRs rewritten in it side by side, what the rewrite cost, and measurements over 60 merged PRs. Read it when deciding whether to change these rules, not when writing a PR.
+`references/examples.md` carries the ASD-STE100 rules this shape is adapted from, and merged PRs rewritten under it side by side. Read it for more worked examples, or when deciding whether to change these rules.
 
-Nothing here is enforced by a check. Pass 3 is the enforcement.
+Nothing here is enforced by a check. Pass 4 is the enforcement.

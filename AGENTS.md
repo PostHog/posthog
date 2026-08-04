@@ -65,7 +65,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
-**Shape:** invoke `/writing-pr-descriptions` before writing the body. It carries the form routing (bullet, table, diagram, screenshot), the prose rule (one fact per bullet, sentences under 25 words, active voice, no idioms), and a self-check to run before creating the PR.
+**Shape:** invoke `/writing-pr-descriptions` before writing the body. It carries the form routing (bullet, table, diagram, screenshot), the cut that keeps only facts a reviewer needs, the prose rule (one fact per bullet, sentences under 25 words, active voice, no idioms), and a self-check to run before creating the PR. A description that got longer as bullets failed the cut.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
