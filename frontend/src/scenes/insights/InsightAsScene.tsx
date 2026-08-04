@@ -7,6 +7,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
@@ -73,7 +74,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
     }
 
     if (!insight?.query) {
-        return null
+        return insightLoading ? <InsightSkeleton /> : null
     }
 
     const isEditing = insightMode === ItemMode.Edit
