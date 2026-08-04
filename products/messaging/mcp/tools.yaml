@@ -7,6 +7,7 @@
 category: Messaging
 feature: messaging
 url_prefix: /workflows
+ui_apps: {}
 tools:
     messaging-categories-create:
         operation: messaging_categories_create
@@ -53,40 +54,12 @@ tools:
     messaging-preferences-add-opt-out-create:
         operation: messaging_preferences_add_opt_out_create
         enabled: false
-    opt-outs-add:
-        operation: messaging_preferences_bulk_add_opt_outs_create
-        enabled: true
-        scopes:
-            - hog_flow:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Add recipients to the opt-out list
-        description: >
-            Opt one or more recipients (up to 1000 per call) out of marketing messages.
-            Each entry can name its own message category via category_key; entries without
-            one use the request-level category_key, or all marketing messages if omitted.
-            Importing only ever opts recipients out, so repeating a call is safe.
     messaging-preferences-export-opt-outs-csv-retrieve:
         operation: messaging_preferences_export_opt_outs_csv_retrieve
         enabled: false
     messaging-preferences-generate-link-create:
         operation: messaging_preferences_generate_link_create
         enabled: false
-    opt-outs-list:
-        operation: messaging_preferences_opt_outs_retrieve
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List opt-outs
-        description: >
-            List recipients opted out of a message category, most recently updated first.
-            Omit category_key to list recipients opted out of all marketing messages.
     messaging-preferences-webhook-url-retrieve:
         operation: messaging_preferences_webhook_url_retrieve
         enabled: false
@@ -120,3 +93,30 @@ tools:
     messaging-templates-update:
         operation: messaging_templates_update
         enabled: false
+    opt-outs-add:
+        operation: messaging_preferences_bulk_add_opt_outs_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add recipients to the opt-out list
+        description: >
+            Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own
+            message category via category_key; entries without one use the request-level category_key, or all marketing
+            messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.
+    opt-outs-list:
+        operation: messaging_preferences_opt_outs_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List opt-outs
+        description: >
+            List recipients opted out of a message category, most recently updated first. Omit category_key to list
+            recipients opted out of all marketing messages.
