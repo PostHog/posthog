@@ -44,7 +44,11 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
     """
-    if isinstance(error, botocore.exceptions.NoCredentialsError):
+    if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
+        # Already classified and wrapped by a prior call to this same function (see
+        # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
+        # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
+        # wraps, must still treat it as transient.
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
@@ -77,9 +81,21 @@ TRANSIENT_DELTA_MAINTENANCE_ERRORS = (
 
 
 def is_transient_delta_maintenance_error(error: BaseException) -> bool:
-    return isinstance(error, deltalake.exceptions.DeltaError) and any(
-        needle in str(error) for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS
-    )
+    if not isinstance(error, deltalake.exceptions.DeltaError):
+        return False
+
+    text = str(error)
+    if any(needle in text for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS):
+        return True
+
+    # The same race can also take a transaction-log commit file, not just a data file: `reset_table`
+    # (full_refresh) purges the whole table prefix, `_delta_log` included, out from under a still-running
+    # maintenance pass that opened the table before the purge landed. Neither `vacuum()` nor
+    # `optimize.compact()` ever deletes a `_delta_log/*.json` commit file itself, so a missing one here
+    # means something else raced the read rather than the table being corrupt. Matched on the log
+    # directory specifically rather than on "File not found" alone, which a genuinely missing data file
+    # or a truly corrupt table can also raise, and those stay captured.
+    return "File not found" in text and "_delta_log/" in text
 
 
 def is_transient_maintenance_error(error: BaseException) -> bool:

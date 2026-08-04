@@ -447,6 +447,9 @@ tools:
     logs-retention-rules-retrieve:
         operation: logs_retention_rules_retrieve
         enabled: false
+    logs-retention-rules-suggest-name-create:
+        operation: logs_retention_rules_suggest_name_create
+        enabled: false
     logs-retention-rules-update:
         operation: logs_retention_rules_update
         enabled: false
