@@ -11,8 +11,6 @@ from posthog.schema_migrations.upgrade import upgrade
 
 from products.endpoints.backend.logic.strategies import strategy_for
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.managed_warehouse.backend.facade.api import has_provisioned_warehouse, is_dev_mode
-from products.managed_warehouse.backend.facade.client import execute_ducklake_query
 
 logger = get_logger(__name__)
 
@@ -20,6 +18,11 @@ SHADOW_EVENT = "ducklake_endpoint_exec_shadow"
 
 
 def shadow_target_exists(team: Team) -> bool:
+    # Deferred: keeps managed_warehouse off this module's import path, so this product
+    # (pulled in eagerly via tasks.py -> the URLconf) isn't broken by an import-time
+    # error in a product it merely shadows against.
+    from products.managed_warehouse.backend.facade.api import has_provisioned_warehouse, is_dev_mode  # noqa: PLC0415
+
     # Local dev points at the dev duckgres config and has no provisioned DuckgresServer row.
     if is_dev_mode():
         return True
@@ -91,6 +94,8 @@ def run_ducklake_shadow_comparison(
     ducklake_row_count: int | None = None
     ducklake_error: str | None = None
     try:
+        from products.managed_warehouse.backend.facade.client import execute_ducklake_query  # noqa: PLC0415
+
         hogql_query = build_ducklake_hogql_query(endpoint, version, team, data, limit=limit, offset=offset)
         _start = time.monotonic()
         result = execute_ducklake_query(

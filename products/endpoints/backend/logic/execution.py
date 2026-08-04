@@ -86,8 +86,6 @@ from products.endpoints.backend.metrics import (
     query_kind_label,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
-from products.managed_warehouse.backend.facade.api import is_dev_mode
 
 from common.hogvm.python.utils import HogVMException
 
@@ -399,6 +397,10 @@ class EndpointExecutionService(PydanticModelMixin):
         if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
+        # Deferred: keeps managed_warehouse (and its Celery task registration) off this
+        # module's import path, so an import-time error there can't take down the URLconf.
+        from products.managed_warehouse.backend.facade.api import is_dev_mode  # noqa: PLC0415
+
         # is_dev_mode() is also true under the test suite (USE_LOCAL_SETUP = TEST or ...); never shadow
         # there — it builds a userless HogQL database and runs eagerly under Celery, breaking unrelated runs.
         if is_dev_mode() and not settings.TEST:
@@ -441,6 +443,8 @@ class EndpointExecutionService(PydanticModelMixin):
             return
         if not self._should_shadow_ducklake(endpoint, version):
             return
+        from products.endpoints.backend.tasks import shadow_compare_ducklake_execution  # noqa: PLC0415
+
         try:
             shadow_compare_ducklake_execution.delay(
                 team_id=self.team.pk,
