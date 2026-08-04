@@ -68,7 +68,28 @@ Two tqdm progress bars:
 - **Matching** — per-signal progress with `processing` (in-flight) and `dropped` (filtered/failed) counters
 - **Judging** — per-report progress
 
-Followed by an aggregate results summary table.
+Followed by an aggregate results summary:
+
+```text
+Results (48 groups → 43 reports):
+  Signals placed   87/111
+  ARI              0.79
+  Homogeneity      0.97
+  Completeness     0.94
+  Mean purity      0.97
+  Mean recall      0.77
+  Correct match    71/87 (81.6%), overgrouped 5, undergrouped 11
+  Pre-gate match   68/87 (78.2%), overgrouped 14, undergrouped 5
+  Malicious leaked 0/24
+```
+
+Everything needed to compare two runs is here, so no PostHog query is required for that.
+Two lines are easy to misread:
+
+- **Signals placed** is how many signals reached grouping. The rest were dropped by the actionability or safety filters.
+  Only compare runs that placed the same number, since a run that drops more is scored on a smaller set and the clustering metrics won't show it.
+- **Pre-gate match** is the matcher's decision before `verify_match_specificity` runs, and **Correct match** is the decision after.
+  The difference between the two is what the specificity gate contributed, in both directions.
 
 ### Eval metrics captured to PostHog
 

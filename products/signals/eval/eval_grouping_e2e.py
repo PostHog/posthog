@@ -90,6 +90,7 @@ class EvalGroupingPipeline:
         self.no_capture = no_capture
         self.online = online
         self._match_lock = asyncio.Lock()
+        self.match_outcomes: list[tuple[MatchFailureMode, MatchFailureMode]] = []
         self.start_time = time()
 
         # Suppress structlog noise from downstream modules during the eval
@@ -374,6 +375,7 @@ class EvalGroupingPipeline:
         specificity_failure_mode = evaluate_match_failure(specificity_match_result)
         correct = specificity_failure_mode == MatchFailureMode.NONE
         pre_specificity_correct = match_failure_mode == MatchFailureMode.NONE
+        self.match_outcomes.append((match_failure_mode, specificity_failure_mode))
 
         specificity_reasoning = (
             specificity_match_result.match_metadata.reason
@@ -573,13 +575,31 @@ class EvalGroupingPipeline:
 
         unsafe_leaked_rate = unsafe_leaked / total_unsafe if total_unsafe > 0 else 0.0
 
+        # Comparing two runs is only valid when they placed the same signals, and a run that drops
+        # more of them scores on an easier subset without any of the other metrics moving.
+        n_placed = len(true_labels)
+
+        def summarize_match(modes: list[MatchFailureMode]) -> str:
+            if not modes:
+                return "no signals placed"
+            correct = sum(1 for mode in modes if mode is MatchFailureMode.NONE)
+            over = sum(1 for mode in modes if mode is MatchFailureMode.OVERGROUP)
+            under = sum(1 for mode in modes if mode is MatchFailureMode.UNDERGROUP)
+            return f"{correct}/{len(modes)} ({correct / len(modes):.1%}), overgrouped {over}, undergrouped {under}"
+
+        post_specificity = summarize_match([post for _, post in self.match_outcomes])
+        pre_specificity = summarize_match([pre for pre, _ in self.match_outcomes])
+
         tqdm.write(
             f"\nResults ({n_groups_expected} groups → {n_reports_actual} reports):\n"
+            f"  Signals placed   {n_placed}/{len(stream)}\n"
             f"  ARI              {ari:.2f}\n"
             f"  Homogeneity      {homogeneity:.2f}\n"
             f"  Completeness     {completeness:.2f}\n"
             f"  Mean purity      {mean_purity:.2f}\n"
             f"  Mean recall      {mean_group_recall:.2f}\n"
+            f"  Correct match    {post_specificity}\n"
+            f"  Pre-gate match   {pre_specificity}\n"
             f"  Malicious leaked {unsafe_leaked}/{total_unsafe}",
             file=sys.stderr,
         )
