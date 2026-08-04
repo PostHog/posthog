@@ -1,8 +1,6 @@
-"""Workflows must declare concurrency control that cancels the right runs.
+"""Workflows must declare concurrency, and cancel only the runs that are safe to cancel.
 
-PR-triggered ``ci-*.yml`` workflows must declare a block at all.
-
-Without it, every push to a PR branch starts a fresh run while the in-flight
+Without a block, every push to a PR branch starts a fresh run while the in-flight
 one keeps burning minutes. The repo convention (used by 30+ workflows):
 
     concurrency:
@@ -16,11 +14,10 @@ strategies (e.g. some jobs are per-SHA while others are per-branch).
 Using ``github.run_id`` as the fallback looks similar but disables dedup for
 push events because every run gets a unique group.
 
-A bare ``cancel-in-progress: true`` on a workflow that also triggers on push
-cancels across master pushes: the group is the same for every commit on the
-branch, so each push kills the previous commit's run. Whatever that run was
-proving (a test suite, a published artifact) never finishes for that commit.
-Gate it on the event, or key the push arm per-SHA when the workflow publishes.
+A bare ``cancel-in-progress: true`` on a push-triggered workflow shares one
+group across every commit on the branch, so each push kills the previous
+commit's run and whatever it was proving. Gate it on the event, or key the
+push arm per-SHA when the workflow publishes on push.
 
 Some workflows are intentionally exempt from cancellation (telemetry / shadow
 measurement, schedule-dominant jobs). Those are listed in ``SKIP`` below with
@@ -71,11 +68,10 @@ class PrConcurrencyCheck(WorkflowCheck):
             "\n"
             "Do not use `github.run_id` as the fallback; it creates a unique concurrency group per push run.\n"
             "\n"
-            "A push-triggered workflow must not carry a bare `cancel-in-progress: true` — every commit on the\n"
-            "branch shares one group, so each push cancels the previous commit's run. Gate it on the event, or\n"
-            "for publish-on-push workflows key the push arm per-SHA:\n"
+            "A push-triggered workflow must not carry a bare `cancel-in-progress: true`, or each push cancels\n"
+            "the previous commit's run. Gate it on the event, or key the push arm per-SHA when it publishes:\n"
             "    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}\n"
-            f"Latest-wins is occasionally correct (cache warmers); say so with `# {MASTER_CANCEL_MARKER} -- <reason>`.\n"
+            f"Where latest-wins is right (a cache warmer), say so with `# {MASTER_CANCEL_MARKER} -- <reason>`.\n"
             "\n"
             "Or, if cancelling stale runs would lose data (telemetry, schedule-only PR triggers, etc.),\n"
             f"add the filename to {type(self).__name__}.SKIP with a one-line reason."
@@ -132,18 +128,10 @@ class PrConcurrencyCheck(WorkflowCheck):
         return result
 
 
-def _is_push_triggered(triggers: object) -> bool:
-    if isinstance(triggers, str):
-        return triggers == "push"
-    if isinstance(triggers, (list, dict)):
-        return "push" in triggers
-    return False
-
-
 def _cancels_master_pushes(wf: Workflow, group_expr: str) -> bool:
     if not isinstance(wf.concurrency, dict) or wf.concurrency.get("cancel-in-progress") is not True:
         return False
-    if not _is_push_triggered(wf.on):
+    if not wf.is_push_triggered:
         return False
     # A per-SHA push arm gives every commit its own group, so nothing is cancelled across pushes.
     if "github.sha" in group_expr:
@@ -162,8 +150,8 @@ def _has_master_cancel_marker(path: str) -> bool:
         for line in f:
             if MASTER_CANCEL_MARKER not in line:
                 continue
-            _, _, reason = line.partition(MASTER_CANCEL_MARKER)
-            if reason.strip().startswith("--") and reason.strip()[2:].strip():
+            reason = line.partition(MASTER_CANCEL_MARKER)[2].strip()
+            if reason.startswith("--") and reason[2:].strip():
                 return True
     return False
 
