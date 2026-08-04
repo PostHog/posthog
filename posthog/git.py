@@ -49,13 +49,21 @@ def get_git_branch() -> Optional[str]:
         return None
 
 
-def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Return the first explicit `owner/repo` token in `text` that matches a connected repo.
+# Lookbehind so `mygithub.com/a/b` doesn't match; a scheme's `//` still does.
+_GITHUB_REPO_URL_PATTERN = re.compile(r"(?<![\w.])github\.com/([\w.-]+)/([\w.-]+)", re.IGNORECASE)
 
-    Tokenizes on whitespace and matches bare `owner/repo` tokens (no `@` prefix needed)
-    case-insensitively against `all_repos`. Strips surrounding punctuation and handles
-    Slack's `<url|label>` link form. `text` is assumed already cleaned of any
-    platform-specific noise (e.g. bot mentions) by the caller.
+
+def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
+    """Return the first repo named in `text` that matches a connected repo.
+
+    Two forms, in priority order: a bare `owner/repo` token, then any
+    `github.com/owner/repo…` URL. Both match case-insensitively against `all_repos`. Bare
+    tokens strip surrounding punctuation and handle Slack's `<url|label>` link form.
+    `text` is assumed already cleaned of any platform-specific noise (e.g. bot mentions)
+    by the caller.
+
+    Bare tokens win because typing one out is a stronger signal of intent than pasting a
+    link that happens to be in the message.
 
     Pure helper (no Django / heavy deps) so any product can import it downward from core.
     """
@@ -77,6 +85,13 @@ def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
             continue
 
         match = normalized_repos.get(candidate.lower())
+        if match:
+            return match
+
+    # Scanned over the raw string, not per token: Slack wraps URLs in `<…|…>`, so the
+    # tokenizer above never sees one in isolation.
+    for owner, repo in _GITHUB_REPO_URL_PATTERN.findall(text):
+        match = normalized_repos.get(f"{owner}/{repo.removesuffix('.git')}".lower())
         if match:
             return match
 

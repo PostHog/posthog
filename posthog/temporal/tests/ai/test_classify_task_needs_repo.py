@@ -37,6 +37,19 @@ class TestClassifyTaskNeedsRepo:
             ("analytics_hogql", "write a hogql query to count signups by country", False),
             ("flag_search", "find the feature flag for the new onboarding", False),
             ("replay_question", "show me session replays of failed checkouts", False),
+            # Real #flakey-tests asks. None names a file or says "PR"/"commit", and
+            # several carry a product noun that used to short-circuit them to no-repo.
+            (
+                "ci_is_this_flaky",
+                "is this flaky? https://github.com/posthog/posthog/actions/runs/30560492835/job/90936416640",
+                True,
+            ),
+            ("ci_master_broken", "django tests failing on master, investigate", True),
+            ("ci_rust_in_pr", "why is rust CI failing in this PR?", True),
+            ("ci_product_noun_no_longer_short_circuits", "the experiment insight test is flaky", True),
+            ("ci_merge_queue", "seeing a lot of pending failures in the trunk merge queue", True),
+            # The failure word alone is not CI — this is still a product ask.
+            ("product_failure_without_ci_subject", "the dashboard fails to load for this user", False),
         ]
     )
     def test_heuristic_classification(self, _name, text, expected):

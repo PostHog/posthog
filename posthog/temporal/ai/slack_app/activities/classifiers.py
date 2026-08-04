@@ -15,6 +15,37 @@ logger = structlog.get_logger(__name__)
 
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 
+# Nothing else in a repo is called "flaky", and a workflow-run URL is only ever CI.
+_CI_UNAMBIGUOUS_PATTERNS = (
+    r"\bde-?flak",
+    r"\bflak(?:y|e|es|iness)\b",
+    r"\bmerge queue\b",
+    r"github\.com/[\w.-]+/[\w.-]+/actions\b",
+)
+# Both halves required, so "check the test dashboard" stays an analytics ask.
+_CI_SUBJECT_PATTERNS = (r"\btests?\b", r"\bspecs?\b", r"\bsuites?\b", r"\bshards?\b", r"\bci\b", r"\bmaster\b")
+_CI_FAILURE_PATTERNS = (
+    r"\bfail(?:s|ed|ing|ure|ures)?\b",
+    r"\bred\b",
+    r"\bbroke(?:n)?\b",
+    r"\btimed?\s?out\b",
+    r"\berror(?:s|ing)?\b",
+)
+
+
+def _is_ci_failure_ask(normalized: str) -> bool:
+    """Whether the conversation is about a broken or flaky CI run.
+
+    Checked first because CI work is code work wearing none of the usual tells — a flaky
+    test report rarely names a file — and because it often mentions a product noun ("the
+    experiment insight test is flaky") that would short-circuit the classifier to no-repo.
+    """
+    if any(re.search(pattern, normalized) for pattern in _CI_UNAMBIGUOUS_PATTERNS):
+        return True
+    return any(re.search(pattern, normalized) for pattern in _CI_SUBJECT_PATTERNS) and any(
+        re.search(pattern, normalized) for pattern in _CI_FAILURE_PATTERNS
+    )
+
 
 def classify_task_needs_repo(
     event_text: str,
@@ -32,6 +63,9 @@ def classify_task_needs_repo(
     """
     conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
     normalized = f"{conversation}\nLatest message: {event_text}".lower()
+
+    if _is_ci_failure_ask(normalized):
+        return True
 
     # Substring match: keep the shortest form that uniquely identifies the
     # concept without colliding with code-review vocabulary. Plurals are used

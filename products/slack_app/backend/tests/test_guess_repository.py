@@ -429,7 +429,7 @@ class TestExtractExplicitRepo:
             ("simple", "fix posthog/posthog-js please", "posthog/posthog-js"),
             ("no_match", "hello world", None),
             ("case_insensitive", "check PostHog/PostHog", "posthog/posthog"),
-            ("url_false_positive", "see https://github.com/posthog/posthog/issues/1", None),
+            ("github_url", "see https://github.com/posthog/posthog/issues/1", "posthog/posthog"),
             ("backticks", "please fix `posthog/posthog-js`", "posthog/posthog-js"),
             (
                 "slack_link_label",
