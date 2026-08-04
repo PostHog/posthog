@@ -62,23 +62,37 @@ export interface EditorSceneLogicProps {
 export function buildSqlNotebook(
     queryInput: string,
     activeTab: QueryTab | null,
-    editingInsight: QueryBasedInsightModel | null
+    editingInsight: QueryBasedInsightModel | null,
+    featureFlags: FeatureFlagsSet
 ): { title: string; content: JSONContent[] } {
     const activeTabName = activeTab?.name === NEW_QUERY ? undefined : activeTab?.name
+    const sqlNode = featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]
+        ? {
+              type: NotebookNodeType.SQLV2,
+              attrs: {
+                  nodeId: uuid(),
+                  code: queryInput,
+                  returnVariable: '',
+                  edit: true,
+              },
+          }
+        : {
+              type: NotebookNodeType.Query,
+              attrs: {
+                  query: {
+                      kind: NodeKind.DataTableNode,
+                      source: {
+                          kind: NodeKind.HogQLQuery,
+                          query: queryInput,
+                      },
+                  },
+                  edit: true,
+              },
+          }
 
     return {
         title: editingInsight?.name || editingInsight?.derived_name || activeTabName || 'SQL query',
-        content: [
-            {
-                type: NotebookNodeType.SQLV2,
-                attrs: {
-                    nodeId: uuid(),
-                    code: queryInput,
-                    returnVariable: '',
-                    edit: true,
-                },
-            },
-        ],
+        content: [sqlNode],
     }
 }
 
@@ -549,7 +563,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             const { title, content } = buildSqlNotebook(
                 values.queryInput ?? '',
                 values.activeTab,
-                values.editingInsight
+                values.editingInsight,
+                values.featureFlags
             )
             actions.createNotebook(NotebookTarget.Scene, title, content)
         },
