@@ -4,6 +4,7 @@ import {
   DotsThreeVertical,
   GithubLogo,
   Globe,
+  InfoIcon,
   Plus,
   Trash,
   Warning,
@@ -31,6 +32,7 @@ import { CopyButton } from "@posthog/ui/features/agent-applications/components/C
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { TimezonePicker } from "@posthog/ui/primitives/TimezonePicker";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import {
   formatScheduleTimestamp,
   systemTimezone,
@@ -632,12 +634,36 @@ function ApiTriggerFields({
 }) {
   return (
     <Flex direction="column" gap="3">
-      <Text className="text-[12.5px] text-gray-11 leading-relaxed">
-        Fires on an authenticated POST from your own code. Authenticate with a
-        project secret API key (<code>phs_...</code>) scoped to{" "}
-        <code>loop:write</code>. The request body becomes the run's trigger
-        context.
-      </Text>
+      <Flex align="start" justify="between" gap="2">
+        <Text className="text-[12.5px] text-gray-11 leading-relaxed">
+          Call this endpoint from a webhook, CI job, or app when the loop should
+          run.
+        </Text>
+        <Tooltip
+          side="left"
+          align="start"
+          content={
+            <Flex direction="column" gap="1" className="max-w-[280px]">
+              <Text className="text-xs">
+                Save the loop to create a trigger URL, then send it a POST
+                request with a project secret API key scoped to{" "}
+                <code>loop:write</code>.
+              </Text>
+              <Text className="text-xs">
+                Any JSON body you send becomes trigger context for that run.
+              </Text>
+            </Flex>
+          }
+        >
+          <button
+            type="button"
+            aria-label="How API request triggers work"
+            className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-(--radius-1) text-gray-10 hover:bg-(--gray-3) hover:text-gray-12 focus-visible:outline-(--accent-9) focus-visible:outline-2"
+          >
+            <InfoIcon size={14} />
+          </button>
+        </Tooltip>
+      </Flex>
       {triggerEndpointPath ? (
         <Flex
           align="center"
@@ -652,7 +678,7 @@ function ApiTriggerFields({
         </Flex>
       ) : (
         <Text className="text-[12px] text-gray-10">
-          Save the loop to get its trigger URL.
+          Save the loop to create its trigger URL.
         </Text>
       )}
     </Flex>
