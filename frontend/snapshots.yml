@@ -5582,22 +5582,6 @@ snapshots:
         hash: v1.k794b7964.d5253d0fd9f143de83259d6ba9cd213fdff2ce949117c52b2f88bc78f6a73f7e.7-lf2SKFsVV2pNFc4mN3mW4wW1EpJfwEd1lXLybo3mk
     scenes-app-dashboards--not-found--light:
         hash: v1.k794b7964.ed4b8e9397bf960ff4b19b54e722c74962b25a2ec0270ecc090eda9b6d5d7f7b.XiealyyQzU_NqFX_PQmkZiIkJcX0h_joVE0Wbl-1twc
-    scenes-app-dashboards--show-across-viewports--medium--dark:
-        hash: v1.k794b7964.700cde8e1a4cc8c902b217300de8c5bbca2c3d1d4c727f0533fc664679bc22d3.bd-grjT3BisGzyb6iVrYefXx4uBqpaFrcjl3ZM-eEII
-    scenes-app-dashboards--show-across-viewports--medium--light:
-        hash: v1.k794b7964.2e865350cfdb9ec6f0ac5387df2f4b0fb67d3a7605b7bf7dd4ddae901f510128.A-k_xdWvVTsFK3zbzXsYP-TjPTPx4Peb8QW2oBUXdTk
-    scenes-app-dashboards--show-across-viewports--narrow--dark:
-        hash: v1.k794b7964.e919c4955d7113170ab00269c5f628c318afe14f26dc8aafb046b172e17f362e.YDXD84rrb2KR1I36pHMxEsGZ0sN0os_cBBdNIf89Pu8
-    scenes-app-dashboards--show-across-viewports--narrow--light:
-        hash: v1.k794b7964.8b1d5f4429205bae6f3c4e64504ccd9b955562bec56305007e6c1fb51e6ffe5b.6C7YLoVSuBpeYoz0R7duqujHCorEqBKyJTXeuFAM9EA
-    scenes-app-dashboards--show-across-viewports--superwide--dark:
-        hash: v1.k794b7964.9948b52cf842206c1584057a6a16b8caed7a32d95f103dbea07089a02df75a53.AuXGqOvw-P-XuzOL2Zl-BkBPb1-Q3R1949f5-IkTjZA
-    scenes-app-dashboards--show-across-viewports--superwide--light:
-        hash: v1.k794b7964.1542648e0574b69e733300ac19ebc6a85de75a6d844c7d3a6fb1563ab91b7678.ooG1TuGEfLZFGwwM6lrPBhHFe_HOoNm46gvg6ySnp9c
-    scenes-app-dashboards--show-across-viewports--wide--dark:
-        hash: v1.k794b7964.8eda456a1e6977f86853707a6bb59082480b6840481df879ef62bb11a5e1266d.-2RnTNoWUUoSApAiuc-tozXF6p8FJBtS19b_RhCtCrQ
-    scenes-app-dashboards--show-across-viewports--wide--light:
-        hash: v1.k794b7964.2a748a776b2f744013e450da34ffe4916fe9b4219e2eb1a285527d38bab66ae6.NvjlpxgiqbitrdcBtd1Y-gaJHb2TI7zeFt-Td4pcuTI
     scenes-app-dashboards--view-only-dashboard--dark:
         hash: v1.k794b7964.f550d9fef24e7bb7433e5a98b26f61dadc18e5fb0e7162fd01fb37d4cf7290a9.XTRFXTXlBUztmcj1ruYRU8nkOvtpDCz4gewMVkhHfEM
     scenes-app-dashboards--view-only-dashboard--light:
