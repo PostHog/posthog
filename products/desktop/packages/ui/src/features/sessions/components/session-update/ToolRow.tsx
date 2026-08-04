@@ -91,17 +91,41 @@ export function ToolRow({
         defaultOpen={defaultOpen}
         open={open}
         onOpenChange={onOpenChange}
-        // Hover/selected chrome only when the row actually expands on click — a
-        // flat marker (e.g. "Thinking" before any content arrives) shouldn't
-        // invite interaction it can't honor.
+        // Quill's interactive row bleeds its hit area 4px past the text column
+        // and fills on hover; in a transcript of these that reads as a wall of
+        // controls, so the row aligns to the column and brightens instead. The
+        // focus ring goes inset for the same reason — an outset ring on a
+        // full-bleed row draws outside the column.
+        //
+        // Open reads exactly like hover — the row you opened is the row you were
+        // pointing at, so it shouldn't change appearance under the cursor. Only
+        // rows that actually expand on click get it: a flat marker (e.g.
+        // "Thinking" before any content arrives) shouldn't invite interaction it
+        // can't honor.
         className={cn(
-          "opacity-50",
+          "mx-0 px-0 opacity-50 hover:bg-transparent focus-visible:bg-transparent",
+          // The installed quill parks the chevron with `margin-inline-start: auto`;
+          // unset it so it sits against the text it opens. Newer quill already
+          // hugs, at which point this is inert.
+          "[&>svg:last-child]:ms-0",
+          "focus-visible:shadow-none focus-visible:ring-(--ring)/50 focus-visible:ring-2 focus-visible:ring-inset",
           isCollapsible &&
-            "hover:opacity-100 data-panel-open:bg-fill-selected data-panel-open:opacity-100",
+            "hover:opacity-100 data-panel-open:bg-transparent data-panel-open:opacity-100",
+          // A failed call goes destructive whole-row, at full strength — the
+          // outcome is the point of the row, and a red "(Failed)" alone reads as
+          // an aside when the title beside it is still neutral. The descendant
+          // selector is what makes it stick: the title, the argument, and the
+          // status text each set their own muted color. Scoped to the trigger,
+          // so a nested marker in the panel keeps its own outcome.
+          isFailed &&
+            "text-destructive-foreground opacity-100 [&_*]:text-destructive-foreground",
         )}
       >
         <ChatMarkerIcon>{iconNode}</ChatMarkerIcon>
-        <ChatMarkerContent className="flex w-full min-w-0 flex-nowrap items-center gap-1">
+        {/* No `w-full`: the content sizes to its text so the chevron hugs the
+            end of it, and `overflow-hidden` clips anything that outgrows the
+            trigger rather than letting it spill past the row. */}
+        <ChatMarkerContent className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden">
           {/* Example: posthog - insight-create(... */}
           {typeof children === "string" ? (
             <ToolTitle>{children}</ToolTitle>

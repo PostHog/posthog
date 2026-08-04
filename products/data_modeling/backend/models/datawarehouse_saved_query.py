@@ -205,8 +205,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         )
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
+            bootstrap_dag_to_tiers,
+            dag_can_bootstrap_to_tiers,
             tiered_schedules_enabled,
         )
+        from products.data_modeling.backend.models.node import Node
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.facade.api import (
             saved_query_workflow_exists,
@@ -219,13 +222,37 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
             # that, if it fails, we honor the failure contract below rather than leaving
             # is_materialized=True with no schedule backing it.
-            if self.id in get_v2_saved_query_ids([self.id]):
+            on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            dag_to_bootstrap = None
+            if not on_v2:
+                # Nothing creates a DAG's first v2 schedule outside the migration commands, so a
+                # brand-new team would fall through to v1 forever. Bootstrap it instead — declined
+                # unless the DAG has never been scheduled at all.
+                node = (
+                    Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
+                    .select_related("dag", "dag__team")
+                    .first()
+                )
+                if node is not None and node.dag is not None and dag_can_bootstrap_to_tiers(node.dag):
+                    dag_to_bootstrap = node.dag
+                    on_v2 = True
+
+            if on_v2:
                 # Tiered v2: the interval is one-shot transport for frequency intent — consume
                 # it into the node target(s) and reconcile. Validation raises before the
                 # nulling below, so a rejected frequency stays visible for retry. A call with
                 # no interval carries no frequency opinion and must not touch existing targets.
                 if tiered_schedules_enabled(self.team) and self.sync_frequency_interval is not None:
-                    apply_saved_query_frequency_target(self, self.sync_frequency_interval, reconcile=reconcile)
+                    # A bootstrap reconciles the whole DAG once below, once the target has landed,
+                    # so asking for a second pass here would only repeat it.
+                    apply_saved_query_frequency_target(
+                        self, self.sync_frequency_interval, reconcile=reconcile and dag_to_bootstrap is None
+                    )
+                if dag_to_bootstrap is not None:
+                    # Last, so a frequency the validation above rejects leaves no seeded targets and
+                    # no schedules behind: on_commit fires immediately for the callers that are not
+                    # inside an atomic block, and two of the three are not.
+                    bootstrap_dag_to_tiers(dag_to_bootstrap)
                 # On any v2 flavor the interval must end up NULL: a lingering value would let
                 # a v1 per-query schedule be recreated, and on tiered teams the node target is
                 # the only durable store of frequency intent.
