@@ -194,7 +194,7 @@ def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tup
     if state.status == ManagedWarehouseSourceJobStatus.RUNNING:
         return "backfilling", f"The {workflow_name} workflow is applying the latest source import."
     if state.status == ManagedWarehouseSourceJobStatus.COMPLETED:
-        return "up_to_date", f"The latest source import was applied by the {workflow_name} workflow."
+        return "up_to_date", "The latest source import was applied."
     if state.status == ManagedWarehouseSourceJobStatus.STALE:
         return "waiting", "A newer source import replaced this register workflow."
     return "waiting", f"The {workflow_name} workflow did not apply this source import."
