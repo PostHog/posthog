@@ -44,7 +44,7 @@ FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 # move together.
 FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))"
 
-# One canonical column list, rendered in a Kafka variant and a storage variant.
+# One canonical column list, rendered in a Kafka, a Distributed and a storage variant.
 #
 # The Kafka engine table must NOT carry the timestamp DEFAULTs: JSONEachRow
 # fills omitted fields with the column default, and the MV's legacy-SDK
@@ -53,8 +53,10 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # table fills omitted columns from the Distributed table's own schema before
 # forwarding to the shard, so without them a direct insert via
 # writable_flag_evaluations would store epoch instead of the sharded table's
-# fallback. That makes the Distributed and sharded column lists identical, which
-# is also how the events family declares its CODECs.
+# fallback.
+#
+# CODECs go on the sharded table alone. A Distributed table stores nothing, so a
+# CODEC there is inert metadata that only invites the two column lists to drift.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     team_id Int64,
     uuid UUID,
@@ -90,6 +92,10 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
 """.strip()
 
 FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="", codec="", dt_codec="")
+
+_FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
+    ts_default=" DEFAULT timestamp", codec="", dt_codec=""
+)
 
 # ZSTD on the plain String columns and DoubleDelta on the timestamps;
 # LowCardinality columns compress well on their own.
@@ -152,7 +158,7 @@ def _distributed_table_sql(table_name: str) -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
-    {_FLAG_EVALUATIONS_STORAGE_COLUMNS}
+    {_FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}

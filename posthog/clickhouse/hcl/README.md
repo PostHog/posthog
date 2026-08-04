@@ -119,6 +119,10 @@ build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-
      `query = file("sql/<object>.sql")` (resolved relative to the layer file). The loader normalizes
      `file()`, heredoc, and inline forms to one canonical query, so the form is purely cosmetic — edit
      the `.sql`. `gen-sql.sh`/`gen-golden.sh` emit the beautified form.
+   - a column list shared by a sharded table and its Distributed siblings → an `abstract` table the
+     instances `extend`, kept CODEC-free. CODECs go back on the storage instance alone, as
+     `patch_column "<col>" { codec = ... }`. A Distributed table stores nothing, so a CODEC there is
+     inert metadata that only invites the two column lists to drift.
 
 2. **Preview the DDL** the change produces, per node:
 
