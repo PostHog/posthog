@@ -83,7 +83,7 @@ export function useReportRefund({
                         surface: surface ?? 'list_row',
                         extra: { refund_reason: reason, ...(note ? { refund_note: note } : {}) },
                     })
-                    lemonToast.success("PR refunded – you won't be charged for it")
+                    lemonToast.success("PR refunded. You won't be charged for it.")
                     onRefunded?.()
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.error || error?.message || 'Failed to refund this PR')

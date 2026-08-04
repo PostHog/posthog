@@ -40,7 +40,7 @@ function PrPricingInfo(): JSX.Element {
                     <p className="mb-2">We aim for the $15 cost to go down significantly in the coming months.</p>
                     <p className="mb-0">
                         The truth is that capable enough models <em>currently</em> cost quite a bit, so we're pricing
-                        with a very limited margin – similarly to our strategy with other PostHog tools. Like with our
+                        with a very limited margin, similarly to our strategy with other PostHog tools. Like with our
                         other tools, we will be passing savings along to you.
                     </p>
                 </>
@@ -58,7 +58,7 @@ const BEATS: Beat[] = [
         label: 'Pull requests, ready to merge.',
         description: (
             <>
-                Agents read your product data and open a PR for anything safe to ship – with the diff, tests, and
+                Agents read your product data and open a PR for anything safe to ship, with the diff, tests, and
                 reviewers already lined up.
             </>
         ),
@@ -74,7 +74,7 @@ const BEATS: Beat[] = [
         description: (
             <>
                 Not everything is a clean code change. When something needs your judgment, agents file a report with the
-                context and what they'd do – you decide.
+                context and what they'd do. You decide.
             </>
         ),
         subtext: 'Reports without PRs are free.',
@@ -125,7 +125,7 @@ function CommandCard(): JSX.Element {
             <div>
                 <h2 className="-mt-1 mb-1 text-base font-semibold">One command. That's the whole setup.</h2>
                 <p className="m-0 text-sm text-secondary">
-                    Run it in your project's repo – there are no in-app steps to click through.
+                    Run it in your project's repo. There are no in-app steps to click through.
                 </p>
             </div>
             <SelfDrivingCommand size="md" />

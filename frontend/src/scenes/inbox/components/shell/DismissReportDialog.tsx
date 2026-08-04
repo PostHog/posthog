@@ -70,7 +70,7 @@ export function openDismissReportDialog({
     LemonDialog.openForm({
         title,
         description,
-        maxWidth: '30rem',
+        maxWidth: '36rem',
         initialValues: { reason: null as DismissalReasonValue | null, note: '' },
         content: (
             <div className="flex flex-col gap-3">
@@ -83,7 +83,8 @@ export function openDismissReportDialog({
                     <LemonTextArea
                         placeholder="What made this report wrong, or not worth fixing?"
                         maxLength={4000}
-                        rows={3}
+                        minRows={5}
+                        maxRows={12}
                     />
                 </LemonField>
             </div>
