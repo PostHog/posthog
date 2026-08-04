@@ -1202,6 +1202,8 @@ Reports that already shipped a billable PR (through a sibling run of the same ta
 Runs that already recorded a PR URL are never cancelled: the report is already billed, so finishing the run and its CI follow-ups costs nothing more.
 The release path is deliberately not hardened against a PR landing concurrently with the cancel (or an earlier run's PR on the same task): a PR that slips through ships un-billed.
 Enforcement exists to stop runaway generation, not to guarantee billing capture, so under-billing errs in the customer's favor.
+A cancel that errors part-way is logged loudly (`self_driving_quota_cancel_failed`) rather than counted as a quota-check fail-open, and nothing is released:
+a still-alive run gets the cancel retried on the next recheck, while a run the completion signal did reach keeps its implementation records until they are released manually.
 
 **Resume is organic, never automatic.**
 Nothing re-spawns paused work when the limit is raised or the billing period resets:

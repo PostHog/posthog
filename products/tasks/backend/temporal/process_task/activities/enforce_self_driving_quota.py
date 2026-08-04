@@ -63,8 +63,12 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
       the report's auto-start records were released so a later cycle can re-implement it with
       "only the report" left behind.
 
-    Fails open (``proceed``) on unexpected errors: the periodic recheck and the quota cron are the
-    backstop, and a quota-infra blip must never kill a healthy run.
+    Fails open (``proceed``) on unexpected errors in the quota check itself: the periodic recheck
+    and the quota cron are the backstop, and a quota-infra blip must never kill a healthy run. An
+    error inside the cancel round-trip is a different class — the completion signal may already
+    have been delivered — so it is logged loudly instead of being counted as a fail-open, and also
+    returns ``proceed``: a still-alive run gets the cancel retried on the next recheck, while a
+    run the signal did reach is already tearing down and will not be rechecked.
     """
     try:
         run = TaskRun.objects.select_related("task").filter(id=input.run_id, team_id=input.team_id).first()
@@ -95,11 +99,16 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
                     TaskRun.update_state_atomic(run.id, updates={"self_driving_quota_paused_reported": True})
         if not gate.enforced:
             return SELF_DRIVING_QUOTA_PROCEED
+    except Exception:
+        record_quota_check_failed_open()
+        logger.warning("self_driving_run_quota_check_failed_open", run_id=input.run_id, exc_info=True)
+        return SELF_DRIVING_QUOTA_PROCEED
 
-        from products.tasks.backend.facade.cancellation import (  # noqa: PLC0415 — cancellation imports the workflow module, which imports this package (cycle)
-            cancel_task_run,
-        )
+    from products.tasks.backend.facade.cancellation import (  # noqa: PLC0415 — cancellation imports the workflow module, which imports this package (cycle)
+        cancel_task_run,
+    )
 
+    try:
         outcome, _ = cancel_task_run(
             input.run_id,
             input.task_id,
@@ -108,8 +117,13 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
             source="self_driving_quota",
         )
     except Exception:
-        record_quota_check_failed_open()
-        logger.warning("self_driving_run_quota_check_failed_open", run_id=input.run_id, exc_info=True)
+        # Not a fail-open: the cancel round-trip died part-way, so the completion signal may or
+        # may not have been delivered. No release either — if the run is still alive, releasing
+        # would let a duplicate implementation start alongside it; the next recheck retries the
+        # cancel (and the release with it). If the signal landed, no recheck will come and the
+        # report keeps its implementation records until someone releases them manually — loud so
+        # it gets followed up, like a release failure.
+        logger.exception("self_driving_quota_cancel_failed", run_id=input.run_id, task_id=input.task_id)
         return SELF_DRIVING_QUOTA_PROCEED
 
     if outcome == "already_terminal":

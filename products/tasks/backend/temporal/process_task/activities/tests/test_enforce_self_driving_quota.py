@@ -220,3 +220,26 @@ class TestEnforceSelfDrivingRunQuotaActivity:
             assert _run_activity(activity_environment, test_task_run) == SELF_DRIVING_QUOTA_PROCEED
         test_task_run.refresh_from_db()
         assert test_task_run.status == TaskRun.Status.IN_PROGRESS
+
+    @pytest.mark.django_db(transaction=True)
+    def test_cancel_failure_is_not_misclassified_as_fail_open(self, activity_environment, test_task, test_task_run):
+        # A cancel that dies part-way may have already delivered the completion signal, so it is
+        # not a benign quota-check blip: it must not feed the fail-open counter, and nothing may
+        # be released while the run could still be alive — the next recheck retries the cancel.
+        report = _make_self_driving_run(test_task, test_task_run)
+        from products.signals.backend.task_run_artefacts import record_implementation_task
+
+        record_implementation_task(team_id=test_task.team_id, report_id=str(report.id), task_id=str(test_task.id))
+        SignalReportTask = apps.get_model("signals", "SignalReportTask")
+        with (
+            patch(f"{MODULE}.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(limited=True, enforced=True)),
+            patch(f"{MODULE}.capture_signal_report_quota_paused"),
+            patch(
+                "products.tasks.backend.facade.cancellation.cancel_task_run",
+                side_effect=RuntimeError("signal round-trip died"),
+            ),
+            patch(f"{MODULE}.record_quota_check_failed_open") as failed_open_mock,
+        ):
+            assert _run_activity(activity_environment, test_task_run) == SELF_DRIVING_QUOTA_PROCEED
+        failed_open_mock.assert_not_called()
+        assert SignalReportTask.objects.filter(task_id=test_task.id).exists()
