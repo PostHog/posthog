@@ -31,6 +31,7 @@ jobs:
             rust: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.rust || 'true' }}
             js: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.js || 'true' }}
             products-frontend: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.products-frontend || 'true' }}
+            general: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.general || 'true' }}
             devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
             test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
@@ -85,6 +86,22 @@ jobs:
                         - 'products/**'
                         - '.semgrep/rules/security/prefer-codegen-api.yaml'
                         - '.github/workflows/ci-security.yaml'
+                      # semgrep-general scans whatever the language-specific jobs
+                      # don't. Keep these excludes aligned with its --exclude list.
+                      general:
+                        - '**'
+                        - '!cli/**'
+                        - '!common/**'
+                        - '!ee/**'
+                        - '!frontend/**'
+                        - '!livestream/**'
+                        - '!nodejs/**'
+                        - '!posthog/**'
+                        - '!products/**'
+                        - '!rust/**'
+                        - '!.semgrep/**'
+                        - '!docs/**'
+                        - '!services/**'
                       # Keep these paths aligned with semgrep-devex's scan targets.
                       devex:
                         - 'bin/**'
@@ -308,8 +325,12 @@ jobs:
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
+        needs: changes
+        if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 20
+        # The scan itself sits around 12 minutes, so 20 left too little headroom
+        # for a slow runner and the job was tripping the timeout.
+        timeout-minutes: 30
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
