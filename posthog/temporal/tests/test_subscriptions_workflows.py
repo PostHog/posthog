@@ -529,6 +529,7 @@ async def test_process_subscription_records_missing_slack_integration_failure(
                 "message": "Slack integration disconnected",
                 "type": "missing_integration",
             },
+            "human_readable_error": "Slack integration disconnected",
         }
     ]
     mock_get_slack.assert_not_called()
