@@ -52,9 +52,10 @@ function SuggestionDiffPanes({
     onExpand?: () => void
 }): JSX.Element {
     return (
-        <div className="border rounded overflow-hidden">
+        <div className="@container border rounded overflow-hidden">
             <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
-                <div className="hidden sm:block flex-1 px-3 py-1.5 border-r">Current prompt</div>
+                {/* Shown exactly when Monaco renders side by side: its inline flip is on editor width (renderSideBySideInlineBreakpoint), not the viewport. */}
+                <div className="hidden @[480px]:block flex-1 px-3 py-1.5 border-r">Current prompt</div>
                 <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
                     <span>{editable ? 'New prompt (edit directly)' : 'New prompt'}</span>
                     {onExpand && (
