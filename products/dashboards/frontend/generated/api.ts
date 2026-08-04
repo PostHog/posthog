@@ -35,7 +35,7 @@ import type {
     DashboardsGroupsCreateParams,
     DashboardsGroupsDeleteCreateParams,
     DashboardsGroupsMoveTileCreateParams,
-    DashboardsGroupsUpdatePartialUpdateParams,
+    DashboardsGroupsUpdateCreateParams,
     DashboardsListParams,
     DashboardsMoveTileCreateParams,
     DashboardsMoveTilePartialUpdateParams,
@@ -64,11 +64,11 @@ import type {
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
     PatchedPatchedDashboardOpenApiApi,
-    PatchedUpdateDashboardGroupRequestApi,
     PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
+    UpdateDashboardGroupRequestApi,
     UpdateDashboardWidgetsBatchResponseApi,
     UpdateTextTileRequestApi,
     WidgetCatalogResponseApi,
@@ -685,10 +685,10 @@ export const dashboardsGroupsMoveTileCreate = async (
     })
 }
 
-export const getDashboardsGroupsUpdatePartialUpdateUrl = (
+export const getDashboardsGroupsUpdateCreateUrl = (
     projectId: string,
     id: number,
-    params?: DashboardsGroupsUpdatePartialUpdateParams
+    params?: DashboardsGroupsUpdateCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -705,18 +705,18 @@ export const getDashboardsGroupsUpdatePartialUpdateUrl = (
         : `/api/projects/${projectId}/dashboards/${id}/groups/update/`
 }
 
-export const dashboardsGroupsUpdatePartialUpdate = async (
+export const dashboardsGroupsUpdateCreate = async (
     projectId: string,
     id: number,
-    patchedUpdateDashboardGroupRequestApi?: PatchedUpdateDashboardGroupRequestApi,
-    params?: DashboardsGroupsUpdatePartialUpdateParams,
+    updateDashboardGroupRequestApi: UpdateDashboardGroupRequestApi,
+    params?: DashboardsGroupsUpdateCreateParams,
     options?: RequestInit
 ): Promise<DashboardGroupApi> => {
-    return apiMutator<DashboardGroupApi>(getDashboardsGroupsUpdatePartialUpdateUrl(projectId, id, params), {
+    return apiMutator<DashboardGroupApi>(getDashboardsGroupsUpdateCreateUrl(projectId, id, params), {
         ...options,
-        method: 'PATCH',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedUpdateDashboardGroupRequestApi),
+        body: JSON.stringify(updateDashboardGroupRequestApi),
     })
 }
 

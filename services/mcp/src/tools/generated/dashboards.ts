@@ -20,8 +20,8 @@ import {
     DashboardsGroupsDeleteCreateParams,
     DashboardsGroupsMoveTileCreateBody,
     DashboardsGroupsMoveTileCreateParams,
-    DashboardsGroupsUpdatePartialUpdateBody,
-    DashboardsGroupsUpdatePartialUpdateParams,
+    DashboardsGroupsUpdateCreateBody,
+    DashboardsGroupsUpdateCreateParams,
     DashboardsListQueryParams,
     DashboardsMoveTilePartialUpdateBody,
     DashboardsMoveTilePartialUpdateParams,
@@ -204,9 +204,9 @@ const dashboardGroupCreate = (): ToolBase<
     },
 })
 
-const DashboardGroupUpdateSchema = DashboardsGroupsUpdatePartialUpdateParams.omit({ project_id: true })
-    .extend(DashboardsGroupsUpdatePartialUpdateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsUpdatePartialUpdateParams.shape['id']) })
+const DashboardGroupUpdateSchema = DashboardsGroupsUpdateCreateParams.omit({ project_id: true })
+    .extend(DashboardsGroupsUpdateCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsGroupsUpdateCreateParams.shape['id']) })
 
 const dashboardGroupUpdate = (): ToolBase<
     typeof DashboardGroupUpdateSchema,
@@ -227,7 +227,7 @@ const dashboardGroupUpdate = (): ToolBase<
             body['layouts'] = params.layouts
         }
         const result = await context.api.request<Schemas.DashboardGroup>({
-            method: 'PATCH',
+            method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/update/`,
             body,
         })
@@ -281,9 +281,6 @@ const dashboardGroupDelete = (): ToolBase<typeof DashboardGroupDeleteSchema, unk
         }
         if (params.member_handling !== undefined) {
             body['member_handling'] = params.member_handling
-        }
-        if (params.xs !== undefined) {
-            body['xs'] = params.xs
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

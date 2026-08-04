@@ -82,6 +82,7 @@ const MemoizedDashboardButtonTileItem = memo(
 ) as typeof DashboardButtonTileItem
 const MemoizedDashboardErrorTileItem = memo(DashboardErrorTileItem, gridTilePropsEqual) as typeof DashboardErrorTileItem
 const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
+const EMPTY_COLLAPSED_GROUP_IDS = new Set<string>()
 
 export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
     const {
@@ -102,6 +103,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
+        dashboardGroupsEnabled,
         inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
@@ -160,14 +162,20 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [dashboard?.id, placement]
     )
 
-    const effectiveCollapsedGroupIds = layoutEditMode ? new Set<string>() : collapsedGroupIds
+    const effectiveCollapsedGroupIds = layoutEditMode ? EMPTY_COLLAPSED_GROUP_IDS : collapsedGroupIds
     const displayLayouts = useMemo(
-        () => collapseDashboardGroupLayouts(layouts, dashboard?.groups ?? [], effectiveCollapsedGroupIds),
-        [layouts, dashboard?.groups, effectiveCollapsedGroupIds]
+        () =>
+            dashboardGroupsEnabled
+                ? collapseDashboardGroupLayouts(layouts, dashboard?.groups ?? [], effectiveCollapsedGroupIds)
+                : layouts,
+        [layouts, dashboard?.groups, dashboardGroupsEnabled, effectiveCollapsedGroupIds]
     )
     const visibleTiles = useMemo(
-        () => tiles.filter((tile) => !tile.parent_group_id || !effectiveCollapsedGroupIds.has(tile.parent_group_id)),
-        [tiles, effectiveCollapsedGroupIds]
+        () =>
+            dashboardGroupsEnabled
+                ? tiles.filter((tile) => !tile.parent_group_id || !effectiveCollapsedGroupIds.has(tile.parent_group_id))
+                : tiles,
+        [tiles, dashboardGroupsEnabled, effectiveCollapsedGroupIds]
     )
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
@@ -608,46 +616,47 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onDrag={handleDrag}
                         onDragStop={handleDragStop}
                     >
-                        {dashboard?.groups?.map((group) => (
-                            <DashboardGroupItem
-                                key={group.tile_id}
-                                group={group}
-                                collapsed={effectiveCollapsedGroupIds.has(group.id)}
-                                onToggle={() => toggleGroupCollapsed(group.id)}
-                                editing={layoutEditMode}
-                                onRename={() =>
-                                    LemonDialog.openForm({
-                                        title: 'Rename group',
-                                        initialValues: { name: group.name },
-                                        content: (
-                                            <LemonField name="name" label="Name">
-                                                <LemonInput autoFocus />
-                                            </LemonField>
-                                        ),
-                                        errors: {
-                                            name: (name) => (!name?.trim() ? 'Enter a group name' : undefined),
-                                        },
-                                        onSubmit: ({ name }) => renameDashboardGroup(group.id, name.trim()),
-                                    })
-                                }
-                                onDelete={() =>
-                                    LemonDialog.open({
-                                        title: 'Delete group?',
-                                        description: `${group.member_tile_ids.length} tiles are in this group.`,
-                                        primaryButton: {
-                                            children: 'Delete group and tiles',
-                                            status: 'danger',
-                                            onClick: () => deleteDashboardGroup(group.id, 'delete_tiles'),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Move tiles to ungrouped',
-                                            onClick: () => deleteDashboardGroup(group.id, 'move_to_ungrouped'),
-                                        },
-                                        tertiaryButton: { children: 'Cancel' },
-                                    })
-                                }
-                            />
-                        ))}
+                        {dashboardGroupsEnabled &&
+                            dashboard?.groups?.map((group) => (
+                                <DashboardGroupItem
+                                    key={group.tile_id}
+                                    group={group}
+                                    collapsed={effectiveCollapsedGroupIds.has(group.id)}
+                                    onToggle={() => toggleGroupCollapsed(group.id)}
+                                    editing={layoutEditMode}
+                                    onRename={() =>
+                                        LemonDialog.openForm({
+                                            title: 'Rename group',
+                                            initialValues: { name: group.name },
+                                            content: (
+                                                <LemonField name="name" label="Name">
+                                                    <LemonInput autoFocus />
+                                                </LemonField>
+                                            ),
+                                            errors: {
+                                                name: (name) => (!name?.trim() ? 'Enter a group name' : undefined),
+                                            },
+                                            onSubmit: ({ name }) => renameDashboardGroup(group.id, name.trim()),
+                                        })
+                                    }
+                                    onDelete={() =>
+                                        LemonDialog.open({
+                                            title: 'Delete group?',
+                                            description: `${group.member_tile_ids.length} tiles are in this group.`,
+                                            primaryButton: {
+                                                children: 'Delete group and tiles',
+                                                status: 'danger',
+                                                onClick: () => deleteDashboardGroup(group.id, 'delete_tiles'),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Move tiles to ungrouped',
+                                                onClick: () => deleteDashboardGroup(group.id, 'move_to_ungrouped'),
+                                            },
+                                            tertiaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                />
+                            ))}
                         {visibleTiles.map((tile) => {
                             const { insight, text, button_tile, widget } = tile
                             const smLayout = displayLayouts['sm']?.find((l) => {

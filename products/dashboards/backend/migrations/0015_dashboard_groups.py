@@ -109,6 +109,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     sql="""
+                        SET LOCAL lock_timeout = '5s';
                         ALTER TABLE "posthog_dashboardtile" ADD COLUMN "dashboard_group_id" uuid NULL;
                         ALTER TABLE "posthog_dashboardtile" ADD COLUMN "parent_group_id" uuid NULL;
                     """,

@@ -39,6 +39,7 @@ class Migration(migrations.Migration):
         ),
         migrations.RunSQL(
             sql="""
+                SET LOCAL lock_timeout = '5s';
                 ALTER TABLE "posthog_dashboardtile" DROP CONSTRAINT IF EXISTS "dash_tile_exactly_one_related_object";
                 ALTER TABLE "posthog_dashboardtile" ADD CONSTRAINT "dash_tile_exactly_one_related_object"
                 CHECK (

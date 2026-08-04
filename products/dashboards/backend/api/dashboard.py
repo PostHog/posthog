@@ -536,6 +536,10 @@ class TileLayoutsSerializer(serializers.Serializer):
         required=False,
         help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
     )
+    xs = TileLayoutBoxSerializer(
+        required=False,
+        help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+    )
 
 
 class CreateDashboardGroupRequestSerializer(serializers.Serializer):
@@ -584,10 +588,6 @@ class DeleteDashboardGroupRequestSerializer(serializers.Serializer):
     member_handling = serializers.ChoiceField(
         choices=["delete_tiles", "move_to_ungrouped"],
         help_text="How to handle content tiles currently assigned to the group.",
-    )
-    xs = TileLayoutBoxSerializer(
-        required=False,
-        help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
     )
 
 
@@ -979,6 +979,11 @@ class DashboardGroupSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class SharedDashboardGroupSerializer(DashboardGroupSerializer):
+    class Meta(DashboardGroupSerializer.Meta):
+        fields = ["id", "name", "tile_id", "layouts", "member_tile_ids"]
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight: InsightBasicSerializer = InsightSerializer()
@@ -1292,7 +1297,8 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         groups = dashboard.groups.select_related("tile", "created_by", "last_modified_by").prefetch_related(
             "member_tiles"
         )
-        return DashboardGroupSerializer(groups, many=True, context=self.context).data
+        serializer_class = SharedDashboardGroupSerializer if self.context.get("is_shared") else DashboardGroupSerializer
+        return serializer_class(groups, many=True, context=self.context).data
 
     def to_representation(self, instance: Dashboard) -> ReturnDict:
         ret = super().to_representation(instance)
@@ -3010,7 +3016,7 @@ class DashboardsViewSet(
         )
 
     @extend_schema(request=UpdateDashboardGroupRequestSerializer, responses={200: DashboardGroupSerializer})
-    @action(methods=["PATCH"], detail=True, url_path="groups/update", required_scopes=["dashboard:write"])
+    @action(methods=["POST"], detail=True, url_path="groups/update", required_scopes=["dashboard:write"])
     def update_group(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
         serializer = UpdateDashboardGroupRequestSerializer(data=request.data)
@@ -3028,8 +3034,23 @@ class DashboardsViewSet(
             layouts = serializer.validated_data["layouts"]
             if "sm" in layouts:
                 layouts["sm"] = {**layouts["sm"], "x": 0, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}
-            group.tile.layouts = layouts
-            group.tile.save(update_fields=["layouts"])
+            with transaction.atomic():
+                group_tile = DashboardTile.objects.select_for_update().get(id=group.tile.id)
+                previous_y = group_tile.layouts.get("sm", {}).get("y")
+                next_y = layouts.get("sm", {}).get("y")
+                group_tile.layouts = layouts
+                group_tile.save(update_fields=["layouts"])
+
+                if isinstance(previous_y, int) and isinstance(next_y, int) and previous_y != next_y:
+                    members = list(group.member_tiles.select_for_update())
+                    for member in members:
+                        member_layout = member.layouts.get("sm")
+                        if member_layout is not None and isinstance(member_layout.get("y"), int):
+                            member.layouts = {
+                                **member.layouts,
+                                "sm": {**member_layout, "y": member_layout["y"] + next_y - previous_y},
+                            }
+                    DashboardTile.objects.bulk_update(members, ["layouts"])
             fields_changed.append("layouts")
 
         if fields_changed:

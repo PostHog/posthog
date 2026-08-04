@@ -17420,6 +17420,8 @@ export namespace Schemas {
     export interface TileLayouts {
       /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
       sm?: TileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: TileLayoutBox;
     }
 
     export interface CreateDashboardGroupRequest {
@@ -24136,8 +24138,6 @@ export namespace Schemas {
        * * `delete_tiles` - delete_tiles
        * * `move_to_ungrouped` - move_to_ungrouped */
       member_handling: MemberHandlingEnum;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: TileLayoutBox;
     }
 
     export interface DeleteTileRequest {
@@ -60761,19 +60761,6 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
-    export interface PatchedUpdateDashboardGroupRequest {
-      /** Dashboard group ID to update. */
-      group_id?: string;
-      /**
-         * New group name. Omit to keep the existing name.
-         * @minLength 1
-         * @maxLength 400
-         */
-      name?: string;
-      /** New grid layout for the group row. Omit to keep its current layout. */
-      layouts?: TileLayouts;
-    }
-
     export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
 
 
@@ -77854,6 +77841,19 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
+    export interface UpdateDashboardGroupRequest {
+      /** Dashboard group ID to update. */
+      group_id: string;
+      /**
+         * New group name. Omit to keep the existing name.
+         * @minLength 1
+         * @maxLength 400
+         */
+      name?: string;
+      /** New grid layout for the group row. Omit to keep its current layout. */
+      layouts?: TileLayouts;
+    }
+
     export interface UpdateDashboardWidgetsBatchResponse {
       /** Updated dashboard widget tiles in request order. */
       tiles: DashboardTile[];
@@ -82873,14 +82873,14 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type DashboardsGroupsUpdatePartialUpdateParams = {
-    format?: DashboardsGroupsUpdatePartialUpdateFormat;
+    export type DashboardsGroupsUpdateCreateParams = {
+    format?: DashboardsGroupsUpdateCreateFormat;
     };
 
-    export type DashboardsGroupsUpdatePartialUpdateFormat = typeof DashboardsGroupsUpdatePartialUpdateFormat[keyof typeof DashboardsGroupsUpdatePartialUpdateFormat];
+    export type DashboardsGroupsUpdateCreateFormat = typeof DashboardsGroupsUpdateCreateFormat[keyof typeof DashboardsGroupsUpdateCreateFormat];
 
 
-    export const DashboardsGroupsUpdatePartialUpdateFormat = {
+    export const DashboardsGroupsUpdateCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

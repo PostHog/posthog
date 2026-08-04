@@ -166,7 +166,7 @@ export function DashboardAddGroupButton(): JSX.Element | null {
                     })
                 }
             >
-                Group
+                Add group
             </LemonButton>
         </AccessControlAction>
     )

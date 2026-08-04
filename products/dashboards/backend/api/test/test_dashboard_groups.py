@@ -49,6 +49,26 @@ class TestDashboardGroups(APIBaseTest):
         self.assertFalse(DashboardGroup.all_teams.filter(id=group["id"]).exists())
         self.assertIsNone(DashboardTile.objects.get(id=tile_id).parent_group_id)
 
+    def test_moving_a_group_moves_its_members(self) -> None:
+        group = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/",
+            {"name": "Acquisition"},
+        ).json()
+        _, dashboard = self.dashboard_api.create_text_tile(self.dashboard_id, text="Signups")
+        tile = dashboard["tiles"][0]
+        self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/move-tile/",
+            {"tile_id": tile["id"], "group_id": group["id"], "layouts": {"sm": {"x": 0, "y": 1, "w": 12, "h": 2}}},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/update/",
+            {"group_id": group["id"], "layouts": {"sm": {"x": 0, "y": 5, "w": 12, "h": 1}}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(DashboardTile.objects.get(id=tile["id"]).layouts["sm"]["y"], 6)
+
     def test_group_rejects_cross_dashboard_membership(self) -> None:
         group_response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/",

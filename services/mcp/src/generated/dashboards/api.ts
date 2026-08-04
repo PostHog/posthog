@@ -1085,6 +1085,15 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .optional()
                 .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
         })
         .optional()
         .describe(
@@ -1153,6 +1162,15 @@ export const DashboardsGroupsCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .optional()
                 .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
         })
         .optional()
         .describe('Optional grid layout for the group row. Group rows always span the desktop grid.'),
@@ -1179,15 +1197,6 @@ export const DashboardsGroupsDeleteCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'How to handle content tiles currently assigned to the group.\n\n\* `delete_tiles` - delete_tiles\n\* `move_to_ungrouped` - move_to_ungrouped'
         ),
-    xs: zod
-        .object({
-            x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
-            y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
-            w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-            h: zod.number().optional().describe('Height in grid rows.'),
-        })
-        .optional()
-        .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
 })
 
 export const DashboardsGroupsMoveTileCreateParams = /* @__PURE__ */ zod.object({
@@ -1220,37 +1229,7 @@ export const DashboardsGroupsMoveTileCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .optional()
                 .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
-        })
-        .optional()
-        .describe('Optional new layout for the moved tile.'),
-})
-
-export const DashboardsGroupsUpdatePartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this dashboard.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const DashboardsGroupsUpdatePartialUpdateQueryParams = /* @__PURE__ */ zod.object({
-    format: zod.enum(['json', 'txt']).optional(),
-})
-
-export const dashboardsGroupsUpdatePartialUpdateBodyNameMax = 400
-
-export const DashboardsGroupsUpdatePartialUpdateBody = /* @__PURE__ */ zod.object({
-    group_id: zod.string().optional().describe('Dashboard group ID to update.'),
-    name: zod
-        .string()
-        .min(1)
-        .max(dashboardsGroupsUpdatePartialUpdateBodyNameMax)
-        .optional()
-        .describe('New group name. Omit to keep the existing name.'),
-    layouts: zod
-        .object({
-            sm: zod
+            xs: zod
                 .object({
                     x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
                     y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
@@ -1258,10 +1237,10 @@ export const DashboardsGroupsUpdatePartialUpdateBody = /* @__PURE__ */ zod.objec
                     h: zod.number().optional().describe('Height in grid rows.'),
                 })
                 .optional()
-                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
         })
         .optional()
-        .describe('New grid layout for the group row. Omit to keep its current layout.'),
+        .describe('Optional new layout for the moved tile.'),
 })
 
 export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -1409,6 +1388,15 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .optional()
                 .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
         })
         .optional()
         .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),

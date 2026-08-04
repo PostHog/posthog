@@ -333,6 +333,8 @@ export interface TileLayoutBoxApi {
 export interface TileLayoutsApi {
     /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
     sm?: TileLayoutBoxApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: TileLayoutBoxApi
 }
 
 export interface DashboardGroupApi {
@@ -8977,8 +8979,6 @@ export interface DeleteDashboardGroupRequestApi {
      * * `delete_tiles` - delete_tiles
      * * `move_to_ungrouped` - move_to_ungrouped */
     member_handling: MemberHandlingEnumApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: TileLayoutBoxApi
 }
 
 export interface MoveDashboardTileToGroupRequestApi {
@@ -8993,9 +8993,9 @@ export interface MoveDashboardTileToGroupRequestApi {
     layouts?: TileLayoutsApi
 }
 
-export interface PatchedUpdateDashboardGroupRequestApi {
+export interface UpdateDashboardGroupRequestApi {
     /** Dashboard group ID to update. */
-    group_id?: string
+    group_id: string
     /**
      * New group name. Omit to keep the existing name.
      * @minLength 1
@@ -10131,14 +10131,14 @@ export const DashboardsGroupsMoveTileCreateFormat = {
     Txt: 'txt',
 } as const
 
-export type DashboardsGroupsUpdatePartialUpdateParams = {
-    format?: DashboardsGroupsUpdatePartialUpdateFormat
+export type DashboardsGroupsUpdateCreateParams = {
+    format?: DashboardsGroupsUpdateCreateFormat
 }
 
-export type DashboardsGroupsUpdatePartialUpdateFormat =
-    (typeof DashboardsGroupsUpdatePartialUpdateFormat)[keyof typeof DashboardsGroupsUpdatePartialUpdateFormat]
+export type DashboardsGroupsUpdateCreateFormat =
+    (typeof DashboardsGroupsUpdateCreateFormat)[keyof typeof DashboardsGroupsUpdateCreateFormat]
 
-export const DashboardsGroupsUpdatePartialUpdateFormat = {
+export const DashboardsGroupsUpdateCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

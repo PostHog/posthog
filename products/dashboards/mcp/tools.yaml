@@ -112,7 +112,7 @@ tools:
             id:
                 cast: string-int
     dashboard-group-update:
-        operation: dashboards_groups_update_partial_update
+        operation: dashboards_groups_update_create
         enabled: true
         scopes:
             - dashboard:write

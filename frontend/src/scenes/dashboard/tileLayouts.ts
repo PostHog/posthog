@@ -406,36 +406,50 @@ export function collapseDashboardGroupLayouts(
     groups: readonly DashboardGroupApi[],
     collapsedGroupIds: ReadonlySet<string>
 ): Partial<Record<DashboardLayoutSize, Layout>> {
-    const hiddenTileIds = new Set(
-        groups.filter((group) => collapsedGroupIds.has(group.id)).flatMap((group) => group.member_tile_ids.map(String))
-    )
+    const collapsedGroups = groups.filter((group) => collapsedGroupIds.has(group.id))
+    const hiddenTileIds = new Set(collapsedGroups.flatMap((group) => group.member_tile_ids.map(String)))
     const result: Partial<Record<DashboardLayoutSize, Layout>> = {}
 
     for (const breakpoint of Object.keys(layouts) as DashboardLayoutSize[]) {
         const source = layouts[breakpoint] ?? []
-        const collapsedBands = groups
-            .filter((group) => collapsedGroupIds.has(group.id))
-            .map((group) => {
-                const header = source.find((layout) => layout.i === String(group.tile_id))
-                const members = source.filter((layout) => group.member_tile_ids.includes(Number(layout.i)))
-                const bottom = Math.max(
-                    header ? header.y + header.h : 0,
-                    ...members.map((layout) => layout.y + layout.h)
-                )
-                return header ? { y: header.y, hiddenHeight: Math.max(0, bottom - header.y - 1) } : null
-            })
-            .filter((band): band is { y: number; hiddenHeight: number } => band !== null)
+        const groupByHeaderTileId = new Map(collapsedGroups.map((group) => [String(group.tile_id), group.id]))
+        const groupByMemberTileId = new Map(
+            collapsedGroups.flatMap((group) => group.member_tile_ids.map((tileId) => [String(tileId), group.id]))
+        )
+        const collapsedBandsByGroup = new Map<string, { y: number; bottom: number }>()
+
+        for (const layout of source) {
+            const headerGroupId = groupByHeaderTileId.get(layout.i)
+            if (headerGroupId) {
+                collapsedBandsByGroup.set(headerGroupId, { y: layout.y, bottom: layout.y + layout.h })
+            }
+        }
+        for (const layout of source) {
+            const memberGroupId = groupByMemberTileId.get(layout.i)
+            const band = memberGroupId ? collapsedBandsByGroup.get(memberGroupId) : null
+            if (band) {
+                band.bottom = Math.max(band.bottom, layout.y + layout.h)
+            }
+        }
+
+        const collapsedBands = [...collapsedBandsByGroup.values()]
+            .map(({ y, bottom }) => ({ y, hiddenHeight: Math.max(0, bottom - y - 1) }))
+            .sort((a, b) => a.y - b.y)
+        const displayYByTileId = new Map<string, number>()
+        let bandIndex = 0
+        let shift = 0
+
+        for (const layout of [...source].sort((a, b) => a.y - b.y || a.x - b.x)) {
+            while (bandIndex < collapsedBands.length && collapsedBands[bandIndex].y < layout.y) {
+                shift += collapsedBands[bandIndex].hiddenHeight
+                bandIndex += 1
+            }
+            displayYByTileId.set(layout.i, layout.y - shift)
+        }
 
         result[breakpoint] = source
             .filter((layout) => !hiddenTileIds.has(layout.i))
-            .map((layout) => ({
-                ...layout,
-                y:
-                    layout.y -
-                    collapsedBands
-                        .filter((band) => layout.y > band.y)
-                        .reduce((shift, band) => shift + band.hiddenHeight, 0),
-            }))
+            .map((layout) => ({ ...layout, y: displayYByTileId.get(layout.i) ?? layout.y }))
     }
 
     return result

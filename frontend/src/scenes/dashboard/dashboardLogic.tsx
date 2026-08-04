@@ -27,7 +27,7 @@ import {
     dashboardsGroupsCreate,
     dashboardsGroupsDeleteCreate,
     dashboardsGroupsMoveTileCreate,
-    dashboardsGroupsUpdatePartialUpdate,
+    dashboardsGroupsUpdateCreate,
 } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
@@ -2804,13 +2804,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         dashboardGroupsEnabled: [
-            (s) => [s.featureFlags, s.dashboard, s.placement],
+            (s) => [s.featureFlags, s.dashboard],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                placement: DashboardPlacement
+                dashboard: DashboardType<QueryBasedInsightModel> | null
             ): boolean => {
-                if (placement === DashboardPlacement.Public && (dashboard?.groups?.length ?? 0) > 0) {
+                if ((dashboard?.groups?.length ?? 0) > 0) {
                     return true
                 }
                 return !!featureFlags[FEATURE_FLAGS.DASHBOARD_GROUPS]
@@ -3267,33 +3266,53 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         moveDashboardTileToGroup: async ({ tileId, groupId, layouts }) => {
-            await dashboardsGroupsMoveTileCreate(String(values.currentTeamId), props.id, {
-                tile_id: tileId,
-                group_id: groupId,
-                layouts,
-            })
-            actions.loadDashboard({ action: DashboardLoadAction.Update })
+            try {
+                await dashboardsGroupsMoveTileCreate(String(values.currentTeamId), props.id, {
+                    tile_id: tileId,
+                    group_id: groupId,
+                    layouts,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not move tile. Try again.')
+            }
         },
         updateDashboardGroupLayout: async ({ groupId, layouts }) => {
-            await dashboardsGroupsUpdatePartialUpdate(String(values.currentTeamId), props.id, {
-                group_id: groupId,
-                layouts,
-            })
-            actions.loadDashboard({ action: DashboardLoadAction.Update })
+            try {
+                await dashboardsGroupsUpdateCreate(String(values.currentTeamId), props.id, {
+                    group_id: groupId,
+                    layouts,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not update group. Try again.')
+            }
         },
         renameDashboardGroup: async ({ groupId, name }) => {
-            await dashboardsGroupsUpdatePartialUpdate(String(values.currentTeamId), props.id, {
-                group_id: groupId,
-                name,
-            })
-            actions.loadDashboard({ action: DashboardLoadAction.Update })
+            try {
+                await dashboardsGroupsUpdateCreate(String(values.currentTeamId), props.id, {
+                    group_id: groupId,
+                    name,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not rename group. Try again.')
+            }
         },
         deleteDashboardGroup: async ({ groupId, memberHandling }) => {
-            await dashboardsGroupsDeleteCreate(String(values.currentTeamId), props.id, {
-                group_id: groupId,
-                member_handling: memberHandling,
-            })
-            actions.loadDashboard({ action: DashboardLoadAction.Update })
+            try {
+                await dashboardsGroupsDeleteCreate(String(values.currentTeamId), props.id, {
+                    group_id: groupId,
+                    member_handling: memberHandling,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not delete group. Try again.')
+            }
         },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
