@@ -119,9 +119,9 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 code: dedent`
                                     trace_id = str(uuid.uuid4())
 
-                                    response = client.chat.completions.create(
+                                    response = client.responses.create(
                                         model="<your-deployment-name>",
-                                        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                        input=[{"role": "user", "content": "What's the weather in Paris?"}],
                                         tools=tools,
                                         posthog_distinct_id="user_123",
                                         posthog_trace_id=trace_id,
@@ -138,9 +138,9 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 code: dedent`
                                     const traceId = crypto.randomUUID()
 
-                                    const response = await client.chat.completions.create({
+                                    const response = await client.responses.create({
                                       model: '<your-deployment-name>',
-                                      messages: [{ role: 'user', content: "What's the weather in Paris?" }],
+                                      input: [{ role: 'user', content: "What's the weather in Paris?" }],
                                       tools,
                                       posthogDistinctId: 'user_123',
                                       posthogTraceId: traceId,
@@ -190,9 +190,12 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    for call in response.choices[0].message.tool_calls or []:
+                                    for item in response.output:
+                                        if item.type != "function_call":
+                                            continue
+
                                         start = time.time()
-                                        result = run_tool(call.function.name, json.loads(call.function.arguments))
+                                        result = run_tool(item.name, json.loads(item.arguments))
 
                                         posthog.capture(
                                             distinct_id="user_123",
@@ -201,8 +204,8 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                                 "$ai_trace_id": trace_id,
                                                 "$ai_session_id": "conversation-abc",
                                                 "$ai_span_id": str(uuid.uuid4()),
-                                                "$ai_span_name": call.function.name,
-                                                "$ai_input_state": call.function.arguments,
+                                                "$ai_span_name": item.name,
+                                                "$ai_input_state": item.arguments,
                                                 "$ai_output_state": result,
                                                 "$ai_latency": time.time() - start,
                                             },
@@ -213,9 +216,11 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    for (const call of response.choices[0].message.tool_calls ?? []) {
+                                    for (const item of response.output) {
+                                      if (item.type !== 'function_call') continue
+
                                       const start = Date.now()
-                                      const result = await runTool(call.function.name, JSON.parse(call.function.arguments))
+                                      const result = await runTool(item.name, JSON.parse(item.arguments))
 
                                       posthog.capture({
                                         distinctId: 'user_123',
@@ -224,8 +229,8 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                           $ai_trace_id: traceId,
                                           $ai_session_id: 'conversation-abc',
                                           $ai_span_id: crypto.randomUUID(),
-                                          $ai_span_name: call.function.name,
-                                          $ai_input_state: call.function.arguments,
+                                          $ai_span_name: item.name,
+                                          $ai_input_state: item.arguments,
                                           $ai_output_state: result,
                                           $ai_latency: (Date.now() - start) / 1000,
                                         },
