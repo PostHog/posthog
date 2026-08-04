@@ -1,7 +1,7 @@
 import re
 import uuid
 import textwrap
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.db import models
 
@@ -18,9 +18,6 @@ from posthog.temporal.ai.slack_app.attachments import (
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
-
-if TYPE_CHECKING:
-    from products.slack_app.backend.facade.slack_settings import AIPreferences
 
 logger = structlog.get_logger(__name__)
 
@@ -507,43 +504,6 @@ def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) ->
     return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 
 
-def _announce_model_override(
-    slack: SlackIntegration,
-    integration: Integration,
-    *,
-    channel: str,
-    thread_ts: str,
-    slack_user_id: str,
-    run_prefs: "AIPreferences",
-) -> None:
-    """Tell the thread which model the mention just steered this task onto.
-
-    Its own message rather than a line in the agent's first reply: the agent's
-    output belongs to the agent, and a run's configuration is worth being able to
-    scroll back to. Best-effort — a failed post never fails the task.
-    """
-    from products.slack_app.backend.analytics import capture_slack_event
-    from products.slack_app.backend.facade.slack_settings import describe_preferences
-
-    try:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Running this one on {describe_preferences(run_prefs)}.",
-        )
-    except Exception:
-        logger.warning("slack_app_model_override_notice_failed", channel=channel, thread_ts=thread_ts)
-
-    capture_slack_event(
-        integration,
-        "slack_app_model_override_applied",
-        slack_user_id=slack_user_id,
-        runtime_adapter=run_prefs.runtime_adapter,
-        model=run_prefs.model,
-        reasoning_effort=run_prefs.reasoning_effort,
-    )
-
-
 @activity.defn
 @close_db_connections
 def create_posthog_code_task_for_repo_activity(
@@ -675,13 +635,12 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.facade.slack_settings import resolve_run_preferences
 
-    resolved_run = resolve_run_preferences(
+    run_prefs = resolve_run_preferences(
         integration,
         slack_user_id,
         override_model=model_override.model if model_override else None,
         override_effort=model_override.reasoning_effort if model_override else None,
     )
-    run_prefs = resolved_run.preferences
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -741,19 +700,6 @@ def create_posthog_code_task_for_repo_activity(
         channel=channel,
         thread_ts=thread_ts,
     )
-
-    # Only speak up when the mention actually changed the run. A request we could not
-    # honour (an unavailable model, an effort this model doesn't support) falls back
-    # silently rather than explaining itself.
-    if resolved_run.overridden:
-        _announce_model_override(
-            slack,
-            integration,
-            channel=channel,
-            thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
-            run_prefs=run_prefs,
-        )
 
     # 2. Create mapping BEFORE starting the workflow to avoid race condition
     # where the agent finishes and tries to relay before the mapping exists

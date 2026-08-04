@@ -40,7 +40,7 @@ from products.slack_app.backend.services.model_catalogue import (
     label_for,
     provider_for_runtime_adapter,
 )
-from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, describe_preferences
+from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, describe_run_model
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
     OUTCOME_CANCELLED,
@@ -490,7 +490,10 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "mrkdwn",
                 # Same phrasing as the notice a mention override posts, so the card and
                 # the thread describe a run the same way.
-                "text": f"Currently running {describe_preferences(effective)} · {runtime_label}",
+                "text": (
+                    f"Currently running "
+                    f"{describe_run_model(effective.model, effective.reasoning_effort)} · {runtime_label}"
+                ),
             },
         },
         source_blurb,

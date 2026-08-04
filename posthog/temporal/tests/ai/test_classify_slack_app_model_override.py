@@ -83,19 +83,23 @@ class TestClassifySlackAppModelOverride:
         ):
             assert classify_slack_app_model_override("use fable for this", CHOICES) is None
 
-    def test_prompt_offers_only_catalogue_models(self):
-        """The classifier picks from a list, so the list is what bounds it."""
+    def test_prompt_snapshot_matches(self, snapshot):
+        """The prompt is the whole classifier — the catalogue it offers, the
+        instruction-vs-subject-matter examples, and the reply contract. Pinning it means
+        a reworded rule shows up as a reviewable diff in the ``.ambr`` snapshot rather
+        than as a silent behaviour change. Update intentionally by re-running with
+        ``--snapshot-update`` after auditing the diff.
+        """
+        assert self._render_prompt("use fable for this one and fix the checkout test") == snapshot
+
+    def _render_prompt(self, text: str) -> str:
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
             "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
             return_value=fake_client,
         ):
-            classify_slack_app_model_override("use fable for this", CHOICES)
-
-        prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-        for choice in CHOICES:
-            assert choice.model in prompt
-        assert "claude-sonnet-4-6" not in prompt
+            classify_slack_app_model_override(text, CHOICES)
+        return fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
 
     def _fake_client(self, content: str) -> MagicMock:
         response = MagicMock()

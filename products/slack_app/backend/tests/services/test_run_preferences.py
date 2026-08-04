@@ -5,7 +5,7 @@ from products.slack_app.backend.services import run_preferences
 from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices
 from products.slack_app.backend.services.run_preferences import (
     SLACK_DEFAULT_MODEL,
-    describe_preferences,
+    describe_run_model,
     mentions_model_choice,
     resolve_run_preferences,
 )
@@ -68,41 +68,22 @@ class TestResolveRunPreferences:
         ],
     )
     def test_mention_override_precedence(self, catalogue, override_model, override_effort, expected):
-        assert _resolve(SAVED, override_model, override_effort).preferences == expected
+        assert _resolve(SAVED, override_model, override_effort) == expected
 
     def test_falls_back_to_the_slack_default_when_nothing_is_saved(self, catalogue):
         """An unset workspace must still get a pinned model, not whatever the agent
         server would otherwise choose."""
-        resolved = _resolve(AIPreferences())
-        assert resolved.preferences == AIPreferences("claude", SLACK_DEFAULT_MODEL, None)
-        assert resolved.overridden is False
+        assert _resolve(AIPreferences()) == AIPreferences("claude", SLACK_DEFAULT_MODEL, None)
 
     def test_override_applies_on_top_of_the_default(self, catalogue):
         resolved = _resolve(AIPreferences(), override_model="claude-fable-5")
-        assert resolved.preferences == AIPreferences("claude", "claude-fable-5", None)
-        assert resolved.overridden is True
-
-    @pytest.mark.parametrize(
-        "override_model,override_effort,overridden",
-        [
-            ("claude-fable-5", None, True),
-            (None, "high", True),
-            # Requested but not honourable: the run is unchanged, so nothing is announced.
-            ("gemini-3-pro", None, False),
-            (None, "xhigh", False),
-            (None, None, False),
-        ],
-    )
-    def test_overridden_tracks_whether_the_run_actually_changed(
-        self, catalogue, override_model, override_effort, overridden
-    ):
-        assert _resolve(SAVED, override_model, override_effort).overridden is overridden
+        assert resolved == AIPreferences("claude", "claude-fable-5", None)
 
     def test_derives_the_adapter_for_a_saved_model(self, catalogue):
         """A stored `(runtime_adapter, model)` pair that disagrees resolves to the
         adapter the model actually runs on."""
         saved = AIPreferences(runtime_adapter="codex", model="claude-fable-5", reasoning_effort=None)
-        assert _resolve(saved).preferences.runtime_adapter == "claude"
+        assert _resolve(saved).runtime_adapter == "claude"
 
 
 class TestMentionsModelChoice:
@@ -126,17 +107,17 @@ class TestMentionsModelChoice:
         assert mentions_model_choice(text, CATALOGUE) is expected
 
 
-class TestDescribePreferences:
+class TestDescribeRunModel:
     @pytest.mark.parametrize(
-        "preferences,expected",
+        "model,reasoning_effort,expected",
         [
-            (AIPreferences("claude", "claude-fable-5", "high"), "*Claude Fable 5* · Reasoning: *High*"),
-            (AIPreferences("claude", "claude-fable-5", None), "*Claude Fable 5*"),
-            (AIPreferences("claude", "claude-opus-5", "ultracode"), "*Claude Opus 5* · Reasoning: *Ultracode*"),
+            ("claude-fable-5", "high", "*Claude Fable 5* · Reasoning: *High*"),
+            ("claude-fable-5", None, "*Claude Fable 5*"),
+            ("claude-opus-5", "ultracode", "*Claude Opus 5* · Reasoning: *Ultracode*"),
         ],
     )
-    def test_renders_the_shared_phrasing(self, preferences, expected):
-        assert describe_preferences(preferences) == expected
+    def test_renders_the_shared_phrasing(self, model, reasoning_effort, expected):
+        assert describe_run_model(model, reasoning_effort) == expected
 
 
 class TestAvailableModelChoices:

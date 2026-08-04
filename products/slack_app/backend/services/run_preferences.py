@@ -17,7 +17,6 @@ itself would refuse.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from products.slack_app.backend.services.model_catalogue import (
@@ -27,7 +26,6 @@ from products.slack_app.backend.services.model_catalogue import (
     format_model_id,
     label_for,
     runtime_adapter_for,
-    supported_efforts_for,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_ai_preferences
 
@@ -50,14 +48,6 @@ _TOKEN_STOPLIST = frozenset({"com", "org"})
 _EFFORT_TERMS = frozenset({"effort", "reasoning", "thinking", "ultracode"})
 
 
-@dataclass(frozen=True)
-class ResolvedRun:
-    """The preferences a run will use, and whether the mention is why."""
-
-    preferences: AIPreferences
-    overridden: bool
-
-
 def coherent_preferences(
     model: str | None,
     reasoning_effort: str | None,
@@ -70,9 +60,11 @@ def coherent_preferences(
     doesn't support is dropped. `fallback_runtime_adapter` covers a model the tasks
     catalogue no longer lists, where a stored adapter is the best information left.
     """
+    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
+
     runtime_adapter = runtime_adapter_for(model) or fallback_runtime_adapter
     effort = reasoning_effort.strip().lower() if reasoning_effort else None
-    if effort and effort not in supported_efforts_for(runtime_adapter, model):
+    if effort and effort not in {e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)}:
         effort = None
     return AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=effort)
 
@@ -83,7 +75,7 @@ def resolve_run_preferences(
     *,
     override_model: str | None = None,
     override_effort: str | None = None,
-) -> ResolvedRun:
+) -> AIPreferences:
     """Resolve the full chain for one Slack-triggered run.
 
     A model named in the mention replaces the pair outright: an effort saved against
@@ -101,17 +93,14 @@ def resolve_run_preferences(
 
     choice = find_model_choice(override_model, available_model_choices())
     if choice is not None:
-        resolved = coherent_preferences(choice.model, override_effort, fallback_runtime_adapter=choice.runtime_adapter)
-    elif override_effort:
+        return coherent_preferences(choice.model, override_effort, fallback_runtime_adapter=choice.runtime_adapter)
+    if override_effort:
         requested = coherent_preferences(base.model, override_effort, fallback_runtime_adapter=base.runtime_adapter)
         # An effort this model can't do is dropped by `coherent_preferences`; falling
         # back to `base` rather than to the stripped result means an impossible ask
         # leaves the run alone instead of quietly clearing a saved effort as well.
-        resolved = requested if requested.reasoning_effort else base
-    else:
-        resolved = base
-
-    return ResolvedRun(preferences=resolved, overridden=resolved != base)
+        return requested if requested.reasoning_effort else base
+    return base
 
 
 def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> ModelChoice | None:
@@ -145,20 +134,19 @@ def mentions_model_choice(text: str, choices: tuple[ModelChoice, ...]) -> bool:
     return bool(re.search(pattern, text.lower()))
 
 
-def describe_preferences(preferences: AIPreferences) -> str:
-    """Render a resolved model choice for Slack, in one phrasing shared by the App Home
-    card and the thread notice a mention override posts."""
-    label = format_model_id(preferences.model, owned_by="") if preferences.model else "—"
-    if not preferences.reasoning_effort:
+def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
+    """Render the model a run is on, in one phrasing shared by the App Home card and
+    the progress message in the Slack thread."""
+    label = format_model_id(model, owned_by="") if model else "—"
+    if not reasoning_effort:
         return f"*{label}*"
-    return f"*{label}* · Reasoning: *{label_for(preferences.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
+    return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
 
 
 __all__ = [
     "SLACK_DEFAULT_MODEL",
-    "ResolvedRun",
     "coherent_preferences",
-    "describe_preferences",
+    "describe_run_model",
     "find_model_choice",
     "mentions_model_choice",
     "resolve_run_preferences",

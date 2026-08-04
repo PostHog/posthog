@@ -8,8 +8,7 @@ in `products/tasks/backend/facade/`.
 from products.slack_app.backend.feature_flags import SLACK_APP_HOME_FLAG, is_slack_app_model_classifier_enabled
 from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices
 from products.slack_app.backend.services.run_preferences import (
-    ResolvedRun,
-    describe_preferences,
+    describe_run_model,
     find_model_choice,
     mentions_model_choice,
     resolve_run_preferences,
@@ -24,9 +23,8 @@ __all__ = [
     "SLACK_APP_HOME_FLAG",
     "AIPreferences",
     "ModelChoice",
-    "ResolvedRun",
     "available_model_choices",
-    "describe_preferences",
+    "describe_run_model",
     "find_model_choice",
     "is_slack_app_model_classifier_enabled",
     "mentions_model_choice",

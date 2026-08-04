@@ -15,13 +15,24 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Gateway `owned_by` → tasks RuntimeAdapter value. Other providers are dropped.
-_PROVIDER_TO_RUNTIME_ADAPTER: dict[str, str] = {
-    "anthropic": "claude",
-    "openai": "codex",
-}
 
-_PROVIDER_PREFIXES = ("anthropic/", "openai/")
+def _runtime_adapter_by_provider() -> dict[str, str]:
+    """Gateway `owned_by` → tasks runtime adapter.
+
+    Inverted from the tasks product's own adapter → provider mapping rather than
+    written out here, so the two can never disagree about which runtime serves a
+    provider. Providers with no adapter (bedrock, vertex) are simply absent, which is
+    what drops their models from the catalogue.
+    """
+    from products.tasks.backend.facade.run_config import RuntimeAdapter, get_provider_for_runtime_adapter
+
+    by_provider = {}
+    for adapter in RuntimeAdapter:
+        provider = get_provider_for_runtime_adapter(adapter)
+        if provider is not None:
+            by_provider[provider.value] = adapter.value
+    return by_provider
+
 
 # Runtime + effort labels are UI strings with no tasks-product equivalent. Model
 # display labels are computed from the model id on the fly via `format_model_id` so we
@@ -61,9 +72,10 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
     from products.slack_app.backend.services.llm_models import list_slack_app_models
     from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
 
+    by_provider = _runtime_adapter_by_provider()
     choices = []
     for model in list_slack_app_models():
-        runtime_adapter = _PROVIDER_TO_RUNTIME_ADAPTER.get(model.owned_by)
+        runtime_adapter = by_provider.get(model.owned_by)
         if runtime_adapter is None:
             continue
         choices.append(
@@ -95,24 +107,13 @@ def runtime_adapter_for(model: str | None) -> str | None:
     return None
 
 
-def supported_efforts_for(runtime_adapter: str | None, model: str | None) -> frozenset[str]:
-    """Efforts the tasks product will accept for this pair.
-
-    Read straight from the tasks catalogue rather than from a `ModelChoice`, so the
-    answer is still right for a model the gateway has since stopped listing.
-    """
-    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
-
-    return frozenset(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model))
-
-
 def provider_for_runtime_adapter(runtime_adapter: str | None) -> str:
     """The gateway `owned_by` a runtime adapter implies.
 
-    Derived from the forward mapping rather than restated, so the two can't drift when
-    an adapter is added.
+    Read back out of the same derived mapping the catalogue is built from, so an adapter
+    added to the tasks product is answered here without touching this module.
     """
-    for provider, adapter in _PROVIDER_TO_RUNTIME_ADAPTER.items():
+    for provider, adapter in _runtime_adapter_by_provider().items():
         if adapter == runtime_adapter:
             return provider
     return "anthropic"
@@ -121,9 +122,9 @@ def provider_for_runtime_adapter(runtime_adapter: str | None) -> str:
 def format_model_id(model_id: str, *, owned_by: str) -> str:
     """OpenAI ids stay lowercase; Claude ids become `Claude Opus 4.8` etc."""
     clean = model_id
-    for prefix in _PROVIDER_PREFIXES:
-        if clean.startswith(prefix):
-            clean = clean[len(prefix) :]
+    for provider in _runtime_adapter_by_provider():
+        if clean.startswith(f"{provider}/"):
+            clean = clean[len(provider) + 1 :]
             break
     if owned_by == "openai":
         return clean.lower()
@@ -152,5 +153,4 @@ __all__ = [
     "label_for",
     "provider_for_runtime_adapter",
     "runtime_adapter_for",
-    "supported_efforts_for",
 ]

@@ -288,12 +288,29 @@ class SlackThreadHandler:
         self,
         stage: str,
         task_url: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
-        """Post a new progress message or update the existing one."""
+        """Post a new progress message or update the existing one.
+
+        The model rides along as a context line rather than its own message: which
+        model is running is a property of the task, and the thread already has one
+        place that describes the task while it works.
+        """
+        from products.slack_app.backend.services.run_preferences import describe_run_model
+
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
+
+        if model:
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": describe_run_model(model, reasoning_effort)}],
+                }
+            )
 
         if task_url:
             blocks.append(
