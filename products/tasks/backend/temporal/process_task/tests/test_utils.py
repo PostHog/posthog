@@ -335,6 +335,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
     TOKEN = "phx_test_token"
     TEAM_ID = 42
     USER_ID = 7
+    CREDENTIAL_OWNER_ID = 99
     API_BASE = "https://us.posthog.com"
 
     MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
@@ -370,6 +371,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             include_personal=True,
             task_origin=None,
             task_agent_key=None,
+            credential_owner_id=None,
         )
         assert configs == [
             McpServerConfig(
@@ -461,14 +463,18 @@ class TestFetchUserMcpServerConfigs(TestCase):
             self.USER_ID,
             origin_product="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.CREDENTIAL_OWNER_ID,
         )
 
+        # The credential owner is forwarded separately from the acting user: the sandbox acts
+        # as `user_id`, but it may only mount the grants belonging to the owner.
         mock_facade.assert_called_once_with(
             self.TEAM_ID,
             user_id=self.USER_ID,
             include_personal=True,
             task_origin="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.CREDENTIAL_OWNER_ID,
         )
         assert configs == [
             McpServerConfig(
@@ -498,6 +504,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             include_personal=include_personal,
             task_origin=None,
             task_agent_key=None,
+            credential_owner_id=None,
         )
 
     @patch(MOCK_API_URL)

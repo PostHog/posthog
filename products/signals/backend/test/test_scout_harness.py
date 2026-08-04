@@ -858,6 +858,50 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("with_creator", [True, False])
+async def test_run_delegates_the_scout_creator_as_mcp_credential_owner(ateam, aerrors_skill, with_creator):
+    # MCP Store grants are personal, so a scout run mounts the connections its creator delegated
+    # to the Scout agent — never the acting user's. A scout with no creator (coordinator
+    # auto-discovered) stays fail-closed and mounts nothing.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> int | None:
+        creator = (
+            User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com") if with_creator else None
+        )
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id, skill_name="signals-scout-errors", created_by=creator
+        )
+        return creator.id if creator is not None else None
+
+    owner_id = await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["mcp_builtin_agent_key"] == "scout"
+    assert captured["mcp_credential_owner_id"] == owner_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "network_access,expected_env_name,expected_level",
     [

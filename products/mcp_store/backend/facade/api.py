@@ -185,9 +185,10 @@ def get_installations_for_sandbox(
     Generic tasks retain the legacy team-shared installation behavior. A
     server-stamped built-in agent task gets only the credentials explicitly
     delegated through its service-account grants by ``credential_owner_id``,
-    the person the run acts for, and only while the gateway server stays
-    enabled for the team. Grants are personal, so an agent task without a
-    credential owner gets no Store installations at all. Origin alone is not
+    the person whose credentials the run may borrow (not necessarily the user
+    it acts as), and only while the gateway server stays enabled for the team.
+    Grants are personal, so an agent task without a credential owner gets no
+    Store installations at all. Origin alone is not
     trusted: the persisted task agent key must match the origin mapping. A
     mapped origin without that marker gets no MCP Store installations. Built-in agent
     handling is gated per team on the `mcp-gateway` rollout flag; teams

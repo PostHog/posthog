@@ -5,7 +5,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 
-from products.mcp_store.backend.agents import get_built_in_agent
+from products.mcp_store.backend.agents import get_built_in_agent, resolve_gateway_agent_token
 from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import (
@@ -358,9 +358,16 @@ class TestGetInstallationsForSandbox(BaseTest):
                 credential_owner_id=credential_owner_id,
             )
 
-        assert [result.id for result in resolve(self.user.id)] == [str(delegated.id)]
+        owned = resolve(self.user.id)
+        assert [result.id for result in owned] == [str(delegated.id)]
         assert resolve(other_user.id) == []
         assert resolve(None) == []
+
+        # The proxy token must name the same owner the grants were resolved under, or the
+        # gateway would serve the run under a different person's credentials.
+        principal = resolve_gateway_agent_token(owned[0].proxy_token or "")
+        assert principal is not None
+        assert principal.credential_owner_id == self.user.id
 
     def test_built_in_agent_does_not_fall_back_after_delegated_credential_is_deleted(self) -> None:
         account = self._support_agent()

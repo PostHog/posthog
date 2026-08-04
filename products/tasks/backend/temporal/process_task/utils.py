@@ -517,16 +517,16 @@ def get_user_mcp_server_configs(
     allowed_installation_ids: list[str] | None = None,
     origin_product: str | None = None,
     task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Unmapped tasks include shared team installations. Built-in agent tasks only
-    include the connections granted to that agent by the person the run acts
-    for, and never include a member's personal installations. This path does
-    not resolve that person yet, so built-in agent tasks currently get no Store
-    installations. A mapped origin without its persisted agent marker gets no
-    Store installations. Built-in agent handling is
-    gated per team on the ``mcp-gateway`` rollout flag; teams without it
+    include the connections ``credential_owner_id`` granted to that agent, and
+    never include a member's personal installations. Grants are personal, so an
+    agent task whose persisted owner is missing mounts nothing. A mapped origin
+    without its persisted agent marker gets no Store installations. Built-in
+    agent handling is gated per team on the ``mcp-gateway`` rollout flag; teams without it
     resolve mapped origins like unmapped tasks. For unmapped tasks,
     ``include_personal`` includes the user's personal installations when a
     ``user_id`` is provided.
@@ -551,6 +551,7 @@ def get_user_mcp_server_configs(
         include_personal=include_personal,
         task_origin=origin_product,
         task_agent_key=task_agent_key,
+        credential_owner_id=credential_owner_id,
     )
     if allowed_installation_ids is not None:
         allowed = {str(i) for i in allowed_installation_ids}
