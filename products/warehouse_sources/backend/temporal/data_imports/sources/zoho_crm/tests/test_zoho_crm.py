@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.z
     MAX_FIELDS_PER_REQUEST,
     MAX_PAGE,
     PAGE_SIZE,
+    REFRESH_TOKEN_REJECTED_MESSAGE,
     ZohoCRMAuthError,
     ZohoCRMClient,
     ZohoCRMResumeConfig,
@@ -433,13 +434,16 @@ class TestValidateCredentials:
         assert error is not None and "mars" in error
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_refresh_token_rejection_surfaces_the_reason(self, make_session: mock.MagicMock) -> None:
+    def test_refresh_token_rejection_gives_actionable_copy(self, make_session: mock.MagicMock) -> None:
+        # The raw Zoho OAuth error code (here "invalid_client") is not actionable, so validation
+        # must return the friendly reconnect message instead of leaking the code.
         make_session.return_value = _session([], post_responses=[_response(200, {"error": "invalid_client"})])
 
         is_valid, error = validate_credentials("us", "cid", "secret", "refresh")
 
         assert is_valid is False
-        assert error is not None and "invalid_client" in error
+        assert error == REFRESH_TOKEN_REJECTED_MESSAGE
+        assert "invalid_client" not in (error or "")
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_http_failure_is_not_valid(self, make_session: mock.MagicMock) -> None:

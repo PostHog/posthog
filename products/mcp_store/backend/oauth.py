@@ -2,7 +2,9 @@ import time
 import base64
 import hashlib
 import secrets
+import dataclasses
 from collections.abc import Callable
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import requests
@@ -301,12 +303,19 @@ def discover_oauth_metadata(server_url: str) -> dict:
     return metadata
 
 
-def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | None, str]:
+@dataclass(frozen=True)
+class DcrClientRegistration:
+    client_id: str
+    client_secret: str | None = dataclasses.field(repr=False)
+    token_endpoint_auth_method: str
+
+
+def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistration:
     """Run RFC 7591 Dynamic Client Registration.
 
-    Returns ``(client_id, client_secret, token_endpoint_auth_method)``. Some
-    servers (e.g. Supabase) register a confidential client even when we ask for
-    a public one, so the auth method is persisted with the minted client.
+    Some servers (e.g. Supabase) register a confidential client even when we
+    ask for a public one, so the auth method is persisted with the minted
+    client.
     """
     registration_endpoint = metadata.get("registration_endpoint")
     if not registration_endpoint:
@@ -355,14 +364,24 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
         raise ValueError("DCR response registered a confidential client without client_secret")
     client_secret = returned_secret if returned_secret and returned_auth_method != "none" else None
 
-    return client_id, client_secret, returned_auth_method
+    return DcrClientRegistration(
+        client_id=client_id,
+        client_secret=client_secret,
+        token_endpoint_auth_method=returned_auth_method,
+    )
 
 
-def generate_pkce() -> tuple[str, str]:
+@dataclass(frozen=True)
+class PkcePair:
+    code_verifier: str = dataclasses.field(repr=False)
+    code_challenge: str
+
+
+def generate_pkce() -> PkcePair:
     code_verifier = secrets.token_urlsafe(64)
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-    return code_verifier, code_challenge
+    return PkcePair(code_verifier=code_verifier, code_challenge=code_challenge)
 
 
 def is_token_expiring(sensitive: dict) -> bool:

@@ -11,12 +11,12 @@ import re
 import json
 import time
 import hashlib
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import requests
@@ -31,14 +31,19 @@ from posthog.models.oauth import (
     CIMDBlocklistEntry,
     CIMDVerificationToken,
     OAuthApplication,
+    TokenEndpointAuthMethod,
     find_cimd_verification_token,
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
+from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_client_name
+
+if TYPE_CHECKING:
+    from posthog.models.oauth_provisioning import ProvisioningConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -51,8 +56,13 @@ CIMD_CACHE_DEFAULT_TTL = 3600  # 1 hour
 CIMD_CACHE_MIN_TTL = 300  # 5 minutes
 CIMD_CACHE_MAX_TTL = 86400  # 24 hours
 
-# Forbidden token_endpoint_auth_method values for CIMD clients (they have no client_secret)
-CIMD_FORBIDDEN_AUTH_METHODS = frozenset({"client_secret_post", "client_secret_basic", "client_secret_jwt"})
+# What a CIMD client may register as: public, or confidential via an asymmetric key it
+# publishes. Every secret-based method is excluded by omission, because CIMD has no
+# registration ceremony in which a shared secret could be delivered. An allowlist rather than
+# a denylist so a method added to RFC 7591 later is refused until it is deliberately reviewed.
+CIMD_SUPPORTED_AUTH_METHODS = frozenset(
+    {TokenEndpointAuthMethod.NONE.value, TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value}
+)
 
 
 class CIMDFetchError(Exception):
@@ -110,6 +120,7 @@ CIMDMetadataDocument = TypedDict(
         "grant_types": list[str],
         "response_types": list[str],
         "token_endpoint_auth_method": str,
+        "jwks_uri": str,
         # Legacy top-level token — still read for backwards compatibility.
         "posthog_verification_token": str,
         # Preferred namespace — takes precedence over the legacy top-level key.
@@ -119,35 +130,58 @@ CIMDMetadataDocument = TypedDict(
 )
 
 
-def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
-    """
-    Validate a CIMD URL for format and optionally SSRF safety.
+def validate_fetchable_https_url(
+    url: str | None, *, perform_dns_check: bool = False, what: str = "URL"
+) -> tuple[bool, str | None]:
+    """Validate that a client-controlled URL is safe for us to dereference.
 
-    Returns (True, None) if valid, or (False, error_message).
+    Returns (True, None) if valid, or (False, error_message). ``what`` names the URL in those
+    messages, since they reach the client that published it.
     Without perform_dns_check this is a cheap string-only check.
     With perform_dns_check=True it also resolves DNS and blocks private IPs.
+
+    These are safety rules only, so they apply to any partner-published document. The
+    stricter shape rules that make a URL usable as a CIMD ``client_id`` live in
+    :func:`validate_cimd_url`.
     """
     if not url or not url.startswith("https://"):
-        return False, "CIMD client_id must use HTTPS"
+        return False, f"{what} must use HTTPS"
 
     try:
         parsed = urlparse(url)
     except Exception:
         return False, "Invalid URL"
 
-    if not parsed.path or parsed.path == "/":
-        return False, "CIMD client_id must include a path component"
     if parsed.fragment:
-        return False, "CIMD client_id must not contain a fragment"
-    if parsed.query:
-        return False, "CIMD client_id must not contain query parameters"
+        return False, f"{what} must not contain a fragment"
     if parsed.username or parsed.password:
-        return False, "CIMD client_id must not contain userinfo"
+        return False, f"{what} must not contain userinfo"
 
     if perform_dns_check:
         allowed, reason = is_url_allowed(url)
         if not allowed:
             return False, f"URL blocked: {reason}"
+
+    return True, None
+
+
+def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
+    """
+    Validate a CIMD URL for format and optionally SSRF safety.
+
+    Adds the identity requirements a CIMD ``client_id`` carries on top of the safety checks:
+    the URL is the client's stable identifier, so it must name a document (a path) and must
+    not vary by query string.
+    """
+    safe, error = validate_fetchable_https_url(url, perform_dns_check=perform_dns_check, what="CIMD client_id")
+    if not safe:
+        return False, error
+
+    parsed = urlparse(url or "")
+    if not parsed.path or parsed.path == "/":
+        return False, "CIMD client_id must include a path component"
+    if parsed.query:
+        return False, "CIMD client_id must not contain query parameters"
 
     return True, None
 
@@ -217,45 +251,85 @@ def _parse_cache_ttl(response: requests.Response) -> int:
     return CIMD_CACHE_DEFAULT_TTL
 
 
-def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
-    """
-    Fetch and validate a CIMD metadata document.
+def fetch_client_json_document(
+    url: str,
+    *,
+    what: str,
+    max_size: int = CIMD_MAX_DOCUMENT_SIZE,
+    user_agent: str = "PostHog-CIMD/1.0",
+    require_identity_url_shape: bool = True,
+) -> tuple[dict, requests.Response]:
+    """Fetch a client-controlled JSON document over HTTPS with the full hardening set.
 
-    Returns (metadata, cache_ttl_seconds).
-    Raises CIMDFetchError on network/HTTP errors, CIMDValidationError on invalid content.
+    Shared by the CIMD metadata document and the JWKS a private_key_jwt client publishes,
+    so both partner-controlled URLs we dereference get identical protections: SSRF
+    validation including a DNS check, no redirects, a byte cap enforced both from
+    Content-Length and incrementally, and a total transfer deadline so a slow-drip server
+    can't hold a worker open.
+
+    ``require_identity_url_shape`` applies the extra CIMD ``client_id`` shape rules. A
+    ``jwks_uri`` is an ordinary document reference rather than an identifier, so it passes
+    False and stays free to carry a query string.
+
+    Returns the parsed JSON object and the response, the latter so callers can read cache
+    headers. Raises CIMDValidationError for an unsafe URL or oversized/invalid body,
+    CIMDFetchError for network and HTTP failures.
     """
-    valid, error = validate_cimd_url(url, perform_dns_check=True)
+    if require_identity_url_shape:
+        valid, error = validate_cimd_url(url)
+    else:
+        valid, error = validate_fetchable_https_url(url, what=what)
     if not valid:
         raise CIMDValidationError(error)
 
+    # The SSRF check resolves the host, and requests would resolve it a second time when
+    # it opens the connection. The client controls this URL and its DNS, so it can answer
+    # the first lookup with a public address and the second with an internal one. Pinning
+    # the connection to the addresses we actually validated closes that rebinding window;
+    # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
+    allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
+    if not allowed:
+        raise CIMDValidationError(f"URL blocked: {reason}")
+
+    adapter = PinnedIPAdapter()
+    hostname = (urlparse(url).hostname or "").lower()
+    chosen_ip = select_pinned_ip(pinned_ips)
+    if chosen_ip is not None:
+        adapter.pin(hostname, chosen_ip)
+
+    # Validation above rejects any non-HTTPS URL, so only the https adapter is mounted.
+    session = requests.Session()
+    session.mount("https://", adapter)
+
     try:
-        response = requests.get(
+        response = session.get(
             url,
             timeout=CIMD_FETCH_TIMEOUT_SECONDS,
             headers={
                 "Accept": "application/json",
-                "User-Agent": "PostHog-CIMD/1.0",
+                "User-Agent": user_agent,
             },
             stream=True,
             allow_redirects=False,
         )
     except requests.RequestException as e:
-        raise CIMDFetchError(f"Failed to fetch metadata: {e}") from e
+        session.close()
+        raise CIMDFetchError(f"Failed to fetch {what}: {e}") from e
 
     try:
         if response.is_redirect or response.is_permanent_redirect:
             raise CIMDFetchError(
-                f"Metadata endpoint returned redirect (HTTP {response.status_code}), redirects are not allowed"
+                f"{what} endpoint returned redirect (HTTP {response.status_code}), redirects are not allowed"
             )
         if response.status_code != 200:
-            raise CIMDFetchError(f"Metadata endpoint returned HTTP {response.status_code}")
+            raise CIMDFetchError(f"{what} endpoint returned HTTP {response.status_code}")
 
         # Early reject if Content-Length exceeds limit
         content_length = response.headers.get("Content-Length")
         if content_length:
             try:
-                if int(content_length) > CIMD_MAX_DOCUMENT_SIZE:
-                    raise CIMDValidationError(f"Metadata document exceeds {CIMD_MAX_DOCUMENT_SIZE} byte limit")
+                if int(content_length) > max_size:
+                    raise CIMDValidationError(f"{what} exceeds {max_size} byte limit")
             except ValueError:
                 pass  # Non-numeric Content-Length; fall through to incremental size check
 
@@ -268,22 +342,37 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
         bytes_read = 0
         for chunk in response.iter_content(chunk_size=4096):
             bytes_read += len(chunk)
-            if bytes_read > CIMD_MAX_DOCUMENT_SIZE:
-                raise CIMDValidationError(f"Metadata document exceeds {CIMD_MAX_DOCUMENT_SIZE} byte limit")
+            if bytes_read > max_size:
+                raise CIMDValidationError(f"{what} exceeds {max_size} byte limit")
             chunks.append(chunk)
             if time.monotonic() > deadline:
-                raise CIMDFetchError("Metadata fetch exceeded total time limit")
+                raise CIMDFetchError(f"{what} fetch exceeded total time limit")
         body = b"".join(chunks)
     finally:
         response.close()
+        session.close()
 
     try:
-        metadata: CIMDMetadataDocument = json.loads(body)
+        parsed = json.loads(body)
     except Exception as e:
-        raise CIMDValidationError(f"Invalid JSON in metadata document: {e}") from e
+        raise CIMDValidationError(f"Invalid JSON in {what}: {e}") from e
 
-    if not isinstance(metadata, dict):
-        raise CIMDValidationError("Metadata document must be a JSON object")
+    if not isinstance(parsed, dict):
+        raise CIMDValidationError(f"{what} must be a JSON object")
+    return parsed, response
+
+
+def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
+    """
+    Fetch and validate a CIMD metadata document.
+
+    Returns (metadata, cache_ttl_seconds).
+    Raises CIMDFetchError on network/HTTP errors, CIMDValidationError on invalid content.
+    """
+    parsed, response = fetch_client_json_document(url, what="Metadata document")
+    # The fetcher guarantees a JSON object; whether its keys match the TypedDict is what the
+    # validation below establishes.
+    metadata = cast(CIMDMetadataDocument, parsed)
 
     # client_id MUST match the URL (simple string comparison per spec)
     if metadata.get("client_id") != url:
@@ -303,10 +392,30 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
         if re.search(r"\s", uri):
             raise CIMDValidationError("redirect_uri must not contain whitespace")
 
-    # CIMD clients cannot use secret-based auth methods
+    # private_key_jwt is the only way for a CIMD client to be confidential: the key is
+    # asymmetric, and its public half travels in a document served from the client_id URL
+    # itself, so nothing secret has to be delivered out of band.
     auth_method = metadata.get("token_endpoint_auth_method", "none")
-    if auth_method in CIMD_FORBIDDEN_AUTH_METHODS:
+    if auth_method not in CIMD_SUPPORTED_AUTH_METHODS:
         raise CIMDValidationError(f"CIMD clients cannot use token_endpoint_auth_method '{auth_method}'")
+
+    jwks_uri = metadata.get("jwks_uri")
+    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value:
+        # Without a key source the client could never be authenticated, so accepting the
+        # registration would produce a confidential client that fails every request.
+        if not jwks_uri or not isinstance(jwks_uri, str):
+            raise CIMDValidationError("token_endpoint_auth_method 'private_key_jwt' requires a jwks_uri")
+        if not jwks_uri.startswith("https://"):
+            raise CIMDValidationError("jwks_uri must be an https URL")
+        # A second client-controlled URL we will dereference, so it gets the same SSRF
+        # screening as the metadata document itself.
+        jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True)
+        if not jwks_allowed:
+            raise CIMDValidationError(f"jwks_uri is not allowed: {jwks_error}")
+    elif jwks_uri is not None:
+        # Ignore a key source the client isn't going to authenticate with, rather than
+        # storing a URL we would never fetch.
+        metadata.pop("jwks_uri", None)
 
     # Validate logo_uri if present: must be HTTPS and pass SSRF checks
     logo_uri = metadata.get("logo_uri")
@@ -388,6 +497,22 @@ def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None
     return filter_to_unprivileged_scopes(raw_optional)
 
 
+def _resolve_client_authentication(metadata: CIMDMetadataDocument) -> tuple[str, str | None]:
+    """Map a validated CIMD document's declared auth method onto ``(client_type, jwks_uri)``.
+
+    A client advertising private_key_jwt is confidential in the RFC 6749 sense even though it
+    holds no secret, because it can authenticate; everything else is public and relies on PKCE.
+    Those two stored fields are what OAuthApplication.token_endpoint_auth_method reads back.
+
+    This is what lets a client upgrade in place: it edits its own metadata document, and the
+    next refresh promotes it without the client_id changing or an operator being involved.
+    """
+    auth_method = metadata.get("token_endpoint_auth_method", TokenEndpointAuthMethod.NONE.value)
+    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value:
+        return AbstractApplication.CLIENT_CONFIDENTIAL, metadata.get("jwks_uri")
+    return AbstractApplication.CLIENT_PUBLIC, None
+
+
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """Create a new OAuthApplication from CIMD metadata."""
     client_name = metadata.get("client_name", "CIMD Client")
@@ -404,10 +529,13 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
+    client_type, jwks_uri = _resolve_client_authentication(metadata)
+
     app = OAuthApplication(
         name=client_name,
         redirect_uris=redirect_uris,
-        client_type=AbstractApplication.CLIENT_PUBLIC,
+        client_type=client_type,
+        jwks_uri=jwks_uri,
         client_secret="",
         authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
         algorithm="RS256",
@@ -440,6 +568,39 @@ def _touch_verification_token(token: CIMDVerificationToken) -> None:
     CIMDVerificationToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
 
+def _retier_account_requests_limit(app: OAuthApplication, *, verified: bool) -> None:
+    """Move a partner's account-request limit onto the verified or unverified default tier.
+
+    Only our own default tiers move. An explicit admin override (source="admin") stays put, and
+    so does a legacy row with no source recorded, treated conservatively as admin so a value
+    that pre-dates the field is not clobbered.
+
+    Locks and re-reads before deciding, because the caller's copy of the app was loaded before a
+    network fetch of the metadata document. That window is wide enough for an admin to have
+    revoked a capability in it, and merging into a stale blob would write the revoked value back.
+    """
+    with transaction.atomic():
+        current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
+        config = current.provisioning
+        if not current.is_provisioning_partner or config.rate_limit_source not in (
+            "default_unverified",
+            "default_verified",
+        ):
+            return
+        app.update_provisioning(
+            rate_limits=config.rate_limits.model_copy(
+                update={
+                    "account_requests": (
+                        CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                        if verified
+                        else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                    )
+                }
+            ),
+            rate_limit_source="default_verified" if verified else "default_unverified",
+        )
+
+
 def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """
     Update an existing OAuthApplication from refreshed CIMD metadata.
@@ -459,11 +620,23 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
 
+    # Re-derived on every refresh, in both directions: a client that starts publishing a
+    # jwks_uri is promoted to confidential here, and one that stops is demoted back to public
+    # rather than being left as a confidential client whose key source has gone away.
+    app.client_type, app.jwks_uri = _resolve_client_authentication(metadata)
+
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
     verification = _resolve_verification_token(metadata)
     new_org = verification.organization if verification else None
-    update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
+    update_fields = [
+        "name",
+        "redirect_uris",
+        "logo_uri",
+        "cimd_metadata_last_fetched",
+        "client_type",
+        "jwks_uri",
+    ]
 
     resolved_scopes = _resolve_scopes(metadata)
     if resolved_scopes is not None:
@@ -480,30 +653,6 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if old_org_id != new_org_id:
         app.organization = new_org
         update_fields.append("organization")
-        # When verification status flips on an already-provisioning app, keep
-        # the rate-limit tier in sync. Only bump when the source is one of our
-        # default tiers — explicit admin overrides (source="admin") and
-        # legacy rows with no source recorded (source="") stay put. Legacy
-        # rows are treated conservatively as admin to avoid clobbering values
-        # that pre-date this field.
-        if app.is_provisioning_partner and app.provisioning_rate_limit_account_requests_source in (
-            "default_unverified",
-            "default_verified",
-        ):
-            became_verified = old_org_id is None and new_org_id is not None
-            became_unverified = old_org_id is not None and new_org_id is None
-            if became_verified:
-                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-                app.provisioning_rate_limit_account_requests_source = "default_verified"
-                update_fields.extend(
-                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
-                )
-            elif became_unverified:
-                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
-                app.provisioning_rate_limit_account_requests_source = "default_unverified"
-                update_fields.extend(
-                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
-                )
 
     try:
         app.full_clean()
@@ -516,6 +665,13 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     else:
         if verification is not None:
             _touch_verification_token(verification)
+        # Keep the rate-limit tier in step with verification status. Written after the main save
+        # and through its own locked merge, rather than as another field on it, because the whole
+        # provisioning blob has to be rewritten to change one key inside it.
+        if old_org_id is None and new_org_id is not None:
+            _retier_account_requests_limit(app, verified=True)
+        elif old_org_id is not None and new_org_id is None:
+            _retier_account_requests_limit(app, verified=False)
         # Emit a distinct event on org re-linking so a metadata compromise
         # flipping A→B (or A→None, None→A) is visible in analytics, not
         # just buried in the generic refresh event.
@@ -620,41 +776,6 @@ def refresh_cimd_metadata_task(url: str) -> None:
         capture_exception(e)
 
 
-@shared_task(ignore_result=True, time_limit=30)
-def register_cimd_provisioning_application_task(url: str) -> None:
-    """Celery task: fetch CIMD metadata, create the app, and backfill provisioning defaults."""
-    try:
-        with ph_scoped_capture() as capture_ph_event:
-            app = fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-            if app is None:
-                return
-            if not app.is_provisioning_partner:
-                apply_provisioning_defaults(app)
-                capture_ph_event(
-                    distinct_id=url,
-                    event="cimd_provisioning_partner_registered",
-                    properties={
-                        "cimd_url": url,
-                        "client_name": app.name,
-                        "app_id": str(app.pk),
-                        "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
-                        "is_verified": app.organization_id is not None,
-                        "organization_id": str(app.organization_id) if app.organization_id else None,
-                    },
-                )
-    except CIMDValidationError as e:
-        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
-        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
-    except CIMDFetchError as e:
-        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
-        capture_exception(e)
-
-
-def is_cimd_registration_in_progress(url: str) -> bool:
-    """Check if a fetch/registration is currently in progress for this CIMD URL."""
-    return bool(cache.get(_fetch_lock_key(url)))
-
-
 def get_or_create_cimd_application(url: str) -> OAuthApplication:
     """
     Resolve a CIMD URL to an OAuthApplication.
@@ -706,80 +827,90 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
     return OAuthApplication.objects.get(client_id=client_id)
 
 
-# Defaults applied when a CIMD app is first used for provisioning. A self-serve
-# partner can hit /account_requests immediately without manual admin setup; the
-# app is opted into provisioning at the same trust level as other PKCE partners.
-# The account-request rate limit is set to a conservative floor so a single
-# self-serve partner cannot burn through bulk user-onboarding calls — admin can
-# raise it per-partner once a partner demonstrates legitimate volume. Verified
-# partners (those who presented a valid `posthog_verification_token`) get a
-# higher default since abuse is traceable to a real PostHog organization.
+# Defaults applied when a CIMD app is opted into provisioning at client_registration. A
+# self-serve partner gets there without manual admin setup, at the same trust level as other
+# PKCE partners. The account-request rate limit is set to a conservative floor so a single
+# self-serve partner cannot burn through bulk user-onboarding calls - admin can raise it
+# per-partner once a partner demonstrates legitimate volume. Verified partners (those who
+# presented a valid `posthog_verification_token`) get a higher default since abuse is
+# traceable to a real PostHog organization.
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour, anonymous CIMD
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT = 100  # per hour, verified CIMD
-CIMD_PROVISIONING_DEFAULTS = {
-    "provisioning_auth_method": "pkce",
-    "provisioning_active": True,
-    "provisioning_can_create_accounts": True,
-    "provisioning_can_provision_resources": True,
-    "provisioning_rate_limit_account_requests": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
-}
 
 
-def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
-    """Return the provisioning default profile to apply to this CIMD app on
-    first-time registration. Verified apps (linked to a PostHog org) get the
-    higher account-request rate limit."""
-    defaults = dict(CIMD_PROVISIONING_DEFAULTS)
-    if app.organization_id is not None:
-        defaults["provisioning_rate_limit_account_requests"] = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-        defaults["provisioning_rate_limit_account_requests_source"] = "default_verified"
-    else:
-        defaults["provisioning_rate_limit_account_requests_source"] = "default_unverified"
-    return defaults
+def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
+    """The config a CIMD app gets when it registers itself, layered over whatever it already has.
+
+    Nothing here touches client authentication: that is derived from the client's own metadata
+    document by _resolve_client_authentication, so a CIMD partner is public or private_key_jwt
+    according to what it publishes.
+
+    Deliberately narrow. Creating accounts and provisioning resources is the whole point of
+    self-serve registration, so those are turned on; no other capability is, because a partner
+    that vouched for itself by publishing a document is not the same as one PostHog decided to
+    trust. GitHub grants, wizard runs, deep links and skipped consent are granted by an admin or
+    not at all.
+
+    Layered rather than replacing the config wholesale, so an admin who granted a capability
+    before the app first registered does not have it silently dropped here. For the ordinary
+    case - a brand new self-registered client - the existing config is empty and the two are
+    the same thing.
+    """
+    config = app.provisioning
+    changes: dict[str, object] = {"active": True, "can_create_accounts": True, "can_provision_resources": True}
+
+    # Verified partners (those who presented a valid `posthog_verification_token`) get a higher
+    # account-request limit, since abuse is traceable to a real PostHog organization. An admin
+    # override already recorded on the app outranks both tiers.
+    if config.rate_limit_source != "admin":
+        verified = app.organization_id is not None
+        changes["rate_limits"] = config.rate_limits.model_copy(
+            update={
+                "account_requests": (
+                    CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                    if verified
+                    else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                )
+            }
+        )
+        changes["rate_limit_source"] = "default_verified" if verified else "default_unverified"
+
+    return config.model_copy(update=changes)
 
 
 def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
-    """Apply provisioning defaults to a CIMD app and persist them.
+    """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
-    Computes the correct defaults (verified vs anonymous rate limit) based on
-    the app's organization linkage, sets the fields, and saves. Respects
-    `provisioning_disabled` as a kill switch - returns the app untouched
-    rather than re-enabling a partner an admin has explicitly disabled."""
-    if app.provisioning_disabled:
-        return app
-    defaults = _cimd_provisioning_defaults_for(app)
-    for field, value in defaults.items():
-        setattr(app, field, value)
-    app.save(update_fields=list(defaults.keys()))
-    return app
+    Respects the `disabled` kill switch - returns the app untouched rather than re-enabling a
+    partner an admin has explicitly disabled.
 
-
-def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | None:
+    Locks and re-reads the config first. Registration runs after a network fetch of the metadata
+    document, so the caller's copy of the app can be seconds or minutes old, and layering the
+    defaults over that copy would write back a capability - or a cleared kill switch - that an
+    admin revoked while the fetch was in flight.
     """
-    Resolve a CIMD URL to an OAuthApplication configured as a provisioning partner.
+    with transaction.atomic():
+        current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
+        app._provisioning_config = current._provisioning_config
+        if app.provisioning.disabled:
+            return app
+        became_partner = not current.is_provisioning_partner
+        app.is_provisioning_partner = True
+        app.provisioning = _cimd_provisioning_defaults_for(app)
+        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
 
-    Creates the CIMD app via the normal fetch+upsert path if it doesn't exist,
-    then backfills provisioning defaults if they haven't been set. Existing apps
-    that already have provisioning fields configured (e.g. via admin) are left alone.
-
-    Returns None if the URL is blocklisted.
-    Raises CIMDFetchError / CIMDValidationError on fetch failures.
-    """
-    if is_cimd_url_blocked(url):
-        logger.warning("cimd_blocked_url", url=url)
-        return None
-
-    app = get_or_create_cimd_application(url)
-    if not app.is_provisioning_partner:
-        apply_provisioning_defaults(app)
+    # A partner appearing without an admin creating it is the event worth watching for abuse,
+    # so it fires on the transition only - re-running the defaults over an existing partner is
+    # not a new partner.
+    if became_partner:
         posthoganalytics.capture(
-            distinct_id=url,
+            distinct_id=app.cimd_metadata_url or str(app.pk),
             event="cimd_provisioning_partner_registered",
             properties={
-                "cimd_url": url,
+                "cimd_url": app.cimd_metadata_url,
                 "client_name": app.name,
                 "app_id": str(app.pk),
-                "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
+                "account_requests_rate_limit": app.provisioning.rate_limits.account_requests,
                 "is_verified": app.organization_id is not None,
                 "organization_id": str(app.organization_id) if app.organization_id else None,
             },

@@ -27,6 +27,7 @@ from posthog.models.user import User
 
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.models.batch_imports import (
+    DEFAULT_SEND_RATE,
     BatchImport,
     BatchImportConfigBuilder,
     ContentType,
@@ -85,7 +86,7 @@ def _apply_output_sink(config_builder: BatchImportConfigBuilder, validated_data:
             record_limit=validated_data.get("trial_record_limit", TRIAL_RECORD_LIMIT_DEFAULT)
         )
     else:
-        config_builder.to_capture(send_rate=1000)
+        config_builder.to_capture(send_rate=DEFAULT_SEND_RATE)
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -985,7 +986,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return conflict
 
             import_config = deepcopy(trial.import_config)
-            import_config["sink"] = {"type": "capture", "send_rate": 1000}
+            import_config["sink"] = {"type": "capture", "send_rate": DEFAULT_SEND_RATE}
             # The worker ignores unknown config keys and never writes import_config
             # back, so this link doubles as the promotion single-use marker.
             import_config["promoted_from_trial_id"] = str(trial.id)

@@ -65,6 +65,11 @@ class TestIsEndOfTurn:
                 {"type": "event", "notification": {"result": {"stopReason": "end_turn"}}},
                 False,
             ),
+            (
+                "pi_turn_complete",
+                {"type": "pi_event", "event": {"type": "turn_completed"}},
+                True,
+            ),
         ]
     )
     def test_is_end_of_turn(self, _name: str, event_data: dict, expected: bool):
@@ -149,6 +154,9 @@ class TestIsActiveAgentUpdate:
     )
     def test_session_update_sub_types(self, _name: str, sub_type: str, expected: bool) -> None:
         assert _is_active_agent_update(self._su(sub_type)) is expected
+
+    def test_pi_generation_event_is_active(self) -> None:
+        assert _is_active_agent_update({"type": "pi_event", "event": {"type": "assistant_message_chunk"}})
 
     @parameterized.expand(
         [
@@ -841,11 +849,27 @@ def _agent_chunk_event(text: str) -> dict:
     }
 
 
+def _agent_message_event(text: str) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}}},
+        },
+    }
+
+
 class TestFinalMessageTracker:
     def test_snapshots_joined_prose_at_end_of_turn(self) -> None:
         tracker = FinalMessageTracker()
         tracker.collect(_agent_chunk_event("Weekly "))
         tracker.collect(_agent_chunk_event("summary."))
+
+        assert tracker.end_turn() == "Weekly summary."
+
+    def test_snapshots_full_agent_message_at_end_of_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_message_event("Weekly summary."))
 
         assert tracker.end_turn() == "Weekly summary."
 

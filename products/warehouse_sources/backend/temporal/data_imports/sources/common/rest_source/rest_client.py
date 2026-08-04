@@ -30,7 +30,14 @@ from .utils import resolve_request_url
 logger = logging.getLogger(__name__)
 
 
-class RESTClientRetryableError(Exception):
+class RESTClientRetryableError(NonReportableError):
+    """A transient failure (429/5xx, connection reset/timeout, malformed/truncated body) that
+    tenacity reissues up to the client's attempt cap. Once that budget is exhausted it escapes to
+    the activity and Temporal's own activity retry takes over — the upstream blip is expected to
+    clear, not a PostHog defect. Subclasses NonReportableError, like ``RESTClientNonRetryableError``,
+    so the activity interceptor keeps it out of error tracking instead of minting an issue per blip.
+    """
+
     def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after

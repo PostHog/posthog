@@ -91,6 +91,18 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Products whose requires_server_credential applies right away rather than waiting for
+# posthog_code_model_gate_enabled. The flag exists so products that already shipped accepting plain
+# Code OAuth tokens keep working until the Code billing cutover. A product that never had such a
+# permissive period has nothing to stay compatible with, and leaving it flag-gated would ship an
+# unbilled route open to any Code OAuth token for as long as the flag is off.
+UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
+    {
+        "custom_image_scans",
+        "onboarding",
+    }
+)
+
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
         allowed_application_ids=None,
@@ -138,6 +150,19 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
             }
             | BEDROCK_MODELS
         ),
+        allow_api_keys=False,
+        credit_bucket=None,
+        requires_server_credential=True,
+    ),
+    # The setup wizard's cloud run (Task.OriginProduct.ONBOARDING). Unbilled like
+    # background_agents, and this one runs before the user has decided to buy anything.
+    # Two gates keep the free route shut: Django refuses `onboarding` as a caller-supplied
+    # task origin, and the agent-server only routes here for a run carrying the protected
+    # `wizard_config` state key. Models stay narrow because a free bucket shouldn't reach
+    # the whole fleet; claude-opus-4-8 is only the SDK's fallback for the pinned sonnet.
+    "onboarding": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"claude-sonnet-5", "claude-opus-4-8"}) | BEDROCK_MODELS,
         allow_api_keys=False,
         credit_bucket=None,
         requires_server_credential=True,
@@ -220,7 +245,21 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "review_hog": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=None,  # any model — the one-shot chunking/dedup calls pin theirs in review_hog constants
+        # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
+        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
+        # GLM 5.2 (evaluated as reviewer).
+        allowed_models=frozenset(
+            {
+                "@cf/zai-org/glm-5.2",
+                "claude-sonnet-5",
+                "claude-opus-4-8",
+                "claude-opus-5",
+                "gpt-5.5",
+                "gpt-5.6-sol",
+                "gpt-5.6-luna",
+                "gpt-5.6-terra",
+            }
+        ),
         allow_api_keys=True,
         # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
@@ -435,13 +474,14 @@ def check_product_access(
     # and route around the posthog_code free-tier model gate. Require the internal marker that
     # only server-minted tokens carry. OAuth-only: personal API keys reach the gateway with an
     # explicit, feature-gated llm_gateway:read scope (a `*` PAK is rejected at auth), so the
-    # shared server-side gateway key still works here. Gated behind the same flag as the
-    # free-tier gate so it stays inert until the Code billing cutover.
+    # shared server-side gateway key still works here. Products that shipped before this check
+    # existed stay behind the free-tier flag so they keep working until the Code billing cutover;
+    # the rest enforce it now, per UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS.
     if (
         config.requires_server_credential
         and is_oauth
         and INTERNAL_RUN_SCOPE not in (scopes or [])
-        and (settings.posthog_code_model_gate_enabled or resolved_product == "custom_image_scans")
+        and (settings.posthog_code_model_gate_enabled or resolved_product in UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS)
     ):
         return False, f"Product '{product}' requires a server-minted credential"
 

@@ -94,7 +94,11 @@ class TestAirtableSource:
         "mock_return, expected_valid, expected_message",
         [
             (True, True, None),
-            (False, False, "Invalid Airtable personal access token"),
+            (
+                False,
+                False,
+                "Invalid Airtable personal access token. Check that the token is correct and has access to the bases you want to sync, then try again.",
+            ),
         ],
     )
     @mock.patch(
