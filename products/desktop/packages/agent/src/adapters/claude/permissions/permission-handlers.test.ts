@@ -480,6 +480,105 @@ describe("canUseTool auto mode hands-off approval", () => {
   );
 });
 
+describe("ExitPlanMode plan recovery", () => {
+  function exitPlanTextNotification(text: string) {
+    return {
+      sessionId: "test-session",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    };
+  }
+
+  function exitPlanToolCallNotification() {
+    return {
+      sessionId: "test-session",
+      update: {
+        sessionUpdate: "tool_call",
+        _meta: { claudeCode: { toolName: "ExitPlanMode" } },
+      },
+    };
+  }
+
+  const PLAIN_TEXT_PLAN = [
+    "Here is what I will do:",
+    "First step is to read the file and understand the layout.",
+    "Second step is to write the migration in the right directory.",
+    "Finally I will run the test suite to make sure nothing regressed.",
+  ].join("\n");
+
+  it("recovers a plan from earlier assistant text when ExitPlanMode is the last action", async () => {
+    const context = createContext("ExitPlanMode", {
+      session: {
+        permissionMode: "plan" as const,
+        notificationHistory: [
+          exitPlanTextNotification(PLAIN_TEXT_PLAN),
+          exitPlanToolCallNotification(),
+        ],
+      },
+      client: createClient({
+        outcome: { outcome: "selected", optionId: "default" },
+      }),
+      applySessionMode: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("allow");
+    expect(context.client.requestPermission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCall: expect.objectContaining({
+          rawInput: expect.objectContaining({ plan: PLAIN_TEXT_PLAN }),
+        }),
+      }),
+    );
+  });
+
+  it("accepts a heading-less multi-line plan and asks for approval", async () => {
+    const context = createContext("ExitPlanMode", {
+      session: {
+        permissionMode: "plan" as const,
+        notificationHistory: [exitPlanTextNotification(PLAIN_TEXT_PLAN)],
+      },
+      client: createClient({
+        outcome: { outcome: "selected", optionId: "default" },
+      }),
+      applySessionMode: vi.fn().mockResolvedValue(undefined),
+      emittedToolCalls: new Set<string>(),
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("allow");
+    expect(context.client.requestPermission).toHaveBeenCalledOnce();
+    const emittedCall = (
+      context.client.sessionUpdate as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      (call) => call[0]?.update?.sessionUpdate === "tool_call",
+    )?.[0];
+    expect(emittedCall).toBeDefined();
+    // Plan content should be visible in the emitted tool call even though it
+    // has no markdown heading.
+    expect(
+      JSON.stringify(emittedCall.update.content ?? emittedCall.update),
+    ).toContain("First step is to read the file");
+  });
+
+  it("still denies an empty ExitPlanMode", async () => {
+    const context = createContext("ExitPlanMode", {
+      session: {
+        permissionMode: "plan" as const,
+        notificationHistory: [],
+      },
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
+  });
+});
+
 describe("AskUserQuestion cancelled outcomes", () => {
   const QUESTION_INPUT = {
     question: "Which license should I use?",

@@ -24,6 +24,7 @@ import {
 import {
   getClaudePlansDir,
   getLatestAssistantText,
+  getLatestAssistantTextExtended,
   isClaudePlanFilePath,
   isPlanReady,
 } from "../plan/utils";
@@ -315,10 +316,18 @@ async function handleExitPlanModeTool(
   const { session, toolInput, fileContentCache } = context;
 
   const planFromFile = getPlanFromFile(session, fileContentCache);
-  const latestText = getLatestAssistantText(session.notificationHistory);
+  const latestText =
+    getLatestAssistantText(session.notificationHistory) ??
+    getLatestAssistantTextExtended(session.notificationHistory);
   const fallbackPlan = planFromFile || (latestText ?? undefined);
   const updatedInput = ensurePlanInInput(toolInput, fallbackPlan);
   const planText = extractPlanText(updatedInput);
+
+  // Surface the plan in the UI before any validation path runs. Failing
+  // validations previously left nothing on screen, which read as "plan mode
+  // silently broke" for models that end their turn with the tool call.
+  context.toolInput = updatedInput;
+  await ensureToolCallEmitted(context);
 
   const validationResult = await validatePlanContent(planText, context);
   if (!validationResult.valid) {

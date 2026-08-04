@@ -21,21 +21,48 @@ export function isPlanReady(plan: string | undefined): boolean {
   if (!plan) return false;
   const trimmed = plan.trim();
   if (trimmed.length < 40) return false;
-  return /(^|\n)#{1,6}\s+\S/.test(trimmed);
+  if (/(^|\n)#{1,6}\s+\S/.test(trimmed)) return true;
+  // Models that emit plain-text plans (no markdown heading) still carry
+  // real content. Accept longer multi-line text as a stand-in.
+  const lineCount = trimmed.split(/\r?\n/).filter((line) => line.trim()).length;
+  return lineCount >= 4;
 }
 
+// Original strict variant: only considers the last contiguous text run and
+// returns null when anything else follows it (e.g. the ExitPlanMode call).
 export function getLatestAssistantText(
   notifications: SessionNotification[],
 ): string | null {
-  const chunks: string[] = [];
-  let started = false;
+  return collectTrailingText(notifications, false);
+}
 
-  for (let i = notifications.length - 1; i >= 0; i -= 1) {
+// Extended variant: skips past a trailing ExitPlanMode tool call (or thought
+// chunks) so models that end their turn on the tool call still surface the
+// last assistant text they wrote.
+export function getLatestAssistantTextExtended(
+  notifications: SessionNotification[],
+): string | null {
+  return collectTrailingText(notifications, true);
+}
+
+function collectTrailingText(
+  notifications: SessionNotification[],
+  extendPastToolCall: boolean,
+): string | null {
+  const chunks: string[] = [];
+  const maxNotifications = 200;
+  let scanned = 0;
+
+  for (
+    let i = notifications.length - 1;
+    i >= 0 && scanned < maxNotifications;
+    i -= 1
+  ) {
     const update = notifications[i]?.update;
     if (!update) continue;
+    scanned += 1;
 
     if (update.sessionUpdate === "agent_message_chunk") {
-      started = true;
       const content = update.content as {
         type?: string;
         text?: string;
@@ -46,11 +73,43 @@ export function getLatestAssistantText(
       continue;
     }
 
-    if (started) {
+    if (
+      extendPastToolCall &&
+      chunks.length === 0 &&
+      update.sessionUpdate === "tool_call" &&
+      isExitPlanModeCall(update)
+    ) {
+      continue;
+    }
+
+    if (
+      extendPastToolCall &&
+      chunks.length === 0 &&
+      update.sessionUpdate === "agent_thought_chunk"
+    ) {
+      continue;
+    }
+
+    if (chunks.length > 0) {
+      break;
+    }
+    if (!extendPastToolCall) {
       break;
     }
   }
 
-  if (chunks.length === 0) return null;
-  return chunks.reverse().join("");
+  return chunks.length === 0 ? null : chunks.reverse().join("");
+}
+
+function isExitPlanModeCall(update: unknown): boolean {
+  const candidate = update as {
+    _meta?: { claudeCode?: { toolName?: string } };
+    toolName?: string;
+    name?: string;
+  };
+  return (
+    (candidate._meta?.claudeCode?.toolName ??
+      candidate.toolName ??
+      candidate.name) === "ExitPlanMode"
+  );
 }
