@@ -177,29 +177,20 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,
             ),
-            AsyncMigrationOperationSQL(
-                sql=f"""
-                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
-                    REPLACE PARTITION tuple() FROM {settings.CLICKHOUSE_DATABASE}.person
-                """,
-                rollback=None,
-                per_shard=True,
+            AsyncMigrationOperation(
+                fn=lambda query_id: self._replace_partition_from_source(
+                    query_id, TEMPORARY_PERSONS_TABLE_NAME, "person"
+                ),
             ),
-            AsyncMigrationOperationSQL(
-                sql=f"""
-                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
-                    REPLACE PARTITION tuple() FROM {settings.CLICKHOUSE_DATABASE}.person_distinct_id2
-                """,
-                rollback=None,
-                per_shard=True,
+            AsyncMigrationOperation(
+                fn=lambda query_id: self._replace_partition_from_source(
+                    query_id, TEMPORARY_PDI2_TABLE_NAME, "person_distinct_id2"
+                ),
             ),
-            AsyncMigrationOperationSQL(
-                sql=f"""
-                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}
-                    REPLACE PARTITION tuple() FROM {settings.CLICKHOUSE_DATABASE}.groups
-                """,
-                rollback=None,
-                per_shard=True,
+            AsyncMigrationOperation(
+                fn=lambda query_id: self._replace_partition_from_source(
+                    query_id, TEMPORARY_GROUPS_TABLE_NAME, "groups"
+                ),
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
@@ -257,6 +248,37 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=lambda query_id: self._postcheck(query_id)),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
+
+    def _source_table_has_parts(self, table_name: str) -> bool:
+        # ClickHouse refuses `REPLACE PARTITION ... FROM <source>` when the source table has no
+        # parts at all (e.g. a fresh install, or a `groups` table with no group analytics usage).
+        # Skip the copy in that case - the destination temporary table is already correctly empty.
+        result = sync_execute(
+            """
+            SELECT count() > 0
+            FROM clusterAllReplicas(%(cluster)s, system, 'parts')
+            WHERE database = %(database)s AND table = %(table)s AND active
+            """,
+            {
+                "cluster": settings.CLICKHOUSE_CLUSTER,
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": table_name,
+            },
+        )
+        return bool(result[0][0])
+
+    def _replace_partition_from_source(self, query_id: str, temp_table_name: str, source_table_name: str) -> None:
+        if not self._source_table_has_parts(source_table_name):
+            return
+
+        execute_op_clickhouse(
+            f"""
+                ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{temp_table_name} {{on_cluster_clause}}
+                REPLACE PARTITION tuple() FROM {settings.CLICKHOUSE_DATABASE}.{source_table_name}
+            """,
+            query_id=query_id,
+            per_shard=True,
+        )
 
     def _dictionary_connection_string(self):
         result = f"DB '{settings.CLICKHOUSE_DATABASE}'"

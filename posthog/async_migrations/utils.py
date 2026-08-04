@@ -73,6 +73,9 @@ def execute_op_clickhouse(
             client.sync_execute(sql, args, settings=settings)
     except Exception as e:
         reset_query_tags()
+        if per_shard:
+            on_cluster_clause = "" if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION else f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+            sql = sql.format(on_cluster_clause=on_cluster_clause)
         raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
     reset_query_tags()
