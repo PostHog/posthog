@@ -73,6 +73,16 @@ class TestMergeProgressState(TestCase):
         self.assertEqual(done.cursor, 2)
         self.assertEqual(done.processed, 2)
 
+    def test_start_of_run_claim_folds_like_no_checkpoint(self):
+        # The claim written at run start must stay a neutral element: if it ever carried counts
+        # or a cursor, a resumed sweep would double-count (or drop) the journal-recovered rows.
+        claim = ProgressState(scope="S", writer="pod-a", updated_at="2026-08-04T00:00:00+00:00")
+        rows = [_row(1, "OK"), _row(2, "MISMATCH", "d2")]
+        self.assertEqual(
+            merge_progress_state(claim, rows, next_cursor=2, complete=True, scope="S"),
+            merge_progress_state(None, rows, next_cursor=2, complete=True, scope="S"),
+        )
+
 
 class TestJournal(TestCase):
     def test_recovers_rows_dropping_a_line_torn_by_the_interrupt(self):
@@ -134,6 +144,12 @@ class TestUnabsorbedJournalRows(TestCase):
     def test_without_a_checkpoint_every_row_is_pending(self):
         rows = [_row(5, "OK")]
         self.assertEqual(unabsorbed_journal_rows(rows, None), rows)
+
+    def test_start_of_run_claim_absorbs_nothing(self):
+        # The claim's cursor is 0: were it ever written with a real cursor (say --after-id),
+        # journal rows at or below it would be treated as absorbed and their results dropped.
+        rows = [_row(1, "OK"), _row(7, "OK")]
+        self.assertEqual(unabsorbed_journal_rows(rows, 0), rows)
 
 
 class TestProgressStateRoundTrip(TestCase):

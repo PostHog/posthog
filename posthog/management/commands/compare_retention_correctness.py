@@ -63,6 +63,11 @@ the journaled insights and folds their recorded results into the report — so `
 sweep.json`` is a single resumable run. The journal is absorbed into the state file when a batch
 finishes. The cursor alone can't provide this: teams run in parallel lanes, so an interrupted run's
 completed ids are scattered across the id range, not a contiguous prefix a cursor could describe.
+A resumed run says so up front (recovered and remaining counts) and its progress counter and status
+totals continue from the recovered position instead of restarting at zero; only the ETA rate comes
+from insights this run finished itself. The checkpoint file is also written the moment a run starts,
+so the key exists (and names the active writer) mid-sweep — until a batch completes it records no
+progress, which lives in the journal.
 
 Pods are ephemeral, so a state file on the pod's own disk dies with the pod. Prefix ``--state-file``
 with ``s3://`` (e.g. ``s3://retention_compare/sweep.json``, a key in the default object-storage
@@ -105,7 +110,7 @@ import threading
 import contextvars
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from copy import deepcopy
@@ -512,7 +517,8 @@ class Command(BaseCommand):
             "completes, and the next run skips the journaled insights and keeps their results. Prefix with "
             "s3:// to keep the checkpoint and journal in object storage (the key lands in the default "
             "bucket), so the sweep outlives an ephemeral pod and any other pod can resume it; the journal "
-            "is uploaded every ~30s and on SIGTERM.",
+            "is uploaded every ~30s and on SIGTERM. The checkpoint file is created as soon as the run "
+            "starts; mid-run progress lives in the journal until the batch completes.",
         )
         parser.add_argument(
             "--after-id",
@@ -592,6 +598,19 @@ class Command(BaseCommand):
             self._handle_empty(options, state_file, scope, prev_state, cursor, journal_rows, journal_file)
             return
 
+        if journal_rows:
+            total = len(journal_rows) + len(insights)
+            self.stdout.write(
+                f"Resuming: {len(journal_rows)}/{total} insight(s) already checked, {len(insights)} to go."
+            )
+        if state_file:
+            # Claim the checkpoint up front. The only other write is at batch end — for --all the
+            # end of the whole sweep — so until then the key would not exist and a mid-sweep look
+            # at it reads as a run that never persisted anything. Claiming also records this host
+            # as the active writer, and on --restart it replaces the finished checkpoint right
+            # away, so a crashed restart resumes instead of reporting the old sweep complete.
+            save_progress_state(state_file, stamp_progress_state(prev_state or ProgressState(scope=scope)))
+
         journal = self._open_journal(journal_file, scope, recovered=journal_rows)
         # A local journal flushes every row to disk, so only the buffering object-storage sink
         # needs the eviction (SIGTERM) flush.
@@ -605,6 +624,7 @@ class Command(BaseCommand):
                     options["recheck_mismatches"],
                     options["concurrency"],
                     journal,
+                    recovered=journal_rows,
                 )
         finally:
             if journal is not None:
@@ -780,6 +800,7 @@ class Command(BaseCommand):
         recheck: bool,
         concurrency_opt: int,
         journal: Optional[LineSink] = None,
+        recovered: Sequence[Row] = (),
     ) -> list[Row]:
         urls = {i.id: f"{base_url}/project/{i.team_id}/insights/{i.short_id}/edit" for i in insights}
 
@@ -794,14 +815,18 @@ class Command(BaseCommand):
             f"up to {concurrency} team(s) in parallel…"
         )
 
-        total = len(insights)
+        total = len(insights) + len(recovered)
         progress_lock = threading.Lock()
-        done = 0
-        counts: Counter[str] = Counter()
+        # Recovered rows pre-seed the position and status totals so [done/total] tracks the whole
+        # sweep rather than restarting at zero on resume; fresh_done feeds the ETA separately,
+        # because the recovered rows cost this run nothing and would collapse the rate.
+        done = len(recovered)
+        fresh_done = 0
+        counts: Counter[str] = Counter(row.status for row in recovered)
         started_at = perf_counter()
 
         def report(row: Row) -> None:
-            nonlocal done
+            nonlocal done, fresh_done
             with progress_lock:
                 if journal is not None:
                     # Persist before printing: a local journal flushes every row to disk, the
@@ -809,9 +834,10 @@ class Command(BaseCommand):
                     # loses at most the in-flight window.
                     journal.append(journal_line(row))
                 done += 1
+                fresh_done += 1
                 counts[row.status] += 1
                 self._print_progress(done, total, row)
-                self._print_heartbeat(done, total, started_at, counts)
+                self._print_heartbeat(done, total, fresh_done, started_at, counts)
 
         rows: list[Row] = []
         # One process-wide patch; each worker selects its variant via the ContextVar.
@@ -856,13 +882,13 @@ class Command(BaseCommand):
         suffix = f" — {row.detail}" if row.detail else ""
         self.stdout.write(style(f"[{done}/{total}] {row.status} {row.short_id} (team {row.team_id}){suffix}"))
 
-    def _print_heartbeat(self, done: int, total: int, started_at: float, counts: Counter[str]) -> None:
+    def _print_heartbeat(self, done: int, total: int, fresh_done: int, started_at: float, counts: Counter[str]) -> None:
         """Elapsed/ETA line every HEARTBEAT_EVERY insights: per-row output stays quiet on OK, so a
         long healthy run would otherwise print nothing. Called with the progress lock held."""
         if done != total and done % HEARTBEAT_EVERY:
             return
         elapsed = perf_counter() - started_at
-        eta = (elapsed / done) * (total - done)
+        eta = (elapsed / fresh_done) * (total - done)
         errors = sum(count for status, count in counts.items() if status.startswith("ERROR"))
         self.stdout.write(
             f"[{done}/{total}] elapsed={_fmt_duration(elapsed)} eta={_fmt_duration(eta)} — "
