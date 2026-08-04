@@ -5,6 +5,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import type { MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
@@ -344,11 +345,13 @@ describe('supportTicketsSceneLogic', () => {
 
     describe('personal default view', () => {
         let logic: ReturnType<typeof supportTicketsSceneLogic.build>
-        let ticketRequests: number
-        let defaultRequests: number
+        let ticketRequests = 0
+        let defaultRequests = 0
+
+        type DefaultResponse = () => [number, Record<string, unknown>]
 
         // Counts both requests so tests can assert the list is fetched once, not once per filter set
-        function getMocks(defaultResponse: () => [number, unknown]): Record<string, unknown> {
+        function getMocks(defaultResponse: DefaultResponse): Record<string, MockSignature> {
             return {
                 '/api/projects/:team_id/conversations/tickets/': () => {
                     ticketRequests++
@@ -365,7 +368,7 @@ describe('supportTicketsSceneLogic', () => {
             }
         }
 
-        const withDefault = (shortId: string): (() => [number, unknown]) => {
+        const withDefault = (shortId: string): DefaultResponse => {
             return () => [200, { default_view: makeSavedView(shortId, { status: ['open'] }) }]
         }
 
@@ -412,7 +415,7 @@ describe('supportTicketsSceneLogic', () => {
             logic = supportTicketsSceneLogic()
             logic.mount()
             await expectLogic(logic, () => {
-                logic.actions.setStatusFilter(['closed'])
+                logic.actions.setStatusFilter(['resolved'])
             }).toFinishAllListeners()
             logic.unmount()
 

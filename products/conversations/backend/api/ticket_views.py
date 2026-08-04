@@ -172,15 +172,16 @@ class TicketViewViewSet(
         """The requesting user's default view, in one request so the ticket list can be fetched with the
         right filters on first load. Routed before the short_id detail route, and short_ids are 8
         characters, so "default" can never shadow a real view."""
+        user = cast("User", request.user)
         row = (
-            TicketViewDefault.objects.filter(team_id=self.team_id, user=cast("User", request.user))
+            TicketViewDefault.objects.filter(team_id=self.team_id, user=user)
             .select_related("ticket_view", "ticket_view__created_by")
             .first()
         )
         view = row.ticket_view if row else None
         if view is not None:
             view.is_default = True
-            view.is_favorited = TicketViewFavorite.objects.filter(ticket_view=view, user=request.user).exists()
+            view.is_favorited = TicketViewFavorite.objects.filter(ticket_view=view, user=user).exists()
         serializer = DefaultTicketViewSerializer({"default_view": view}, context=self.get_serializer_context())
         return Response(serializer.data)
 
