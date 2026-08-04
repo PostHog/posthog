@@ -247,6 +247,9 @@ async fn main() {
             .flat_map(Vec::<EmbeddingRecord>::from)
             .collect();
 
+        // Capture before Kafka assigns the output record's timestamp, which becomes
+        // ClickHouse inserted_at and lets callers distinguish a later re-emission.
+        let emitted_at = Utc::now();
         let emit_results = txn
             .send_keyed_iter_to_kafka(
                 &context.config.output_topic,
@@ -286,7 +289,6 @@ async fn main() {
         // cheaply check processing status. Best effort - better to write the same document
         // twice to CH (where it'll be de-duped anyway) than falsely advertise that we
         // processed it
-        let emitted_at = Utc::now();
         let seen = dedup_seen(records.iter().map(|record| {
             let key = DocumentKey {
                 product: record.product.clone(),

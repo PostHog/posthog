@@ -25,7 +25,7 @@ pub struct DocumentKey {
     pub document_id: String,
 }
 
-/// A document the worker emitted, with the time its Kafka transaction committed.
+/// A document the worker emitted, with the time it started producing the output record.
 #[derive(Debug, Clone)]
 pub struct SeenRecord {
     pub team_id: i32,
