@@ -173,7 +173,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     {config.values.map((value, index) => (
                         <div
                             key={`${value.field.id}-${index}`}
-                            className="flex min-w-64 flex-1 items-center gap-2 rounded border bg-primary p-2"
+                            className="flex w-full min-w-0 items-center gap-2 rounded border bg-primary p-2"
                         >
                             <LemonSelect
                                 value={value.aggregation}
@@ -228,7 +228,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                         return (
                             <div
                                 key={filter.field.id}
-                                className="flex min-w-64 flex-1 items-center gap-2 rounded border bg-primary p-2"
+                                className="flex w-full min-w-0 items-center gap-2 rounded border bg-primary p-2"
                             >
                                 <ExpressionEditorButton
                                     value={filter.field.expression}
@@ -297,7 +297,7 @@ function FieldExpressionEditor({
     onRemove: () => void
 }): JSX.Element {
     return (
-        <div className="flex min-w-64 flex-1 items-center gap-2 rounded border bg-primary p-2">
+        <div className="flex w-full min-w-0 items-center gap-2 rounded border bg-primary p-2">
             <ExpressionEditorButton
                 value={field.expression}
                 field={field}
@@ -417,7 +417,7 @@ function Shelf({
                     {title}
                 </div>
                 <span className="text-xs text-secondary">{description}</span>
-                <div className="flex flex-1 flex-wrap content-start items-start gap-2">{children}</div>
+                <div className="flex flex-1 flex-col gap-2">{children}</div>
             </div>
         </LemonCard>
     )

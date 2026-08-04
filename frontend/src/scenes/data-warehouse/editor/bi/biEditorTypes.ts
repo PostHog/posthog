@@ -57,6 +57,11 @@ export interface BIConfig {
     limit: number
 }
 
+export interface BIEditorState {
+    editorView: BIEditorView
+    config: BIConfig
+}
+
 export interface BIQueryBuildResult {
     query: string
     node: DataVisualizationNode
@@ -73,6 +78,26 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     filters: [],
     limit: 1000,
 }
+
+const BI_AGGREGATIONS = new Set<BIAggregation>([
+    'count',
+    'count_distinct',
+    'sum',
+    'average',
+    'minimum',
+    'maximum',
+    'custom',
+])
+const BI_FILTER_OPERATORS = new Set<BIFilterOperator>([
+    'equals',
+    'not_equals',
+    'contains',
+    'greater_than',
+    'less_than',
+    'is_set',
+    'is_not_set',
+    'custom',
+])
 
 const NUMERIC_FIELD_TYPES = new Set<DatabaseSerializedFieldType>(['integer', 'float', 'decimal'])
 
@@ -99,29 +124,155 @@ export function serializeBIField(field: BIField): string {
     return JSON.stringify(field)
 }
 
+function parseBIFieldValue(value: unknown): BIField | null {
+    if (!value || typeof value !== 'object') {
+        return null
+    }
+
+    const candidate = value as Partial<BIField>
+    if (
+        typeof candidate.id !== 'string' ||
+        typeof candidate.name !== 'string' ||
+        typeof candidate.expression !== 'string' ||
+        typeof candidate.type !== 'string' ||
+        !candidate.source ||
+        typeof candidate.source.table !== 'string' ||
+        (candidate.source.connectionId !== undefined && typeof candidate.source.connectionId !== 'string')
+    ) {
+        return null
+    }
+
+    return candidate as BIField
+}
+
 export function parseBIField(serializedField: string): BIField | null {
     try {
-        const value: unknown = JSON.parse(serializedField)
-        if (!value || typeof value !== 'object') {
-            return null
-        }
-
-        const candidate = value as Partial<BIField>
-        if (
-            typeof candidate.id !== 'string' ||
-            typeof candidate.name !== 'string' ||
-            typeof candidate.expression !== 'string' ||
-            typeof candidate.type !== 'string' ||
-            !candidate.source ||
-            typeof candidate.source.table !== 'string'
-        ) {
-            return null
-        }
-
-        return candidate as BIField
+        return parseBIFieldValue(JSON.parse(serializedField))
     } catch {
         return null
     }
+}
+
+export function parseBIEditorState(editorViewValue: unknown, configValue: unknown): BIEditorState | null {
+    if (editorViewValue !== BIEditorView.SQL && editorViewValue !== BIEditorView.BI) {
+        return null
+    }
+
+    if (configValue === undefined) {
+        return {
+            editorView: editorViewValue,
+            config: { ...DEFAULT_BI_CONFIG, rows: [], columns: [], values: [], filters: [] },
+        }
+    }
+
+    let decodedConfig = configValue
+    if (typeof configValue === 'string') {
+        try {
+            decodedConfig = JSON.parse(configValue)
+        } catch {
+            return null
+        }
+    }
+    if (!decodedConfig || typeof decodedConfig !== 'object') {
+        return null
+    }
+
+    const candidate = decodedConfig as Partial<BIConfig>
+    const source =
+        candidate.source === null
+            ? null
+            : candidate.source &&
+                typeof candidate.source.table === 'string' &&
+                (candidate.source.connectionId === undefined || typeof candidate.source.connectionId === 'string')
+              ? candidate.source
+              : undefined
+    const rows = Array.isArray(candidate.rows) ? candidate.rows.map(parseBIFieldValue) : null
+    const columns = Array.isArray(candidate.columns) ? candidate.columns.map(parseBIFieldValue) : null
+    const values = Array.isArray(candidate.values)
+        ? candidate.values.map((value): BIValue | null => {
+              if (!value || typeof value !== 'object') {
+                  return null
+              }
+              const valueCandidate = value as Partial<BIValue>
+              const field = parseBIFieldValue(valueCandidate.field)
+              if (
+                  !field ||
+                  !BI_AGGREGATIONS.has(valueCandidate.aggregation as BIAggregation) ||
+                  (valueCandidate.customExpression !== undefined && typeof valueCandidate.customExpression !== 'string')
+              ) {
+                  return null
+              }
+              return {
+                  field,
+                  aggregation: valueCandidate.aggregation as BIAggregation,
+                  customExpression: valueCandidate.customExpression,
+              }
+          })
+        : null
+    const filters = Array.isArray(candidate.filters)
+        ? candidate.filters.map((filter): BIFilter | null => {
+              if (!filter || typeof filter !== 'object') {
+                  return null
+              }
+              const filterCandidate = filter as Partial<BIFilter>
+              const field = parseBIFieldValue(filterCandidate.field)
+              if (
+                  !field ||
+                  !BI_FILTER_OPERATORS.has(filterCandidate.operator as BIFilterOperator) ||
+                  typeof filterCandidate.value !== 'string' ||
+                  (filterCandidate.customExpression !== undefined &&
+                      typeof filterCandidate.customExpression !== 'string')
+              ) {
+                  return null
+              }
+              return {
+                  field,
+                  operator: filterCandidate.operator as BIFilterOperator,
+                  value: filterCandidate.value,
+                  customExpression: filterCandidate.customExpression,
+              }
+          })
+        : null
+
+    if (
+        source === undefined ||
+        !Object.values(ChartDisplayType).includes(candidate.chartType as ChartDisplayType) ||
+        !rows ||
+        rows.some((field) => !field) ||
+        !columns ||
+        columns.some((field) => !field) ||
+        !values ||
+        values.some((value) => !value) ||
+        !filters ||
+        filters.some((filter) => !filter) ||
+        typeof candidate.limit !== 'number' ||
+        !Number.isInteger(candidate.limit) ||
+        candidate.limit <= 0
+    ) {
+        return null
+    }
+
+    const config: BIConfig = {
+        source,
+        chartType: candidate.chartType as ChartDisplayType,
+        rows: rows as BIField[],
+        columns: columns as BIField[],
+        values: values as BIValue[],
+        filters: filters as BIFilter[],
+        limit: candidate.limit,
+    }
+    const fields = [
+        ...config.rows,
+        ...config.columns,
+        ...config.values.map((value) => value.field),
+        ...config.filters.map((filter) => filter.field),
+    ]
+
+    if (fields.length > 0 && (!source || fields.some((field) => !isBIFieldCompatible(source, field)))) {
+        return null
+    }
+
+    return { editorView: editorViewValue, config }
 }
 
 function sanitizeAlias(value: string): string {

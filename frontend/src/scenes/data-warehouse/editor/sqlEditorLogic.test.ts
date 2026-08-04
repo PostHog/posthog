@@ -26,6 +26,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { biEditorLogic } from './bi/biEditorLogic'
+import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import {
@@ -1475,6 +1477,61 @@ describe('sqlEditorLogic', () => {
             // Reading splitQueryRanges threw "e.trim is not a function" when queryInput was the number 42
             expect(() => logic.values.splitQueryRanges).not.toThrow()
             expect(logic.values.splitQueryRanges).toHaveLength(1)
+        })
+    })
+
+    describe('BI editor hash parameters', () => {
+        it('restores BI mode and configuration from the URL and keeps changes in the hash', async () => {
+            const eventField: BIField = {
+                id: 'warehouse:events:event',
+                name: 'event',
+                expression: 'event',
+                type: 'string',
+                source: { table: 'events' },
+            }
+            const config: BIConfig = {
+                source: { table: 'events' },
+                chartType: ChartDisplayType.ActionsBar,
+                rows: [eventField],
+                columns: [],
+                values: [],
+                filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
+                limit: 1000,
+            }
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'updateTab'])
+                .toMatchValues({
+                    activeTab: partial({
+                        biEditorState: { editorView: BIEditorView.BI, config },
+                    }),
+                })
+            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config })
+
+            await expectLogic(biLogic, () => biLogic.actions.setFilterValue(0, 'purchase')).toFinishAllListeners()
+
+            expect(router.values.hashParams.mode).toEqual(BIEditorView.BI)
+            expect(router.values.hashParams.bi).toEqual({
+                ...config,
+                filters: [{ ...config.filters[0], value: 'purchase' }],
+            })
+
+            biLogic.unmount()
         })
     })
 
