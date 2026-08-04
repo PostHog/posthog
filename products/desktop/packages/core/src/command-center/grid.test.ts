@@ -18,6 +18,7 @@ describe("getGridDimensions / getCellCount", () => {
   it.each([
     { preset: "1x1", cols: 1, rows: 1, count: 1 },
     { preset: "2x1", cols: 2, rows: 1, count: 2 },
+    { preset: "3x1", cols: 3, rows: 1, count: 3 },
     { preset: "1x2", cols: 1, rows: 2, count: 2 },
     { preset: "2x2", cols: 2, rows: 2, count: 4 },
     { preset: "3x2", cols: 3, rows: 2, count: 6 },
