@@ -19,6 +19,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1604,7 +1605,10 @@ export function shouldGuardScannerNavigation(params: {
     if (!editorPaths.includes(currentPathname)) {
         return false
     }
-    if (nextPathname && editorPaths.includes(nextPathname)) {
+    // `nextPathname` comes from the router's intercepted destination, which (unlike
+    // `currentPathname`) still carries the `/project/:id` segment - strip it so the two are
+    // comparable, otherwise every same-wizard step navigation looks like leaving the editor.
+    if (nextPathname && editorPaths.includes(removeProjectIdIfPresent(nextPathname))) {
         return false
     }
     return true

@@ -620,6 +620,14 @@ describe('replayScannerLogic', () => {
             // Moving between the wizard's own steps keeps the same draft mounted.
             ['forward to triggers step', { ...base, nextPathname: triggers }, false],
             ['back to template step', { ...base, currentPathname: triggers, nextPathname: template }, false],
+            // `nextPathname` arrives with the `/project/:id` segment kea-router adds back onto the
+            // intercepted destination - the guard must strip it before comparing, or every step
+            // navigation looks like leaving the editor.
+            [
+                'forward to triggers step with a project-id prefix',
+                { ...base, nextPathname: `/project/2${triggers}` },
+                false,
+            ],
             // Only guard while actually inside this scanner's editor.
             ['not currently in the editor', { ...base, currentPathname: detail, nextPathname: '/insights' }, false],
             // Genuinely leaving the editor with unsaved edits.
