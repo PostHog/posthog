@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -71,6 +72,9 @@ const insightFetchMock = ({ params }: MockResolverInfo): [number, any] => {
 
 const BASE_DASHBOARD_ID = 1
 const SERVER_ERROR_DASHBOARD_ID = 2
+const LOADING_DASHBOARD_ID = 3
+const EMPTY_DASHBOARD_ID = 4
+const ACCESS_DENIED_DASHBOARD_ID = 5
 const NOT_FOUND_DASHBOARD_ID = 1000
 
 const meta: Meta = {
@@ -88,6 +92,21 @@ const meta: Meta = {
                     500,
                     { detail: 'Server error' },
                 ],
+                [`/api/environments/:team_id/dashboards/${LOADING_DASHBOARD_ID}/`]: async () => {
+                    await delay('infinite')
+                    return HttpResponse.json({})
+                },
+                [`/api/environments/:team_id/dashboards/${EMPTY_DASHBOARD_ID}/`]: {
+                    ...dashboard,
+                    id: EMPTY_DASHBOARD_ID,
+                    name: 'Empty dashboard',
+                    tiles: [],
+                },
+                [`/api/environments/:team_id/dashboards/${ACCESS_DENIED_DASHBOARD_ID}/`]: [
+                    403,
+                    { code: 'permission_denied', detail: 'You do not have access to this dashboard.' },
+                ],
+                [`/api/environments/:team_id/dashboards/${NOT_FOUND_DASHBOARD_ID}/`]: [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/dashboard_templates/': __dashboard_templates as any,
                 '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
                 '/api/environments/:team_id/dashboards/:dash_id/sharing/': {
@@ -231,9 +250,28 @@ export const NotFound: Story = {
     },
 }
 
-export const Erroring: Story = {
+export const AccessDenied: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(ACCESS_DENIED_DASHBOARD_ID),
+    },
+}
+
+export const ServerError: Story = {
     parameters: {
         pageUrl: urls.dashboard(SERVER_ERROR_DASHBOARD_ID),
+    },
+}
+
+export const Loading: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(LOADING_DASHBOARD_ID),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.Spinner' },
+    },
+}
+
+export const Empty: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(EMPTY_DASHBOARD_ID),
     },
 }
 
