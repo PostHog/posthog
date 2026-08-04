@@ -2,7 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-import { EditModeEdgeOverlay, isPointInScrollbarGutter } from './EditModeEdgeOverlay'
+import {
+    EditModeEdgeOverlay,
+    isPointInScrollbarGutter,
+    useResizeHandleScrollbarPassThrough,
+} from './EditModeEdgeOverlay'
 
 type FakeElementConfig = {
     rect: { left: number; top: number; right: number; bottom: number }
@@ -189,6 +193,72 @@ describe('EditModeEdgeOverlay', () => {
 
             expect(zones[6]).toHaveStyle({ pointerEvents: 'none' })
             expect(zones[1]).toHaveStyle({ pointerEvents: 'none' })
+        })
+    })
+
+    describe('useResizeHandleScrollbarPassThrough', () => {
+        // In edit mode react-grid-layout's south resize handle covers a table tile's horizontal
+        // scrollbar, so presses there resized the tile instead of scrolling.
+        function Harness(): null {
+            useResizeHandleScrollbarPassThrough(true)
+            return null
+        }
+
+        function mountEditModeTile(): { gridItem: HTMLElement; handle: HTMLElement; scrollable: HTMLElement } {
+            const gridItem = document.createElement('div')
+            gridItem.className = 'react-grid-item'
+            const scrollable = fakeScrollableElement(SCROLLABLE_BASE)
+            const handle = document.createElement('span')
+            handle.className = 'react-resizable-handle react-resizable-handle-s'
+            handle.getBoundingClientRect = () =>
+                ({ left: 0, top: 276, right: 368, bottom: 308, width: 368, height: 32 }) as DOMRect
+            gridItem.append(scrollable, handle)
+            document.body.appendChild(gridItem)
+            jest.spyOn(document, 'elementsFromPoint').mockImplementation((x: number, y: number) =>
+                x >= 0 && x <= 400 && y >= 0 && y <= 300 ? [handle, scrollable, gridItem] : []
+            )
+            render(<Harness />)
+            return { gridItem, handle, scrollable }
+        }
+
+        afterEach(() => {
+            document.querySelectorAll('.react-grid-item').forEach((el) => el.remove())
+        })
+
+        it('yields a resize handle while over a scrollbar and re-arms it after', () => {
+            const { handle } = mountEditModeTile()
+
+            fireEvent.mouseMove(handle, { clientX: 200, clientY: 292 })
+            expect(handle.style.pointerEvents).toBe('none')
+
+            fireEvent.mouseMove(document, { clientX: 200, clientY: 150 })
+            expect(handle.style.pointerEvents).toBe('')
+        })
+
+        it('yields every handle stacked on the point, not just the hovered one', () => {
+            const { gridItem, handle } = mountEditModeTile()
+            const cornerHandle = document.createElement('span')
+            cornerHandle.className = 'react-resizable-handle react-resizable-handle-sw'
+            cornerHandle.getBoundingClientRect = () =>
+                ({ left: -8, top: 276, right: 24, bottom: 308, width: 32, height: 32 }) as DOMRect
+            gridItem.appendChild(cornerHandle)
+
+            fireEvent.mouseMove(cornerHandle, { clientX: 8, clientY: 292 })
+
+            expect(cornerHandle.style.pointerEvents).toBe('none')
+            expect(handle.style.pointerEvents).toBe('none')
+        })
+
+        it('stops a press over a scrollbar from reaching the grid item, but not one elsewhere', () => {
+            const { gridItem, scrollable } = mountEditModeTile()
+            const gridItemPress = jest.fn()
+            gridItem.addEventListener('mousedown', gridItemPress)
+
+            fireEvent.mouseDown(scrollable, { clientX: 200, clientY: 292 })
+            expect(gridItemPress).not.toHaveBeenCalled()
+
+            fireEvent.mouseDown(scrollable, { clientX: 200, clientY: 150 })
+            expect(gridItemPress).toHaveBeenCalledTimes(1)
         })
     })
 

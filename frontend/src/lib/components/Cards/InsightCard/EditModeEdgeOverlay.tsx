@@ -125,6 +125,94 @@ function pointIsOverScrollbarInside(container: HTMLElement, x: number, y: number
         )
 }
 
+/**
+ * In edit mode react-grid-layout's resize handles cover the card edges — the south handle is 32px
+ * tall and reaches 24px into the tile (see DashboardItems.scss), fully burying a table's horizontal
+ * scrollbar — so they must yield to scrollbars the same way the view-mode zones above do. One
+ * document-level watcher covers every tile: it hands a hovered handle's pixels to the scrollbar via
+ * `pointer-events: none` and re-arms it once the pointer leaves. The capture-phase mousedown guard
+ * covers what the hover hand-off can't: a press that lands before any mousemove, or a press on the
+ * scrollbar itself, which would otherwise bubble into react-grid-layout and start a resize or tile
+ * drag. Stopping propagation (without preventDefault) keeps the native scrollbar interaction alive.
+ */
+export function useResizeHandleScrollbarPassThrough(enabled: boolean): void {
+    useEffect(() => {
+        if (!enabled) {
+            return
+        }
+        const yielded = new Set<HTMLElement>()
+
+        const rearm = (event: MouseEvent): void => {
+            for (const handle of yielded) {
+                const gridItem = handle.closest('.react-grid-item')
+                const rect = handle.getBoundingClientRect()
+                const inHandle =
+                    handle.isConnected &&
+                    event.clientX >= rect.left &&
+                    event.clientX <= rect.right &&
+                    event.clientY >= rect.top &&
+                    event.clientY <= rect.bottom
+                if (
+                    !inHandle ||
+                    !(gridItem instanceof HTMLElement) ||
+                    !pointIsOverScrollbarInside(gridItem, event.clientX, event.clientY)
+                ) {
+                    handle.style.pointerEvents = ''
+                    yielded.delete(handle)
+                }
+            }
+        }
+
+        const handleMove = (event: MouseEvent): void => {
+            if (event.buttons !== 0) {
+                return // don't re-target pixels mid-drag or mid-resize
+            }
+            rearm(event)
+            const hovered = event.target instanceof Element ? event.target.closest('.react-resizable-handle') : null
+            const gridItem = hovered?.closest('.react-grid-item')
+            if (
+                !(hovered instanceof HTMLElement) ||
+                !(gridItem instanceof HTMLElement) ||
+                yielded.has(hovered) ||
+                !pointIsOverScrollbarInside(gridItem, event.clientX, event.clientY)
+            ) {
+                return
+            }
+            // Corner handles overlap the edge handles at the ends, so yield every handle stacked on
+            // the point at once — otherwise the one beneath swallows a press until its own mousemove.
+            for (const handle of gridItem.querySelectorAll<HTMLElement>('.react-resizable-handle')) {
+                const rect = handle.getBoundingClientRect()
+                if (
+                    event.clientX >= rect.left &&
+                    event.clientX <= rect.right &&
+                    event.clientY >= rect.top &&
+                    event.clientY <= rect.bottom
+                ) {
+                    handle.style.pointerEvents = 'none'
+                    yielded.add(handle)
+                }
+            }
+        }
+
+        const handlePressCapture = (event: MouseEvent): void => {
+            const gridItem = event.target instanceof Element ? event.target.closest('.react-grid-item') : null
+            if (gridItem instanceof HTMLElement && pointIsOverScrollbarInside(gridItem, event.clientX, event.clientY)) {
+                event.stopPropagation()
+            }
+        }
+
+        document.addEventListener('mousemove', handleMove)
+        document.addEventListener('mousedown', handlePressCapture, true)
+        return () => {
+            document.removeEventListener('mousemove', handleMove)
+            document.removeEventListener('mousedown', handlePressCapture, true)
+            for (const handle of yielded) {
+                handle.style.pointerEvents = ''
+            }
+        }
+    }, [enabled])
+}
+
 export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnterEditMode }) => {
     const [hovering, setHovering] = useState(false)
     // Count entered zones rather than toggling a boolean, so following the border across overlapping
