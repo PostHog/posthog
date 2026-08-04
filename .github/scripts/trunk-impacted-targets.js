@@ -43,11 +43,11 @@
 //
 //      Which of the product's own files seed that cascade is the narrower
 //      question isolation does govern. An isolated product declares a contract
-//      surface as its `backend:contract-check` inputs in
-//      products/<name>/turbo.json — the same declaration turbo-discover reads
-//      to decide whether dependent test suites run, so the two mechanisms
-//      cannot drift apart — and a change confined to its internals keeps its
-//      own lane without cascading. This makes the declaration load-bearing for
+//      surface as its `backend:contract-check` inputs in products/<name>/turbo.json.
+//      This is the same declaration turbo-discover reads to decide whether dependent
+//      test suites run, so the two mechanisms cannot drift apart. A change confined
+//      to its internals keeps its own lane without cascading. This makes the
+//      declaration load-bearing for
 //      correctness: an input list that omits a file other products import puts
 //      those products in a parallel lane. A product that declares no narrowed
 //      inputs, isolated or not, cascades on every backend file.

@@ -580,7 +580,7 @@ test('a product absent from the tach graph widens to every backend target', () =
 
 // The lane only has to answer whether another PR can reference the symbols this
 // one changed, and tach.toml answers exactly that. Isolation is the stronger,
-// separate claim that the product's own suite is sufficient — which lets CI
+// separate claim that the product's own suite is sufficient, which lets CI
 // skip the full Django suite, and which products/architecture.md says tach
 // cannot prove. A product can be too unsealed for that and still be bounded
 // here, which is why gamma (non-isolated) narrows the same way alpha does.
