@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { ReplayScanner } from './types'
+import type { ReplayScanner } from './types'
 
 export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'self_driving'
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers', 'self_driving']
