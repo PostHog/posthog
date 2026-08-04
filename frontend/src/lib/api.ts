@@ -366,10 +366,6 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (error) {
-        // A body read cancelled mid-stream (navigation, superseded request) surfaces here as an
-        // AbortError. Propagate it so it flows through the normal cancellation path instead of
-        // masquerading as a successful `null` — otherwise callers dereference it (`.results`,
-        // `.count`, …) and blow up with a `Cannot read properties of null` TypeError.
         if (isAbortError(error)) {
             throw error
         }
@@ -377,30 +373,9 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     }
 }
 
-async function getApiErrorFromResponse(response: Response, method: string, url: string): Promise<ApiError> {
-    const data = await getJSONOrNull(response)
-
-    if (response.status >= 400 && data) {
-        if (typeof data.error === 'string') {
-            return new ApiError(data.error, response.status, response.headers, data)
-        }
-
-        if (typeof data.detail === 'string') {
-            return new ApiError(data.detail, response.status, response.headers, data)
-        }
-
-        if (typeof data.message === 'string') {
-            return new ApiError(data.message, response.status, response.headers, data)
-        }
-    }
-
+function apiErrorFallback(response: Response, method: string, url: string): string {
     const pathname = new URL(url, location.origin).pathname
-    return new ApiError(
-        `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
-        response.status,
-        response.headers,
-        data
-    )
+    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 
 /**
@@ -3576,7 +3551,7 @@ const api = {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
                     if (!response.ok) {
-                        const error = await getApiErrorFromResponse(response, 'GET', url)
+                        const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
                         onError(error)
                         abortController.abort()
                         return
@@ -7385,12 +7360,8 @@ const api = {
                         abortController.abort()
                     }
                 } else if (!response.ok) {
-                    let errorData: any = {}
-                    try {
-                        errorData = await response.json()
-                    } catch {
-                        // If JSON parsing fails, leave errorData empty
-                    }
+                    const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
+                    const errorData = error.data
                     // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
                     // identify which failure mode is producing the livestream auth baseline.
                     // Remove once root cause is known.
@@ -7403,14 +7374,7 @@ const api = {
                             server_message: errorData?.message || errorData?.error,
                         })
                     }
-                    onError(
-                        new ApiError(
-                            errorData.error || `Request failed with status ${response.status}`,
-                            response.status,
-                            response.headers,
-                            errorData
-                        )
-                    )
+                    onError(error)
                     abortController.abort()
                 } else {
                     onOpen?.()
@@ -7622,7 +7586,7 @@ async function handleFetch(
             }
         }
 
-        throw await getApiErrorFromResponse(response, method, url)
+        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
     }
 
     return response
