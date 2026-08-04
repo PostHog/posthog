@@ -293,6 +293,46 @@ class TestTicketMessageSignals(BaseTest):
         mock_delay.assert_not_called()
 
     @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    def test_editing_a_private_note_does_not_reach_slack_or_the_customer_preview(self, mock_delay, mock_on_commit):
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        slack_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="slack-user-3",
+            channel_source=Channel.SLACK,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000300",
+        )
+        public_reply = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Public reply",
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": False},
+        )
+        note = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Private support note",
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": True},
+        )
+        mock_delay.reset_mock()
+
+        note.content = "Private support note, corrected"
+        note.save()
+
+        mock_delay.assert_not_called()
+        # last_message_text is what the widget shows the customer, so an edited private note must
+        # not overwrite the preview the public reply left behind.
+        slack_ticket.refresh_from_db()
+        assert slack_ticket.message_count == 1
+        assert slack_ticket.last_message_text == public_reply.content
+
+    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
     def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
@@ -465,6 +505,21 @@ class TestEmailReplySignalGuard(BaseTest):
         )
 
         assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count
+
+    def test_editing_a_private_note_does_not_queue_an_email(self, _mock_on_commit):
+        note = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.email_ticket.id),
+            content="Private support note",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": True},
+        )
+
+        note.content = "Private support note, corrected"
+        note.save()
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == 0
 
 
 class TestIsOutboundReply:

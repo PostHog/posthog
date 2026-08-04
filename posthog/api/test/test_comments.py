@@ -681,6 +681,59 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         own_message.refresh_from_db()
         assert own_message.content == "my reply"
 
+    def _private_note(self, author: User, content: str = "my note") -> Comment:
+        return Comment.objects.create(
+            team=self.team,
+            created_by=author,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content=content,
+            item_context={"author_type": "support", "is_private": True},
+        )
+
+    def test_author_can_edit_own_private_note(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        note = self._private_note(self.member)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{note.id}?scope=conversations_ticket",
+            {"content": "my corrected note", "rich_content": {"type": "doc"}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # The Support UI has no edited_at to read, so the "(edited)" marker rides on this bump.
+        assert response.json()["version"] == 1
+        note.refresh_from_db()
+        assert note.content == "my corrected note"
+        assert note.rich_content == {"type": "doc"}
+        assert note.item_context == {"author_type": "support", "is_private": True}
+
+    def test_member_cannot_edit_another_agents_private_note(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        note = self._private_note(self.user, content="not my note")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{note.id}?scope=conversations_ticket",
+            {"content": "rewriting someone else's note"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        note.refresh_from_db()
+        assert note.content == "not my note"
+
+    def test_editing_a_ticket_message_requires_naming_the_scope(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        note = self._private_note(self.member)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{note.id}",
+            {"content": "my corrected note"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        note.refresh_from_db()
+        assert note.content == "my note"
+
     def test_cannot_rescope_existing_comment_into_denied_ticket(self) -> None:
         own_comment = Comment.objects.create(
             team=self.team,

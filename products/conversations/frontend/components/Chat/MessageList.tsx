@@ -1,3 +1,4 @@
+import { JSONContent } from '@tiptap/core'
 import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -34,6 +35,15 @@ export interface MessageListProps {
     /** Non-message timeline entries, placed among the messages by their own timestamp. Opt-in, so a
      * customer-facing view never receives team-only content. */
     extras?: TimelineExtra[]
+    /** The one message the reader may edit, if any. Editing is opt-in per view: without
+     * onStartEditMessage no row offers it, which is what keeps it out of customer-facing views. */
+    editableMessageId?: string | null
+    editingMessageId?: string | null
+    messageEditSaving?: boolean
+    editDisabledReason?: string
+    onStartEditMessage?: (messageId: string) => void
+    onCancelEditMessage?: () => void
+    onSaveEditMessage?: (messageId: string, content: string, richContent: JSONContent) => void
 }
 
 /** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
@@ -62,6 +72,13 @@ export function MessageList({
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
     extras = [],
+    editableMessageId = null,
+    editingMessageId = null,
+    messageEditSaving = false,
+    editDisabledReason,
+    onStartEditMessage,
+    onCancelEditMessage,
+    onSaveEditMessage,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -212,6 +229,17 @@ export function MessageList({
                         onSubmitAiReplyFeedback={
                             onSubmitAiReplyFeedback
                                 ? (rating, feedbackText) => onSubmitAiReplyFeedback(message.id, rating, feedbackText)
+                                : undefined
+                        }
+                        canEdit={!!onStartEditMessage && message.id === editableMessageId}
+                        isEditing={message.id === editingMessageId}
+                        editSaving={messageEditSaving}
+                        editDisabledReason={editDisabledReason}
+                        onStartEdit={onStartEditMessage ? () => onStartEditMessage(message.id) : undefined}
+                        onCancelEdit={onCancelEditMessage}
+                        onSaveEdit={
+                            onSaveEditMessage
+                                ? (content, richContent) => onSaveEditMessage(message.id, content, richContent)
                                 : undefined
                         }
                     />

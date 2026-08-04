@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 
 import {
     IconCopy,
+    IconPencil,
     IconThumbsDown,
     IconThumbsDownFilled,
     IconThumbsUp,
@@ -16,6 +17,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { MessageEditForm } from './MessageEditForm'
 import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
@@ -26,6 +28,15 @@ export interface MessageProps {
     aiReplyFeedbackRating?: AiReplyFeedbackRating | null
     aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    /** Whether the reader may edit this message. Only the thread's newest private note, written by
+     * the reader themselves, qualifies. */
+    canEdit?: boolean
+    isEditing?: boolean
+    editSaving?: boolean
+    editDisabledReason?: string
+    onStartEdit?: () => void
+    onCancelEdit?: () => void
+    onSaveEdit?: (content: string, richContent: JSONContent) => void
 }
 
 export function Message({
@@ -36,6 +47,13 @@ export function Message({
     aiReplyFeedbackRating = null,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
+    canEdit = false,
+    isEditing = false,
+    editSaving = false,
+    editDisabledReason,
+    onStartEdit,
+    onCancelEdit,
+    onSaveEdit,
 }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
     const isPrivate = message.isPrivate
@@ -78,6 +96,7 @@ export function Message({
                         />
                         <div className="flex items-center gap-1.5">
                             {isPrivate && <TeamOnlyBadge label="Private note" />}
+                            {message.isEdited && <span className="text-xs text-muted-alt italic">(edited)</span>}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                             </span>
@@ -93,8 +112,20 @@ export function Message({
                                       : 'bg-surface-primary'
                             } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
-                            {isPrivate && (
-                                <div className="flex items-center justify-end">
+                            {isPrivate && !isEditing && (
+                                <div className="flex items-center justify-end gap-0.5">
+                                    {canEdit && (
+                                        <Tooltip title="Edit note">
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={<IconPencil />}
+                                                noPadding
+                                                disabledReason={editDisabledReason}
+                                                onClick={onStartEdit}
+                                                data-attr="edit-private-note"
+                                            />
+                                        </Tooltip>
+                                    )}
                                     <Tooltip title="Copy message">
                                         <LemonButton
                                             size="xsmall"
@@ -105,22 +136,33 @@ export function Message({
                                     </Tooltip>
                                 </div>
                             )}
-                            {/* Every message here is untrusted: customers write them, imports carry them,
-                                and agents generate them from customer text. An inline remote image would
-                                fetch on open, leaking the reader's IP or probing hosts their browser can
-                                reach. PostHog-hosted images (attachments included) still render inline;
-                                anything else becomes a click-to-open link. */}
-                            {message.richContent ? (
-                                <SupportRichContentPreview
-                                    content={message.richContent as JSONContent}
-                                    className="text-sm"
-                                    fallbackContent={message.content}
-                                    fallbackDisableImages={message.fromZendesk}
+                            {isEditing && onSaveEdit && onCancelEdit ? (
+                                <MessageEditForm
+                                    message={message}
+                                    saving={editSaving}
+                                    onCancel={onCancelEdit}
+                                    onSave={onSaveEdit}
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm" disableImages>
-                                    {message.content}
-                                </SupportMarkdown>
+                                <>
+                                    {/* Every message here is untrusted: customers write them, imports carry them,
+                                        and agents generate them from customer text. An inline remote image would
+                                        fetch on open, leaking the reader's IP or probing hosts their browser can
+                                        reach. PostHog-hosted images (attachments included) still render inline;
+                                        anything else becomes a click-to-open link. */}
+                                    {message.richContent ? (
+                                        <SupportRichContentPreview
+                                            content={message.richContent as JSONContent}
+                                            className="text-sm"
+                                            fallbackContent={message.content}
+                                            fallbackDisableImages={message.fromZendesk}
+                                        />
+                                    ) : (
+                                        <SupportMarkdown className="text-sm" disableImages>
+                                            {message.content}
+                                        </SupportMarkdown>
+                                    )}
+                                </>
                             )}
                         </div>
                         {showAiReplyFeedback && (

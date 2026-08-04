@@ -21,6 +21,7 @@ jest.mock('~/lib/api', () => {
             comments: {
                 ...actual.default?.comments,
                 create: jest.fn().mockResolvedValue(undefined),
+                update: jest.fn().mockResolvedValue(undefined),
                 list: jest.fn().mockResolvedValue({ results: [] }),
             },
             persons: {
@@ -483,5 +484,133 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         }).toDispatchActions(['loadPreviousTicketsSuccess'])
 
         expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+    })
+})
+
+function makeNote(
+    id: string,
+    { isPrivate = true, authorUuid, version = 0 }: { isPrivate?: boolean; authorUuid?: string; version?: number } = {}
+): CommentType {
+    return {
+        id,
+        content: `${id} body`,
+        scope: 'conversations_ticket',
+        item_id: 'ticket-1',
+        item_context: { author_type: 'support', is_private: isPrivate },
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: authorUuid ? { uuid: authorUuid, id: 1 } : null,
+        version,
+    } as unknown as CommentType
+}
+
+const MINE = MOCK_DEFAULT_USER.uuid
+const THEIRS = 'someone-else-uuid'
+
+describe('supportTicketSceneLogic private note editing', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsUpdateMock = api.comments.update as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsUpdateMock.mockReset().mockResolvedValue(undefined)
+        ticketGetMock.mockReset().mockResolvedValue({ ...makeTicket(), priority: 'medium', assignee: null })
+        // A non-'new', dash-free id: editMessage early-returns on 'new' and loadTicket treats ids
+        // containing '-' as UUIDs to redirect.
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+    })
+
+    // Only the thread's newest private note is editable, and only by its author. Widening this
+    // hands out an Edit button the backend answers with a 403, or lets an older note be rewritten
+    // after the conversation has moved on.
+    test.each<[string, CommentType[], string | null]>([
+        ['my newest private note', [makeNote('n1', { authorUuid: MINE })], 'n1'],
+        ["someone else's newest private note", [makeNote('n1', { authorUuid: THEIRS })], null],
+        [
+            'my note superseded by a teammate note',
+            [makeNote('n1', { authorUuid: MINE }), makeNote('n2', { authorUuid: THEIRS })],
+            null,
+        ],
+        [
+            'my note superseded by my own newer note',
+            [makeNote('n1', { authorUuid: MINE }), makeNote('n2', { authorUuid: MINE })],
+            'n2',
+        ],
+        [
+            'my note followed by a public reply',
+            [makeNote('n1', { authorUuid: MINE }), makeNote('n2', { isPrivate: false, authorUuid: MINE })],
+            'n1',
+        ],
+        ['an AI note with no author', [makeNote('n1')], null],
+        ['no private notes at all', [makeNote('n1', { isPrivate: false, authorUuid: MINE })], null],
+    ])('editableMessageId with %s', (_name, messages, expected) => {
+        logic.actions.setMessages(messages)
+        expect(logic.values.editableMessageId).toBe(expected)
+    })
+
+    // The comments list endpoint hides conversations_ticket comments unless the scope is named, and
+    // PATCH resolves the row through that same queryset — dropping these params 404s every save.
+    it('patches the note with the ticket scope and reloads the thread', async () => {
+        logic.actions.setMessages([makeNote('n1', { authorUuid: MINE })])
+        logic.actions.setEditingMessage('n1')
+
+        await expectLogic(logic, () => {
+            logic.actions.editMessage('n1', 'edited body', { type: 'doc' })
+        }).toDispatchActions(['setEditingMessage', 'loadMessages'])
+
+        expect(commentsUpdateMock).toHaveBeenCalledWith(
+            'n1',
+            { content: 'edited body', rich_content: { type: 'doc' } },
+            { scope: 'conversations_ticket', item_id: 'ticket-1' }
+        )
+        expect(logic.values.activeEditingMessageId).toBeNull()
+    })
+
+    it('keeps the editor open when the save fails', async () => {
+        commentsUpdateMock.mockRejectedValue(new Error('request failed'))
+        logic.actions.setMessages([makeNote('n1', { authorUuid: MINE })])
+        logic.actions.setEditingMessage('n1')
+
+        await expectLogic(logic, () => {
+            logic.actions.editMessage('n1', 'edited body', null)
+        }).toFinishAllListeners()
+
+        expect(logic.values.activeEditingMessageId).toBe('n1')
+        expect(logic.values.messageEditSaving).toBe(false)
+    })
+
+    it('refuses to patch a note that is no longer the editable one', async () => {
+        logic.actions.setMessages([makeNote('n1', { authorUuid: MINE }), makeNote('n2', { authorUuid: THEIRS })])
+
+        await expectLogic(logic, () => {
+            logic.actions.editMessage('n1', 'edited body', null)
+        }).toFinishAllListeners()
+
+        expect(commentsUpdateMock).not.toHaveBeenCalled()
+    })
+
+    // Messages are polled, so a teammate's newer note can land while the editor is open. Without
+    // this the form stays open over a note the backend would now reject.
+    it('closes an open editor when a newer private note arrives', async () => {
+        logic.actions.setMessages([makeNote('n1', { authorUuid: MINE })])
+        logic.actions.setEditingMessage('n1')
+        expect(logic.values.activeEditingMessageId).toBe('n1')
+
+        logic.actions.setMessages([makeNote('n1', { authorUuid: MINE }), makeNote('n2', { authorUuid: THEIRS })])
+
+        expect(logic.values.activeEditingMessageId).toBeNull()
+    })
+
+    // version is the only edit signal the comments API exposes, and it drives the "(edited)" marker.
+    test.each<[number, boolean]>([
+        [0, false],
+        [1, true],
+        [3, true],
+    ])('chatMessages maps version %i to isEdited %s', (version, expected) => {
+        logic.actions.setMessages([makeNote('n1', { authorUuid: MINE, version })])
+        expect(logic.values.chatMessages[0].isEdited).toBe(expected)
     })
 })

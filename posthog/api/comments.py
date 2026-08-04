@@ -213,7 +213,7 @@ class CommentSerializer(serializers.ModelSerializer):
             locked_instance = Comment.objects.select_for_update().get(pk=instance.pk)
 
             if locked_instance.created_by != request.user:
-                raise
+                raise exceptions.PermissionDenied("You can only modify your own comments")
 
             if validated_data.keys():
                 if validated_data.get("content"):

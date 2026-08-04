@@ -223,6 +223,8 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    /** Whether the author has edited this message since posting it. */
+    isEdited?: boolean
     emailDeliveryStatus?: EmailDeliveryStatus
     /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */

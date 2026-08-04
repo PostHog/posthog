@@ -63,6 +63,14 @@ export interface ChatViewProps {
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    /** Editing the newest private note. Opt-in: without onStartEditMessage no note offers it. */
+    editableMessageId?: string | null
+    editingMessageId?: string | null
+    messageEditSaving?: boolean
+    editDisabledReason?: string
+    onStartEditMessage?: (messageId: string) => void
+    onCancelEditMessage?: () => void
+    onSaveEditMessage?: (messageId: string, content: string, richContent: JSONContent) => void
 }
 
 export function ChatView({
@@ -98,6 +106,13 @@ export function ChatView({
     showAiReplyFeedback,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
+    editableMessageId,
+    editingMessageId,
+    messageEditSaving,
+    editDisabledReason,
+    onStartEditMessage,
+    onCancelEditMessage,
+    onSaveEditMessage,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -122,6 +137,13 @@ export function ChatView({
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
                 extras={threadExtras}
+                editableMessageId={editableMessageId}
+                editingMessageId={editingMessageId}
+                messageEditSaving={messageEditSaving}
+                editDisabledReason={editDisabledReason}
+                onStartEditMessage={onStartEditMessage}
+                onCancelEditMessage={onCancelEditMessage}
+                onSaveEditMessage={onSaveEditMessage}
             />
             <div className="border-t pt-3">
                 <MessageInput

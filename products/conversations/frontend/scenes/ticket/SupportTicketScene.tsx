@@ -106,6 +106,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
+        editableMessageId,
+        activeEditingMessageId,
+        messageEditSaving,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -126,6 +129,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftModeEnabled,
         dismissKnowledgeGap,
         submitAiReplyFeedback,
+        setEditingMessage,
+        editMessage,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -253,6 +258,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         showAiReplyFeedback={aiSuggestionsEnabled}
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
+                        editableMessageId={editableMessageId}
+                        editingMessageId={activeEditingMessageId}
+                        messageEditSaving={messageEditSaving}
+                        editDisabledReason={sendDisabledReason}
+                        onStartEditMessage={setEditingMessage}
+                        onCancelEditMessage={() => setEditingMessage(null)}
+                        onSaveEditMessage={editMessage}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />

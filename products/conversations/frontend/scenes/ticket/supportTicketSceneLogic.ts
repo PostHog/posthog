@@ -178,6 +178,7 @@ export interface supportTicketSceneLogicValues {
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    activeEditingMessageId: string | null
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -185,6 +186,8 @@ export interface supportTicketSceneLogicValues {
     draftContent: JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
+    editableMessageId: string | null
+    editingMessageId: string | null
     emailReplyBlockedReason: EmailReplyBlockedReason | null
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
@@ -197,6 +200,7 @@ export interface supportTicketSceneLogicValues {
     latestAiMessage: ChatMessage | null
     linkedReports: SignalReportApi[]
     linkedReportsLoading: boolean
+    messageEditSaving: boolean
     messageSending: boolean
     messages: CommentType[]
     messagesLoading: boolean
@@ -225,6 +229,15 @@ export interface supportTicketSceneLogicActions {
     loadTags: () => any // tagsModel
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
+    }
+    editMessage: (
+        messageId: string,
+        content: string,
+        richContent: Record<string, unknown> | null
+    ) => {
+        content: string
+        messageId: string
+        richContent: Record<string, unknown> | null
     }
     incrementUnreadCustomerCount: () => {
         value: true
@@ -354,8 +367,14 @@ export interface supportTicketSceneLogicActions {
     setDraftModeEnabled: (enabled: boolean) => {
         enabled: boolean
     }
+    setEditingMessage: (messageId: string | null) => {
+        messageId: string | null
+    }
     setHasMoreMessages: (hasMore: boolean) => {
         hasMore: boolean
+    }
+    setMessageEditSaving: (saving: boolean) => {
+        saving: boolean
     }
     setMessageSending: (sending: boolean) => {
         sending: boolean
@@ -440,6 +459,8 @@ export interface supportTicketSceneLogicMeta {
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        editableMessageId: (messages: CommentType[], user: UserType | null) => string | null
+        activeEditingMessageId: (editingMessageId: string | null, editableMessageId: string | null) => string | null
         sidePanelContext: (ticket: Ticket | null) => SidePanelSceneContext | null
     }
 }
@@ -501,6 +522,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             statusAfterSend,
         }),
         setMessageSending: (sending: boolean) => ({ sending }),
+
+        editMessage: (messageId: string, content: string, richContent: Record<string, unknown> | null) => ({
+            messageId,
+            content,
+            richContent,
+        }),
+        setEditingMessage: (messageId: string | null) => ({ messageId }),
+        setMessageEditSaving: (saving: boolean) => ({ saving }),
 
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
@@ -744,6 +773,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        editingMessageId: [
+            null as string | null,
+            {
+                setEditingMessage: (_, { messageId }) => messageId,
+            },
+        ],
+        messageEditSaving: [
+            false,
+            {
+                editMessage: () => true,
+                setMessageEditSaving: (_, { saving }) => saving,
+                setEditingMessage: () => false,
+            },
+        ],
         draftContent: [
             null as JSONContent | null,
             {
@@ -934,6 +977,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         createdBy: message.created_by,
                         createdAt: message.created_at,
                         isPrivate: message.item_context?.is_private || false,
+                        // The comments API bumps version only when content changes, so any
+                        // non-zero version means the author has edited the message.
+                        isEdited: (message.version ?? 0) > 0,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
                         fromZendesk: message.item_context?.from_zendesk === true,
                     }
@@ -968,6 +1014,30 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
                 return null
             },
+        ],
+        editableMessageId: [
+            (s) => [s.messages, s.user],
+            (messages: CommentType[], user: UserType | null): string | null => {
+                // Only the thread's newest private note is editable, so scanning back from the end
+                // stops at the first one found: an older note of mine must stay immutable. A public
+                // reply posted after the note doesn't lock it, since it isn't a private note.
+                // is_private is matched against exact true to mirror the backend's own check.
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    const message = messages[i]
+                    if (message.item_context?.is_private === true) {
+                        return message.created_by?.uuid && message.created_by.uuid === user?.uuid ? message.id : null
+                    }
+                }
+                return null
+            },
+        ],
+        activeEditingMessageId: [
+            (s) => [s.editingMessageId, s.editableMessageId],
+            (editingMessageId: string | null, editableMessageId: string | null): string | null =>
+                // Messages are polled every few seconds, so a teammate's newer note can arrive while
+                // an editor is open. Gating on the still-editable id collapses that stale editor
+                // instead of leaving a form open over a note the backend would now reject.
+                editingMessageId && editingMessageId === editableMessageId ? editingMessageId : null,
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.ticket],
@@ -1172,6 +1242,31 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             } catch {
                 lemonToast.error('Failed to send message')
                 actions.setMessageSending(false)
+            }
+        },
+        editMessage: async ({ messageId, content, richContent }) => {
+            // Guards the Cmd+Enter path, and a poll that moved the editable note out from under an
+            // open editor between render and save.
+            if (props.id === 'new' || !values.ticket?.id || messageId !== values.editableMessageId) {
+                actions.setMessageEditSaving(false)
+                return
+            }
+            try {
+                await api.comments.update(
+                    messageId,
+                    { content, rich_content: richContent },
+                    // The comments list endpoint hides conversations_ticket comments unless the scope
+                    // is named, and PATCH resolves the row through that same queryset, so omitting
+                    // these makes the request 404.
+                    { scope: 'conversations_ticket', item_id: values.ticket.id }
+                )
+                lemonToast.success('Private note updated')
+                actions.setEditingMessage(null)
+                actions.loadMessages()
+            } catch {
+                // The editor stays open so the rewritten text isn't lost on a failed save.
+                lemonToast.error('Failed to update private note')
+                actions.setMessageEditSaving(false)
             }
         },
         dismissKnowledgeGap: async ({ suggestionId }) => {
