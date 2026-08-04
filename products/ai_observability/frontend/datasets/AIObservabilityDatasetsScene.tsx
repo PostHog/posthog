@@ -135,22 +135,6 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                 name="Datasets"
                 description="Manage datasets for testing and evaluation."
                 resourceType={{ type: 'llm_datasets' }}
-                actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            to={datasetUrl('new')}
-                            data-testid="create-dataset-button"
-                            data-attr="create-dataset-button"
-                            size="small"
-                        >
-                            New dataset
-                        </LemonButton>
-                    </AccessControlAction>
-                }
             />
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
                 <div className="flex gap-2 items-center flex-wrap">
@@ -174,7 +158,23 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                         data-testid="search-datasets-input"
                     />
                 </div>
-                <div className="text-muted-alt">{datasetCountLabel}</div>
+                <div className="flex gap-2 items-center flex-wrap">
+                    <div className="text-muted-alt">{datasetCountLabel}</div>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            to={datasetUrl('new')}
+                            data-testid="create-dataset-button"
+                            data-attr="create-dataset-button"
+                            size="small"
+                        >
+                            New dataset
+                        </LemonButton>
+                    </AccessControlAction>
+                </div>
             </div>
 
             <LemonTable
