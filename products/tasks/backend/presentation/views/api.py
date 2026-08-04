@@ -97,6 +97,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskAutomationWriteSerializer,
     TaskCreateSerializer,
     TaskListQuerySerializer,
+    TaskParentMessageRequestSerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
@@ -452,6 +453,33 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         created = tasks_facade.get_task_detail(child_task.id, self.team_id, self._user_id())
         return Response(TaskSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=TaskParentMessageRequestSerializer,
+        responses={204: None, 400: TaskRunErrorResponseSerializer},
+        operation_id="tasks_message_parent_create",
+        summary="Send a message to the parent task",
+    )
+    @action(detail=False, methods=["post"], url_path="message-parent", required_scopes=["task:write"])
+    def message_parent(self, request, **kwargs):
+        serializer = TaskParentMessageRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        child_run_id = request.headers.get("X-PostHog-Task-Run-Id")
+        if not child_run_id:
+            raise ValidationError({"detail": "message-parent requires a calling task-run context"})
+        try:
+            child_run_uuid = UUID(child_run_id)
+        except ValueError:
+            raise ValidationError({"detail": "Calling task-run context must be a valid UUID"})
+
+        try:
+            tasks_facade.send_child_message_to_parent(
+                child_run_uuid, self.team_id, serializer.validated_data["message"]
+            )
+        except ValueError as error:
+            raise ValidationError({"detail": str(error)})
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _forward_signals_discussion_note(
         self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None

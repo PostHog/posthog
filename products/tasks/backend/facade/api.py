@@ -213,6 +213,7 @@ __all__ = [
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
+    "send_child_message_to_parent",
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
@@ -494,6 +495,16 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     if run is None:
         return None
     return _task_run_to_dto(run)
+
+
+def send_child_message_to_parent(child_run_id: str | UUID, team_id: int, message: str) -> None:
+    child_run = TaskRun.objects.for_team(team_id).filter(id=child_run_id).first()
+    if child_run is None:
+        raise ValueError("Calling run was not found")
+
+    from products.tasks.backend.logic.services.orchestration import send_child_message_to_parent as send_message
+
+    send_message(child_run, message)
 
 
 def find_signal_implementation_run(
