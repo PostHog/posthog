@@ -133,7 +133,17 @@ const DEFAULT_ERROR_MESSAGE =
  * every panel width rather than only once the panel is wide enough for the
  * full column. Padding on the capped box instead of around it would eat into
  * `CHAT_CONTENT_MAX_WIDTH` and leave the composer narrower than the messages.
+ *
+ * The gutter is a percentage of this box, and the thread's equivalent box sits
+ * inside a scroller whose `scrollbar-gutter: stable` has already taken the
+ * scrollbar's width off it. Without matching that reservation here the composer
+ * centers on a wider box and its column lands half a scrollbar to the right of
+ * the messages. Reserving it the same way keeps the browser's own measurement
+ * as the single source of truth; a hard-coded width would drift per platform.
  */
+/** Widest ring the composer paints outside its border box (quill's 3px focus outline). */
+const OUTLINE_BLEED = 4;
+
 function ComposerWidth({
   compact,
   children,
@@ -146,7 +156,19 @@ function ComposerWidth({
   }
 
   return (
-    <Box style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}>
+    <Box
+      style={{
+        paddingInline: CHAT_CONTENT_PADDING_INLINE,
+        overflow: "hidden",
+        scrollbarGutter: "stable",
+        // The composer's focus outline paints outside its border box, and this
+        // box's top edge sits flush against it, so the clip would slice the
+        // ring's top off. Buy it room and take the room back out of the layout.
+        // (The sides have the gutter, and the capped box's `pb-2` covers below.)
+        paddingBlockStart: OUTLINE_BLEED,
+        marginBlockStart: -OUTLINE_BLEED,
+      }}
+    >
       <Box
         className="mx-auto pb-2"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}

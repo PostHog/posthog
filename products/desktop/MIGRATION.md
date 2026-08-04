@@ -51,6 +51,24 @@ The tree is a verbatim copy of the source at the pinned SHA except:
 - `docs/testing.md`: the "Storybook Visual Regression" CI paragraphs are replaced with a
   note that the storybook CI was removed post-merge (see `POST-MIGRATION.md` step 6). The
   source still documents its own storybook workflow; reapply on resync.
+- Monorepo-context doc patches (reapply on resync; upstream to PostHog/code where noted):
+  `.claude/skills/merging-prs/` is deleted and the "Merging PRs" section is removed from
+  `AGENTS.md` — both describe the source repo's Trunk queue on `main`, which is wrong
+  here and misleads agents working under products/desktop (they fall through to the root
+  repo's merge guidance instead); the section is still correct upstream, so this stays a
+  monorepo-only removal. `README.md` and `CONTRIBUTING.md` carry a short "this lives at
+  products/desktop inside posthog/posthog" note, and `docs/LOCAL-DEVELOPMENT.md` step 3
+  gains a monorepo branch (skip the clone, `cd products/desktop`, Node 22 caveat) ahead
+  of the standalone-clone instructions. `.claude/skills/quill-code/SKILL.md` is
+  rewritten for the monorepo: quill's source is now in-repo at `packages/quill` (the
+  source text says it is not), and its pack step anchored on
+  `git rev-parse --show-toplevel`, which here is the monorepo root, so the tarball
+  landed outside the workspace. `.claude/settings.json` is deleted: its only content
+  denied access to `./apps/cli/**`, which does not exist. Upstream both to
+  PostHog/code where they apply (the toplevel anchor bug does not; the source repo's
+  toplevel is the workspace root).
+- `mprocs.yaml` and `pnpm-workspace.yaml` are oxfmt-formatted (yaml only; see the
+  `.oxfmtrc.json` entry below for the reapply command).
 - Local security patches (reapply on resync until the pin includes the upstream fix):
   `apps/code/src/main/utils/encryption.ts` passes `{ authTagLength: 16 }` to
   `createDecipheriv` (semgrep `gcm-no-tag-length`, ERROR). For the simple-git 3.36 RCE fix,
@@ -97,13 +115,36 @@ separate project.
 - `pytest.ini`: `--ignore=products/desktop` added to `addopts`. Same reason for the Django
   suite: posthog pytest would otherwise collect desktop's Python tooling tests.
 - `.github/workflows/desktop-*.yml`: ported workflows (mapping below).
-- `.github/scripts/products/desktop/`: scripts the ported workflows need that lived in the source
-  repo's `.github/scripts/`.
+- Post-merge integrations, all outside products/desktop/ and untouched by resyncs:
+  `hogli.yaml` has a `desktop:*` command category wrapping `pnpm --dir products/desktop`;
+  `hogli test` routes desktop paths to the owning package's Vitest
+  (tools/hogli-commands test_runner.py); `hogli ci:preflight` validates each pnpm
+  workspace against its own lockfile and runs desktop's Biome on desktop diffs
+  (ci_preflight.py); the root package.json lint-staged runs desktop's Biome on staged
+  desktop files (desktop's own .husky/ is dead code here — core.hooksPath is the
+  monorepo root .husky); ci-backend.yml (and the .depot mirror) re-couples
+  `products/desktop/packages/{agent,shared,git}/**` to the Django suite via a
+  `desktop_agent_packages` filter key OR'd into the `backend`/`tasks_temporal` outputs,
+  because excludes inside the `backend` filter apply to every glob.
+- `.github/scripts/desktop/`: scripts the ported workflows need that lived in the source
+  repo's `.github/scripts/` (the directory ci-frontend.yml's `!.github/scripts/desktop/**`
+  exclude already covers).
 - `.oxlintrc.json`: `"desktop"` added to `ignorePatterns` (root `lint:js` runs repo-wide;
   desktop code is Biome-linted by its own workflow).
-- `.oxfmtrc.json`: `"desktop"` added to `ignorePatterns` (the frontend CI formats
-  `**/*.{md,mdx,yaml,yml}` repo-wide; desktop keeps Biome formatting).
+- `.oxfmtrc.json`: desktop is ignored per-extension, not as a whole tree. Code
+  extensions (ts/tsx/js/json/css/...) stay ignored because desktop formats them with
+  Biome and the root `format:frontend` glob would fight it. Markdown stays ignored:
+  oxfmt's emphasis normalization corrupts bare `*` glob patterns in desktop's prose
+  (e.g. rewriting `desktop-*` in running text), so md governance waits on an upstream
+  cleanup. Yaml IS governed (mprocs.yaml, pnpm-workspace.yaml reformatted; the
+  publish-critical `pnpm-lock.yaml` and VR-signed `apps/code/snapshots.yml` stay
+  ignored). Reapply on resync: run
+  `pnpm exec oxfmt "products/desktop/**/*.{yaml,yml}"` after the tree is replaced, or
+  ci-frontend's repo-wide format check reds on unrelated PRs.
 - `.config/.markdownlint-cli2.jsonc`: `"products/desktop/**"` added to `ignores`.
+  Deliberately retained after the migration: a trial run found 151 violations across
+  25 imported files, and fixing them in-repo would be resync-reverted drift. Lift the
+  ignore only after the markdown is cleaned up upstream in PostHog/code.
 - `.github/workflows/ci-security.yaml` (monorepo-native, not resynced): security scanning
   for the import. Convention-only jobs still exclude `products/desktop` because imported code
   does not follow the monorepo's custom rules (`semgrep-python`'s `.semgrep/rules/security`
@@ -118,7 +159,7 @@ separate project.
 
 | Source (.github/workflows/) | Port | Notes beyond the standard transforms |
 | --- | --- | --- |
-| _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the four gating workflows; see transform rule 7 |
+| _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the four gating workflows plus the `backend-coupling` separation check (`.github/scripts/desktop/check-pr-backend-coupling.sh`); see transform rule 7 |
 | build.yml | desktop-build.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Build Pass` |
 | warm-caches.yml | desktop-warm-caches.yml | seeds every cache the restore-only desktop PR workflows use; pnpm-store caching is explicit (`desktop-pnpm-*` keys) instead of setup-node auto-cache so PR restores share the namespace |
 | agent-release-verify.yml | desktop-agent-release-verify.yml | restore-only pnpm store |
@@ -134,6 +175,7 @@ separate project.
 | agent-release.yml | desktop-agent-release.yml | sandbox rebuild dispatch is now same-repo with `actions: write` (cross-repo GH app retired) |
 | agent-tag.yml | desktop-agent-tag.yml | agent tags stay `agent-v*`; patch count scoped `-- products/desktop/packages/agent` (unscoped would count every monorepo commit) |
 | mobile-build.yml | desktop-mobile-build.yml | |
+| react-doctor.yml | desktop-react-doctor.yml | advisory-only port (added post-merge): the source's "Enforce blocking findings" step is dropped so the job never fails a PR; react-doctor pinned to 0.9.1 (the source's 0.5.4 predates most rules; `@latest` trips desktop's minimum-release-age); comment script ported to `.github/scripts/desktop/react-doctor-comment.mjs` with a `desktop-react-doctor:summary` marker, a `products/desktop` blob-link prefix and project-relative diagnostic paths rejoined to their project directory (latent link bug in the source script) |
 | mobile-promote.yml | desktop-mobile-promote.yml | |
 | pr-build-installer.yml | desktop-pr-build-installer.yml | |
 
@@ -142,7 +184,6 @@ Dropped (the monorepo already provides the function):
 | Source | Reason |
 | --- | --- |
 | codeql.yml | monorepo `ci-security.yaml` covers the repo |
-| react-doctor.yml | intentionally not imported for now; re-add on a later resync if desktop wants it in the monorepo |
 | stale.yml | monorepo `stale.yaml` |
 | trunk-impacted-targets.yml | code repo's Trunk merge queue does not carry over; desktop inherits the monorepo queue |
 | pr-approval-agent.yml | monorepo runs its own `pr-approval-agent.yml` on all PRs |
@@ -242,8 +283,11 @@ ports from source using these rules.
   quiet. PostHog/code#3490 (S3 feed) simplifies this on its next resync into this import.
 - `desktop-cleanup-draft-releases.yml` cleans PostHog/code draft releases for the same
   reason.
-- `products/desktop/apps/code/package.json` `repository` fields and in-repo docs still reference
-  PostHog/code; cosmetic, fixed opportunistically.
+- `products/desktop/packages/agent/package.json` still declares
+  `"repository": "https://github.com/PostHog/code"` (apps/code/package.json has no
+  repository field). Fix it alongside the npm trusted-publisher re-registration, ideally
+  upstream in PostHog/code. Other in-repo docs referencing PostHog/code are cosmetic,
+  fixed opportunistically.
 
 ## Not done in this PR (follow-ups)
 
@@ -280,7 +324,12 @@ the PR's side; that file is the one to follow on merge day.
   `packages/ui/src/features/canvas/freeform/FreeformCanvas.tsx` posts to a `"*"` target
   origin, which is required for its opaque-origin sandboxed srcDoc iframe.
 - **Dependency CVEs (local patch, reapply on resync until the pin includes the upstream
-  fix)**: `pnpm-workspace.yaml` overrides pin advisory-flagged packages to patched,
+  fix)**: this recipe is the standing security-patch process for the whole desktop tree,
+  not a one-off: automated patching does not function here (Dependabot's auto-PR
+  mechanism is disabled repo-wide and Renovate is deliberately dashboard-only with
+  vulnerability auto-PRs off), so Dependabot alerts on desktop's two lockfiles are
+  worked off manually with the override-pin + lockfile-regeneration steps below.
+  `pnpm-workspace.yaml` overrides pin advisory-flagged packages to patched,
   age-compliant versions (protobufjs 7.6.5, axios 1.18.1, hono 4.12.28, @xmldom/xmldom
   0.8.13, node-forge 1.4.0, simple-git 3.36.0, drizzle-orm 0.45.2, fast-uri 3.1.4,
   @hono/node-server 1.19.13, lodash 4.18.0, serialize-javascript 7.0.5, undici 8.5.0/7.28.0,
