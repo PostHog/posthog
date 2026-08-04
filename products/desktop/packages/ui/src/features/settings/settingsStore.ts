@@ -6,10 +6,6 @@ import type {
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
-import {
-  COLLAPSE_MODE_DEFAULT,
-  type CollapseMode,
-} from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
 import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -238,8 +234,6 @@ interface SettingsStore {
   setTerminalGpuRendering: (enabled: boolean) => void;
 
   // Conversation thread (new-thread)
-  conversationCollapseMode: CollapseMode;
-  setConversationCollapseMode: (mode: CollapseMode) => void;
 
   // Sidebar
   // Shows a per-repo "Worktrees" dropdown of task-less worktrees a click can
@@ -469,9 +463,6 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ terminalGpuRendering: enabled }),
 
       // Conversation thread (new-thread)
-      conversationCollapseMode: COLLAPSE_MODE_DEFAULT,
-      setConversationCollapseMode: (mode) =>
-        set({ conversationCollapseMode: mode }),
 
       // Sidebar
       showSidebarWorktrees: false,
@@ -609,7 +600,6 @@ export const useSettingsStore = create<SettingsStore>()(
         terminalGpuRendering: state.terminalGpuRendering,
 
         // Conversation thread (new-thread)
-        conversationCollapseMode: state.conversationCollapseMode,
 
         // Sidebar
         showSidebarWorktrees: state.showSidebarWorktrees,
