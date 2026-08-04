@@ -845,6 +845,44 @@ describe('dashboardLogic', () => {
                 restoreSpy.mockRestore()
             })
 
+            it('discarding after a previewed filter change reloads tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so the refresh matched below is the
+                        // discard-triggered one and not an earlier (initial load / preview) one
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                        'refreshDashboardItems',
+                    ])
+                    .toFinishAllListeners()
+            })
+
+            it('discarding without a previewed filter change does not reload tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so only actions after it are considered
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+            })
+
             it('filter edit source clears layout edit mode', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
