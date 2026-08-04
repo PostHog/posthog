@@ -18,6 +18,8 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { type Ref, useMemo, useState } from "react";
 
+const INITIAL_ROWS = 5;
+
 /**
  * One pinned space in the static sidebar. The whole row is one click target:
  * it folds the space's task list open and closed (caret included — no separate
@@ -26,10 +28,11 @@ import { type Ref, useMemo, useState } from "react";
  * main view, where the header tabs (Feed/Context/Loops/Artifacts) live. #me
  * wears its lock in the same right-hand well, stepping aside on hover.
  *
- * The open list is the full list — the pinned-spaces region around these
- * sections is the one scroll container, so no per-space scrollbars or
- * "View all" hops. A search query (from the Spaces header) overrides the
- * fold: matching spaces open on their matches, spaces without any disappear.
+ * An opened space leads with its first five items and a "Show more" that
+ * unfolds the rest inline — the pinned-spaces region around these sections is
+ * the one scroll container, so no per-space scrollbars or page hops. A search
+ * query (from the Spaces header) overrides both the fold and the cap:
+ * matching spaces open on all their matches, spaces without any disappear.
  *
  * Expand state is local view state in `spacesSidebarStore`; the space's
  * presence in the sidebar is its star, managed from the All spaces directory.
@@ -104,6 +107,12 @@ export function SpaceSection({
     ],
     [visibleItems],
   );
+  // "Show more" unfolds the rest of the list inline; a search always shows
+  // every match. Transient view state — a fresh mount starts compact.
+  const [showAll, setShowAll] = useState(false);
+  const displayItems =
+    searching || showAll ? sectionItems : sectionItems.slice(0, INITIAL_ROWS);
+  const hiddenCount = sectionItems.length - displayItems.length;
 
   const commandCenterAssigner = (taskId: string) => {
     const cellIndex = commandCenterCells.findIndex(
@@ -218,7 +227,7 @@ export function SpaceSection({
               {onlyMine ? "None of your tasks here" : "No tasks yet"}
             </div>
           ) : (
-            sectionItems.map((item) => (
+            displayItems.map((item) => (
               <ChannelItemRow
                 key={item.key}
                 item={item}
@@ -260,6 +269,17 @@ export function SpaceSection({
                 onEditCancel={() => setEditingTaskId(null)}
               />
             ))
+          )}
+          {/* The rest unfold in place; a search already shows every match. */}
+          {!searching && (hiddenCount > 0 || showAll) && (
+            <Button
+              variant="default"
+              size="sm"
+              className="justify-start text-[12px] text-muted-foreground"
+              onClick={() => setShowAll((prev) => !prev)}
+            >
+              {showAll ? "Show less" : `Show more (${hiddenCount})`}
+            </Button>
           )}
         </div>
       )}
