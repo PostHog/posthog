@@ -13907,6 +13907,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `certified` - certified
+     * * `deprecated` - deprecated
+     */
+    export type ProposedStatusEnum = typeof ProposedStatusEnum[keyof typeof ProposedStatusEnum];
+
+
+    export const ProposedStatusEnum = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    /**
      * Input for proposing a certification: address the target by id or (convenience) by name.
      */
     export interface CertificationCreate {
@@ -13920,6 +13932,11 @@ export namespace Schemas {
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
+      /** Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).
+       *
+       * * `certified` - certified
+       * * `deprecated` - deprecated */
+      proposed_status?: ProposedStatusEnum;
     }
 
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
@@ -17183,6 +17200,8 @@ export namespace Schemas {
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
+      /** The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled. */
+      readonly proposed_status: string;
       /** Why this mark exists, e.g. 'canonical MRR source'. */
       notes?: string;
       /** User who last set certified/deprecated, or null. */
