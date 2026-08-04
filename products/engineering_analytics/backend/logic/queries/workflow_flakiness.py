@@ -17,16 +17,26 @@ NO_OP_JOB_MAX_SECONDS = 10
 
 # Jobs whose failure is a deliberate signal rather than nondeterminism. They commit an artifact
 # (updated snapshots, a completed Visual Review run) and then exit non-zero so auto-merge is blocked
-# until a human reviews what changed. A rerun passes because the artifact is now in place, so every
-# such job produces a guaranteed fail-then-pass pair on the same run — the exact shape this query
-# reads as flakiness. They do real work, so NO_OP_JOB_MAX_SECONDS above doesn't catch them; the only
-# honest filter is naming them. Matched on the job's display name, which is stable across workflows.
+# until a human reviews what changed. A rerun passes because the artifact is already in place, so
+# each one produces a guaranteed fail-then-pass pair on a single run, which is the exact shape this
+# query reads as flakiness. They do real work, so NO_OP_JOB_MAX_SECONDS above cannot catch them.
+#
+# Nothing in the landed job data separates a deliberate `exit 1` from a genuine infra failure in the
+# same job, so excluding them by name drops both: a real flake inside one of these jobs, such as a
+# dead checkout step or a runner timeout, stays invisible to the flaky-check signal. That is the
+# accepted cost. Telling the two apart would mean parsing the `steps` JSON, which no query reads.
 BY_DESIGN_FAILURE_JOB_NAMES = (
     # .github/actions/commit-snapshots, used by ci-backend.yml and ci-mcp.yml
     "Commit snapshot changes",
     # `vr run complete` exits 1 on detected visual changes; ci-storybook.yml and ci-e2e-playwright.yml
     "Complete Visual Review run",
 )
+# The repo those names were read out of. A job's display name is free text in a workflow file, so the
+# carve-out applies only to the repo it was written for: another team's job that happens to share a
+# name fails for its own reasons and has to stay eligible for the flaky-check signal. Every team with
+# CI signals enabled runs this query over its own repos, so an unscoped name match would silently
+# drop their finding.
+BY_DESIGN_FAILURE_REPO = "PostHog/posthog"
 
 _SELECT = """
     SELECT
@@ -44,7 +54,11 @@ _SELECT = """
     -- created_at_raw is the unparsed string the scan can prune on; the parsed j.created_at filter
     -- alone can't push down, so both floors keep the sweep off a full jobs+runs scan each hour.
     WHERE j.created_at >= {date_from} AND j.created_at_raw >= {job_created_floor} AND j.head_sha != ''
-       AND j.name NOT IN {by_design_failure_job_names}
+    -- Written as an OR of negations rather than NOT(name AND owner AND repo) so that a row with an
+    -- unresolved owner or name keeps its observation instead of being dropped by a NULL comparison.
+       AND (j.name NOT IN {by_design_failure_job_names}
+            OR lower(r.repo_owner) != {by_design_failure_repo_owner}
+            OR lower(r.repo_name) != {by_design_failure_repo_name})
     GROUP BY r.repo_owner, r.repo_name, j.workflow_name, j.name, j.run_id, j.head_sha
     HAVING failed_attempt > 0
        AND passed_attempt > failed_attempt
@@ -76,6 +90,7 @@ def query_workflow_flakiness(
     jobs_source = curated.jobs_source()
     if jobs_source is None:
         return []
+    by_design_repo_owner, by_design_repo_name = BY_DESIGN_FAILURE_REPO.casefold().split("/")
     response = curated.run(
         _SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
             "__RUNS_SOURCE__", curated.run_source(started_floor=True)
@@ -88,6 +103,8 @@ def query_workflow_flakiness(
             "by_design_failure_job_names": ast.Array(
                 exprs=[ast.Constant(value=name) for name in BY_DESIGN_FAILURE_JOB_NAMES]
             ),
+            "by_design_failure_repo_owner": ast.Constant(value=by_design_repo_owner),
+            "by_design_failure_repo_name": ast.Constant(value=by_design_repo_name),
             # Same date-only floor for both tables: prunes the runs subquery (run_started_floor) and
             # the jobs scan (job_created_floor via created_at_raw).
             "run_started_floor": run_started_floor_constant(date_from),

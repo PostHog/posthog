@@ -8,6 +8,9 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
+from django.test import SimpleTestCase
+
+import yaml
 import pandas as pd
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -95,6 +98,7 @@ def _run_row(
     head_branch: str = "main",
     status: str = "completed",
     default_branch: str = "main",
+    repository: str = "PostHog/posthog",
 ) -> dict[str, Any]:
     started_s = _ts(started)
     return {
@@ -109,7 +113,7 @@ def _run_row(
         "updated_at": _ts(started + timedelta(seconds=duration_seconds)),
         "run_attempt": run_attempt,
         "pull_requests": None,
-        "repository": json.dumps({"full_name": "PostHog/posthog", "default_branch": default_branch}),
+        "repository": json.dumps({"full_name": repository, "default_branch": default_branch}),
     }
 
 
@@ -668,17 +672,41 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["run_id"] == 3
         _assert_emittable(findings[0])
 
-    def test_flaky_check_ignores_required_check_aggregators(self) -> None:
-        # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
-        # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.
+    @parameterized.expand(
+        [
+            # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
+            # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+, so
+            # NO_OP_JOB_MAX_SECONDS is what drops this one.
+            ("Tests Pass", 3),
+            # By-design failures commit an artifact and then exit 1 to block auto-merge, and the
+            # rerun passes because the artifact is in place. Their 46s clears the duration floor, so
+            # only BY_DESIGN_FAILURE_JOB_NAMES can drop them.
+            *[(name, 46) for name in BY_DESIGN_FAILURE_JOB_NAMES],
+        ]
+    )
+    def test_flaky_check_ignores_excluded_jobs(self, job_name: str, duration_seconds: int) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [_run_row(1, "CI", "shaG", "success", now - timedelta(hours=2), 60, run_attempt=2)]
         jobs = [
             _job_row(
-                200, 1, "Tests Pass", "shaG", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=3
+                200,
+                1,
+                job_name,
+                "shaG",
+                "failure",
+                now - timedelta(hours=3),
+                run_attempt=1,
+                duration_seconds=duration_seconds,
             ),
             _job_row(
-                201, 1, "Tests Pass", "shaG", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=3
+                201,
+                1,
+                job_name,
+                "shaG",
+                "success",
+                now - timedelta(hours=2),
+                run_attempt=2,
+                duration_seconds=duration_seconds,
             ),
             _job_row(202, 1, "real-test-job", "shaG", "failure", now - timedelta(hours=3), run_attempt=1),
             _job_row(203, 1, "real-test-job", "shaG", "success", now - timedelta(hours=2), run_attempt=2),
@@ -687,19 +715,20 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
 
     @parameterized.expand([(name,) for name in BY_DESIGN_FAILURE_JOB_NAMES])
-    def test_flaky_check_ignores_by_design_failures(self, job_name: str) -> None:
-        # These jobs commit an artifact and then exit 1 to block auto-merge; the rerun passes because
-        # the artifact is in place. They do real work, so the no-op duration floor never catches them.
+    def test_flaky_check_reports_by_design_job_names_in_another_repo(self, job_name: str) -> None:
+        # The carve-out is scoped to BY_DESIGN_FAILURE_REPO, because a job's display name is free
+        # text: another team's job that happens to share one fails for its own reasons, and every
+        # team with CI signals enabled runs this detector over its own repos.
         now = datetime.now(UTC).replace(tzinfo=None)
-        rows = [_run_row(1, "CI", "shaS", "success", now - timedelta(hours=2), 60, run_attempt=2)]
+        rows = [
+            _run_row(1, "CI", "shaS", "success", now - timedelta(hours=2), 60, run_attempt=2, repository="acme/webapp")
+        ]
         jobs = [
             _job_row(300, 1, job_name, "shaS", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=46),
             _job_row(301, 1, job_name, "shaS", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=46),
-            _job_row(302, 1, "real-test-job", "shaS", "failure", now - timedelta(hours=3), run_attempt=1),
-            _job_row(303, 1, "real-test-job", "shaS", "success", now - timedelta(hours=2), run_attempt=2),
         ]
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
-        assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
+        assert {f.extra["job_name"] for f in findings} == {job_name}
 
     def test_broken_default_branch_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -813,3 +842,19 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         # percentile_run_count is 1 < 2, so no regression fires despite the 10s→120s p95 jump.
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
         assert findings == []
+
+
+class TestByDesignFailureJobNames(SimpleTestCase):
+    def test_every_excluded_name_still_names_a_job_in_the_workflows(self) -> None:
+        # BY_DESIGN_FAILURE_JOB_NAMES mirrors `name:` values in this repo's workflow files, and a
+        # rename there would silently stop the carve-out matching, putting the manufactured flake
+        # signal back. Nothing else ties the two together, so assert against the workflows directly.
+        workflows = Path(__file__).parents[4] / ".github" / "workflows"
+        assert workflows.is_dir(), f"expected workflow definitions at {workflows}"
+        declared = {
+            job["name"]
+            for path in (*workflows.glob("*.yml"), *workflows.glob("*.yaml"))
+            for job in (yaml.safe_load(path.read_text()) or {}).get("jobs", {}).values()
+            if isinstance(job, dict) and isinstance(job.get("name"), str)
+        }
+        assert set(BY_DESIGN_FAILURE_JOB_NAMES) <= declared
