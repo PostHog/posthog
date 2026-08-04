@@ -574,12 +574,14 @@ Two tables (`forms`, `responses`).
 
 ### WooCommerce — needs confirmation
 
-Ten tables, decent coverage.
+Ten tables, decent coverage. Products, orders, coupons and customers can also sync via webhooks
+(`/webhooks`, HMAC-SHA256 signed deliveries) instead of polling.
 
 - [ ] Product variations.
 - [ ] Order refunds and order notes.
 - [ ] Reports endpoints.
-- [ ] Payment gateways, shipping methods, webhooks.
+- [ ] Payment gateways, shipping methods. Webhooks are now managed programmatically for sync, but
+      are not exposed as a table.
 
 ### Slack — needs confirmation
 
