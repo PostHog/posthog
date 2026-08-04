@@ -158,6 +158,7 @@ the row lists both.
 | coinmarketcap                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools                    | HTTP                        | requests                                                        | ✅                          |
 | concord                          | HTTP                        | requests                                                        | ✅                          |
+| conekta                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | configcat                        | HTTP                        | requests                                                        | ✅                          |
 | confluence                       | HTTP                        | requests                                                        | ✅                          |
 | confluent_cloud                  | HTTP                        | requests                                                        | ✅                          |
@@ -869,7 +870,6 @@ doesn't conflict with concurrent PRs.
 - codecov
 - collibra
 - companycam
-- conekta
 - constant_contact
 - conta_azul
 - contentsquare
