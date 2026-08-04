@@ -169,6 +169,19 @@ export function BranchSelector({
       staleTime: 60_000,
     });
 
+  // The `currentBranch` prop comes from workspace metadata, which only catches up
+  // via an fs-watcher round trip (debounced ~0.5-1s), so it lags right after a
+  // checkout. Read HEAD from git instead — a checkout invalidates this query
+  // directly, so the selector knows the branch the user is on without waiting on
+  // the watcher.
+  const { data: liveCurrentBranch } = useQuery({
+    ...trpc.git.getCurrentBranch.queryOptions({
+      directoryPath: repoPath as string,
+    }),
+    enabled: !isSelectionOnly && !!repoPath,
+    staleTime: 10_000,
+  });
+
   // Branches already checked out in another checkout of this repo (main clone
   // or worktree). Git refuses to check those out here, and for worktree mode
   // it tells the user where a branch already lives.
@@ -232,12 +245,16 @@ export function BranchSelector({
     },
   });
 
+  const knownCurrentBranch = isSelectionOnly
+    ? currentBranch
+    : (liveCurrentBranch ?? currentBranch);
+  // Bridge the gap between a checkout resolving and the refetched HEAD landing.
   const checkedOutBranch =
     checkoutMutation.data &&
     checkoutMutation.variables.directoryPath === repoPath &&
-    currentBranch === checkoutMutation.data.previousBranch
+    knownCurrentBranch === checkoutMutation.data.previousBranch
       ? checkoutMutation.data.currentBranch
-      : currentBranch;
+      : knownCurrentBranch;
   const displayedBranch = isSelectionOnly ? selectedBranch : checkedOutBranch;
 
   // In local mode, surface in-progress git operations (rebase/merge/etc.) so the
@@ -298,9 +315,12 @@ export function BranchSelector({
     const branchName =
       value === USE_INPUT_BRANCH_ACTION ? trimmedInputValue : value;
     if (!branchName) return;
+    // The checkout is skipped against what the selector shows, not against the
+    // `currentBranch` prop: a lagging prop makes picking a genuinely different
+    // branch look like a no-op and silently swallows the checkout.
     if (isSelectionOnly) {
       onBranchSelect?.(branchName);
-    } else if (branchName !== currentBranch) {
+    } else if (branchName !== displayedBranch) {
       checkoutMutation.mutate({
         directoryPath: repoPath as string,
         branchName,
@@ -537,12 +557,22 @@ export function BranchSelector({
               return useInputItem;
             }
             const elsewhere = checkedOutElsewhere.get(item);
+            // Git refuses to check out a branch that another checkout of the
+            // repo already holds, so offering it here only ever produces an
+            // error toast. Selection-only modes just record a base branch, which
+            // is fine to share.
+            const blockedByOtherCheckout = !isSelectionOnly && !!elsewhere;
             return (
               <ComboboxItem
                 key={item}
                 value={item}
+                disabled={blockedByOtherCheckout}
                 title={
-                  elsewhere ? `${item} — checked out in ${elsewhere}` : item
+                  blockedByOtherCheckout
+                    ? `${item} — already checked out in ${elsewhere}, can't switch to it here`
+                    : elsewhere
+                      ? `${item} — checked out in ${elsewhere}`
+                      : item
                 }
                 className="relative"
               >

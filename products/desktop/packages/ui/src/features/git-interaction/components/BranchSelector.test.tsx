@@ -2,7 +2,7 @@ import { Theme } from "@radix-ui/themes";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../state/gitInteractionStore", () => ({
   useGitInteractionStore: () => ({ actions: { openBranch: vi.fn() } }),
@@ -16,14 +16,28 @@ vi.mock("../gitCacheKeys", () => ({
   invalidateGitBranchQueries: vi.fn(),
 }));
 
+// Query results keyed by procedure, so the useQuery mock below can answer each
+// of the selector's queries independently.
+const queryResults: Record<string, unknown> = {};
+function setQueryResult(procedure: string, data: unknown) {
+  queryResults[procedure] = data;
+}
+
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
     git: {
-      getAllBranches: { queryOptions: () => ({}) },
+      getAllBranches: {
+        queryOptions: () => ({ queryKey: ["git.getAllBranches"] }),
+      },
+      getCurrentBranch: {
+        queryOptions: () => ({ queryKey: ["git.getCurrentBranch"] }),
+      },
       checkoutBranch: { mutationOptions: () => ({}) },
     },
     workspace: {
-      listRepoCheckouts: { queryOptions: () => ({}) },
+      listRepoCheckouts: {
+        queryOptions: () => ({ queryKey: ["workspace.listRepoCheckouts"] }),
+      },
     },
   }),
 }));
@@ -54,7 +68,12 @@ let completeCheckout: (result: {
   currentBranch: string;
 }) => void;
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: [], isLoading: false }),
+  useQuery: (options: { queryKey?: unknown[]; enabled?: boolean }) => {
+    const procedure = String(options?.queryKey?.[0] ?? "");
+    if (options?.enabled === false)
+      return { data: undefined, isLoading: false };
+    return { data: queryResults[procedure], isLoading: false };
+  },
   useMutation: (options: typeof checkoutMutationOptions) => {
     checkoutMutationOptions = options;
     const [result, setResult] = useState<{
@@ -84,6 +103,11 @@ import { BranchSelector } from "./BranchSelector";
 function renderInTheme(children: React.ReactElement) {
   return render(<Theme>{children}</Theme>);
 }
+
+beforeEach(() => {
+  mutateMock.mockClear();
+  for (const key of Object.keys(queryResults)) delete queryResults[key];
+});
 
 describe("BranchSelector cloud mode", () => {
   it("keeps the trigger enabled while the initial cloud load is in flight", () => {
@@ -321,6 +345,106 @@ describe("BranchSelector cloud mode", () => {
     );
 
     expect(onCloudBranchCommit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BranchSelector lagging workspace metadata", () => {
+  // Workspace metadata catches up via a debounced fs-watcher round trip, so it
+  // lags HEAD right after a checkout. The selector reads the branch from git and
+  // compares picks against that; comparing against the lagging prop silently
+  // dropped the checkout — the user picked a branch and nothing happened.
+  it("prefers the branch git reports over stale workspace metadata", () => {
+    setQueryResult("git.getCurrentBranch", "feature/live");
+    renderInTheme(
+      <BranchSelector
+        repoPath="/repos/code"
+        currentBranch="main"
+        workspaceMode="local"
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent(
+      "feature/live",
+    );
+  });
+
+  it("still checks out a branch that only matches the stale metadata", async () => {
+    const user = userEvent.setup();
+    setQueryResult("git.getAllBranches", ["main", "feature/live"]);
+    setQueryResult("git.getCurrentBranch", "feature/live");
+    renderInTheme(
+      <BranchSelector
+        repoPath="/repos/code"
+        currentBranch="main"
+        workspaceMode="local"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Branch" }));
+    await user.click(await screen.findByRole("option", { name: "main" }));
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      directoryPath: "/repos/code",
+      branchName: "main",
+    });
+  });
+
+  it("does not check out the branch already at HEAD", async () => {
+    const user = userEvent.setup();
+    setQueryResult("git.getAllBranches", ["main", "feature/live"]);
+    setQueryResult("git.getCurrentBranch", "feature/live");
+    renderInTheme(
+      <BranchSelector
+        repoPath="/repos/code"
+        currentBranch="main"
+        workspaceMode="local"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Branch" }));
+    await user.click(
+      await screen.findByRole("option", { name: "feature/live" }),
+    );
+
+    expect(mutateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("BranchSelector branches held by another checkout", () => {
+  it.each([
+    {
+      name: "disables them in checkout mode, where git would refuse the switch",
+      workspaceMode: "local" as const,
+      expectDisabled: true,
+    },
+    {
+      name: "leaves them selectable when the pick is only a base branch",
+      workspaceMode: "worktree" as const,
+      expectDisabled: false,
+    },
+  ])("$name", async ({ workspaceMode, expectDisabled }) => {
+    const user = userEvent.setup();
+    setQueryResult("git.getAllBranches", ["main", "feature/here"]);
+    setQueryResult("workspace.listRepoCheckouts", [
+      { path: "/repos/code", branch: "main" },
+    ]);
+    renderInTheme(
+      <BranchSelector
+        repoPath="/repos/code-wt"
+        currentBranch="feature/here"
+        workspaceMode={workspaceMode}
+        onBranchSelect={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Branch" }));
+
+    const option = await screen.findByRole("option", { name: /main/ });
+    if (expectDisabled) {
+      expect(option).toHaveAttribute("aria-disabled", "true");
+    } else {
+      expect(option).not.toHaveAttribute("aria-disabled", "true");
+    }
   });
 });
 
