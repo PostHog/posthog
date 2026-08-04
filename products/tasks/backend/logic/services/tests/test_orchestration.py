@@ -69,6 +69,7 @@ class TestNotifyParentOfChildEvent(TestCase):
         self.assertIn(f"Status: {status}", message)
         self.assertIn("Child task", message)
         self.assertIn("https://github.com/PostHog/posthog/pull/123", message)
+        self.assertIn("channel context as the plan of record", message)
         if error_message:
             self.assertIn(error_message, message)
         mock_signal.assert_called_once_with(

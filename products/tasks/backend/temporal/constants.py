@@ -129,7 +129,7 @@ CHILD_EVENT_MESSAGE_TEMPLATE = """\
 Child task #{task_number} ({title}) reported {event}.
 Status: {status}{error_line}{pr_line}
 
-Decide the next step: spawn the next child task, report to the user, or finish.
+Use your channel context as the plan of record. Decide the next step: spawn the next child task, report to the user, or finish.
 """.strip()
 
 DEFAULT_CI_MESSAGE = f"""\

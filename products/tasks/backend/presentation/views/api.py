@@ -76,6 +76,7 @@ from products.tasks.backend.facade.streams import (
     get_task_run_stream_key,
     run_uses_dedicated_stream,
 )
+from products.tasks.backend.logic.services.orchestration import render_child_run_message
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -379,8 +380,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if parent_run is None:
             raise NotFound("Parent run not found")
         if parent_run.is_terminal:
+            parent_run.capture_event("task_spawn_rejected", {"reason": "terminal_parent"})
             raise ValidationError({"parent_run_id": "Parent run must be active"})
         if parent_run.state.get("parent_task_id") is not None:
+            parent_run.capture_event("task_spawn_rejected", {"reason": "depth_limit"})
             raise ValidationError({"parent_run_id": "Child runs cannot spawn tasks"})
 
         parent_task = tasks_facade.get_task_detail(parent_run.task_id, self.team_id, self._user_id())
@@ -388,8 +391,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Parent task not found")
 
         if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+            parent_run.capture_event("task_spawn_rejected", {"reason": "usage_limit"})
             return limit_response
         if tasks_facade.spawned_task_run_rate_capped(self.team_id):
+            parent_run.capture_event("task_spawn_rejected", {"reason": "rate_limit"})
             return Response({"detail": "Team task run rate limit exceeded"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         wake_on = data.pop("wake_on")
@@ -437,7 +442,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 child_task.id,
                 self.team_id,
                 self._user_id(),
-                validated_data={"pending_user_message": child_task.description},
+                validated_data={"pending_user_message": render_child_run_message(child_task.description)},
             )
             if outcome != "started":
                 raise ValidationError(outcome)
