@@ -6,6 +6,8 @@ import {
     IconDatabase,
     IconFilter,
     IconGraph,
+    IconLifecycle,
+    IconMagicWand,
     IconPencil,
     IconPieChart,
     IconPlus,
@@ -36,11 +38,11 @@ import {
 } from './biEditorTypes'
 
 const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.Element }[] = [
-    { value: ChartDisplayType.Auto, label: 'Auto', icon: <IconGraph /> },
+    { value: ChartDisplayType.Auto, label: 'Auto', icon: <IconMagicWand /> },
     { value: ChartDisplayType.ActionsTable, label: 'Table', icon: <IconTableChart /> },
     { value: ChartDisplayType.ActionsLineGraph, label: 'Line chart', icon: <IconTrends /> },
     { value: ChartDisplayType.ActionsBar, label: 'Bar chart', icon: <IconGraph /> },
-    { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconGraph /> },
+    { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconLifecycle /> },
     { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart', icon: <IconAreaChart /> },
     { value: ChartDisplayType.ActionsPie, label: 'Pie chart', icon: <IconPieChart /> },
     { value: ChartDisplayType.TwoDimensionalHeatmap, label: '2D heatmap', icon: <IconHeatmap /> },
