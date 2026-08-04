@@ -1035,13 +1035,18 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A derived note quotes a report's id, title, and dismissal text, all of which the
-            # report API gates on `task:read`. A scout-only token must not read around that.
+            # Every report-derived note quotes a report's id, title, and reviewer/reader text, all of
+            # which the report API gates on `task:read`. A scout-only token must not read around that,
+            # so all derived origins are withheld together — a new one must not reopen the gap.
             ("without_report_read", ["signal_scout:read"], {"steering"}),
-            ("with_report_read", ["signal_scout:read", "task:read"], {"steering", "derived from a dismissal"}),
+            (
+                "with_report_read",
+                ["signal_scout:read", "task:read"],
+                {"steering", "derived from a dismissal", "derived from feedback"},
+            ),
         ]
     )
-    def test_list_withholds_dismissal_notes_from_callers_without_report_read(
+    def test_list_withholds_derived_notes_from_callers_without_report_read(
         self, _name: str, scopes: list[str], expected: set[str]
     ) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
@@ -1052,6 +1057,11 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             team=self.team,
             content="derived from a dismissal",
             origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
+        )
+        SignalScoutNote.objects.create(
+            team=self.team,
+            content="derived from feedback",
+            origin=SignalScoutNote.Origin.REPORT_FEEDBACK,
         )
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
