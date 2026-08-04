@@ -669,10 +669,16 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
 
     def test_flaky_check_groups_a_sharded_job_under_one_signal(self) -> None:
         # A sharded job reports per shard, and the shard count moves between runs, so keying on the raw
-        # name splits one flaky job into a signal per shard name — each separately gated by
-        # min_flaky_runs, so a job that recovered 3 times reports nothing at all.
+        # name splits one flaky job into a signal per shard name, each separately gated by
+        # min_flaky_runs, so a job that recovered 3 times reports nothing at all. These are the real
+        # rendered names: the shard label sits mid-name, so a key that only strips a trailing label
+        # still splits this job.
         now = datetime.now(UTC).replace(tzinfo=None)
-        shards = ["product tests (1/4)", "product tests (1/5)", "product tests (1/6)"]
+        shards = [
+            "Product tests (warehouse-sources (1/4), events schema legacy)",
+            "Product tests (warehouse-sources (1/5), events schema legacy)",
+            "Product tests (warehouse-sources (1/6), events schema legacy)",
+        ]
         rows = []
         jobs = []
         for run_id, shard in enumerate(shards, start=1):
@@ -697,10 +703,10 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             )
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3)
         assert len(findings) == 1
-        assert findings[0].extra["job_name"] == "product tests"
+        assert findings[0].extra["job_name"] == "Product tests (warehouse-sources, events schema legacy)"
         assert findings[0].extra["flaky_count"] == 3
         # The shard the worked example came from is evidence, so it survives outside the key.
-        assert "product tests (1/6)" in findings[0].description
+        assert "Product tests (warehouse-sources (1/6), events schema legacy)" in findings[0].description
         _assert_emittable(findings[0])
 
     def test_flaky_check_ignores_required_check_aggregators(self) -> None:

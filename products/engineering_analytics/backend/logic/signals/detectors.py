@@ -57,19 +57,22 @@ DURATION_MIN_PCT_INCREASE = 0.5
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
 
-# A sharded job reports as one GitHub job per shard, named `<job> (i/N)`.
-SHARD_SUFFIX_RE = re.compile(r"\s*\(\d+/\d+\)\s*$")
+# A sharded job reports as one GitHub job per shard, labeled `(i/N)`. The label is not always a
+# suffix: a product-test job renders as `Product tests (<product> (i/N), events schema <mode>)`,
+# which carries the label mid-name, so matching only at the end of the string would leave every
+# sharded product-test job splitting per shard.
+SHARD_LABEL_RE = re.compile(r"\s*\(\d+/\d+\)")
 
 
 def _base_job_name(job_name: str) -> str:
-    """The job name with its shard suffix removed.
+    """The job name with its shard label removed.
 
     The flaky thing is the job, not the shard that happened to hold the offending test: shards are a
     sizing detail, and the shard count itself moves between runs, so a raw-name key splits one flaky
     job across a signal per shard (each separately gated by min_flaky_runs) and mints fresh keys the
     day the count changes. Falls back to the raw name if stripping would leave nothing.
     """
-    return SHARD_SUFFIX_RE.sub("", job_name) or job_name
+    return SHARD_LABEL_RE.sub("", job_name) or job_name
 
 
 def _job_key(row: FlakyJobRun) -> tuple[str, str, str, str]:
