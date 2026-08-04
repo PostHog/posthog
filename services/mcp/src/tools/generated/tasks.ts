@@ -640,8 +640,11 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
     },
 })
 
-const TasksSpawnSchema = TasksSpawnCreateBody.omit({ sandbox_environment_id: true, custom_image_id: true }).extend({
-    parent_run_id: TasksSpawnCreateBody.shape['parent_run_id'].describe('Your current orchestrator run ID.'),
+const TasksSpawnSchema = TasksSpawnCreateBody.omit({
+    parent_run_id: true,
+    sandbox_environment_id: true,
+    custom_image_id: true,
+}).extend({
     description: TasksSpawnCreateBody.shape['description'].describe(
         "The child's verbatim prompt. Make it specific, self-contained, and complete because the child works independently."
     ),
@@ -653,9 +656,6 @@ const tasksSpawn = (): ToolBase<typeof TasksSpawnSchema, WithPostHogUrl<Schemas.
     handler: async (context: Context, params: z.infer<typeof TasksSpawnSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.parent_run_id !== undefined) {
-            body['parent_run_id'] = params.parent_run_id
-        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }

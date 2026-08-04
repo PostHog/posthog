@@ -135,6 +135,26 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('forwards task context headers', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            taskId: 'task-id',
+            taskRunId: 'run-id',
+        })
+
+        await (client as any).fetch('https://example.com/api/test')
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers['X-PostHog-Task-Id']).toBe('task-id')
+        expect(options.headers['X-PostHog-Task-Run-Id']).toBe('run-id')
+
+        vi.unstubAllGlobals()
+    })
+
     it('forwards mcpConsumer as x-posthog-mcp-consumer without altering User-Agent', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)

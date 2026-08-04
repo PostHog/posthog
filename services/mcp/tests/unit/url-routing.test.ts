@@ -235,6 +235,18 @@ describe('URL Routing', () => {
         })
     })
 
+    it('captures task context headers', () => {
+        const request = new Request('https://example.com/mcp', {
+            headers: {
+                Authorization: 'Bearer phx_test',
+                'x-posthog-task-id': 'task-id',
+                'x-posthog-task-run-id': 'run-id',
+            },
+        })
+
+        expect(parseRequestProperties(request, {})).toMatchObject({ taskId: 'task-id', taskRunId: 'run-id' })
+    })
+
     describe('mcpVendorClient parsing', () => {
         it('captures x-anthropic-client into mcpVendorClient', () => {
             const request = new Request('https://example.com/mcp', {

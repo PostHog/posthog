@@ -133,6 +133,7 @@ export interface ApiConfig {
      * the agent's task; the API validates it against the token's team.
      */
     taskId?: string | undefined
+    taskRunId?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -189,6 +190,7 @@ export class ApiClient {
                 : {}),
             // Forward the sandbox task id so API writes are attributed to the agent's task.
             ...(this.config.taskId ? { 'X-PostHog-Task-Id': this.config.taskId } : {}),
+            ...(this.config.taskRunId ? { 'X-PostHog-Task-Run-Id': this.config.taskRunId } : {}),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {

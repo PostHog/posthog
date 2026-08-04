@@ -103,6 +103,7 @@ export class RequestContext {
                 // reach the API unattributed.
                 oauthClientName: await this.readCachedOAuthClientName(),
                 taskId: this.props.taskId,
+                taskRunId: this.props.taskRunId,
             })
         }
         return this.apiInstance
