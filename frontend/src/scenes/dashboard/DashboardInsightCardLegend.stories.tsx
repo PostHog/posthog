@@ -5,7 +5,6 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import __dashboard_insight_card_legend_legacy from './__mocks__/dashboard_insight_card_legend_legacy.json'
 import __dashboard_insight_card_legend_query from './__mocks__/dashboard_insight_card_legend_query.json'
 
 const meta: Meta = {
@@ -15,7 +14,6 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/dashboards/1/': __dashboard_insight_card_legend_query as any,
-                '/api/environments/:team_id/dashboards/2/': __dashboard_insight_card_legend_legacy as any,
             },
         }),
     ],
@@ -32,9 +30,3 @@ export default meta
 
 type Story = StoryObj<{}>
 export const InsightLegend: Story = {}
-
-export const InsightLegendLegacy: Story = {
-    parameters: {
-        pageUrl: urls.dashboard(2),
-    },
-}
