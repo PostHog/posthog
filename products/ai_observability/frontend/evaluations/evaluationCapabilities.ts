@@ -1,7 +1,12 @@
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
-const REPORTABLE_OUTPUT_TYPES: ReadonlySet<EvaluationOutputType> = new Set(['boolean', 'sentiment'])
+// Mirrors REPORTABLE_OUTPUT_TYPES_BY_TARGET in evaluation_configs.py — keep the two in step.
+const REPORTABLE_OUTPUT_TYPES_BY_TARGET: Record<string, ReadonlySet<EvaluationOutputType>> = {
+    generation: new Set(['boolean', 'sentiment']),
+    trace: new Set(['boolean']),
+    session: new Set(['boolean']),
+}
 
 export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | null | undefined): boolean {
     return outputType === 'boolean'
@@ -10,10 +15,10 @@ export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | nul
 export function evaluationSupportsReports(
     evaluation: Pick<EvaluationConfig, 'output_type' | 'target'> | null | undefined
 ): boolean {
-    if (evaluation?.output_type == null || !REPORTABLE_OUTPUT_TYPES.has(evaluation.output_type)) {
+    if (evaluation?.output_type == null || evaluation.target == null) {
         return false
     }
-    return evaluation.target === 'generation' || (evaluation.target === 'trace' && evaluation.output_type === 'boolean')
+    return REPORTABLE_OUTPUT_TYPES_BY_TARGET[evaluation.target]?.has(evaluation.output_type) ?? false
 }
 
 export function evaluationSupportsRunSummary(

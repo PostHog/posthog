@@ -744,8 +744,8 @@ class TestHogRequestSerializer(serializers.Serializer):
         default=EvaluationTarget.GENERATION,
         help_text=(
             "What the evaluation runs against: 'generation' samples individual generations, "
-            "'trace' samples whole traces and runs against trace-level globals — matching how the "
-            "evaluation runs online. Previewing a 'session' target is not supported."
+            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
+            "quiet. Each target runs against the same globals it would run against online."
         ),
     )
     target_config = TestHogTargetConfigSerializer(
@@ -759,14 +759,14 @@ class TestHogRequestSerializer(serializers.Serializer):
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
-    sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation or trace.")
+    sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation, trace, or session.")
     sample_type = serializers.ChoiceField(
         choices=EvaluationTarget.choices,
-        help_text="Type of sampled unit: generation or trace.",
+        help_text="Type of sampled unit: generation, trace, or session.",
     )
     event_uuid = serializers.CharField(
         allow_null=True,
-        help_text="UUID of the sampled $ai_generation event, or null for a trace sample.",
+        help_text="UUID of the sampled $ai_generation event, or null for a trace or session sample.",
     )
     trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
     input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")

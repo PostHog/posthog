@@ -939,7 +939,7 @@ export interface TestHogRequestApi {
     allows_na?: boolean
     /** Optional trigger conditions to filter which events are sampled. */
     conditions?: TestHogRequestApiConditionsItem[]
-    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. Previewing a 'session' target is not supported.
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
      *
      * * `generation` - Generation
      * * `trace` - Trace
@@ -950,16 +950,16 @@ export interface TestHogRequestApi {
 }
 
 export interface TestHogResultItemApi {
-    /** Stable identifier for the sampled generation or trace. */
+    /** Stable identifier for the sampled generation, trace, or session. */
     sample_id: string
-    /** Type of sampled unit: generation or trace.
+    /** Type of sampled unit: generation, trace, or session.
      *
      * * `generation` - Generation
      * * `trace` - Trace
      * * `session` - Session */
     sample_type: EvaluationTargetEnumApi
     /**
-     * UUID of the sampled $ai_generation event, or null for a trace sample.
+     * UUID of the sampled $ai_generation event, or null for a trace or session sample.
      * @nullable
      */
     event_uuid: string | null
@@ -1465,6 +1465,8 @@ export interface EvaluationReportCitationApi {
     generation_id?: string
     /** Identifier of the trace cited by this report. */
     trace_id?: string
+    /** Optional session identifier for session-target report citations. */
+    session_id?: string
     /** Short explanation of why this example is cited. */
     reason?: string
 }

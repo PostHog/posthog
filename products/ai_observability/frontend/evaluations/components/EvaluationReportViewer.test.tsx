@@ -159,8 +159,17 @@ describe('EvaluationReportViewer', () => {
             expectedUrl: '/ai-observability/traces/trace%255D%2528id',
             expectedLabel: 'trace',
         },
+        // The trace the agent read inside the session is kept on the citation, but the link is to
+        // the session — that's the unit the report is about.
+        {
+            name: 'session citation',
+            citedId: 'session-9',
+            citation: { session_id: 'session-9', trace_id: 'trace-inside', reason: 'example' },
+            expectedUrl: '/ai-observability/sessions/session-9',
+            expectedLabel: 'session-...',
+        },
     ])(
-        'links a $name to the correct trace view',
+        'links a $name to the correct destination',
         ({ citedId, citation, expectedUrl, expectedLabel, content, expectedPlainText }) => {
             const reportRun = buildReportRun(buildMetrics({ pass_rate: 80 }))
             reportRun.content.sections = [{ title: 'Finding', content: content ?? `See \`${citedId}\`.` }]

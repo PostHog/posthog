@@ -11,11 +11,11 @@ describe('evaluationCapabilities', () => {
     >([
         ['boolean', 'generation', true, true],
         ['sentiment', 'generation', true, false],
+        // Sentiment is generation-only, so the aggregate targets report on boolean alone.
+        // This pins the frontend twin of REPORTABLE_OUTPUT_TYPES_BY_TARGET.
         ['boolean', 'trace', true, false],
         ['sentiment', 'trace', false, false],
-        // The report agent still assumes generation-shaped target ids, so a session evaluation
-        // must not offer reports. The backend refuses too; this pins the frontend twin.
-        ['boolean', 'session', false, false],
+        ['boolean', 'session', true, false],
         ['sentiment', 'session', false, false],
     ])(
         'supports the expected capabilities for %s %s evaluations',

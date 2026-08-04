@@ -807,7 +807,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
         .default(evaluationsTestHogCreateBodyTargetDefault)
         .describe(
-            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. Previewing a 'session' target is not supported.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
+            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
         ),
     target_config: zod
         .object({
