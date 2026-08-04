@@ -1663,6 +1663,34 @@
             "readOnlyHint": true
         }
     },
+    "conversations-tickets-notes-destroy": {
+        "description": "Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be deleted. Customer-facing replies cannot be deleted. Message IDs come from conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403 with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A missing or already-deleted note returns 404 with error_type note_not_found.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Delete private note",
+        "title": "Delete private note",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "conversations-tickets-notes-partial-update": {
+        "description": "Update a private note on a support ticket. Only private notes authored by the calling user can be edited. Customer-facing replies cannot be edited. Message IDs come from conversations-tickets-messages-retrieve. Editing another user's note or an AI-authored note returns 403 with error_type not_note_author. Editing a public reply returns 400 with error_type not_private_note. A missing or deleted note returns 404 with error_type note_not_found. Each successful update increments the note's version. Omit rich_content to clear previous TipTap JSON so the thread falls back to the markdown message.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Update private note",
+        "title": "Update private note",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-tickets-reply-create": {
         "description": "Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true to store an internal note visible only to team members.",
         "category": "Conversations",
