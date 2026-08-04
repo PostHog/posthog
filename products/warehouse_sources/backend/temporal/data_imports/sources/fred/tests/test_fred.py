@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.fred.fred import (
     FRED_BASE_URL,
     FredApiError,
@@ -236,6 +238,69 @@ class TestFredTransport:
             list(get_rows("super-secret", ["UNRATE"], "series", mock.MagicMock(), _make_manager()))
 
         assert "super-secret" not in str(error.value)
+
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            requests.ConnectionError(
+                "HTTPSConnectionPool(host='api.stlouisfed.org', port=443): Max retries exceeded with "
+                "url: /fred/series?series_id=UNRATE&api_key=super-secret&file_type=json"
+            ),
+            requests.ReadTimeout(
+                "HTTPSConnectionPool(host='api.stlouisfed.org', port=443): Read timed out. "
+                "url: /fred/series?api_key=super-secret"
+            ),
+        ],
+    )
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_transport_errors_never_leak_the_api_key(self, mock_session, raised):
+        # requests' own connection/timeout exceptions embed the prepared URL, api_key and all,
+        # and the pipeline persists that text as `latest_error`.
+        mock_session.return_value.get.side_effect = raised
+
+        with pytest.raises(FredApiError) as error:
+            list(get_rows("super-secret", ["UNRATE"], "series", mock.MagicMock(), _make_manager()))
+
+        assert "super-secret" not in str(error.value)
+        # `from None` so the suppressed original can't be re-rendered into the chained message.
+        assert error.value.__cause__ is None
+        assert error.value.__suppress_context__
+        assert type(raised).__name__ in str(error.value)
+
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_transport_errors_stay_retryable(self, mock_session):
+        # A dropped connection is not a bad key or a bad series id, so it must not match one of
+        # the source's non-retryable error prefixes.
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        with pytest.raises(FredApiError) as error:
+            list(get_rows("key", ["UNRATE"], "series", mock.MagicMock(), _make_manager()))
+
+        assert not isinstance(error.value, FredAuthenticationError | FredRequestError)
+        assert not str(error.value).startswith(("FRED authentication failed", "FRED rejected the request"))
+
+    @pytest.mark.parametrize(
+        "body, expected_type",
+        [
+            # FRED serves HTML from its edge on some failures, so the body may not be JSON at all.
+            (ValueError("not json"), FredApiError),
+            # ...and a JSON body that isn't an object has no `error_message` to read.
+            (["unexpected"], FredApiError),
+        ],
+    )
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_unparseable_error_bodies_still_raise(self, mock_session, body, expected_type):
+        response = _response(status_code=500)
+        if isinstance(body, Exception):
+            response.json.side_effect = body
+        else:
+            response.json.return_value = body
+        mock_session.return_value.get.return_value = response
+
+        with pytest.raises(expected_type) as error:
+            list(get_rows("key", ["UNRATE"], "series", mock.MagicMock(), _make_manager()))
+
+        assert "status=500" in str(error.value)
 
     @pytest.mark.parametrize(
         "status_code, error_message, expected",

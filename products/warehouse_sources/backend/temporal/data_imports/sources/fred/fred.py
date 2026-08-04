@@ -94,7 +94,17 @@ def _raise_for_status(response: requests.Response, path: str) -> None:
 
 def _fetch(session: requests.Session, api_key: str, path: str, params: dict[str, Any]) -> dict[str, Any]:
     url = _build_url(path, {**params, "api_key": api_key, "file_type": "json"})
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    try:
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException as error:
+        # A connection or timeout failure carries the prepared URL — and therefore the
+        # api_key query param — in its own message. The tracked session only redacts its
+        # telemetry, so letting this escape unchanged would write the key into job logs and
+        # into `latest_error`, where any project member viewing a failed import could read
+        # it back. Rebuild the failure from non-sensitive fields only, and suppress the
+        # original with `from None` so the chained message can't leak it either. The
+        # exception class name keeps the useful part (DNS vs TLS vs read timeout).
+        raise FredApiError(f"FRED transport error: {type(error).__name__}, path={path}") from None
     _raise_for_status(response, path)
     body = response.json()
     return body if isinstance(body, dict) else {}
