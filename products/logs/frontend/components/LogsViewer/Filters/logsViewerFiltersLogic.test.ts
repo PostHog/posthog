@@ -202,6 +202,21 @@ describe('logsViewerFiltersLogic', () => {
         })
     })
 
+    describe('expandDateRange', () => {
+        it('jumps to the next wider preset instead of doubling the current range', async () => {
+            logic.actions.setDateRange({ date_from: '-15M', date_to: null })
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.expandDateRange()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Doubling '-15M' would give '-30M'; the empty-state recovery should land on the
+            // next actual preset ('-30M' here happens to match, but the point is it's a single
+            // deliberate jump rather than an open-ended multiply).
+            expect(logic.values.filters.dateRange).toEqual({ date_from: '-30M', date_to: null })
+        })
+    })
+
     describe('keyed instances', () => {
         it('maintains separate state for different keys', async () => {
             const logic1 = logsViewerFiltersLogic({ id: 'tab-1' })

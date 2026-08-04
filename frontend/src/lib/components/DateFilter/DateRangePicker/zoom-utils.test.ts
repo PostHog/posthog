@@ -1,4 +1,4 @@
-import { zoomDateRange } from './zoom-utils'
+import { expandToNextDateRangePreset, zoomDateRange } from './zoom-utils'
 
 describe('zoomDateRange', () => {
     beforeEach(() => {
@@ -130,5 +130,45 @@ describe('zoomDateRange', () => {
             expect(result.date_from).toContain('2024-01-15T10:30:00')
             expect(result.date_to).toContain('2024-01-15T12:00:00')
         })
+    })
+})
+
+describe('expandToNextDateRangePreset', () => {
+    beforeEach(() => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date('2024-01-15T12:00:00.000Z'))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    it.each([
+        ['-15M', '-30M'],
+        ['-1h', '-3h'],
+        ['-24h', '-3d'],
+    ])('jumps from %s straight to the next wider preset %s', (date_from, expected) => {
+        expect(expandToNextDateRangePreset({ date_from, date_to: null })).toEqual({
+            date_from: expected,
+            date_to: null,
+        })
+    })
+
+    it('falls back to a 2x zoom when already at the widest preset', () => {
+        // '-7d' is the last entry in DEFAULT_DATE_RANGE_PICKER_OPTIONS, so there's no next preset to jump to
+        expect(expandToNextDateRangePreset({ date_from: '-7d', date_to: null })).toEqual(
+            zoomDateRange({ date_from: '-7d', date_to: null }, 2)
+        )
+    })
+
+    it('falls back to a 2x zoom for a non-preset relative range', () => {
+        expect(expandToNextDateRangePreset({ date_from: '-42M', date_to: null })).toEqual(
+            zoomDateRange({ date_from: '-42M', date_to: null }, 2)
+        )
+    })
+
+    it('falls back to a 2x zoom for an absolute range', () => {
+        const dateRange = { date_from: '2024-01-15T10:00:00.000Z', date_to: '2024-01-15T11:00:00.000Z' }
+        expect(expandToNextDateRangePreset(dateRange)).toEqual(zoomDateRange(dateRange, 2))
     })
 })

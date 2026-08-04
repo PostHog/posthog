@@ -1617,7 +1617,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         try:
             dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
+        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
             # Default to last hour if dateRange is malformed
             dateRange = DateRange(date_from="-1h")
 
@@ -1690,7 +1690,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             try:
                 dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-            except (json.JSONDecodeError, ValidationError, ValueError):
+            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
                 # Default to last hour if dateRange is malformed
                 dateRange = DateRange(date_from="-1h")
 

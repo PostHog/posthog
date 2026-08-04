@@ -44,6 +44,10 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
             <LogsViewer
                 id={`person-${person.uuid ?? person.id}`}
                 personId={String(person.uuid ?? person.id)}
+                // A person-scoped query is far sparser than the project-wide Logs scene, so the
+                // scene's 1-hour default (logsViewerFiltersLogic's DEFAULT_DATE_RANGE) all but
+                // guarantees an empty list here — widen it to a day.
+                initialFilters={{ dateRange: { date_from: '-24h', date_to: null } }}
                 showFullScreenButton={false}
                 showSavedViewsButton={false}
             />

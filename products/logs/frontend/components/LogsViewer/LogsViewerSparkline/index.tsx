@@ -148,14 +148,27 @@ export function LogsSparkline({
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
+            <div
+                className="flex items-center justify-between cursor-pointer select-none"
+                onClick={onToggleCollapse}
+                role="button"
+                tabIndex={0}
+                aria-expanded={!collapsed}
+                aria-controls="logs-sparkline-content"
+                onKeyDown={(e) => {
+                    if (onToggleCollapse && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault()
+                        onToggleCollapse()
+                    }
+                }}
+            >
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
                     icon={<IconChevronDown className={cn('transition-transform', collapsed && '-rotate-90')} />}
-                    onClick={onToggleCollapse}
-                    aria-expanded={!collapsed}
-                    aria-controls="logs-sparkline-content"
+                    // Row above already handles the click/keyboard toggle — this button is purely
+                    // visual so the chevron+label still look interactive without a nested <button>.
+                    tabIndex={-1}
                 >
                     <span className="text-xs text-muted">Volume over time</span>
                 </LemonButton>
@@ -165,6 +178,7 @@ export function LogsSparkline({
                         value={breakdownBy}
                         onChange={(value) => value && onBreakdownByChange(value)}
                         options={BREAKDOWN_OPTIONS}
+                        onClick={(e) => e.stopPropagation()}
                     />
                 )}
             </div>

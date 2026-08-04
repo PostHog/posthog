@@ -123,7 +123,7 @@ function LogsViewerContent({
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
-    const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
+    const { setDateRange, expandDateRange } = useActions(logsViewerFiltersLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
@@ -342,7 +342,7 @@ function LogsViewerContent({
                 showPinnedWithOpacity
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={fetchNextLogsPage}
-                onExpandTimeRange={() => zoomDateRange(2)}
+                onExpandTimeRange={expandDateRange}
                 orderBy={orderBy}
                 onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
             />

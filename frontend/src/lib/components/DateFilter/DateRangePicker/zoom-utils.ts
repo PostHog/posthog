@@ -1,3 +1,4 @@
+import { DEFAULT_DATE_RANGE_PICKER_OPTIONS } from 'lib/components/DateFilter/DateRangePicker/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
@@ -50,4 +51,23 @@ export const zoomDateRange = (
         date_from: newStart.format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
         date_to: (newEnd.isAfter(now) ? now : newEnd).format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
     }
+}
+
+/** Jumps straight to the next wider picker preset (e.g. `-15M` -> `-1h`) rather than doubling
+ * the current range, so a single click from a narrow range lands somewhere actually useful.
+ * Falls back to a plain 2x zoom for custom ranges or a range already at the widest preset. */
+export const expandToNextDateRangePreset = (dateRange: {
+    date_from?: string | null
+    date_to?: string | null
+}): { date_from?: string | null; date_to?: string | null } => {
+    if (dateRange.date_from && !dateRange.date_to) {
+        const presetIndex = DEFAULT_DATE_RANGE_PICKER_OPTIONS.findIndex(
+            (option) => option.values[0] === dateRange.date_from
+        )
+        const nextPreset = presetIndex >= 0 ? DEFAULT_DATE_RANGE_PICKER_OPTIONS[presetIndex + 1] : undefined
+        if (nextPreset) {
+            return { date_from: nextPreset.values[0], date_to: null }
+        }
+    }
+    return zoomDateRange(dateRange, 2)
 }

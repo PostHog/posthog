@@ -934,6 +934,24 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["results"][0]["name"], "x_forwarded_proto")
         self.assertEqual(data["results"][0]["propertyFilterType"], "log_attribute")
 
+    @parameterized.expand(["/api/projects/{}/logs/attributes", "/api/projects/{}/logs/values"])
+    def test_malformed_date_range_falls_back_instead_of_erroring(self, url_template):
+        # "extra" is not a DateRange field, so pydantic's model_validate raises ValidationError
+        # even though the JSON itself parses fine. get_model wraps that as a DRF ParseError, so
+        # the guard here must catch ParseError too, not just ValidationError, or this 400s instead
+        # of falling back to the documented "last hour" default.
+        response = self.client.get(
+            url_template.format(self.team.id),
+            {
+                "dateRange": '{"extra": "unexpected"}',
+                "key": "service.name",
+                "attribute_type": "resource",
+                "limit": "10",
+                "offset": "0",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_logs_values_endpoint(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/logs/values",
