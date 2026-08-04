@@ -16,12 +16,6 @@ import {
     scheduleDateToProjectTzISO,
 } from './featureFlagLogic'
 
-// Used from reducers, which don't receive `values` — we still need a synchronous read at
-// action-dispatch time. Selectors and listeners use the reactive `projectTimezone` selector instead.
-function projectTimezoneImperative(): string {
-    return teamLogic.findMounted()?.values.currentTeam?.timezone || 'UTC'
-}
-
 export interface FeatureFlagScheduleEditLogicProps {
     id: number | 'new' | 'link'
 }
@@ -51,8 +45,12 @@ export interface featureFlagScheduleEditLogicActions {
     closeEdit: () => {
         value: true
     }
-    openEdit: (schedule: ScheduledChangeType) => {
+    openEdit: (
+        schedule: ScheduledChangeType,
+        timezone: string
+    ) => {
         schedule: ScheduledChangeType
+        timezone: string
     }
     saveEdit: () => {
         value: true
@@ -134,7 +132,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         values: [teamLogic, ['currentTeam']],
     })),
     actions({
-        openEdit: (schedule: ScheduledChangeType) => ({ schedule }),
+        openEdit: (schedule: ScheduledChangeType, timezone: string) => ({ schedule, timezone }),
         closeEdit: true,
         setEditScheduledAt: (date: Dayjs | null) => ({ date }),
         setEditCronExpression: (cron: string | null) => ({ cron }),
@@ -159,10 +157,8 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editScheduledAt: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule }) =>
-                    schedule.scheduled_at
-                        ? scheduleDateFromStoredISO(schedule.scheduled_at, projectTimezoneImperative())
-                        : null,
+                openEdit: (_, { schedule, timezone }) =>
+                    schedule.scheduled_at ? scheduleDateFromStoredISO(schedule.scheduled_at, timezone) : null,
                 setEditScheduledAt: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -186,10 +182,8 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editEndDate: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule }) =>
-                    schedule.end_date
-                        ? scheduleDateFromStoredISO(schedule.end_date, projectTimezoneImperative())
-                        : null,
+                openEdit: (_, { schedule, timezone }) =>
+                    schedule.end_date ? scheduleDateFromStoredISO(schedule.end_date, timezone) : null,
                 setEditEndDate: (_, { date }) => date,
                 closeEdit: () => null,
             },

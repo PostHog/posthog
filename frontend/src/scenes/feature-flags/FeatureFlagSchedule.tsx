@@ -938,7 +938,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 onDelete={deleteScheduledChange}
                                 onPause={stopRecurringScheduledChange}
                                 onResume={resumeRecurringScheduledChange}
-                                onEdit={openEdit}
+                                onEdit={(schedule) => openEdit(schedule, scheduleTimezone)}
                             />
                         ))}
                     </div>
@@ -963,7 +963,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                             onDelete={deleteScheduledChange}
                                             onPause={stopRecurringScheduledChange}
                                             onResume={resumeRecurringScheduledChange}
-                                            onEdit={openEdit}
+                                            onEdit={(schedule) => openEdit(schedule, scheduleTimezone)}
                                         />
                                     ))}
                                 </div>
