@@ -329,7 +329,7 @@ GROUP BY metric_name
 
 Conversions carry the version as a `$workflow_version` property on the `$workflows_conversion` event, so version comparisons work in insights and cohorts too.
 
-Three things to know when reading these numbers:
+Things to know when reading these numbers:
 
 - **The version is the one that ran the step, not the one the person entered on.** Live edits reach runs already in flight, so a run that starts on v2 and sends its email after v3 is published attributes the trigger to v2 and the email to v3. Per-version rates are therefore a comparison of what each config did while it was live, not a fixed entry cohort.
 - **Conversions are the exception: they follow the message, not the step that happened to run.** A conversion can land days after the send, so it can't be attributed at match time — the published version by then may be one that never reached this person. The run carries `flowVersion` in its state, seeded at run start and re-pinned by each email or push step to the version that sent, so a conversion is credited to the same version its `email_sent` was. A run that converts without ever sending keeps the run-start version, and one parked before this shipped has none at all and lands only in the version-agnostic series.
