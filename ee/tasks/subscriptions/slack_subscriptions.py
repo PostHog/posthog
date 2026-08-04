@@ -45,6 +45,18 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
 )
 
 
+def _block_for_results_text(results_text: str) -> dict:
+    """The insight's values as text, so the report is readable without the screenshot.
+
+    Fenced so the column alignment survives Slack's proportional font and so data
+    values can't be read as mrkdwn — `build_results_text` guarantees no backticks.
+    """
+    fenced = f"```\n{results_text}\n```"
+    if len(fenced) > 3000:
+        fenced = fenced[:2993] + "\n```"
+    return {"type": "section", "text": {"type": "mrkdwn", "text": fenced}}
+
+
 def _next_delivery_date_display(subscription: Subscription) -> str:
     next_delivery_date = subscription.next_delivery_date
     return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
@@ -142,6 +154,7 @@ def _prepare_slack_message(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: Integration | None = None,
+    results_text: str | None = None,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -170,6 +183,9 @@ def _prepare_slack_message(
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
     ]
+
+    if results_text:
+        blocks.append(_block_for_results_text(results_text))
 
     if change_summary:
         summary_text = f"*AI summary:*\n{change_summary}"
@@ -381,6 +397,7 @@ async def send_slack_message_with_integration_async(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
+    results_text: str | None = None,
 ) -> SlackDeliveryResult:
     # `_prepare_slack_message` reads lazily-loaded ORM relations (e.g. `integration.team.organization`),
     # which Django forbids on the event loop. Build it in a thread before the async Slack send.
@@ -392,5 +409,6 @@ async def send_slack_message_with_integration_async(
         change_summary=change_summary,
         summary_skipped_over_budget=summary_skipped_over_budget,
         integration=integration,
+        results_text=results_text,
     )
     return await deliver_slack_message_data(integration, subscription, message_data)

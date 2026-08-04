@@ -387,6 +387,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     invite_message=inputs.invite_message,
                     change_summary=change_summary,
                     summary_skipped_over_budget=summary_skipped_over_budget,
+                    results_text=prepare_result.results_text,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,

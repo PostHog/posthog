@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
     build_insight_delivery_snapshot,
 )
+from products.exports.backend.temporal.subscriptions.results_text import build_results_text_for_snapshot
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -344,6 +345,12 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
     insight_snapshots = await build_insight_snapshots()
 
+    # Slack shows the insight as a screenshot, which reads poorly for a small SQL table
+    # and carries no numbers at all when the export fails. Send the values as text too.
+    results_text: str | None = None
+    if subscription.target_type == Subscription.SubscriptionTarget.SLACK and len(insight_snapshots) == 1:
+        results_text = build_results_text_for_snapshot(insight_snapshots[0])
+
     # Persist insight snapshots directly on SubscriptionDelivery.content_snapshot
     # instead of returning them across the Temporal activity boundary — per-insight
     # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
@@ -376,6 +383,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
+        results_text=results_text,
     )
 
 
@@ -499,6 +507,7 @@ async def _deliver_insight_dashboard_subscription(
                 is_new_subscription=send_only_to_new_recipients,
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+                results_text=inputs.results_text,
             ),
         )
     else:

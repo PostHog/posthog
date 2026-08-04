@@ -124,6 +124,9 @@ class CreateExportAssetsResult:
     target_type: str = ""
     status: str = ExportAssetPreparationStatus.READY
     failure_context: NoExportableInsightsContext | None = None
+    # Plain-text rendering of a compact tabular result — bounded by construction, so
+    # unlike the snapshot itself it's safe to return across the activity boundary.
+    results_text: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -138,6 +141,7 @@ class DeliverSubscriptionInputs:
     invite_message: typing.Optional[str] = None
     change_summary: typing.Optional[str] = None
     summary_skipped_over_budget: bool = False
+    results_text: typing.Optional[str] = None
     # The delivery row to write outcomes onto. AI deliveries also read the generated
     # report markdown back from it (kept off the Temporal wire, ~2 MiB cap).
     delivery_id: typing.Optional[uuid.UUID] = None

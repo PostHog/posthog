@@ -712,6 +712,40 @@ class TestSlackSummaryNotice(APIBaseTest):
         assert all("AI summary skipped" not in text for text in texts)
 
 
+class TestSlackResultsText(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
+        self.subscription = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+
+    def _section_texts(self, results_text: str | None) -> list[str]:
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            results_text=results_text,
+        )
+        return [block.get("text", {}).get("text", "") for block in message.blocks]
+
+    def test_values_are_sent_as_a_fenced_block(self) -> None:
+        texts = self._section_texts("Breached SLAs  3")
+        assert "```\nBreached SLAs  3\n```" in texts
+
+    def test_no_block_when_the_insight_has_no_text_rendering(self) -> None:
+        assert all("```" not in text for text in self._section_texts(None))
+
+
 class TestSlackExploreHint(APIBaseTest):
     def setUp(self) -> None:
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
