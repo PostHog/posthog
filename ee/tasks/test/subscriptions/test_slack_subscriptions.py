@@ -745,6 +745,20 @@ class TestSlackResultsText(APIBaseTest):
     def test_no_block_when_the_insight_has_no_text_rendering(self) -> None:
         assert all("```" not in text for text in self._section_texts(None))
 
+    def test_results_block_opts_out_of_slack_text_preprocessing(self) -> None:
+        # Without verbatim, Slack resolves a bare `@channel` in a cell value into a real
+        # broadcast, which escaping the entity syntax does not prevent.
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            results_text="Requested by: @channel",
+        )
+
+        results_blocks = [b for b in message.blocks if "```" in b.get("text", {}).get("text", "")]
+        assert len(results_blocks) == 1
+        assert results_blocks[0]["text"]["verbatim"] is True
+
 
 class TestSlackExploreHint(APIBaseTest):
     def setUp(self) -> None:

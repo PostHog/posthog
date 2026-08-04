@@ -48,14 +48,17 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
 def _block_for_results_text(results_text: str) -> dict:
     """The insight's values as text, so the report is readable without the screenshot.
 
-    Fenced so the column alignment survives Slack's proportional font. The fence stops
-    nothing on its own: Slack resolves entity syntax before rendering markdown, so
-    `build_results_text` is responsible for escaping the values, not this wrapper.
+    Fenced so the column alignment survives Slack's proportional font. The fence itself
+    protects nothing, because Slack processes the string before it renders markdown, and
+    result cells carry end-user-settable property values. Two defenses cover that:
+    `build_results_text` escapes the entity syntax (`<!channel>`, `<url|label>`), and
+    `verbatim` turns off the preprocessing pass that would otherwise link bare URLs and
+    resolve a bare `@channel` into a real broadcast.
     """
     fenced = f"```\n{results_text}\n```"
     if len(fenced) > 3000:
         fenced = fenced[:2993] + "\n```"
-    return {"type": "section", "text": {"type": "mrkdwn", "text": fenced}}
+    return {"type": "section", "text": {"type": "mrkdwn", "text": fenced, "verbatim": True}}
 
 
 def _next_delivery_date_display(subscription: Subscription) -> str:
