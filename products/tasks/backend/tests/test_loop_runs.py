@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
@@ -713,7 +714,6 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
 
 
 class TestFireLoopContextTarget(LoopRunsTestCase):
-    FOLDER_ID = "11111111-1111-1111-1111-111111111111"
     CANVAS_ID = "22222222-2222-2222-2222-222222222222"
 
     def setUp(self):
@@ -723,9 +723,21 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
+        self.channel = Channel(
+            team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
+        )
+        self.channel.save()
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas_model.objects.unscoped().create(
+            id=self.CANVAS_ID,
+            team=self.team,
+            channel=self.channel,
+            name="Growth Team",
+            created_by=self.user,
+        )
 
     def context_target(self, **outputs) -> dict:
-        return {"folder_id": self.FOLDER_ID, "name": "Growth Team", "outputs": outputs}
+        return {"channel_id": str(self.channel.id), "name": "Growth Team", "outputs": outputs}
 
     def fire_and_capture(self, loop: Loop, trigger: LoopTrigger, fire_key: str = "fire-ctx"):
         """Fire once, executing the post-commit dispatch against a mock so the resolved
@@ -736,15 +748,9 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         scopes = mock_dispatch.call_args.kwargs["posthog_mcp_scopes"] if mock_dispatch.call_args else None
         return result, scopes
 
-    def team_channel(self, name: str) -> Channel:
-        return Channel.objects.for_team(self.team.id, canonical=True).get(
-            name=name, channel_type=Channel.ChannelType.PUBLIC
-        )
-
     def test_feed_output_files_the_run_into_the_contexts_feed_channel(self):
-        # Attaching a loop to a context with post_to_feed must land each run in that context's
-        # feed. The feed channel is keyed by the normalized context name, resolved (or created)
-        # at fire time — dropping the channel wiring would silently orphan the runs.
+        # Attaching a loop to a context with post_to_feed must land each run in that channel's
+        # feed — dropping the channel wiring would silently orphan the runs.
         loop = self.create_loop(context_target=self.context_target(post_to_feed=True))
         trigger = self.create_trigger(loop)
 
@@ -752,39 +758,51 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         assert result.task_id is not None
         task = Task.objects.get(id=result.task_id)
-        self.assertEqual(task.channel_id, self.team_channel("growth-team").id)
+        self.assertEqual(task.channel_id, self.channel.id)
 
-    def test_feed_output_reuses_an_existing_feed_channel(self):
-        existing = Channel(
-            team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
-        )
-        existing.save()
+    def test_feed_output_skips_a_deleted_channel(self):
+        # A context attachment pointing at a since-deleted channel must not file runs into it.
         loop = self.create_loop(context_target=self.context_target(post_to_feed=True))
+        Channel.objects.unscoped().filter(id=self.channel.id).update(deleted=True)
         trigger = self.create_trigger(loop)
 
         result, _ = self.fire_and_capture(loop, trigger)
 
         assert result.task_id is not None
-        task = Task.objects.get(id=result.task_id)
-        self.assertEqual(task.channel_id, existing.id)
-        self.assertEqual(Channel.objects.unscoped().filter(team=self.team, name="growth-team").count(), 1)
+        self.assertIsNone(Task.objects.get(id=result.task_id).channel_id)
 
     @parameterized.expand(
         [
-            ("update_context_only", {"update_context": True}, [FOLDER_ID], ["desktop-file-system-instructions"]),
-            ("canvas_only", {"canvas_id": CANVAS_ID}, [CANVAS_ID], ["desktop-file-system-canvas-partial-update"]),
+            (
+                "update_context_only",
+                {"update_context": True},
+                ["channel-instructions-retrieve", "channel-instructions-update"],
+            ),
+            (
+                "canvas_only",
+                {"canvas_id": CANVAS_ID},
+                [
+                    CANVAS_ID,
+                    "canvas-source-retrieve",
+                    "canvas-publish-create",
+                    "expected_current_version_id",
+                ],
+            ),
             (
                 "both",
                 {"update_context": True, "canvas_id": CANVAS_ID},
-                [FOLDER_ID, CANVAS_ID],
-                ["desktop-file-system-instructions", "desktop-file-system-canvas-partial-update"],
+                [
+                    CANVAS_ID,
+                    "channel-instructions-retrieve",
+                    "canvas-source-retrieve",
+                    "canvas-publish-create",
+                    "expected_current_version_id",
+                ],
             ),
         ]
     )
-    def test_context_write_outputs_add_the_publish_block_to_the_prompt(
-        self, _name, outputs, expected_ids, expected_tool_fragments
-    ):
-        # A context-maintaining loop must be told, in its prompt, which folder/canvas to publish to
+    def test_context_write_outputs_add_the_publish_block_to_the_prompt(self, _name, outputs, expected_tool_fragments):
+        # A context-maintaining loop must be told, in its prompt, which channel/canvas to publish to
         # and through which tool — the sandbox agent has no other way to know its target.
         loop = self.create_loop(context_target=self.context_target(**outputs))
         trigger = self.create_trigger(loop)
@@ -793,8 +811,8 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         assert result.task_run_id is not None
         pending_user_message = TaskRun.objects.get(id=result.task_run_id).state["pending_user_message"]
-        for expected_id in expected_ids:
-            self.assertIn(expected_id, pending_user_message)
+        if "update_context" in outputs:
+            self.assertIn(str(self.channel.id), pending_user_message)
         for fragment in expected_tool_fragments:
             self.assertIn(fragment, pending_user_message)
 
@@ -804,10 +822,11 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             ("canvas", {"canvas_id": CANVAS_ID}),
         ]
     )
-    def test_context_write_outputs_grant_file_system_write_without_widening_to_full(self, _name, outputs):
-        # Least privilege: maintaining context.md / a canvas needs file_system write, but must not
-        # promote the run to the whole `full` write surface. Regressing either way is a real bug —
-        # too narrow breaks the publish, too broad hands an unattended run every write scope.
+    def test_context_write_outputs_grant_targeted_write_scopes_without_widening_to_full(self, _name, outputs):
+        # Least privilege: maintaining context.md needs the channels API (task scope) and a canvas
+        # needs canvas scope, but neither must promote the run to the whole `full` write surface.
+        # Regressing either way is a real bug — too narrow breaks the publish, too broad hands an
+        # unattended run every write scope.
         loop = self.create_loop(
             connectors={"posthog_mcp_scopes": "read_only"}, context_target=self.context_target(**outputs)
         )
@@ -816,8 +835,11 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         _, scopes = self.fire_and_capture(loop, trigger)
 
         self.assertIsInstance(scopes, list)
-        self.assertIn("file_system:write", scopes)
-        self.assertIn("file_system:read", scopes)
+        if outputs.get("update_context"):
+            self.assertIn("task:write", scopes)
+        if outputs.get("canvas_id"):
+            self.assertIn("canvas:write", scopes)
+            self.assertIn("canvas:read", scopes)
         self.assertNotEqual(scopes, "full")
 
     def test_feed_only_attachment_keeps_read_only_scope_and_omits_publish_block(self):
@@ -832,7 +854,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         assert result.task_id is not None
         task_run = TaskRun.objects.get(id=result.task_run_id)
-        self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
+        self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
         self.assertEqual(scopes, "read_only")
 
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
@@ -845,7 +867,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         task = Task.objects.get(id=result.task_id)
         self.assertIsNone(task.channel_id)
         task_run = TaskRun.objects.get(id=result.task_run_id)
-        self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
+        self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
