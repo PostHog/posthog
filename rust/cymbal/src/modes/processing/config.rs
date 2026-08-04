@@ -79,6 +79,19 @@ pub struct ProcessingConfig {
     #[envconfig(default = "100000")]
     pub issue_cache_capacity: u64,
 
+    // Event-level release resolution runs once per exception event. A release row is immutable
+    // once the CLI creates it, so a positive hit never goes stale; the TTL exists to let a
+    // negative result (app metadata that matches no release yet) expire after a dSYM upload
+    // creates the release, without re-querying Postgres on every event in the meantime.
+    #[envconfig(default = "300")]
+    pub release_cache_ttl_seconds: u64,
+
+    // An entry-count bound is a real memory bound: cached records clamp metadata to
+    // MAX_RELEASE_METADATA_BYTES at fetch, so a full cache tops out around
+    // max_entries * 8 KiB per lookup kind.
+    #[envconfig(default = "10000")]
+    pub release_cache_max_entries: u64,
+
     // Maximum number of in-flight futures for a single `Batch::apply_func` call.
     // This is a per-call-site limit, not a global pipeline-wide concurrency cap.
     #[envconfig(default = "64")]
