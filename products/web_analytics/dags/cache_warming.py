@@ -960,15 +960,28 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
         pending = set(futures)
         empty_waits = 0
         while pending:
-            done, pending = wait(pending, timeout=WARMING_STALL_TIMEOUT_SECONDS, return_when=FIRST_COMPLETED)
+            # The wait is truncated to the remaining deadline so a quiet window
+            # cannot overshoot it by a full stall timeout. A truncated empty
+            # wait lands in the deadline raise below before the stall guard, so
+            # the shortened window never counts as a stall observation.
+            remaining = WARMING_PASS_DEADLINE_SECONDS - (time.monotonic() - started_at)
+            done, pending = wait(
+                pending,
+                timeout=min(WARMING_STALL_TIMEOUT_SECONDS, max(1.0, remaining)),
+                return_when=FIRST_COMPLETED,
+            )
             if pending and time.monotonic() - started_at > WARMING_PASS_DEADLINE_SECONDS:
                 # Raising (not os._exit) routes through the cancellation path
                 # below: the backlog is cancelled, healthy in-flight shapes get
                 # the bounded grace, and only truly wedged threads hard-exit.
+                # Non-retryable: the op's retry policy would reset the clock and
+                # hold the schedule slot for another full deadline per attempt;
+                # the next scheduled run resumes incrementally instead.
                 raise dagster.Failure(
                     f"Warming pass still running after {WARMING_PASS_DEADLINE_SECONDS // 3600}h with "
                     f"{len(pending)} shapes left ({processed}/{total} processed) — failing the pass so "
-                    f"the next scheduled run takes over instead of holding the schedule slot"
+                    f"the next scheduled run takes over instead of holding the schedule slot",
+                    allow_retries=False,
                 )
             if not done:
                 empty_waits += 1

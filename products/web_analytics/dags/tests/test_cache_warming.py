@@ -690,11 +690,13 @@ class TestWarmQueriesOp(BaseTest):
         fake_time = SimpleNamespace(now=0.0)
         fake_time.monotonic = lambda: fake_time.now
         fake_time.sleep = lambda _s: None
+        wait_timeouts: list[float | None] = []
 
         def fake_wait(
             pending: set, timeout: float | None = None, return_when: str = "ALL_COMPLETED"
         ) -> tuple[set, set]:
-            fake_time.now += 7200.0
+            wait_timeouts.append(timeout)
+            fake_time.now += 10000.0
             first = next(iter(pending))
             real_wait({first}, timeout=5)
             return {first}, pending - {first}
@@ -717,10 +719,18 @@ class TestWarmQueriesOp(BaseTest):
                 }
                 for i in range(3)
             ]
-            with self.assertRaises(dagster.Failure):
+            with self.assertRaises(dagster.Failure) as raised:
                 warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
 
         self.assertFalse(mock_exit.called)
+        # Retrying would reset the deadline clock and hold the schedule slot
+        # for another full deadline per attempt.
+        self.assertIs(raised.exception.allow_retries, False)
+        # The wait is truncated to the remaining deadline (second window has
+        # only 800s left of the 10800s budget), so a quiet window cannot
+        # overshoot the deadline by a full stall timeout.
+        self.assertEqual(wait_timeouts[0], cache_warming.WARMING_STALL_TIMEOUT_SECONDS)
+        self.assertEqual(wait_timeouts[1], 800.0)
 
     def test_staleness_evaluated_on_jitter_aged_entry(self) -> None:
         # Shapes warmed together go stale together (fixed threshold), so a bulk
