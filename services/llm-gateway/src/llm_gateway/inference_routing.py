@@ -1,8 +1,8 @@
-"""Backend selection for GLM (`@cf/...`) traffic across Cloudflare, Modal, and Baseten.
+"""Route supported models to their configured inference providers.
 
-Modal takes traffic opted in by its server-side flag or the environment-configured fraction.
-Baseten takes traffic opted in by its server-side flag. Caller-forwarded flag headers cannot
-select a backend. There are no cross-backend retries.
+GLM can be served by Cloudflare, Modal, or Baseten. DeepSeek V4 Flash is served only by
+Baseten. Provider selection is internal to the gateway; caller-forwarded feature flag headers
+cannot select a backend. There are no cross-provider retries.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from llm_gateway.api.handler import (
 )
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.baseten import (
+    BASETEN_EXCLUSIVE_MODELS,
     BASETEN_PUBLIC_MODEL,
     ensure_baseten_configured,
     is_baseten_configured,
@@ -39,6 +40,7 @@ from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
     is_cloudflare_configured,
+    is_cloudflare_model,
     make_cloudflare_anthropic_call,
     make_cloudflare_completion_call,
     make_cloudflare_responses_call,
@@ -58,6 +60,11 @@ from llm_gateway.modal_routing import send_modal_request
 LlmCall = Callable[..., Awaitable[Any]]
 
 GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
+
+
+def is_inference_routed_model(model: str) -> bool:
+    """Whether this model id is served by the inference-routing layer rather than a native provider."""
+    return is_cloudflare_model(model) or model in BASETEN_EXCLUSIVE_MODELS
 
 
 def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:
@@ -84,7 +91,11 @@ async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, set
 
 
 async def _route_to_baseten(model: str, user: AuthenticatedUser, settings: Settings) -> bool:
-    if model != BASETEN_PUBLIC_MODEL or not is_baseten_configured(settings):
+    if not is_baseten_configured(settings):
+        return False
+    if model in BASETEN_EXCLUSIVE_MODELS:
+        return True
+    if model != BASETEN_PUBLIC_MODEL:
         return False
     return await evaluate_flag(GLM_BASETEN_FLAG, user.distinct_id) or False
 
@@ -125,7 +136,7 @@ async def _send_via_cloudflare(
     )
 
 
-async def _send_glm_request(
+async def _send_inference_request(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
@@ -161,14 +172,17 @@ async def _send_glm_request(
 # overridable seam.
 
 
-async def send_glm_anthropic_messages(
+async def send_inference_anthropic_messages(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _send_glm_request(
-        normalize_glm_anthropic_request(request_data, product=product),
+    if request_data["model"] not in BASETEN_EXCLUSIVE_MODELS:
+        request_data = normalize_glm_anthropic_request(request_data, product=product)
+
+    return await _send_inference_request(
+        request_data,
         user,
         is_streaming,
         product,
@@ -181,13 +195,13 @@ async def send_glm_anthropic_messages(
     )
 
 
-async def send_glm_chat_completions(
+async def send_inference_chat_completions(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _send_glm_request(
+    return await _send_inference_request(
         request_data,
         user,
         is_streaming,
@@ -201,13 +215,13 @@ async def send_glm_chat_completions(
     )
 
 
-async def send_glm_responses(
+async def send_inference_responses(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _send_glm_request(
+    return await _send_inference_request(
         request_data,
         user,
         is_streaming,

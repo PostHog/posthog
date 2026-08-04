@@ -233,33 +233,31 @@ class TestStripeSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "observed_error",
         [
-            (
-                # A RateLimitError that survives _RateLimitRetryingRequestsClient's in-process backoff
-                # still gets retried by Temporal at the activity level.
-                "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here "
-                "https://stripe.com/docs/rate-limits.",
-            ),
-            (
-                # A generic backend APIError that survives the SDK's own in-process 5xx retries — one
-                # of at least two known server-generated phrasings for the same "our fault, try again"
-                # condition.
-                "Request req_abc123: Error while communicating with one of our backends.  Sorry about "
-                "that!  We have been notified of the problem.  If you have any questions, we can help "
-                "at https://support.stripe.com/.",
-            ),
-            (
-                "Request req_abc123: Sorry, something went wrong. We've already been notified of the "
-                "problem, but if you need any help, you can reach us at https://support.stripe.com/contact.",
-            ),
-        ]
+            # A RateLimitError that survives _RateLimitRetryingRequestsClient's in-process backoff
+            # still gets retried by Temporal at the activity level; it must be classified as
+            # retryable so it's logged as a warning rather than tracked as an exception.
+            "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here "
+            "https://stripe.com/docs/rate-limits.",
+            # A generic backend APIError that survives the SDK's own in-process 5xx retries, one of at
+            # least two known server-generated phrasings for the same "our fault, try again" condition.
+            "Request req_abc123: Error while communicating with one of our backends.  Sorry about "
+            "that!  We have been notified of the problem.  If you have any questions, we can help "
+            "at https://support.stripe.com/.",
+            "Request req_abc123: Sorry, something went wrong. We've already been notified of the "
+            "problem, but if you need any help, you can reach us at https://support.stripe.com/contact.",
+            # Stripe's generic message for a 5xx it can't attribute to a specific cause, arriving
+            # without the "notified of the problem" boilerplate. The SDK's own retry loop already
+            # exhausted `max_network_retries` before this reaches us, so it's the same self-recovering
+            # shape as an exhausted rate limit.
+            "Request req_hOaEpFmCP1VADa: An unknown error occurred",
+        ],
     )
-    def test_retryable_errors_match_self_recovering_errors(self, observed_error):
-        # These must be classified as retryable so they're logged as a warning rather than tracked
-        # as an exception, since they're retried by Temporal at the activity level regardless. Match
-        # via the same case-insensitive helper the production path uses (`_handle_import_error`),
-        # not a case-sensitive substring check.
+    def test_retryable_errors_match_transient_stripe_errors(self, observed_error):
+        # Matched via the same case-insensitive helper the production path uses
+        # (`_handle_import_error`), not a case-sensitive substring check.
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
