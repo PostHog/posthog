@@ -6168,8 +6168,6 @@ class TestClickhouseRetentionGroupAggregation(
     RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest
 ):
     retention_base_query_variant_comparison_excluded_tests = {
-        "test_groups_aggregating",
-        "test_groups_aggregating_person_on_events",
         # Asserts sync_execute was called exactly once, but the comparison runs the query once per
         # variant, so the call count can never match. The test checks the max_execution_time setting
         # on the emitted SQL rather than query results, so it proves nothing about variant parity.
