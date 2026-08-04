@@ -100,8 +100,8 @@ describe('personsSceneLogic', () => {
         })
     })
 
-    describe('resetDeletedDistinctId listener', () => {
-        it('calls the API to reset a distinct ID', async () => {
+    describe('resetDeletedDistinctIds listener', () => {
+        it('calls the API once with every distinct ID, so a batch does not require one request per ID', async () => {
             const spy: MockSignature = jest.fn(() => [200, {}])
             useMocks({
                 post: {
@@ -110,7 +110,7 @@ describe('personsSceneLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.resetDeletedDistinctId('some-distinct-id')
+                logic.actions.resetDeletedDistinctIds(['some-distinct-id', 'another-distinct-id'])
             }).toFinishAllListeners()
 
             expect(spy).toHaveBeenCalledTimes(1)

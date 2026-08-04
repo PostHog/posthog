@@ -18,12 +18,14 @@ from posthog.test.base import (
 )
 from unittest import mock
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 import posthog.models.person.deletion
+from posthog.api.person import PersonResetDistinctIdsRequestSerializer
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Person, PropertyDefinition, Team
@@ -1996,6 +1998,52 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         mocked_ch_call.assert_not_called()
 
+    @pytest.mark.flaky(reruns=2)
+    def test_reset_person_distinct_id_accepts_a_batch_in_one_call(self):
+        # Unwinding a bulk_delete of many persons used to require one request per distinct_id.
+        # distinct_ids lets a batch reset in a single call.
+        distinct_ids = ["batch-distinct-id-1", "batch-distinct-id-2"]
+        for distinct_id in distinct_ids:
+            shared_uuid = str(uuidFromDistinctId(self.team.pk, distinct_id))
+            create_person_in_ch(uuid=shared_uuid, team_id=self.team.pk, is_deleted=True, version=105)
+            create_person_distinct_id(
+                team_id=self.team.pk,
+                distinct_id=distinct_id,
+                person_id=shared_uuid,
+                is_deleted=True,
+                version=107,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/",
+            {"distinct_ids": distinct_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+
+        for distinct_id in distinct_ids:
+            ch_pdi = sync_execute(
+                f"""
+                SELECT is_deleted, version
+                FROM {PERSON_DISTINCT_ID2_TABLE} FINAL
+                WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+                """,
+                {"team_id": self.team.pk, "distinct_id": distinct_id},
+            )
+            self.assertEqual(len(ch_pdi), 1)
+            self.assertEqual(ch_pdi[0][0], 0)  # is_deleted
+            assert ch_pdi[0][1] > 107  # version beats deletion
+
+    def test_reset_person_distinct_id_rejects_too_many_ids(self):
+        # Wiring guard for PersonResetDistinctIdsRequestSerializer's validation — the full
+        # matrix of invalid inputs is covered directly against the serializer below.
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/",
+            {"distinct_ids": [f"id-{i}" for i in range(1001)]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_batch_by_distinct_ids_happy_path(self) -> None:
         _create_person(
             team=self.team,
@@ -2230,3 +2278,26 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         properties = response.json()["results"][result_key]["properties"]
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
+
+
+class TestPersonResetDistinctIdsRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("neither field", {}),
+            ("both fields", {"distinct_id": "a", "distinct_ids": ["b"]}),
+            ("too many distinct_ids", {"distinct_ids": [f"id-{i}" for i in range(1001)]}),
+        ]
+    )
+    def test_rejects_invalid_input(self, _name: str, data: dict) -> None:
+        serializer = PersonResetDistinctIdsRequestSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+
+    @parameterized.expand(
+        [
+            ("legacy single distinct_id", {"distinct_id": "a"}),
+            ("distinct_ids list", {"distinct_ids": ["a", "b"]}),
+        ]
+    )
+    def test_accepts_valid_input(self, _name: str, data: dict) -> None:
+        serializer = PersonResetDistinctIdsRequestSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)

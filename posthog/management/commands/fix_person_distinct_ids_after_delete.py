@@ -45,7 +45,7 @@ def run(options):
         version = options["new_version"]
         reset_all_deleted_person_distinct_ids(team_id, version)
     else:
-        reset_deleted_person_distinct_ids(team_id, distinct_id)
+        reset_deleted_person_distinct_ids(team_id, [distinct_id])
 
     logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
     flush_all_producers(5 * 60)

@@ -1,7 +1,7 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { IconRewind } from '@posthog/icons'
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { LemonDialog, LemonTextArea } from '@posthog/lemon-ui'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -36,10 +36,38 @@ export const scene: SceneExport = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
+function parseDistinctIds(rawDistinctIds: string): string[] {
+    return rawDistinctIds
+        .split(/[\n,]/)
+        .map((distinctId) => distinctId.trim())
+        .filter(Boolean)
+}
+
+function openResetDeletedPersonDialog(resetDeletedDistinctIds: (distinctIds: string[]) => Promise<void>): void {
+    LemonDialog.openForm({
+        width: '30rem',
+        title: 'Reset deleted person',
+        description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
+            You can use this tool to reset the "distinct_id" for one or more deleted persons so that new events
+            associated with them will create new Person profiles. Enter one distinct ID per line, or separate them with commas.`,
+        initialValues: { distinct_ids: '' },
+        content: (
+            <LemonField name="distinct_ids" label="Distinct ID(s) to reset">
+                <LemonTextArea placeholder={'distinct-id-1\ndistinct-id-2'} autoFocus minRows={3} />
+            </LemonField>
+        ),
+        errors: {
+            distinct_ids: (distinctIds) =>
+                parseDistinctIds(distinctIds ?? '').length === 0 ? 'This is required' : undefined,
+        },
+        onSubmit: async ({ distinct_ids }) => await resetDeletedDistinctIds(parseDistinctIds(distinct_ids)),
+    })
+}
+
 export function PersonsScene(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
-    const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
+    const { resetDeletedDistinctIds } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
     const queryUniqueKey = 'persons-query'
@@ -55,24 +83,7 @@ export function PersonsScene(): JSX.Element {
         loadConfigs()
     })
 
-    const onResetDeletedPerson = (): void => {
-        LemonDialog.openForm({
-            width: '30rem',
-            title: 'Reset deleted person',
-            description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
-                You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
-            initialValues: { distinct_id: '' },
-            content: (
-                <LemonField name="distinct_id" label="Distinct ID to reset">
-                    <LemonInput type="text" autoFocus />
-                </LemonField>
-            ),
-            errors: {
-                distinct_id: (distinct_id) => (!distinct_id ? 'This is required' : undefined),
-            },
-            onSubmit: async ({ distinct_id }) => await resetDeletedDistinctId(distinct_id),
-        })
-    }
+    const onResetDeletedPerson = (): void => openResetDeletedPersonDialog(resetDeletedDistinctIds)
 
     return (
         <SceneContent>
@@ -109,28 +120,7 @@ export function PersonsScene(): JSX.Element {
                                 <ButtonPrimitive
                                     menuItem
                                     variant="danger"
-                                    onClick={() => {
-                                        LemonDialog.openForm({
-                                            width: '30rem',
-                                            title: 'Reset deleted person',
-                                            description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
-                                                You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
-                                            initialValues: {
-                                                distinct_id: '',
-                                            },
-                                            content: (
-                                                <LemonField name="distinct_id" label="Distinct ID to reset">
-                                                    <LemonInput type="text" autoFocus />
-                                                </LemonField>
-                                            ),
-                                            errors: {
-                                                distinct_id: (distinct_id) =>
-                                                    !distinct_id ? 'This is required' : undefined,
-                                            },
-                                            onSubmit: async ({ distinct_id }) =>
-                                                await resetDeletedDistinctId(distinct_id),
-                                        })
-                                    }}
+                                    onClick={() => openResetDeletedPersonDialog(resetDeletedDistinctIds)}
                                 >
                                     <IconRewind />
                                     Reset a deleted person...

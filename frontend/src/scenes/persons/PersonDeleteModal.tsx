@@ -29,7 +29,11 @@ export function PersonDeleteModal(): JSX.Element | null {
             <div className="space-y-4">
                 <h4>Are you sure you want to delete "{asDisplay(personDeleteModal)}"?</h4>
 
-                <p>This action cannot be undone.</p>
+                <p>
+                    This action cannot be undone. If you delete this person by mistake, use the "Reset a deleted person"
+                    tool on the persons page to free up its distinct ID(s) for reuse, then re-send identify calls to
+                    rebuild the profile.
+                </p>
                 <div className="space-y-2">
                     <LemonCheckbox
                         onChange={setAlsoDeleteEvents}

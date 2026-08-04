@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast  # noqa: UP035
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -40,7 +41,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
-from posthog.event_usage import get_request_analytics_properties
+from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
@@ -260,6 +261,36 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists.",
     )
+
+
+# Matches the cap on the persons bulk-delete endpoint, so a single reset call can unwind a
+# single bulk_delete call.
+MAX_RESET_DISTINCT_IDS_PER_REQUEST = 1000
+
+
+class PersonResetDistinctIdsRequestSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(
+        required=False,
+        help_text="A single distinct_id to reset. Prefer distinct_ids to reset more than one in a single call.",
+    )
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="A list of distinct_ids to reset (max 1000). Use this instead of distinct_id to unwind a bulk_delete call in one request.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        distinct_id = attrs.get("distinct_id")
+        distinct_ids = attrs.get("distinct_ids")
+        if distinct_id and distinct_ids:
+            raise serializers.ValidationError("Provide either distinct_id or distinct_ids, not both")
+        if not distinct_id and not distinct_ids:
+            raise serializers.ValidationError("You must provide either distinct_id or distinct_ids")
+        if distinct_ids and len(distinct_ids) > MAX_RESET_DISTINCT_IDS_PER_REQUEST:
+            raise serializers.ValidationError(
+                f"You can only pass {MAX_RESET_DISTINCT_IDS_PER_REQUEST} distinct_ids in one call"
+            )
+        return attrs
 
 
 class PersonSplitRequestSerializer(serializers.Serializer):
@@ -741,6 +772,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
         if delete_recordings:
             queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
+
+        posthoganalytics.capture(
+            event="person profiles bulk deleted",
+            distinct_id=str(cast(User, request.user).distinct_id),
+            properties={
+                "persons_found": len(persons),
+                "persons_deleted": persons_deleted,
+                "delete_events": delete_events,
+                "delete_recordings": delete_recordings,
+                "keep_person": keep_person,
+            },
+            groups=groups(self.organization),
+        )
 
         return {
             "persons_found": len(persons),
@@ -1318,16 +1362,24 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @extend_schema(
-        description="Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.",
+    @validated_request(
+        PersonResetDistinctIdsRequestSerializer,
+        responses={202: None},
+        description="Reset one or more distinct_ids for deleted persons. This allows the distinct_id(s) to be used "
+        "again. Pass `distinct_ids` (max 1000) to reset several in a single call, e.g. to unwind a bulk_delete call.",
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
-    def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        distinct_id = request.data.get("distinct_id")
-        if not distinct_id or not isinstance(distinct_id, str):
-            raise ValidationError(detail="distinct_id is required")
+    def reset_person_distinct_id(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
+        distinct_ids = request.validated_data.get("distinct_ids") or [request.validated_data["distinct_id"]]
 
-        reset_deleted_person_distinct_ids(self.team_id, distinct_id)
+        reset_deleted_person_distinct_ids(self.team_id, distinct_ids)
+
+        posthoganalytics.capture(
+            event="person distinct_ids reset",
+            distinct_id=str(cast(User, request.user).distinct_id),
+            properties={"count": len(distinct_ids)},
+            groups=groups(self.organization),
+        )
 
         return response.Response(status=202)
 

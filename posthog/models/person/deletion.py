@@ -22,11 +22,13 @@ def reset_all_deleted_person_distinct_ids(team_id: int, version: int = 2500):
     _updated_distinct_ids(team_id, distinct_ids_and_versions)
 
 
-def reset_deleted_person_distinct_ids(team_id: int, distinct_id: str):
-    existing_version = _get_version_for_distinct_id(team_id, distinct_id)
-    distinct_ids_and_versions = [(distinct_id, existing_version + 100)]
+def reset_deleted_person_distinct_ids(team_id: int, distinct_ids: list[str]):
+    distinct_ids_and_versions: list[tuple[str, int]] = []
+    for distinct_id in distinct_ids:
+        existing_version = _get_version_for_distinct_id(team_id, distinct_id)
+        distinct_ids_and_versions.append((distinct_id, existing_version + 100))
 
-    logger.info(f"Resetting distinct id {distinct_id} to version {existing_version + 100}")
+    logger.info(f"Resetting {len(distinct_ids_and_versions)} distinct id(s)", team_id=team_id)
     _updated_distinct_ids(team_id, distinct_ids_and_versions)
 
 
