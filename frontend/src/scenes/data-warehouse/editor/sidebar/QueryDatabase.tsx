@@ -402,8 +402,11 @@ export const QueryDatabase = ({
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
-                // Insert the column at the cursor, preserving the rest of the query the user has typed
-                if (item && item.record?.type === 'column') {
+                // Insert the column at the cursor, preserving the rest of the query the user has typed.
+                // Guarded on the name existing: a throw here escapes the tree item's <a> click handler
+                // before it can preventDefault, so the browser follows the placeholder href and lands
+                // on the project home page.
+                if (item && item.record?.type === 'column' && item.record.columnName) {
                     insertTextAtCursor(escapeDottedHogQLIdentifier(item.record.columnName))
                 }
 
