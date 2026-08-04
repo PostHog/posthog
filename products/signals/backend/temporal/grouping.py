@@ -55,6 +55,7 @@ from products.signals.backend.temporal.signal_queries import (
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     RERESEARCH_MAX_SIGNALS,
+    RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
     MatchedMetadata,
@@ -678,6 +679,11 @@ class AssignAndEmitSignalOutput:
     promoted: bool
     timestamp: datetime
     run_count: int
+    # Debounce for the research run this promotion spawns, read here rather than in the workflow:
+    # reading the setting inside a workflow body would be non-deterministic on replay, and grouping
+    # workflows are long-lived, so they replay across a rollout. Defaults to 0 so histories written
+    # before this field decode to "no wait".
+    research_debounce_seconds: int = 0
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -968,6 +974,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=db_result.promoted,
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
+            research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
         )
     except Exception as e:
         logger.exception(
@@ -1330,7 +1337,11 @@ async def _process_signal_batch(
 
             if assign_result.promoted:
                 promoted_reports[assign_result.report_id] = (
-                    SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=signal.team_id,
+                        report_id=assign_result.report_id,
+                        debounce_seconds=assign_result.research_debounce_seconds,
+                    ),
                     assign_result.run_count,
                 )
 
@@ -1374,11 +1385,12 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=timedelta(hours=1),
+                execution_timeout=timedelta(hours=1, seconds=report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
-            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
-            pass
+            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op. With
+            # the debounce on this is the common path, and the count is what the debounce saves.
+            metrics.increment_research_run_collapsed()
         except Exception:
             # Log and continue: raising here would reprocess the whole batch and double-count
             # signals. The report stays CANDIDATE and re-promotes on the next matching signal.
