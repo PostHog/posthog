@@ -177,6 +177,7 @@ export function ChannelItemRow({
   onAddToCommandCenter,
   onEditSubmit,
   onEditCancel,
+  contextLabel,
 }: {
   item: ChannelItemModel;
   /** The space this row is listed under, ticked in the menu's "File to…". */
@@ -184,6 +185,11 @@ export function ChannelItemRow({
   isActive: boolean;
   actions: ChannelItemActions;
   isEditing?: boolean;
+  /**
+   * A muted marker for where the row lives — the cross-space "My tasks" list
+   * names each row's space with it. Lists scoped to one space omit it.
+   */
+  contextLabel?: string;
   /** Puts the row into inline-rename mode. Absent for canvases. */
   onRename?: () => void;
   /** Absent when the command centre has no free cell, which disables the item. */
@@ -295,6 +301,11 @@ export function ChannelItemRow({
               }
               endContent={
                 <span className={TRAILING_CLASS}>
+                  {contextLabel && (
+                    <span className="max-w-16 truncate text-[11px] text-muted-foreground">
+                      {contextLabel}
+                    </span>
+                  )}
                   {/* Badges take the timestamp's slot on a task row: the row's
                       identity (pin, source, cloud, PR) is what you scan a task
                       list for, and the relative age is still in the preview
