@@ -962,6 +962,38 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class name.
+            'infinite recursion detected in policy for relation "list_members"',
+            'infinite recursion detected in policy for relation "grocery_lists"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'InvalidObjectDefinition: infinite recursion detected in policy for relation "orders"',
+        ],
+    )
+    def test_recursive_rls_policy_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Recursive RLS policy error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'infinite recursion detected in policy for relation "list_members"',
+            # Temporal-wrapped form matches both this pattern and the "InvalidObjectDefinition"
+            # class-name key; `update_external_data_job_model` takes the friendly message from the
+            # *first* matching dict entry, so the specific pattern must be ordered before the
+            # class-name key or its `None` value silently shadows this actionable message.
+            'InvalidObjectDefinition: infinite recursion detected in policy for relation "orders"',
+        ],
+    )
+    def test_recursive_rls_policy_returns_friendly_message(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        first_match = next((reason for pattern, reason in non_retryable.items() if pattern in error_msg), None)
+        assert first_match is not None, "Recursive RLS policy error should surface an actionable message"
+        assert "BYPASSRLS" in first_match
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
