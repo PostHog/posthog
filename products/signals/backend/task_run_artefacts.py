@@ -26,7 +26,7 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     TaskRunArtefact,
 )
-from products.signals.backend.billing import mark_report_billing_exempt
+from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
@@ -174,6 +174,12 @@ def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> lis
     the run stopped. Locks each report row (the same lock auto-start creation takes) so the
     removal serializes with a concurrent auto-start evaluation. Returns the affected report ids
     (empty when the task has no implementation link).
+
+    Reports that already shipped a billable PR are skipped entirely: the cancel decision is
+    run-scoped but this delete is task-scoped, and a sibling run of the same task may have
+    shipped the PR that billed the report. Its `SignalReportTask` row is billing's evidence —
+    the `billed_earlier` dedup and refund eligibility both resolve through it — so deleting it
+    would re-bill the report on its next implementation and strand the paid charge unrefundable.
     """
     report_ids = list(
         SignalReportTask.objects.filter(
@@ -185,6 +191,11 @@ def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> lis
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
             if report is None:
+                continue
+            if first_billable_pr_run_at(report_id) is not None:
+                # A sibling run already shipped this report's billable PR. These records are
+                # billing's evidence for that charge — deleting them would double-bill the next
+                # implementation — and the report needs no release: it *is* implemented.
                 continue
             SignalReportTask.objects.filter(
                 team_id=team_id,

@@ -1,9 +1,11 @@
 import json
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from products.signals.backend.billing import first_billable_pr_run_at
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
@@ -414,3 +416,28 @@ class TestReleaseQuotaCancelledImplementation(BaseTest):
     def test_release_without_implementation_link_is_a_noop(self):
         task = self._task()
         assert release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id)) == []
+
+    def test_release_skips_report_whose_billable_pr_shipped_from_a_sibling_run(self):
+        # The cancel decision is run-scoped but this delete is task-scoped: a sibling run of the
+        # same task can have shipped the report's billable PR in an earlier period. The bridge row
+        # is billing's evidence for that charge (billed-earlier dedup, refund eligibility), so the
+        # release must leave the report untouched instead of re-opening it for a second billing.
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            output={"pr_url": "https://github.com/x/y/pull/1"},
+            created_at=datetime(2026, 6, 10, tzinfo=UTC),
+        )
+
+        released = release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id))
+
+        assert released == []
+        assert SignalReportTask.objects.filter(task_id=task.id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists()
+        assert first_billable_pr_run_at(report.id) is not None
+        # Auto-start must still see a started implementation — the report is implemented, not stuck.
+        assert SignalReport.associated_task_runs(
+            report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )

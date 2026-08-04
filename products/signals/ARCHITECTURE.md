@@ -1196,6 +1196,7 @@ The cron remains the backstop.
 
 **A quota-cancelled run leaves only the report.**
 `release_quota_cancelled_implementation` removes the run's `SignalReportTask` gate row and implementation `task_run` artefact (which would otherwise permanently block re-implementation) and appends a system `note` artefact explaining the stop.
+Reports that already shipped a billable PR (through a sibling run of the same task) are skipped entirely: that gate row is billing's evidence for the charge, and deleting it would re-bill the report on its next implementation and break refund eligibility.
 Runs that already recorded a PR URL are never cancelled: the report is already billed, so finishing the run and its CI follow-ups costs nothing more.
 The release path is deliberately not hardened against a PR landing concurrently with the cancel (or an earlier run's PR on the same task): a PR that slips through ships un-billed.
 Enforcement exists to stop runaway generation, not to guarantee billing capture, so under-billing errs in the customer's favor.
