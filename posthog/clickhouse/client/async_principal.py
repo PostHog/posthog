@@ -82,6 +82,10 @@ def rebuild_principal(ref: Optional[PrincipalRef], team: "Team") -> Optional["Pr
     Returns None when the reference no longer resolves, which makes the query fall back to the
     userless (fully denied) path rather than to a stale grant.
     """
+    # Guard ahead of the imports so a task with no reference does no work at all.
+    if not isinstance(ref, dict) or not ref:
+        return None
+
     from posthog.auth import (  # noqa: PLC0415 — see serialize_principal
         ProjectSecretAPIKeyUser,
         TeamSecretTokenUser,
@@ -90,9 +94,6 @@ def rebuild_principal(ref: Optional[PrincipalRef], team: "Team") -> Optional["Pr
     from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
     from posthog.models.sharing_configuration import SharingConfiguration  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
-
-    if not isinstance(ref, dict) or not ref:
-        return None
 
     kind = ref.get("kind")
     principal: Optional[Principal] = None

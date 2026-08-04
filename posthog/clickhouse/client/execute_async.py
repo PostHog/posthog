@@ -320,7 +320,6 @@ def enqueue_process_query_task(
         query_id = uuid.uuid4().hex
 
     user_id = user.id if user else None
-    principal = serialize_principal(user)
 
     manager = QueryStatusManager(query_id, team.id)
 
@@ -379,6 +378,9 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
+    # Serialized here rather than at the top, so the dedup and stored-result early returns above
+    # (one call per dashboard tile) skip the work entirely.
+    principal = serialize_principal(user)
     # Omitting the kwarg when there is no principal keeps the real-user path byte-identical on the
     # wire, so a rolling deploy cannot fail those queries. It does not save principal-carrying
     # queries: a worker running code without the `principal` parameter rejects them with a
