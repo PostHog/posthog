@@ -385,39 +385,27 @@ export class HogTransformerService implements HogTransformer {
     }
 }
 
-/**
- * Config needed by the HogTransformer when running inside ingestion.
- * Ingestion shares the transformation execution and monitoring settings, but
- * deliberately excludes CDP's Redis, Valkey, and HogWatcher infrastructure.
- */
-export type HogTransformerServiceConfig = Omit<
+/** Config read by createHogTransformerService when running inside ingestion. */
+export type HogTransformerServiceConfig = Pick<
     CdpCoreServicesConfig,
-    | 'CDP_REDIS_HOST'
-    | 'CDP_REDIS_PORT'
-    | 'CDP_REDIS_PASSWORD'
-    | 'CDP_REDIS_READER_HOST'
-    | 'CDP_REDIS_READER_PORT'
-    | 'CDP_VALKEY_HOST'
-    | 'CDP_VALKEY_PORT'
-    | 'CDP_VALKEY_PASSWORD'
-    | 'CDP_VALKEY_READER_HOST'
-    | 'CDP_VALKEY_READER_PORT'
-    | 'CDP_VALKEY_TLS'
-    | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
-    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
-    | 'CDP_WATCHER_HOG_COST_TIMING'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING'
-    | 'CDP_WATCHER_SEND_EVENTS'
-    | 'CDP_WATCHER_BUCKET_SIZE'
-    | 'CDP_WATCHER_REFILL_RATE'
-    | 'CDP_WATCHER_TTL'
-    | 'CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS'
-    | 'CDP_WATCHER_THRESHOLD_DEGRADED'
-    | 'CDP_WATCHER_STATE_LOCK_TTL'
-    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
-    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'SITE_URL'
+    | 'SES_ACCESS_KEY_ID'
+    | 'SES_SECRET_ACCESS_KEY'
+    | 'SES_REGION'
+    | 'SES_ENDPOINT'
+    | 'SES_TRACKED_CONFIGURATION_SET'
+    | 'SES_UNTRACKED_CONFIGURATION_SET'
+    | 'EMAIL_SES_TENANT_ATTRIBUTION_ENABLED'
+    | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
+    | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+    | 'CDP_FETCH_RETRIES'
+    | 'CDP_FETCH_BACKOFF_BASE_MS'
+    | 'CDP_FETCH_BACKOFF_MAX_MS'
+    | 'CDP_EMAIL_TRACKING_URL'
 > &
     Pick<CommonConfig, 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
 
