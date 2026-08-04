@@ -52,7 +52,6 @@ export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
     }
 
     return (
-        // Flex column, not block: the chart root is `flex-1 min-h-0` and collapses to 0 without it.
         <div className="inline-flex flex-col w-[60px] h-[20px] pointer-events-none border-b border-r border-primary">
             <LineChart series={series} labels={labels} theme={theme} config={CHART_CONFIG} />
         </div>
