@@ -5455,6 +5455,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-storage',
     'google-ads',
     'google-analytics',
+    'google-calendar',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
