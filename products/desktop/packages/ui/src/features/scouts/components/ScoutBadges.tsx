@@ -1,6 +1,7 @@
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import { getScoutOrigin } from "@posthog/core/scouts/scoutPresentation";
 import { Badge, Tooltip } from "@radix-ui/themes";
+import type { ReactNode } from "react";
 
 export function ScoutOriginBadge({ config }: { config: ScoutConfig }) {
   const origin = getScoutOrigin(config);
@@ -37,6 +38,30 @@ export function DryRunBadge({ config }: { config: ScoutConfig }) {
         Dry run
       </Badge>
     </Tooltip>
+  );
+}
+
+/**
+ * One scout tag. `children` is the optional trailing affordance — the tag editor
+ * passes a remove button, read-only surfaces pass nothing.
+ */
+export function ScoutTagBadge({
+  tag,
+  children,
+}: {
+  tag: string;
+  children?: ReactNode;
+}) {
+  return (
+    <Badge
+      variant="soft"
+      color="iris"
+      size="1"
+      className="relative gap-1 text-[11px]"
+    >
+      {tag}
+      {children}
+    </Badge>
   );
 }
 

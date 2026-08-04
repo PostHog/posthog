@@ -10,6 +10,8 @@ First, take a quick scan of this PostHog project to ground your suggestions: ski
 
 Then ask me what sort of scout I'd like to make, and offer a few concrete suggestions tailored to what you found (for example specific funnels, error or latency spikes, churn or activation signals, or revenue metrics worth watching) — and call out gaps the current fleet doesn't already cover. Once I pick a direction, walk me through authoring the scout end to end.
 
+Include tags in the new scout's config so it lands already grouped with the rest of the fleet: propose a tag drawn from what the existing scouts already carry rather than minting a near-duplicate, and confirm it with me before you create the scout.
+
 If the skill is unavailable, fall back to the signals-scout MCP tools directly (config list to see the existing fleet) plus the read-data and insight tools to scan the project.`;
 
 export const SCOUT_FLEET_OVERVIEW_PROMPT = `How is my scout fleet performing?

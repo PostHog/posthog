@@ -7,6 +7,7 @@ import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOpti
 import { Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
 import { useMemo } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
+import { ScoutTagsEditor } from "./ScoutTagsEditor";
 
 const MODE_OPTIONS = [
   { value: "live", label: "Live" },
@@ -108,6 +109,18 @@ export function ScoutConfigForm({
             onUpdate(config.id, { run_interval_minutes: Number(value) })
           }
         />
+      </Flex>
+      {/* Tags stay editable on a disabled scout, unlike mode and cadence: they
+          organize the fleet rather than shape a run, and grouping a scout you
+          have parked is exactly when you want them. */}
+      <Flex direction="column" gap="1">
+        <Flex direction="column" className="min-w-0">
+          <Text className="text-[12px] text-gray-12">Tags</Text>
+          <Text className="text-[11.5px] text-gray-10">
+            Labels for grouping the fleet; the scout list can filter by them
+          </Text>
+        </Flex>
+        <ScoutTagsEditor config={config} onUpdate={onUpdate} />
       </Flex>
     </Flex>
   );

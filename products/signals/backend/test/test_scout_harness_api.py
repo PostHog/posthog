@@ -1811,6 +1811,134 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert SignalScoutConfig.all_teams.filter(id=config.id).exists()
 
+    def test_list_reports_no_tags_as_an_empty_list(self) -> None:
+        # The column is nullable so the AddField could land without a rewrite; a consumer must
+        # never have to tell "no tags" apart from "null".
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        SignalScoutConfig.objects.filter(pk=config.pk).update(tags=None)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["tags"] == []
+
+    @parameterized.expand(
+        [
+            ("single", "revenue", ["signals-scout-alpha", "signals-scout-beta"]),
+            ("any_of_matches_either", "revenue,on-call", ["signals-scout-alpha", "signals-scout-beta"]),
+            ("narrow", "on-call", ["signals-scout-beta"]),
+            ("normalized_like_stored_tags", "On Call", ["signals-scout-beta"]),
+            ("unknown_tag_matches_nothing", "nope", []),
+        ]
+    )
+    def test_list_filters_by_tags(self, _name: str, tags_param: str, expected: list[str]) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta", tags=["on-call", "revenue"])
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-gamma", tags=[])
+
+        response = self.client.get(self._list_url(), data={"tags": tags_param})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == expected
+
+    def test_list_without_a_tag_filter_returns_the_whole_fleet(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta", tags=[])
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == ["signals-scout-alpha", "signals-scout-beta"]
+
+    def test_list_rejects_a_tag_filter_that_normalizes_to_nothing(self) -> None:
+        # An unusable filter must not silently widen to "the whole fleet" — that would read as
+        # "these scouts carry the tag" when nothing was filtered at all.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
+
+        response = self.client.get(self._list_url(), data={"tags": "!!!"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("normalizes_and_sorts", ["Revenue", "on call"], ["on-call", "revenue"]),
+            ("dedupes_after_normalization", ["revenue", "Revenue", "REVENUE"], ["revenue"]),
+            ("slugifies_punctuation", ["cost_spike", "billing/usage"], ["billingusage", "cost-spike"]),
+            ("empty_list_clears", [], []),
+        ]
+    )
+    def test_partial_update_normalizes_tags(self, _name: str, payload: list[str], expected: list[str]) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["stale"])
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"tags": payload}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == expected
+        config.refresh_from_db()
+        assert config.tags == expected
+
+    def test_partial_update_replaces_tags_rather_than_merging(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", tags=["revenue", "on-call"]
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"tags": ["revenue"]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["revenue"]
+
+    def test_partial_update_leaves_tags_untouched_when_omitted(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["revenue"])
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"emit": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["revenue"]
+
+    @parameterized.expand(
+        [
+            ("blank_after_normalization", ["!!!"]),
+            ("over_the_per_tag_length_cap", ["a" * (SignalScoutConfig.MAX_TAG_LENGTH + 1)]),
+            ("over_the_count_cap", [f"tag-{index}" for index in range(SignalScoutConfig.MAX_TAGS + 1)]),
+        ]
+    )
+    def test_partial_update_rejects_invalid_tags(self, _name: str, payload: list[str]) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["revenue"])
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"tags": payload}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.tags == ["revenue"]
+
+    def test_create_registers_tags(self) -> None:
+        self._make_skill("signals-scout-foo")
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "tags": ["Revenue", "on call"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tags"] == ["on-call", "revenue"]
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-foo")
+        assert config.tags == ["on-call", "revenue"]
+
+    def test_create_upsert_applies_tags_to_an_existing_config(self) -> None:
+        self._make_skill("signals-scout-foo")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["stale"])
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "tags": ["revenue"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.tags == ["revenue"]
+
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 

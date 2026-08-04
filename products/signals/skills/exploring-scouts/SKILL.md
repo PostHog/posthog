@@ -37,7 +37,7 @@ There are six things you can observe about the fleet, each with its own tool:
 
 | What you want to know                        | Tool                            | What it tells you                                                                                       |
 | -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `status` / `pause_reason`, `emit`, `last_run_at`, `description` |
+| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `status` / `pause_reason`, `emit`, `last_run_at`, `description`, `tags`. Pass `tags` (comma-separated) to narrow the roster to the scouts carrying any of them |
 | What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link       |
 | What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                                  |
 | What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)                    |

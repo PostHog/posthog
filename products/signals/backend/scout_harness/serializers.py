@@ -30,6 +30,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutEmissi
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
     MAX_TAG_LENGTH,
@@ -1876,6 +1877,69 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     return {"slack": slack}
 
 
+_SCOUT_TAGS_HELP_TEXT = (
+    'Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to '
+    "lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored "
+    f"sorted; at most {SignalScoutConfig.MAX_TAGS} tags of "
+    f"{SignalScoutConfig.MAX_TAG_LENGTH} characters each. Pass the full desired set — a write "
+    "replaces the existing tags rather than merging into them. Filter the config list with the "
+    "`tags` query parameter."
+)
+
+
+def _scout_tags_field() -> serializers.ListField:
+    """Writable `tags` field shared by the update and create paths.
+
+    The per-tag `max_length` sits on the child rather than after normalization because
+    `slugify_tag` only ever shortens a string, so an accepted input can never overflow the
+    column.
+    """
+    return serializers.ListField(
+        child=serializers.CharField(max_length=SignalScoutConfig.MAX_TAG_LENGTH),
+        required=False,
+        allow_empty=True,
+        max_length=SignalScoutConfig.MAX_TAGS,
+        help_text=_SCOUT_TAGS_HELP_TEXT,
+    )
+
+
+def _validate_scout_tags(value: list[str]) -> list[str]:
+    """Normalize a caller-supplied tag list into the stored form.
+
+    Unlike the emit path — which normalizes agent near-misses rather than spending a turn on a
+    formatting 400 — a tag that survives normalization as nothing is an error here: a person who
+    typed `!!!` into the tag box should be told it didn't take. Stored sorted and deduped so
+    re-sending the same set in a different order is not a change, which keeps a no-op write out
+    of the activity log.
+    """
+    normalized: set[str] = set()
+    for raw in value:
+        tag = slugify_tag(raw)
+        if not tag:
+            raise serializers.ValidationError(f"Tag {raw!r} is empty once normalized to a lowercase slug.")
+        normalized.add(tag)
+    return sorted(normalized)
+
+
+class SignalScoutConfigListQuerySerializer(serializers.Serializer):
+    """Query parameters for the scout config list."""
+
+    tags = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one "
+            "of them. Values are normalized the same way stored tags are, so `On Call` matches "
+            "`on-call`. Omit for the whole fleet."
+        ),
+    )
+
+    def validate_tags(self, value: str) -> list[str]:
+        tags = sorted({slug for raw in value.split(",") if (slug := slugify_tag(raw))})
+        if not tags:
+            raise serializers.ValidationError("No usable tags in the filter once normalized to lowercase slugs.")
+        return tags
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -1996,6 +2060,13 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "sweep paused, so the sweep never overrules a person twice."
         ),
     )
+    # Method field rather than the model field: rows predating the tags column read back NULL,
+    # and a consumer should never have to tell "no tags" apart from "null".
+    tags = serializers.SerializerMethodField(help_text=_SCOUT_TAGS_HELP_TEXT)
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_tags(self, obj: SignalScoutConfig) -> list[str]:
+        return obj.tags or []
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -2030,6 +2101,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "consecutive_failure_count",
             "status_changed_at",
             "auto_pause_exempt",
+            "tags",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
@@ -2154,12 +2226,16 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
+    tags = _scout_tags_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        return _validate_scout_tags(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
@@ -2236,6 +2312,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "output_destinations",
             "network_access",
             "auto_pause_exempt",
+            "tags",
         ]
 
 
@@ -2291,9 +2368,13 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
+    tags = _scout_tags_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        return _validate_scout_tags(value)
 
     def validate_output_destinations(self, value: dict) -> dict:
         context = self.context

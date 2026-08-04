@@ -26,6 +26,10 @@ import {
   type ScoutRunsWindow,
   scoutRunsWindowLabel,
 } from "@posthog/core/scouts/scoutRunsWindow";
+import {
+  configMatchesScoutTags,
+  listScoutTagOptions,
+} from "@posthog/core/scouts/scoutTags";
 import type { ScoutChatType } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
@@ -45,8 +49,10 @@ import { FleetMemoryCallout } from "./FleetMemoryCallout";
 import { ScoutAlphaBanner } from "./ScoutAlphaBanner";
 import { ScoutHelperSkillLinks } from "./ScoutHelperSkillLinks";
 import { ScoutRowCard } from "./ScoutRowCard";
+import { ScoutTagsFilter } from "./ScoutTagsFilter";
 
 const EMPTY_CONFIGS: ScoutConfig[] = [];
+const EMPTY_TAGS: string[] = [];
 
 /**
  * Expandable scout fleet manager for the agents config page. Collapsed it is
@@ -189,6 +195,7 @@ export function ScoutsFleetListView({
   currentUser,
   onUpdateConfig,
   initialCreatorKey = "",
+  initialTags = EMPTY_TAGS,
 }: {
   configs: ScoutConfig[];
   runsWindow: ScoutRunsWindow | undefined;
@@ -198,9 +205,12 @@ export function ScoutsFleetListView({
   onUpdateConfig: (configId: string, updates: ScoutConfigUpdate) => void;
   /** Start with a creator preselected (Storybook seam). */
   initialCreatorKey?: string;
+  /** Start with tags preselected (Storybook seam). */
+  initialTags?: string[];
 }) {
   const [hideDisabled, setHideDisabled] = useState(false);
   const [creatorKey, setCreatorKey] = useState(initialCreatorKey);
+  const [selectedTags, setSelectedTags] = useState(initialTags);
 
   const runs = runsWindow?.runs;
   const rollups = useMemo(() => computeScoutRollups(runs ?? []), [runs]);
@@ -218,6 +228,18 @@ export function ScoutsFleetListView({
   const selectedCreator = creatorOptions.find(
     (option) => option.key === creatorKey,
   );
+  // Derived from the loaded fleet rather than a `?tags=` round trip: the configs
+  // are already in hand and an org's scout count is capped well below where
+  // server-side filtering would pay for itself.
+  const tagOptions = useMemo(() => listScoutTagOptions(configs), [configs]);
+  // Selections are narrowed to tags still in use rather than pruned from state:
+  // untagging the last scout carrying a selected tag would otherwise filter the
+  // list to nothing with no visible cause, and re-tagging a scout restores the
+  // selection the user made.
+  const activeTags = useMemo(
+    () => selectedTags.filter((tag) => tagOptions.some((o) => o.tag === tag)),
+    [selectedTags, tagOptions],
+  );
   const visibleConfigs = useMemo(() => {
     let sorted = sortConfigsForDisplay(configs);
     if (hideDisabled) {
@@ -229,8 +251,26 @@ export function ScoutsFleetListView({
           scoutCreatorKey(creators.get(config.skill_name)) === creatorKey,
       );
     }
-    return sorted;
-  }, [configs, hideDisabled, creatorKey, creators]);
+    return sorted.filter((config) =>
+      configMatchesScoutTags(config, activeTags),
+    );
+  }, [configs, hideDisabled, creatorKey, creators, activeTags]);
+
+  const toggleTag = (tag: string) => {
+    const next = activeTags.includes(tag)
+      ? activeTags.filter((candidate) => candidate !== tag)
+      : [...activeTags, tag];
+    setSelectedTags(next);
+    track(ANALYTICS_EVENTS.SCOUT_ACTION, {
+      action_type: "filter_tags",
+      surface: "fleet_list",
+      tags: next,
+      filter_match_count: next.length
+        ? configs.filter((config) => configMatchesScoutTags(config, next))
+            .length
+        : undefined,
+    });
+  };
 
   return (
     <Flex direction="column" gap="3">
@@ -288,6 +328,21 @@ export function ScoutsFleetListView({
                 }}
                 ariaLabel="Filter scouts by creator"
                 placeholder="Any user"
+              />
+            </div>
+          </Flex>
+        ) : null}
+        {tagOptions.length > 0 ? (
+          <Flex align="center" gap="2">
+            <Text className="whitespace-nowrap text-[12px] text-gray-10">
+              Tagged
+            </Text>
+            <div className="w-40">
+              <ScoutTagsFilter
+                options={tagOptions}
+                selected={activeTags}
+                onToggle={toggleTag}
+                onClear={() => setSelectedTags(EMPTY_TAGS)}
               />
             </div>
           </Flex>

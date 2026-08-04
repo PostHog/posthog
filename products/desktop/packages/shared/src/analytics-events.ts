@@ -818,6 +818,7 @@ export type ScoutActionType =
   | "filter_runs"
   | "toggle_hide_disabled"
   | "filter_created_by"
+  | "filter_tags"
   | "open_settings"
   | "close_settings"
   | "open_findings"
@@ -850,9 +851,10 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes";
-  new_value: boolean | number;
-  old_value: boolean | number;
+  setting: "enabled" | "emit" | "run_interval_minutes" | "tags";
+  new_value: boolean | number | string[];
+  /** Undefined for `tags` on a backend that predates the field. */
+  old_value: boolean | number | string[] | undefined;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
@@ -877,6 +879,8 @@ export interface ScoutActionProperties {
   helper_skill?: string;
   hide_disabled?: boolean;
   created_by_me?: boolean;
+  /** Tags selected in the fleet's tag filter, for `filter_tags`. */
+  tags?: string[];
   /** Status of the linked inbox report, for `open_linked_report`. */
   report_status?: string;
 }

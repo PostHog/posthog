@@ -4,13 +4,14 @@ import {
   formatRunIntervalShort,
   type ScoutRollup,
 } from "@posthog/core/scouts/scoutPresentation";
+import { scoutTags } from "@posthog/core/scouts/scoutTags";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { track } from "@posthog/ui/shell/analytics";
 import { skillUrl } from "@posthog/ui/utils/posthogLinks";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useState } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
-import { DryRunBadge, ScoutOriginBadge } from "./ScoutBadges";
+import { DryRunBadge, ScoutOriginBadge, ScoutTagBadge } from "./ScoutBadges";
 import { ScoutConfigForm, ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutChatButton } from "./ScoutRowCard";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
@@ -49,6 +50,9 @@ export function ScoutDetailHeader({
         </Text>
         <ScoutOriginBadge config={config} />
         <DryRunBadge config={config} />
+        {scoutTags(config).map((tag) => (
+          <ScoutTagBadge key={tag} tag={tag} />
+        ))}
         {cloudSkillUrl ? (
           <Tooltip content="View skill in PostHog">
             <a

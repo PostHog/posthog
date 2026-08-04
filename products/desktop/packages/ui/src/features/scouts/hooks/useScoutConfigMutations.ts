@@ -13,9 +13,16 @@ export interface ScoutConfigUpdate {
   enabled?: boolean;
   emit?: boolean;
   run_interval_minutes?: number;
+  /** Replaces the scout's tags outright — send the full desired set. */
+  tags?: string[];
 }
 
-const CONFIG_SETTINGS = ["enabled", "emit", "run_interval_minutes"] as const;
+const CONFIG_SETTINGS = [
+  "enabled",
+  "emit",
+  "run_interval_minutes",
+  "tags",
+] as const;
 
 function trackConfigChange(
   previousConfig: ScoutConfig | undefined,
