@@ -269,6 +269,7 @@ IMPORTANT: Signals should be grouped if they are meaningfully related, not just 
 - A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
 - Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
 - Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
+- Two error-tracking signals from the SAME underlying defect or resolved by the same fix applied at different call sites SHOULD match, even if they surface in different files, components, or pages (they resolve to one fix)
 
 You will receive:
 1. A new signal with its description and source information
@@ -310,25 +311,24 @@ You will receive:
 
 Your job:
 1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
-2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
+2. Judge: would ONE focused change resolve every signal in the group? If a single fix — even one applied at several call sites — addresses them all, they belong in one PR.
 
-A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
-- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
-- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
-- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
+Judge by the FIX, not by where the symptom appears. Signals that share a single root cause, or that one shared change would resolve, belong in ONE PR even when the error surfaces in different files, components, or pages. The same guard, the same null-check, the same handler fix applied across many call sites is still one pull request.
 
-A VAGUE PR title is a catch-all that no single engineer would take on:
-- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
-- "Multiple workflow and integration improvements" — VAGUE (different systems)
-- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)
+SPECIFIC — one root cause or one shared fix, so one engineer ships it in a single PR:
+- "Fix date picker timezone handling in insights" — one component, one bug
+- "Guard empty i18n translation keys in the missing-key handler" — one shared guard silences the empty-key errors surfacing across the calendar, settings, and event views
+- "Treat handled 404s as null instead of reporting them" — one interceptor-level fix stops the 404 noise from several endpoints
+- "Fix funnel conversion calculation for time-based bins" — one feature, one issue
 
-IMPORTANT: Err on the side of REJECTING. A good PR addresses ONE concern, even if that concern has multiple symptoms.
+Reject the group only when the signals need SEPARATE, unrelated fixes that no single engineer would take on together, such as "Fix various PostHog AI issues" or "Address feature flag and authentication concerns".
 
-Red flags that the group is too broad:
-- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
-- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
-- You'd assign the signals to different engineers based on expertise
-- The PR touches multiple unrelated systems or components
+None of these are reasons to split:
+- The same fix touches several files, call sites, or components
+- The signals surface in different pages, views, or systems but share one root cause or one remedy
+- The signals describe different symptoms of the same underlying behaviour
+
+When you are unsure, name the single change that would resolve every signal in the group. If you can name it, they belong in one PR. If you cannot, they belong apart.
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
