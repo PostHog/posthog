@@ -3,7 +3,7 @@
 
 **[Download the latest version](https://github.com/PostHog/code/releases/latest)**
 
-Found a bug or have feedback? [Open an issue](https://github.com/PostHog/code/issues/new) on GitHub.
+Found a bug or want to share feedback? [Open an issue](https://github.com/PostHog/code/issues/new) on GitHub.
 
 # PostHog
 

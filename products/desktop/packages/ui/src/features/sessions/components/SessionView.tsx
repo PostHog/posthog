@@ -27,6 +27,7 @@ import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
 } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
   copyFromContextMenu,
@@ -48,7 +49,11 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
-import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
+import {
+  CHAT_CONTENT_MAX_WIDTH,
+  CHAT_CONTENT_PADDING_INLINE,
+} from "@posthog/ui/features/sessions/constants";
+import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
@@ -77,6 +82,13 @@ import {
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+export function getNewAttachments(
+  previousIds: ReadonlySet<string>,
+  attachments: FileAttachment[],
+): FileAttachment[] {
+  return attachments.filter(({ id }) => !previousIds.has(id));
+}
 
 interface SessionViewProps {
   events: AcpMessage[];
@@ -113,7 +125,15 @@ interface SessionViewProps {
 const DEFAULT_ERROR_MESSAGE =
   "Failed to resume this session. The working directory may have been deleted. Please start a new session.";
 
-/** Centers composer-slot content at the chat width (or compact padding). */
+/**
+ * Centers composer-slot content at the chat width (or compact padding).
+ *
+ * The composer reserves the same horizontal room as the thread's scroll
+ * content and caps at the same width, so the two columns are identical at
+ * every panel width rather than only once the panel is wide enough for the
+ * full column. Padding on the capped box instead of around it would eat into
+ * `CHAT_CONTENT_MAX_WIDTH` and leave the composer narrower than the messages.
+ */
 function ComposerWidth({
   compact,
   children,
@@ -121,12 +141,18 @@ function ComposerWidth({
   compact: boolean;
   children: React.ReactNode;
 }) {
+  if (compact) {
+    return <Box className="p-1">{children}</Box>;
+  }
+
   return (
-    <Box
-      className={compact ? "p-1" : "mx-auto pb-2"}
-      style={compact ? undefined : { maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-    >
-      {children}
+    <Box style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}>
+      <Box
+        className="mx-auto pb-2"
+        style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+      >
+        {children}
+      </Box>
     </Box>
   );
 }
@@ -284,38 +310,71 @@ export function SessionView({
 
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
   const editorRef = useRef<PromptInputHandle>(null);
+  const contextUsage = useContextUsage(events);
   const sendInFlightRef = useRef(false);
   const composerSubmissionRef = useRef(0);
-  const attachmentUploadRef = useRef(0);
+  const attachmentIdsRef = useRef<Set<string>>(new Set());
+  const attachmentUploadTokensRef = useRef<Map<string, symbol>>(new Map());
   const [attachmentUploadStatuses, setAttachmentUploadStatuses] = useState<
     Record<string, AttachmentUploadStatus>
   >({});
 
   const handleAttachmentsChange = useCallback(
     (attachments: FileAttachment[]) => {
-      const requestId = ++attachmentUploadRef.current;
+      const attachmentIds = new Set(attachments.map(({ id }) => id));
+      const addedAttachments = getNewAttachments(
+        attachmentIdsRef.current,
+        attachments,
+      );
+      attachmentIdsRef.current = attachmentIds;
+
       if (!isCloudRun || !taskId || attachments.length === 0) {
         setAttachmentUploadStatuses({});
         return;
       }
 
-      setAttachmentUploadStatuses(
-        Object.fromEntries(attachments.map(({ id }) => [id, "uploading"])),
+      const uploadToken = Symbol();
+      for (const { id } of addedAttachments) {
+        attachmentUploadTokensRef.current.set(id, uploadToken);
+      }
+
+      setAttachmentUploadStatuses((statuses) =>
+        Object.fromEntries([
+          ...Object.entries(statuses).filter(([id]) => attachmentIds.has(id)),
+          ...addedAttachments.map(({ id }) => [id, "uploading"] as const),
+        ]),
       );
+      if (addedAttachments.length === 0) return;
+
+      const isCurrentUpload = (id: string) =>
+        attachmentUploadTokensRef.current.get(id) === uploadToken;
+
       void sessionService
         .prepareCloudAttachments(
           taskId,
-          attachments.map(({ id }) => id),
+          addedAttachments.map(({ id }) => id),
         )
         .then(() => {
-          if (attachmentUploadRef.current === requestId) {
-            setAttachmentUploadStatuses({});
-          }
+          const uploadedIds = new Set(addedAttachments.map(({ id }) => id));
+          setAttachmentUploadStatuses((statuses) =>
+            Object.fromEntries(
+              Object.entries(statuses).filter(
+                ([id]) => !uploadedIds.has(id) || !isCurrentUpload(id),
+              ),
+            ),
+          );
         })
         .catch((error) => {
-          if (attachmentUploadRef.current !== requestId) return;
-          setAttachmentUploadStatuses(
-            Object.fromEntries(attachments.map(({ id }) => [id, "error"])),
+          setAttachmentUploadStatuses((statuses) =>
+            Object.fromEntries([
+              ...Object.entries(statuses),
+              ...addedAttachments
+                .filter(
+                  ({ id }) =>
+                    attachmentIdsRef.current.has(id) && isCurrentUpload(id),
+                )
+                .map(({ id }) => [id, "error"] as const),
+            ]),
           );
           toast.error("Failed to upload attachments", {
             description:
@@ -775,6 +834,9 @@ export function SessionView({
                             taskId ? (
                               <SteerQueueToggle taskId={taskId} />
                             ) : undefined
+                          }
+                          toolbarEndSlot={
+                            <ContextUsageIndicator usage={contextUsage} />
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

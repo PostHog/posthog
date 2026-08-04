@@ -75,7 +75,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` after creating the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account",
@@ -135,7 +135,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -270,7 +270,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -1011,6 +1011,104 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "canvas-builds-retrieve": {
+        "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed` (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task while its build is still queued or building.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Read canvas build status",
+        "title": "Read canvas build status",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-create": {
+        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Create canvas",
+        "title": "Create canvas",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-edit-create": {
+        "description": "Publish per-file edits against a canvas's current source, without resending the whole project. Each operation sets a file's complete content, or deletes it when `content` is null. `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Edit canvas source files",
+        "title": "Edit canvas source files",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-list": {
+        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "List canvases",
+        "title": "List canvases",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-publish-create": {
+        "description": "Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. The project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The canvas lives in PostHog, not on disk — this tool is what saves it.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Publish canvas source project",
+        "title": "Publish canvas source project",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-source-retrieve": {
+        "description": "Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit the returned files, then publish the complete project with canvas-publish-create, passing the `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten. Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds the React component.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Read canvas source project",
+        "title": "Read canvas source project",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-validate-create": {
+        "description": "Validate a candidate canvas source project without publishing it. Returns structured diagnostics (severity, code, message, file, line); `valid: false` means a publish would be rejected. Side-effect free — call it as often as needed while iterating, and fix every error-severity diagnostic (including undeclared-capability errors) before publishing.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Validate canvas source project",
+        "title": "Validate canvas source project",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",
@@ -1255,6 +1353,62 @@
         },
         "feature_entitlement": "approvals"
     },
+    "channel-create": {
+        "description": "Resolve-or-create a public channel by name (normalized to lowercase-dashed). Idempotent: returns the existing channel when one with the name already exists. Use channel-list first when the request names an existing channel.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Resolve or create a channel",
+        "title": "Resolve or create a channel",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "channel-instructions-retrieve": {
+        "description": "Read a channel's CONTEXT.md instructions (versioned markdown describing the channel's context). Returns the latest `content` and its `version` — pass that version as `base_version` when publishing an update. A channel with no instructions yet reads as a blank version 0.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Read channel instructions",
+        "title": "Read channel instructions",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "channel-list": {
+        "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List channels",
+        "title": "List channels",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "channel-retrieve": {
+        "description": "One channel by id, including its name and type.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get a channel",
+        "title": "Get a channel",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "characterize-metric-anomaly": {
         "description": "Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating \"metric X is rising/dropping — why?\": one call answers how big the change is, exactly when it started, and which label values moved.\n\nRequired: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).\n\nThe aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.\n\nRead the report in this order:\n\n1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)\n2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.\n3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.\n4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.\n\nThen correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius. All parameters are nested inside a `query` object.",
         "category": "Metrics",
@@ -1412,7 +1566,7 @@
         }
     },
     "conversations-tickets-list": {
-        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via the list-saved-ticket-views tool); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support tickets",
@@ -1482,7 +1636,7 @@
         }
     },
     "conversations-views-list": {
-        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>.",
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of the list-support-tickets tool.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List saved ticket views",
@@ -2267,90 +2421,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "desktop-file-system-canvas-partial-update": {
-        "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Update canvas code",
-        "title": "Update canvas code",
-        "required_scopes": ["file_system:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "desktop-file-system-create": {
-        "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the desktop-file-system-instructions-partial-update tool to fill it in.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Create desktop channel",
-        "title": "Create desktop channel",
-        "required_scopes": ["file_system:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "desktop-file-system-instructions-partial-update": {
-        "description": "Publish a new version of a channel's markdown instructions, describing what the channel contains. The `id` is the channel (folder) id. Each call creates a new version. To erase a channel's instructions, publish empty `content` — this clears the text while keeping the instruction set in place (the instruction set itself cannot be deleted).",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Update channel instructions",
-        "title": "Update channel instructions",
-        "required_scopes": ["file_system:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "desktop-file-system-instructions-retrieve": {
-        "description": "Get the latest markdown instructions for a channel (desktop folder).",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Get channel instructions",
-        "title": "Get channel instructions",
-        "required_scopes": ["file_system:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "desktop-file-system-list": {
-        "description": "List channels and items on the desktop surface. Filter with query params such as `type` (e.g. \"folder\"), `parent`, `path`, `depth`, or `search`.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "List desktop channels",
-        "title": "List desktop channels",
-        "required_scopes": ["file_system:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "desktop-file-system-retrieve": {
-        "description": "Retrieve a single channel or item on the desktop surface by id.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Get desktop channel",
-        "title": "Get desktop channel",
-        "required_scopes": ["file_system:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "docs-search": {
@@ -5237,6 +5307,126 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "llma-dataset-archive": {
+        "description": "Archive a dataset by ID. Its revisions and items remain readable, but item mutations are rejected until the dataset is restored. Archiving an already archived dataset leaves it unchanged.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Archive dataset",
+        "title": "Archive dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-create": {
+        "description": "Create an empty dataset in the current project. Dataset names are unique within a project. The first immutable revision is created when the first item is added.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create dataset",
+        "title": "Create dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-archive": {
+        "description": "Archive an active dataset item by stable item ID. Pass its current version as `base_version` to prevent a stale write. This creates an immutable archived version and a new dataset revision while preserving history.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Archive dataset item",
+        "title": "Archive dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-create": {
+        "description": "Add an item to a dataset and create its first immutable version. `input` accepts any non-null JSON value. Use `expected_output` for the user-authored target and `source_output` for an actual output copied from a trace. Supply a case-sensitive `external_id` for safe retries. If that item is archived, this restores it with the submitted content. For trace provenance, provide `source_trace_id` and `source_timestamp` together; `source_event_id` is optional.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create dataset item",
+        "title": "Create dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-restore": {
+        "description": "Restore an archived item by stable item ID. Pass its current version as `base_version` to prevent a stale write. By default the archived version's content is copied into a new active version. Pass `source_version` to restore content from another historical version.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Restore dataset item",
+        "title": "Restore dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-update": {
+        "description": "Update an active item by stable item ID. Pass its current version as `base_version` to prevent a stale write. Each update creates a new immutable item version and dataset revision. Only `input`, `expected_output`, and `metadata` are editable; source fields remain unchanged.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update dataset item",
+        "title": "Update dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-restore": {
+        "description": "Restore an archived dataset by ID. This makes item mutations available again without changing item states or creating a dataset revision. Restoring an active dataset leaves it unchanged.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Restore dataset",
+        "title": "Restore dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-update": {
+        "description": "Update an active dataset's name, description, or metadata by ID. These descriptive changes do not create a dataset revision.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update dataset",
+        "title": "Update dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
     },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
@@ -8637,10 +8827,10 @@
         }
     },
     "session-recording-summarize": {
-        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). This is the legacy summary path, being retired in favor of Replay Vision summarizer scanners — prefer those (`vision-observations-list` to read an existing summary, `vision-scanners-scan-session` to run one) and use this tool only if the user doesn't have Replay Vision enabled (it's in beta). It provides the key insights in seconds without watching the full recording. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
+        "description": "DEPRECATED — prefer Replay Vision. This is the legacy session-summary path; it still works but is being retired (removal planned, months out), so do not reach for it by default. To summarize or understand a session without watching the whole recording, use Replay Vision's scanner tools (the `vision-*` MCP tools, e.g. `vision-observations-list` to read an existing summary and `vision-scanners-scan-session` to generate one) and follow their own instructions instead. Only fall back to this tool when Replay Vision is unavailable for the org, or a user explicitly asks for the legacy summarizer.\n\nIf you do use it: generates an AI summary of one or more session recordings — user journey segments, key actions, segment and overall outcomes, and sentiment (frustration score, rage clicks, confusion signals). Accepts up to 300 session IDs and an optional `focus_area` to steer the summary (e.g. \"checkout flow\"). Returns a dict keyed by session ID; failed entries carry an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message`, and a bad session ID fails only its own entry, not the batch. WARNING: first-time summaries call an AI model and are very slow — around 5 minutes; previously generated summaries are cached and return instantly, so warn the user about the wait before calling.\n\nDEEP LINKS: key actions include `session_id` and `milliseconds_since_start`. Build links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
         "category": "Session replays",
         "feature": "replay",
-        "summary": "Generate AI-powered summaries of session recordings via streaming.",
+        "summary": "Legacy AI session summaries (streaming) — prefer Replay Vision summarizer scanners.",
         "title": "Summarize session recording",
         "required_scopes": ["session_recording:read"],
         "requires_ai_consent": true,
@@ -11290,6 +11480,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "workflows-patch-action-email": {
+        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Patch a workflow step's email",
+        "title": "Patch a workflow step's email",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "workflows-patch-email-template": {

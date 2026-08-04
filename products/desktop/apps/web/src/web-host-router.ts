@@ -65,6 +65,7 @@ const deepLinkStubRouter = router({
   getPendingOpenTarget: publicProcedure.query(() => null),
   getPendingCanvasLink: publicProcedure.query(() => null),
   getPendingChannelLink: publicProcedure.query(() => null),
+  getPendingLoopLink: publicProcedure.query(() => null),
   onOpenTask: neverEmit,
   onOpenReport: neverEmit,
   onOpenScout: neverEmit,
@@ -73,6 +74,7 @@ const deepLinkStubRouter = router({
   onOpenTarget: neverEmit,
   onOpenCanvas: neverEmit,
   onOpenChannel: neverEmit,
+  onOpenLoop: neverEmit,
 });
 
 // Slack/GitHub connect. Desktop opens the PostHog integration authorize URL in
@@ -488,7 +490,8 @@ export const webHostRouter = router({
   browserTabs: browserTabsRouter,
   // Canvas / Channels: real host-router routers over the host-agnostic canvas
   // core services (bound via canvasCoreModule in web-container), which reach the
-  // PostHog desktop_file_system API through authenticatedFetch — no Node backend.
+  // PostHog canvases + task_channels APIs through authenticatedFetch — no Node
+  // backend.
   canvasData: canvasDataRouter,
   canvasTemplates: canvasTemplatesRouter,
   channelTasks: channelTasksRouter,

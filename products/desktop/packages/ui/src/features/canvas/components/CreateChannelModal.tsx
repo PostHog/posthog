@@ -5,10 +5,12 @@ import {
   DialogBody,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   Field,
+  FieldDescription,
   FieldError,
   FieldLabel,
   Input,
@@ -21,13 +23,54 @@ import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerat
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
-import { type CSSProperties, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 
 // Matches Slack's "Create a channel" naming constraint.
 const MAX_CONTEXT_NAME_LENGTH = 80;
 
-const DESCRIPTION_PLACEHOLDER =
-  "Grab all files relating to X feature, get all relevant pull requests, in this X repo(s)";
+const DESCRIPTION_EXAMPLES = [
+  "Feature flags help teams control feature access, target specific users, and manage gradual rollouts.",
+  "The onboarding experience guides new customers from creating an account to completing their first successful setup.",
+  "We're migrating our billing system to Stripe while preserving existing subscriptions and minimizing disruption.",
+  "Authentication includes sign-in, account recovery, session management, roles, and permissions across our applications.",
+  "The mobile redesign aims to simplify navigation, improve accessibility, and make common workflows faster.",
+];
+
+const DESCRIPTION_ROTATION_INTERVAL_MS = 5000;
+
+function RotatingDescriptionPlaceholder({ visible }: { visible: boolean }) {
+  const [exampleIndex, setExampleIndex] = useState(0);
+  const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!visible || reduceMotion) return;
+
+    const interval = window.setInterval(() => {
+      setExampleIndex((current) => (current + 1) % DESCRIPTION_EXAMPLES.length);
+    }, DESCRIPTION_ROTATION_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [reduceMotion, visible]);
+
+  return (
+    <AnimatePresence initial={false} mode="wait">
+      {visible && (
+        <motion.div
+          key={exampleIndex}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 border border-transparent px-2 py-2 text-muted-foreground text-xs leading-4"
+          initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2 }}
+        >
+          {DESCRIPTION_EXAMPLES[exampleIndex]}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 interface CreateChannelModalProps {
   open: boolean;
@@ -61,6 +104,7 @@ export function CreateChannelModal({
   const [description, setDescription] = useState("");
   // Create mode's step. Describe mode has no name step, so it starts past it.
   const [step, setStep] = useState<"name" | "describe">("name");
+  const descriptionHelperId = useId();
 
   // Reset the fields each time the modal opens so a previous draft never
   // lingers. Adjusted inline during render (prev-prop comparison) rather than in
@@ -82,14 +126,12 @@ export function CreateChannelModal({
 
   const busy = isCreating || isStarting;
   const canAdvance = !busy && !!trimmedName && !nameError;
-  // "Create" seeds the plan session, so it needs the description; "Skip" is the
-  // way through without one.
   const canDescribe = !busy && !!trimmedDescription;
 
   // `busy` only disables the buttons a render after the mutation starts, so a
-  // double-click lands two creates before it applies — and folder creation is
-  // not idempotent by path, so that is two channels of the same name. Latch
-  // synchronously; the buttons stay the user-visible half of this.
+  // double-click lands two submits before it applies. Create is resolve-or-
+  // create (idempotent), but a double submit would still double-launch the
+  // plan session. Latch synchronously; the buttons stay the user-visible half.
   const submittingRef = useRef(false);
   const submitOnce = async (submit: () => Promise<void>) => {
     if (submittingRef.current) return;
@@ -101,9 +143,6 @@ export function CreateChannelModal({
     }
   };
 
-  // Create the channel and land in its feed — the intro (name, creation line,
-  // context.md card) and "joined" row there are derived from the channel row.
-  // With a description, also launch the plan session that builds context.md.
   const submitCreate = async (withContextMd: boolean) => {
     let contextId: string;
     try {
@@ -174,13 +213,12 @@ export function CreateChannelModal({
     });
   };
 
-  // The description step's primary action: seed context.md, for a channel that
-  // already exists (describe mode) or one this dialog is about to create.
   const submitDescribeStep = async () => {
-    if (!canDescribe) return;
     if (isDescribeMode) {
+      if (!canDescribe) return;
       await submitDescribe();
     } else {
+      if (!canDescribe) return;
       await submitCreate(true);
     }
   };
@@ -190,28 +228,39 @@ export function CreateChannelModal({
       {/* In create mode the nested dialog's title asks the question, so the
           label would just repeat it. */}
       {isDescribeMode && (
-        <FieldLabel htmlFor="context-description">
-          What's this {spacesLayout ? "space" : "channel"} about?
-        </FieldLabel>
+        <>
+          <FieldLabel htmlFor="context-description">
+            What's this {spacesLayout ? "space" : "channel"} about?
+          </FieldLabel>
+          <FieldDescription id={descriptionHelperId}>
+            Tell PostHog about this {spacesLayout ? "space" : "channel"}. We'll
+            use it to create a CONTEXT.md file with relevant information for
+            future tasks.
+          </FieldDescription>
+        </>
       )}
-      <Textarea
-        id="context-description"
-        autoFocus
-        rows={4}
-        className="max-h-[40vh] overflow-y-auto"
-        value={description}
-        placeholder={DESCRIPTION_PLACEHOLDER}
-        disabled={busy}
-        onChange={(e) => setDescription(e.target.value)}
-        onKeyDown={(e) => {
-          // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
-          // repeats, so it goes through the same latch as the buttons.
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            void submitOnce(submitDescribeStep);
-          }
-        }}
-      />
+      <div className="relative">
+        <Textarea
+          id="context-description"
+          aria-describedby={descriptionHelperId}
+          rows={4}
+          className="max-h-[40vh] overflow-y-auto text-xs leading-4"
+          value={description}
+          disabled={busy}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => {
+            // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
+            // repeats, so it goes through the same latch as the buttons.
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void submitOnce(submitDescribeStep);
+            }
+          }}
+        />
+        <RotatingDescriptionPlaceholder
+          visible={description.length === 0 && !busy}
+        />
+      </div>
     </Field>
   );
 
@@ -321,10 +370,9 @@ export function CreateChannelModal({
           </Button>
         </DialogFooter>
 
-        {/* Step two, nested inside step one rather than replacing it: quill
-            scales and dims a parent that has a nested dialog open, so the name
-            step stays visible behind — the stack is the affordance that says
-            there's another step. Dismissing it (Escape) returns here. */}
+        {/* Step two (About), nested inside step one rather than replacing it:
+            quill scales and dims a parent that has a nested dialog open, so the
+            name step stays visible behind. */}
         <Dialog
           open={step === "describe"}
           onOpenChange={(next) => {
@@ -346,6 +394,11 @@ export function CreateChannelModal({
               <DialogTitle>
                 What's this {spacesLayout ? "space" : "channel"} about?
               </DialogTitle>
+              <DialogDescription id={descriptionHelperId}>
+                Tell PostHog about this {spacesLayout ? "space" : "channel"}.
+                We'll use it to create a CONTEXT.md file with relevant
+                information for future tasks.
+              </DialogDescription>
             </DialogHeader>
 
             <DialogBody viewportClassName="flex flex-col gap-4">
@@ -353,19 +406,26 @@ export function CreateChannelModal({
             </DialogBody>
 
             <DialogFooter>
-              {/* Skip still creates the channel — it only forgoes the
-                  context.md, which the channel's intro card offers later. */}
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => setStep("name")}
+              >
+                Back
+              </Button>
               <Button
                 variant="default"
                 disabled={busy}
-                onClick={() => void submitOnce(() => submitCreate(false))}
+                onClick={() => {
+                  setDescription("");
+                  void submitOnce(() => submitCreate(false));
+                }}
               >
                 Skip
               </Button>
               <Button
                 variant="primary"
                 disabled={!canDescribe}
-                loading={busy}
                 onClick={() => void submitOnce(submitDescribeStep)}
               >
                 Create

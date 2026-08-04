@@ -122,58 +122,33 @@ MODAL_TOKEN_SECRET=<token_secret>
 ### Tunnel gateway, API, and MCP
 
 If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,
-you'll need to expose the Django API, LLM gateway, and MCP server via a tunnel (e.g. ngrok or Cloudflare Tunnel).
+you'll need to expose the Django API, LLM gateway, and MCP server publicly. We use [Tailscale Funnel](https://tailscale.com/kb/1223/funnel).
 
-With ngrok, add tunnels to your ngrok config, `~/.config/ngrok/ngrok.yml` (Linux) or `~/Library/Application Support/ngrok/ngrok.yml` (MacOS):
+The eval harness sets Funnel up and tears it down automatically on a Modal run, so for evals you don't need to do any of this by hand — it only needs the daemon running and Funnel enabled (below). This section is for driving a Modal sandbox manually (e.g. from a task run).
 
-```yaml
-tunnels:
-  django:
-    proto: http
-    addr: 8000
-  gateway:
-    proto: http
-    addr: 3308
-  mcp:
-    proto: http
-    addr: 8787
-```
-
-**IMPORTANT:** The free version of Ngrok includes on `dev` domain, that will try to cover both tunnels, and it won't work. Use Cloudflare (free). If you want to use ngrok, upgrade to `Hobbyist` plan, create custom domans, and add them to config:
-
-```yaml
-tunnels:
-  django:
-    proto: http
-    addr: 8000
-    domain: alexl-django.ngrok.dev
-  gateway:
-    proto: http
-    addr: 3308
-    domain: alexl-llmg.ngrok.dev
-  mcp:
-    proto: http
-    addr: 8787
-    domain: alexl-mcp.ngrok.dev
-agent:
-  authtoken: ...
-```
-
-Then, get an auth token at `https://dashboard.ngrok.com/get-started/your-authtoken` and add it locally (either to ngrok directly, through `ngrok config add-authtoken`, or to the config file).
-
-After that, start both tunnels:
+First, install Tailscale, start the daemon, and sign in:
 
 ```bash
-ngrok start --all
+tailscale up
 ```
 
-Set the resulting URLs in your `.env`:
+Then enable Funnel for the tailnet and this node in the [admin console](https://login.tailscale.com/admin/acls) (grant the `funnel` node attribute) and make sure HTTPS certificates are enabled for the tailnet. Funnel only serves three public ports — `443`, `8443`, and `10000` — which is exactly enough for the three services. Point each one at the corresponding local port:
 
 ```bash
-SANDBOX_API_URL=https://<django-8000-subdomain>.ngrok-free.app
-SANDBOX_LLM_GATEWAY_URL=https://<gateway-3308-subdomain>.ngrok-free.app
-SANDBOX_MCP_URL=https://<mcp-8787-subdomain>.ngrok-free.app/mcp
+tailscale funnel --bg --https=443 8000    # Django API
+tailscale funnel --bg --https=8443 3308   # LLM gateway
+tailscale funnel --bg --https=10000 8787  # MCP server
 ```
+
+Find your node's public hostname (the MagicDNS name) with `tailscale status --json | jq -r .Self.DNSName`, then set the resulting URLs in your `.env` (the `443` service drops the port):
+
+```bash
+SANDBOX_API_URL=https://<node>.<tailnet>.ts.net
+SANDBOX_LLM_GATEWAY_URL=https://<node>.<tailnet>.ts.net:8443
+SANDBOX_MCP_URL=https://<node>.<tailnet>.ts.net:10000/mcp
+```
+
+Funnel exposes these services to anyone on the internet who learns the URL, so turn the mappings off when you're done: `tailscale funnel --https=443 off` (and likewise for `8443` and `10000`).
 
 `SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
 

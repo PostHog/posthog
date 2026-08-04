@@ -48,7 +48,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
 
-// Initial markdown shown when a folder has no instructions yet — gives both
+// Initial markdown shown when a channel has no instructions yet — gives both
 // humans and agents a structural starting point instead of a blank screen.
 const CHANNEL_EMPTY_TEMPLATE =
   "# Channel context\n\nDescribe what lives here.\n";
@@ -130,19 +130,20 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const isConflict = publishError instanceof FolderInstructionsConflictError;
 
   // Allow inspecting an older version read-only. When `null`, we're showing
-  // either the latest (rendered/edit) or the empty state.
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
-    null,
-  );
+  // either the latest (rendered/edit) or the empty state. Versions are keyed
+  // by their number — the version's identity on the channel.
+  const [selectedVersionNumber, setSelectedVersionNumber] = useState<
+    number | null
+  >(null);
 
   // Picking a past version forces rendered mode and shows that version's
   // metadata; we don't currently fetch the historical content body, so the
   // viewer falls back to "Open latest in editor" when there is no body.
   // (Backend exposes content only via the `latest` endpoint today.)
   const selectedVersion = useMemo(() => {
-    if (!selectedVersionId) return null;
-    return versions.find((v) => v.id === selectedVersionId) ?? null;
-  }, [selectedVersionId, versions]);
+    if (selectedVersionNumber == null) return null;
+    return versions.find((v) => v.version === selectedVersionNumber) ?? null;
+  }, [selectedVersionNumber, versions]);
 
   if (isLoadingLatest) {
     return (
@@ -157,7 +158,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
       <Flex direction="column" gap="3" p="4">
         <Callout.Root color="red" size="1">
           <Callout.Text>
-            Failed to load folder instructions: {latestError.message}
+            Failed to load channel instructions: {latestError.message}
           </Callout.Text>
         </Callout.Root>
       </Flex>
@@ -227,12 +228,16 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           {versions.length > 0 ? (
             <Select.Root
               size="1"
-              value={selectedVersionId ?? "latest"}
+              value={
+                selectedVersionNumber != null
+                  ? String(selectedVersionNumber)
+                  : "latest"
+              }
               onValueChange={(value) => {
                 if (value === "latest") {
-                  setSelectedVersionId(null);
+                  setSelectedVersionNumber(null);
                 } else {
-                  setSelectedVersionId(value);
+                  setSelectedVersionNumber(Number(value));
                   setMode("rendered");
                 }
               }}
@@ -244,9 +249,9 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   Latest (v{latest?.version ?? "—"})
                 </Select.Item>
                 {versions
-                  .filter((v) => !v.is_latest)
+                  .filter((v) => v.version !== latest?.version)
                   .map((v) => (
-                    <Select.Item key={v.id} value={v.id}>
+                    <Select.Item key={v.version} value={String(v.version)}>
                       v{v.version} · {formatTimestamp(v.created_at)}
                     </Select.Item>
                   ))}

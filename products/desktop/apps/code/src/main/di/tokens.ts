@@ -115,6 +115,9 @@ export const CANVAS_LINK_SERVICE = Symbol.for(
 export const CHANNEL_LINK_SERVICE = Symbol.for(
   "posthog.host.main.channel-link.service",
 );
+export const LOOP_LINK_SERVICE = Symbol.for(
+  "posthog.host.main.loop-link.service",
+);
 export const WATCHER_REGISTRY_SERVICE = Symbol.for(
   "posthog.host.main.watcher-registry.service",
 );

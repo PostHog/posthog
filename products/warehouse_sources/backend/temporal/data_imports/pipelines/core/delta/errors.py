@@ -3,6 +3,8 @@ from django.db import InterfaceError, OperationalError
 import botocore.exceptions
 import deltalake.exceptions
 
+from posthog.temporal.common.errors import NonReportableError
+
 # Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
 # that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
@@ -17,6 +19,16 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Generic S3 error",
     "Please reduce your request rate",
 )
+
+
+class TransientObjectStoreError(NonReportableError):
+    """A known-transient object-store blip (see is_transient_object_store_error), re-raised as this
+    type instead of the original OSError/DeltaError. Skipping the inline capture_exception call
+    alone isn't enough: the raw error still escapes the activity uncaught and reaches the Temporal
+    activity interceptor (posthog/temporal/common/posthog_client.py), which reports every activity
+    exception to error tracking unless it's a NonReportableError — so it minted a fresh issue per
+    blip anyway. Wrapping keeps it out of tracking at that boundary too. Temporal's retry policy is
+    unaffected either way, since NonReportableError only suppresses reporting, not retries."""
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
@@ -46,7 +58,22 @@ def is_transient_object_store_error(error: BaseException) -> bool:
 # read, which delta-rs surfaces as this DeltaError. The scan failing here means the optimize aborted
 # before committing anything — the table is left exactly as it was, just still fragmented — so this is
 # safe to skip and retry on the next maintenance pass, not a bug in our logic.
-TRANSIENT_DELTA_MAINTENANCE_ERRORS = ("Optimize selected-file scan failed",)
+#
+# The same concurrent maintenance pass can instead lose the race at commit time rather than during the
+# scan: `execute_with_conflict_retry` already refreshes and retries a `CommitFailedError`
+# (DELTA_MERGE_CONFLICT_RETRIES times), but sustained contention from another still-running pass can
+# exhaust that budget too, and the error then propagates out here. Delta's conflict checker raises this
+# for its three concurrent-writer race variants — ConcurrentAppend ("a concurrent transactions added new
+# data"), ConcurrentDeleteRead ("a concurrent transaction deleted data this operation read"), and
+# ConcurrentDeleteDelete ("a concurrent transaction deleted the same data") — all sharing the "a
+# concurrent transaction" substring below. A failed commit never partially applies, so the table is left
+# exactly as it was, same as the scan-failure case above: safe to skip and retry on the next maintenance
+# pass. Deliberately narrower than matching CommitFailedError outright — MetadataChanged/ProtocolChanged
+# commit failures aren't a same-pass race and should still be captured.
+TRANSIENT_DELTA_MAINTENANCE_ERRORS = (
+    "Optimize selected-file scan failed",
+    "Commit failed: a concurrent transaction",
+)
 
 
 def is_transient_delta_maintenance_error(error: BaseException) -> bool:
