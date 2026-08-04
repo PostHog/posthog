@@ -2068,9 +2068,10 @@ class TestConnectToPostgresMultiAddressFailover:
         assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
 
 
-# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)
-# reject the libpq `options` startup parameter we send to pin client_encoding=UTF8. When they do, we
-# drop `options` and retry rather than failing the connection.
+# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy,
+# Neon's pooled endpoint) reject the libpq `options` startup parameter we send to pin
+# client_encoding=UTF8 and, on the CDC path, server-side timeouts. When they do, we drop `options`
+# and retry rather than failing the connection.
 class TestConnectOptionsStartupParamFallback:
     @pytest.mark.parametrize(
         "message,expected",
@@ -2082,6 +2083,19 @@ class TestConnectOptionsStartupParamFallback:
             (
                 "connection failed: FATAL:  Feature not supported: RDS Proxy currently "
                 "doesn’t support command-line options.",
+                True,
+            ),
+            # Neon names the rejected setting after the colon, so a match on the exact
+            # "parameter: options" wording above misses it and the connection never opens.
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: statement_timeout. Please use unpooled connection or remove "
+                "this parameter from the startup package.",
+                True,
+            ),
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: idle_in_transaction_session_timeout.",
                 True,
             ),
             ("password authentication failed for user", False),
