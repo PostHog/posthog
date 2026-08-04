@@ -14,8 +14,6 @@ is the only claim made about all of time, and it leans on `Team.ingested_event`.
 """
 
 import hashlib
-import importlib
-import importlib.util
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -23,7 +21,6 @@ from enum import StrEnum
 from functools import lru_cache, partial
 from typing import Optional
 
-from django.apps import apps
 from django.db.models import BigIntegerField, Case, CharField, Max, Value, When
 from django.db.models.functions import Coalesce
 
@@ -32,6 +29,7 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
+from posthog.products import load_product_modules
 from posthog.schema_enums import ProductKey
 from posthog.utils import ensure_utc, get_safe_cache, safe_cache_set
 
@@ -121,19 +119,10 @@ ProbeResult = list[tuple[int, ProductKey, datetime]]
 
 @lru_cache(maxsize=1)
 def discover_data_sources() -> tuple[DataSourceSpec, ...]:
-    """Collect every product's `DATA_SOURCES`, the same way core discovers `routes.py`.
-
-    `find_spec` rather than try/except so a real ImportError surfaces instead of reading as
-    "this product declares none".
-    """
+    """Collect every product's `DATA_SOURCES`."""
     specs: list[DataSourceSpec] = []
-    for app_config in apps.get_app_configs():
-        if not app_config.name.startswith("products."):
-            continue
-        module_name = f"{app_config.name}.data_freshness"
-        if importlib.util.find_spec(module_name) is None:
-            continue
-        specs.extend(getattr(importlib.import_module(module_name), "DATA_SOURCES", []))
+    for module in load_product_modules("data_freshness"):
+        specs.extend(getattr(module, "DATA_SOURCES", []))
     return tuple(specs)
 
 
