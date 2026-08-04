@@ -42,6 +42,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, 
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
+from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
@@ -279,11 +280,31 @@ class AutoProjectMiddleware:
                 project_id_in_url = int(path_parts[2])
 
             if project_id_in_url and user.team and user.team.pk != project_id_in_url:
+                switched = False
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
-                    self.switch_team_if_allowed(new_team, request)
+                    switched = self.switch_team_if_allowed(new_team, request)
                 except Team.DoesNotExist:
                     pass
+
+                if not switched:
+                    # The project in the URL doesn't exist, or the user can't switch into it.
+                    # Serving the request anyway would leave `user.team` pointed at the old
+                    # project while the URL (and every API call the frontend derives from
+                    # `user.team`) points at the one in the path, silently mixing the two.
+                    if path_parts[0] == "api":
+                        return generate_exception_response(
+                            "auto_project_middleware",
+                            "You don't have access to this project.",
+                            code="permission_denied",
+                            type="authentication_error",
+                            status_code=403,
+                        )
+                    path_parts[1] = str(user.team.pk)
+                    new_path = "/".join(path_parts)
+                    search_params = request.GET.urlencode()
+                    return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
+
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
@@ -333,11 +354,11 @@ class AutoProjectMiddleware:
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
 
-    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest) -> bool:
         user = cast(User, request.user)
 
         if not self.can_switch_to_team(new_team, request):
-            return
+            return False
 
         old_team_id = user.current_team_id
         user.team = new_team
@@ -346,6 +367,7 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+        return True
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)

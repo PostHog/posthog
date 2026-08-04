@@ -390,26 +390,31 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.second_team.id
 
-    def test_project_unchanged_when_accessing_inaccessible_project_by_id(self):
+    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_1_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
+        # Rather than silently rendering the page for a project the user can't reach (which
+        # would leave `user.team` on the old project while the URL points at the other one),
+        # the middleware redirects back to a project the user is actually in.
         project_2_request = self.client.get(f"/project/{self.no_access_team.pk}/home")
+        assert project_2_request.status_code == 302
+        assert project_2_request.headers["Location"] == f"/project/{self.team.pk}/home"
         response_users_api = self.client.get(f"/api/users/@me/")
-        assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
-    def test_project_unchanged_when_accessing_missing_project_by_id(self):
+    def test_project_redirects_to_current_team_when_accessing_missing_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_1_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
         project_2_request = self.client.get(f"/project/999999/home")
+        assert project_2_request.status_code == 302
+        assert project_2_request.headers["Location"] == f"/project/{self.team.pk}/home"
         response_users_api = self.client.get(f"/api/users/@me/")
-        assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
     def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
