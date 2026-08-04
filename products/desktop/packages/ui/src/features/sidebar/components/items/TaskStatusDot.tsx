@@ -16,17 +16,19 @@ import {
   TONE_ICON_VAR,
   taskBadges,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
+import { LogoMark } from "@posthog/ui/primitives/LogoMark";
 import type { ReactElement, ReactNode } from "react";
 
-const DOT_SIZE = 8;
-// Exactly the plain dot's box. Anything larger and a working row's label starts
-// further right than its neighbours' — the icon column has to hold one width or
-// the list stops looking like a list.
-const SPINNER_SIZE = DOT_SIZE;
-// Enough to still find the dot if you look for it, not enough to count as one of
-// the list's live rows.
-const FAINT_OPACITY = 0.4;
+// One width for every state — the icon column has to hold one width or the
+// list stops looking like a list. 15 wide puts the mark at the old 8px dot's
+// height, so rows keep their vertical rhythm and only the label column moves.
+const MARK_WIDTH = 15;
+// A settled mark keeps its shape but not its weight — the fill equivalent of
+// the hollow dot this vocabulary used to draw.
+const SETTLED_OPACITY = 0.5;
+// Enough to still find the mark if you look for it, not enough to count as one
+// of the list's live rows.
+const FAINT_OPACITY = 0.45;
 // One provider per row, so a row's dot and badges share a hover delay and handing
 // off between them doesn't re-wait.
 const TOOLTIP_DELAY_MS = 200;
@@ -58,49 +60,41 @@ function RowTooltip({
 }
 
 /**
- * A task's state as a single dot: blue wants a decision, the brand yellow is
- * working or unread, grey is quiet. The trigger renders as a span because rows are
- * `<button>`s — a nested button would be invalid HTML.
+ * A task's state as the PostHog logomark: blue wants a decision, the brand
+ * yellow is working or unread, grey is quiet. Working rows wave their spikes —
+ * the hedgehog is what moves, not a spinner beside it. The trigger renders as a
+ * span because rows are `<button>`s — a nested button would be invalid HTML.
  */
 export function TaskStatusDot({ dot }: { dot: TaskDot }) {
-  const color = DOT_TONE_VAR[dot.tone];
-  if (dot.spinner) {
-    return (
-      <RowTooltip label={dot.label} side="right">
-        <span
-          aria-label={dot.label}
-          role="img"
-          className="flex shrink-0 items-center justify-center"
-          // The spinner draws its dots in `currentColor`, so the tone is set
-          // here rather than passed down.
-          style={{ color: TONE_ICON_VAR[dot.tone], width: SPINNER_SIZE }}
-        >
-          <DotRingSpinner size={SPINNER_SIZE} />
-        </span>
-      </RowTooltip>
-    );
-  }
+  // Settled and parked stack: a suspended row is a settled row you were also
+  // told to skip.
+  const opacity =
+    (dot.style === "hollow" ? SETTLED_OPACITY : 1) *
+    (dot.faint ? FAINT_OPACITY : 1);
   return (
     <RowTooltip label={dot.label} side="right">
       <span
         aria-label={dot.label}
         role="img"
         className={cn(
-          "block shrink-0 rounded-full",
+          "flex shrink-0 items-center justify-center",
           // ph-pulse is the app's existing flash, but it has no reduced-motion
-          // rule of its own — hold a static dot rather than blinking at someone
-          // who asked us not to.
+          // rule of its own — hold a static mark rather than blinking at
+          // someone who asked us not to.
           dot.pulse && "ph-pulse motion-reduce:animate-none",
         )}
-        style={{
-          width: DOT_SIZE,
-          height: DOT_SIZE,
-          backgroundColor: dot.style === "solid" ? color : "transparent",
-          boxShadow:
-            dot.style === "hollow" ? `inset 0 0 0 1.5px ${color}` : undefined,
-          opacity: dot.faint ? FAINT_OPACITY : undefined,
-        }}
-      />
+        style={{ opacity: opacity === 1 ? undefined : opacity }}
+      >
+        {/* The tone sits on the svg itself, not the pulsing wrapper: ph-pulse
+            animates `color`, and an animated property beats an inline style on
+            the same element — one level down, inheritance can't reach past the
+            mark's own colour. */}
+        <LogoMark
+          width={MARK_WIDTH}
+          wave={dot.spinner}
+          style={{ color: DOT_TONE_VAR[dot.tone] }}
+        />
+      </span>
     </RowTooltip>
   );
 }

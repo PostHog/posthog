@@ -418,34 +418,37 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   animation: ph-dots-frame 800ms step-end infinite;
 }
 
-/* Dot-ring spinner: eight dots on a 3x3 grid, one keyframe per dot with a
-   staggered delay so a highlight travels the ring. Only `opacity` animates, so
-   this composites without repainting — and unlike the braille spinner it isn't
-   a font glyph, so it stays circular at any size and in any typeface.
-   `ph-dot-ring 900ms` must stay in step with RING_DURATION_MS in
-   primitives/DotRingSpinner.tsx, which spaces the delays. */
-@keyframes ph-dot-ring {
+/* Spike wave: the logomark's working state. Each spike on the hedgehog's back
+   flexes up and brightens in turn — per-spike delays spaced by WAVE_STAGGER_MS
+   in primitives/LogoMark.tsx — so a wave rolls tail-to-head, motion that
+   travels rather than blinks. Only `opacity` and `transform` animate, so it
+   composites without repainting. `fill-box` plus a bottom-centre origin scale
+   each spike within its own bounds, anchored at the baseline: spikes stretch
+   upward like spikes, and never detach from the back. */
+@keyframes ph-spike-wave {
   0%,
+  45%,
   100% {
-    opacity: 0.2;
+    opacity: 0.4;
+    transform: scaleY(1);
   }
   12% {
     opacity: 1;
-  }
-  50% {
-    opacity: 0.2;
+    transform: scaleY(1.14);
   }
 }
 
-.ph-dot-ring {
-  animation: ph-dot-ring 900ms linear infinite;
+.ph-spike-wave {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: ph-spike-wave 1200ms ease-in-out infinite;
 }
 
-/* Hold a legible, evenly dimmed ring rather than dropping the signal. */
+/* Hold a legible, evenly dimmed back rather than dropping the signal. */
 @media (prefers-reduced-motion: reduce) {
-  .ph-dot-ring {
+  .ph-spike-wave {
     animation: none;
-    opacity: 0.55;
+    opacity: 0.7;
   }
 }
 
