@@ -11,7 +11,11 @@ export type ApiFetcherConfig = {
   appVersion: string;
   fetch?: FetchImplementation;
   userAgent?: string | null;
+  /** Milliseconds before an in-flight request is aborted. Defaults to 30s. */
+  requestTimeoutMs?: number;
 };
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Non-2xx HTTP response from the PostHog API. Keeps the legacy
@@ -43,6 +47,7 @@ export const buildApiFetcher: (
     config.userAgent === undefined
       ? `posthog/desktop.hog.dev; version: ${config.appVersion}`
       : config.userAgent;
+  const requestTimeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
   const makeRequest = async (
     input: Parameters<Parameters<typeof createApiClient>[0]["fetch"]>[0],
@@ -73,16 +78,28 @@ export const buildApiFetcher: (
       }
     }
 
+    const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
+    const signal = input.overrides?.signal
+      ? AbortSignal.any([input.overrides.signal, timeoutSignal])
+      : timeoutSignal;
+
     try {
       const response = await fetchImpl(input.url, {
         method: input.method.toUpperCase(),
         ...(body && { body }),
         headers,
         ...input.overrides,
+        signal,
       });
 
       return response;
     } catch (err) {
+      if (timeoutSignal.aborted) {
+        throw new Error(
+          `Request timed out after ${requestTimeoutMs}ms for ${input.method.toUpperCase()} ${input.url}`,
+          { cause: err instanceof Error ? err : undefined },
+        );
+      }
       throw new Error(
         `Network request failed for ${input.method.toUpperCase()} ${input.url}: ${
           err instanceof Error ? err.message : String(err)

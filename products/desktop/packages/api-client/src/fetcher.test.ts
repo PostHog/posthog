@@ -201,6 +201,26 @@ describe("buildApiFetcher", () => {
     await expect(fetcher.fetch(mockInput)).rejects.toThrow("[401]");
   });
 
+  it("aborts a request that never resolves instead of hanging forever", async () => {
+    mockFetch.mockImplementationOnce(
+      (_input: unknown, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const fetcher = buildApiFetcher({
+      getAccessToken: vi.fn().mockResolvedValue("token"),
+      refreshAccessToken: vi.fn().mockResolvedValue("new-token"),
+      appVersion: "test",
+      requestTimeoutMs: 10,
+    });
+
+    await expect(fetcher.fetch(mockInput)).rejects.toThrow("timed out");
+  });
+
   it("handles network errors", async () => {
     mockFetch.mockRejectedValueOnce(new Error("Network failure"));
     const fetcher = buildApiFetcher({
