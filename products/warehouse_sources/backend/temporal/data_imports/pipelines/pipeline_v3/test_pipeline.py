@@ -37,7 +37,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._logger = _make_logger()
     pipeline._is_incremental = False
     pipeline._reset_pipeline = False
-    pipeline._delta_table_helper = MagicMock(is_first_sync=True)
+    pipeline._delta_table_ref = MagicMock(is_first_sync=True)
     pipeline._resumable_source_manager = None
     pipeline._internal_schema = MagicMock()
     pipeline._cdp_producer = MagicMock()
@@ -112,7 +112,7 @@ class TestAttemptScopedRunUuid:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.PostgresProducer",
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableHelper"
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableRef"
             ),
         ):
             mock_s3_writer_cls.return_value = MagicMock(get_run_uuid=MagicMock(return_value="wfrun-abc-a3"))

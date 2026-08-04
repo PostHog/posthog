@@ -37,6 +37,7 @@ import {
   CloudConnectionBanner,
   CloudStreamDisconnectedBanner,
 } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
@@ -681,7 +682,6 @@ export function PiSessionView({
           isPromptPending={isStreaming}
           taskId={taskId}
           repoPath={repoPath}
-          usage={contextUsage}
           promptRecallRef={promptRecallRef}
         />
       </Box>
@@ -716,6 +716,7 @@ export function PiSessionView({
         )}
         <PromptInput
           sessionId={taskId}
+          toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
           taskId={taskId}
           repoPath={repoPath}
           placeholder="Type a message..."

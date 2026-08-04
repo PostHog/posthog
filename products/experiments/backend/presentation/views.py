@@ -38,6 +38,8 @@ from posthog.permissions import is_service_auth
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    SessionBucketsBurstRateThrottle,
+    SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
     SessionContextsSustainedRateThrottle,
 )
@@ -49,7 +51,7 @@ from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculatio
 from posthog.user_permissions import UserPermissions
 
 from products.approvals.backend.mixins import ApprovalHandlingMixin
-from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -72,6 +74,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentSessionBucketRequestSerializer,
+    ExperimentSessionBucketResponseSerializer,
     ExperimentSessionContextResponseSerializer,
     ExperimentSessionContextsRequestSerializer,
     ExperimentSessionContextsResponseSerializer,
@@ -97,6 +101,12 @@ from products.experiments.backend.running_time_calculator import (
     calculate_sample_size,
     calculate_variance,
     calculate_variance_from_stats,
+)
+from products.experiments.backend.session_buckets import (
+    SessionBucket,
+    SessionBucketUnavailable,
+    finalize_session_bucket,
+    get_experiment_session_bucket,
 )
 from products.experiments.backend.session_context import get_session_experiment_context, get_session_experiment_contexts
 from products.experiments.backend.temporal.models import (
@@ -374,6 +384,14 @@ class EnterpriseExperimentsViewSet(
         if self.action == "list":
             return ExperimentBasicSerializer
         return ExperimentSerializer
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
+        # and retry precisely; the default exception handler would flatten it to a plain string.
+        try:
+            return super().update(request, *args, **kwargs)
+        except ExperimentVersionConflict as err:
+            return Response(err.response_data(), status=err.status_code)
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1402,6 +1420,64 @@ class EnterpriseExperimentsViewSet(
             {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
         )
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=ExperimentSessionBucketRequestSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSessionBucketResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="session_buckets",
+        required_scopes=["experiment:read", "session_recording:read"],
+        # Heavier than the session-context batch (it scans the run window rather than a known id
+        # list) and called by the session-authenticated web app, which the ClickHouse* pair
+        # doesn't cover.
+        throttle_classes=[SessionBucketsBurstRateThrottle, SessionBucketsSustainedRateThrottle],
+    )
+    def session_buckets(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Session recordings of this experiment matching a bucket.
+
+        Answers the questions a recordings query can't express on its own — "fired any of these
+        metrics", "fired none of them", "entered the funnel but never completed it in this
+        session" — by returning a bounded, most-recent-first list of session IDs to pass back as
+        a recordings query's session_ids. POST because the metric list doesn't fit a query
+        string; the endpoint only reads.
+
+        Session-scoped and goal-free: the set describes what happened in each session, while the
+        experiment analysis counts per person over the whole run window. A session can be in the
+        drop-off bucket while the same person converts in a later one.
+        """
+        experiment: Experiment = self.get_object()
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading experiment session buckets requires session replay access.")
+
+        try:
+            scan = get_experiment_session_bucket(
+                team=self.team,
+                # user threads through to the HogQL query: metric sources and exposure criteria
+                # can filter on arbitrary properties, which must respect the viewer's
+                # property-level access control.
+                user=cast(User, request.user),
+                experiment=experiment,
+                bucket=SessionBucket(request.validated_data["bucket"]),
+                metric_uuids=request.validated_data["metric_uuids"],
+                variant=request.validated_data["variant"],
+                limit=request.validated_data["limit"],
+            )
+        except SessionBucketUnavailable as error:
+            raise ValidationError(str(error))
+
+        # Applied to the computed set rather than inside the scan: the bucket is cached per
+        # viewer, so filtering on read honors a revocation that lands while an entry is warm. The
+        # cut to `limit` follows it, so a denied recording never spends a returned slot and
+        # `truncated` describes what this viewer may see.
+        result = finalize_session_bucket(
+            scan,
+            _accessible_session_ids(request, self.user_access_control, self.team, scan.candidate_session_ids),
+        )
+        return Response(ExperimentSessionBucketResponseSerializer(result).data)
 
 
 def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:

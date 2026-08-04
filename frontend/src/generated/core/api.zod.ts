@@ -9015,361 +9015,6 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemCreateBodyTypeMax = 100
-
-export const desktopFileSystemCreateBodyRefMax = 100
-
-export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemUpdateBodyTypeMax = 100
-
-export const desktopFileSystemUpdateBodyRefMax = 100
-
-export const DesktopFileSystemUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemUpdateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemUpdateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemPartialUpdateBodyTypeMax = 100
-
-export const desktopFileSystemPartialUpdateBodyRefMax = 100
-
-export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().optional(),
-    type: zod.string().max(desktopFileSystemPartialUpdateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemPartialUpdateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Publish a new version of a freeform canvas's React source.
- *
- * Merges into the dashboard row's `meta` (never replaces it), so existing
- * keys like `channelId`/`templateId` survive. Appends a full-file version
- * snapshot and points `currentVersionId` at it — the server-side mirror of
- * the app's dashboardsService.saveFreeform, including the linear-discard of
- * any redo tail left behind by an undo. When the publisher passes
- * `expected_current_version_id`, a publish based on a stale version is
- * rejected with 409 `version_conflict` instead of overwriting the newer head.
- */
-export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        code: zod.string().optional().describe('The complete single-file React source for the canvas.'),
-        prompt: zod
-            .string()
-            .optional()
-            .describe('Short description of the change, stored on the appended version history entry.'),
-        name: zod
-            .string()
-            .optional()
-            .describe('Optional new display name for the canvas (rewrites the leaf segment of its path).'),
-        expected_current_version_id: zod
-            .string()
-            .nullish()
-            .describe(
-                "Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded."
-            ),
-    })
-    .describe("Payload for publishing a freeform canvas's React source via the agent.")
-
-/**
- * Set or clear the Task associated with this folder's CONTEXT.md generation.
- */
-export const DesktopFileSystemContextGenerationUpdateBody = /* @__PURE__ */ zod.object({
-    task_id: zod
-        .uuid()
-        .nullable()
-        .describe(
-            "ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association."
-        ),
-})
-
-/**
- * Get count of all files in a folder.
- */
-export const desktopFileSystemCountCreateBodyTypeMax = 100
-
-export const desktopFileSystemCountCreateBodyRefMax = 100
-
-export const DesktopFileSystemCountCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemCountCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemCountCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Publish a new version of the folder's instructions.
- */
-export const desktopFileSystemInstructionsUpdateBodyBaseVersionMin = 0
-
-export const DesktopFileSystemInstructionsUpdateBody = /* @__PURE__ */ zod.object({
-    content: zod.string().describe('Full markdown instructions to publish as a new version for the folder.'),
-    base_version: zod
-        .number()
-        .min(desktopFileSystemInstructionsUpdateBodyBaseVersionMin)
-        .optional()
-        .describe(
-            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
-        ),
-})
-
-/**
- * Publish a new version of the folder's instructions.
- */
-export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
-
-export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
-    base_version: zod
-        .number()
-        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
-        .optional()
-        .describe(
-            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
-        ),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemLinkCreateBodyTypeMax = 100
-
-export const desktopFileSystemLinkCreateBodyRefMax = 100
-
-export const DesktopFileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemLinkCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemLinkCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemMoveCreateBodyTypeMax = 100
-
-export const desktopFileSystemMoveCreateBodyRefMax = 100
-
-export const DesktopFileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemMoveCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemMoveCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Get count of all files in a folder.
- */
-export const desktopFileSystemCountByPathCreateBodyTypeMax = 100
-
-export const desktopFileSystemCountByPathCreateBodyRefMax = 100
-
-export const DesktopFileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemCountByPathCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemCountByPathCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemLogViewCreateBodyTypeMax = 100
-
-export const desktopFileSystemLogViewCreateBodyRefMax = 100
-
-export const DesktopFileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemLogViewCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemLogViewCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemUndoDeleteCreateBodyTypeMax = 100
-
-export const desktopFileSystemUndoDeleteCreateBodyRefMax = 100
-
-export const DesktopFileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(desktopFileSystemUndoDeleteCreateBodyTypeMax).optional(),
-    ref: zod.string().max(desktopFileSystemUndoDeleteCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
-})
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutCreateBodyTypeMax = 100
-
-export const desktopFileSystemShortcutCreateBodyRefMax = 100
-
-export const desktopFileSystemShortcutCreateBodyOrderMin = -2147483648
-export const desktopFileSystemShortcutCreateBodyOrderMax = 2147483647
-
-export const DesktopFileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
-    type: zod
-        .string()
-        .max(desktopFileSystemShortcutCreateBodyTypeMax)
-        .optional()
-        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
-    ref: zod
-        .string()
-        .max(desktopFileSystemShortcutCreateBodyRefMax)
-        .nullish()
-        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
-    href: zod
-        .string()
-        .nullish()
-        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
-    order: zod
-        .number()
-        .min(desktopFileSystemShortcutCreateBodyOrderMin)
-        .max(desktopFileSystemShortcutCreateBodyOrderMax)
-        .optional()
-        .describe("Display order within the user's shortcut list, ascending."),
-})
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutUpdateBodyTypeMax = 100
-
-export const desktopFileSystemShortcutUpdateBodyRefMax = 100
-
-export const desktopFileSystemShortcutUpdateBodyOrderMin = -2147483648
-export const desktopFileSystemShortcutUpdateBodyOrderMax = 2147483647
-
-export const DesktopFileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
-    type: zod
-        .string()
-        .max(desktopFileSystemShortcutUpdateBodyTypeMax)
-        .optional()
-        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
-    ref: zod
-        .string()
-        .max(desktopFileSystemShortcutUpdateBodyRefMax)
-        .nullish()
-        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
-    href: zod
-        .string()
-        .nullish()
-        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
-    order: zod
-        .number()
-        .min(desktopFileSystemShortcutUpdateBodyOrderMin)
-        .max(desktopFileSystemShortcutUpdateBodyOrderMax)
-        .optional()
-        .describe("Display order within the user's shortcut list, ascending."),
-})
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutPartialUpdateBodyTypeMax = 100
-
-export const desktopFileSystemShortcutPartialUpdateBodyRefMax = 100
-
-export const desktopFileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
-export const desktopFileSystemShortcutPartialUpdateBodyOrderMax = 2147483647
-
-export const DesktopFileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
-    path: zod.string().optional().describe('Display path of the shortcut in the sidebar.'),
-    type: zod
-        .string()
-        .max(desktopFileSystemShortcutPartialUpdateBodyTypeMax)
-        .optional()
-        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
-    ref: zod
-        .string()
-        .max(desktopFileSystemShortcutPartialUpdateBodyRefMax)
-        .nullish()
-        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
-    href: zod
-        .string()
-        .nullish()
-        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
-    order: zod
-        .number()
-        .min(desktopFileSystemShortcutPartialUpdateBodyOrderMin)
-        .max(desktopFileSystemShortcutPartialUpdateBodyOrderMax)
-        .optional()
-        .describe("Display order within the user's shortcut list, ascending."),
-})
-
-/**
- * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
- */
-export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
-    ordered_ids: zod.array(zod.uuid()).describe("IDs of the current user's shortcuts in the desired display order."),
-})
-
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),
@@ -9860,10 +9505,10 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -9951,10 +9596,10 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10039,10 +9684,10 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10261,10 +9906,10 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10352,10 +9997,10 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10443,10 +10088,10 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10531,10 +10176,10 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10619,10 +10264,10 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10707,10 +10352,10 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10795,10 +10440,10 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
@@ -10883,10 +10528,10 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
         .optional()
         .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()
