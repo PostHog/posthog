@@ -11,11 +11,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import {
-    PrecalculatedPersonPropertiesOutput,
-    PrefilteredEventsOutput,
-    WarehouseSourceWebhooksOutput,
-} from './outputs/outputs'
+import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -52,8 +48,6 @@ export type CdpOutput =
     | AppMetricsOutput
     | LogEntriesOutput
     | HogInvocationResultsOutput
-    | PrefilteredEventsOutput
-    | PrecalculatedPersonPropertiesOutput
     | WarehouseSourceWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -164,10 +158,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
-        | 'CDP_PREFILTERED_EVENTS_TOPIC'
-        | 'CDP_PREFILTERED_EVENTS_PRODUCER'
-        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
-        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
     >

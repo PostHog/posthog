@@ -31,6 +31,8 @@ export enum PluginServerMode {
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
+    // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
+    // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
