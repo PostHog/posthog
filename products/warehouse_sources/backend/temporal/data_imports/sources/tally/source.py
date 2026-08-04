@@ -147,6 +147,12 @@ Submissions are fetched one form at a time and Tally allows 100 requests per min
             return True, None
         if status == 401:
             return False, "Invalid Tally API key"
+        if status == 403:
+            # The key works but can't see this data — reaching the API isn't the problem.
+            return (
+                False,
+                "Your Tally API key does not have access to this data. Reconnect with a key from an account that can see these forms.",
+            )
         return False, "Could not reach the Tally API with this key"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TallyResumeConfig]:

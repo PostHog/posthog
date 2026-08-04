@@ -86,8 +86,11 @@ def _run(
     manager: mock.MagicMock | None = None,
     **kwargs: Any,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], mock.MagicMock]:
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+    # Endpoints that disable sample capture build their own session in `_client_config`, so patch
+    # that factory too and point it at the same wired session the rest client would otherwise use.
+    with mock.patch(CLIENT_SESSION_PATCH) as MockSession, mock.patch(TALLY_SESSION_PATCH) as MockTallySession:
         session = MockSession.return_value
+        MockTallySession.return_value = session
         params = _wire(session, responses_by_url)
         response = tally_source(
             api_key="key",
@@ -290,6 +293,43 @@ class TestFanOut:
         rows, params, _session = _run("submissions", responses, _make_manager(state))
         assert rows == [{"id": "S3", "formId": "F1"}]
         assert params[1]["page"] == 3
+
+
+class TestWebhookSecrets:
+    def test_signing_secret_and_headers_are_nulled_and_kept_out_of_capture(self) -> None:
+        # Webhook signing secrets and custom auth headers are credentials — persisting them would let
+        # anyone with warehouse read access forge signed deliveries or reuse embedded tokens. They
+        # must land as null, and the raw responses must stay out of HTTP sample capture.
+        session = mock.MagicMock()
+        responses = {
+            f"{BASE}/webhooks?limit={WEBHOOKS_PAGE_SIZE}&page=1": [
+                _page(
+                    [
+                        {
+                            "id": "W1",
+                            "url": "https://example.com/hook",
+                            "signingSecret": "shh",
+                            "httpHeaders": [{"name": "X-Auth", "value": "tok"}],
+                        }
+                    ],
+                    key="webhooks",
+                )
+            ],
+        }
+        with mock.patch(TALLY_SESSION_PATCH, return_value=session) as mock_tally_session:
+            _wire(session, responses)
+            response = tally_source(
+                api_key="key",
+                api_version=TALLY_API_VERSION,
+                endpoint="webhooks",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=_make_manager(),
+            )
+            rows = [row for page in cast(Any, response.items()) for row in page]
+
+        assert rows == [{"id": "W1", "url": "https://example.com/hook", "signingSecret": None, "httpHeaders": None}]
+        assert mock_tally_session.call_args.kwargs["capture"] is False
 
 
 class TestIncremental:

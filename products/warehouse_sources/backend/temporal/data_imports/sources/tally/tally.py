@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -43,9 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally.sett
 class TallyResumeConfig:
     # Page bookmark for a top-level endpoint. None means "start at page one".
     next_page: Optional[int] = None
-    # Framework fan-out resume state for the per-form endpoints:
+    # Framework fan-out resume state for the per-form endpoints, opaque to this source and passed
+    # straight back to the fan-out helper:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {"page": n} | None}.
-    fanout_state: Optional[dict] = None
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class TallyPaginator(PageNumberPaginator):
@@ -76,12 +78,32 @@ def _paginator_for(config: TallyEndpointConfig) -> BasePaginator:
     return TallyPaginator() if config.paginated else SinglePagePaginator()
 
 
-def _client_config(api_key: str, api_version: str) -> ClientConfig:
-    return {
+def _client_config(api_key: str, api_version: str, capture: bool = True) -> ClientConfig:
+    config: ClientConfig = {
         "base_url": TALLY_BASE_URL,
         "auth": {"type": "bearer", "token": api_key},
         "headers": {"Accept": "application/json", TALLY_VERSION_HEADER: api_version},
     }
+    if not capture:
+        # This endpoint's body carries secrets the name-based sample scrubbers can't spot, so keep
+        # its responses out of HTTP sample capture (they're still metered and logged). RESTClient
+        # applies the auth and headers above on top of this session.
+        config["session"] = make_tracked_session(redact_values=(api_key,), capture=False)
+    return config
+
+
+def _redact_row_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Return a `data_map` that nulls out the named fields on every row, keeping the columns (as
+    null) so the table shape stays stable while the secret values never reach the warehouse.
+    """
+
+    def _redact(row: dict[str, Any]) -> dict[str, Any]:
+        for name in fields:
+            if name in row:
+                row[name] = None
+        return row
+
+    return _redact
 
 
 def _to_iso8601(value: Any) -> str:
@@ -153,8 +175,10 @@ def _top_level_source(
         "endpoint": endpoint,
         "table_format": "delta",
     }
+    if config.redact_fields:
+        resource["data_map"] = _redact_row_fields(config.redact_fields)
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key, api_version),
+        "client": _client_config(api_key, api_version, capture=config.capture_samples),
         "resource_defaults": {},
         "resources": [resource],
     }

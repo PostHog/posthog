@@ -48,6 +48,11 @@ class TallyEndpointConfig:
     default_incremental_field: Optional[str] = None
     sort_mode: Literal["asc", "desc"] = "asc"
     fanout: Optional[DependentEndpointConfig] = None
+    # Response fields nulled out before rows are written — secret material we must never persist.
+    redact_fields: tuple[str, ...] = ()
+    # Whether responses may be retained as HTTP samples. False for endpoints whose bodies carry
+    # secrets the name-based sample scrubbers can't recognise.
+    capture_samples: bool = True
 
 
 def _forms_fanout(parent_params: Optional[dict[str, object]] = None) -> DependentEndpointConfig:
@@ -114,12 +119,17 @@ TALLY_ENDPOINTS: dict[str, TallyEndpointConfig] = {
         sort_mode="desc",
         fanout=_forms_fanout(),
     ),
+    # Webhook configs carry the signing secret and any custom auth headers — credentials that would
+    # let anyone with warehouse read access forge signed deliveries or reuse embedded tokens. Null
+    # them before they land, and keep the raw responses out of HTTP sample capture entirely.
     "webhooks": TallyEndpointConfig(
         name="webhooks",
         path="/webhooks",
         data_selector="webhooks",
         page_size=WEBHOOKS_PAGE_SIZE,
         partition_key="createdAt",
+        redact_fields=("signingSecret", "httpHeaders"),
+        capture_samples=False,
     ),
 }
 

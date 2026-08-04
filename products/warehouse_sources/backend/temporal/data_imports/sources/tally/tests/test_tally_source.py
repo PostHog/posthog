@@ -123,6 +123,13 @@ class TestTallySource:
         [
             ("valid", True, 200, True, None),
             ("bad_key", False, 401, False, "Invalid Tally API key"),
+            (
+                "forbidden",
+                False,
+                403,
+                False,
+                "Your Tally API key does not have access to this data. Reconnect with a key from an account that can see these forms.",
+            ),
             ("unreachable", False, None, False, "Could not reach the Tally API with this key"),
         ]
     )
