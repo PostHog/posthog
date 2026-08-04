@@ -62,7 +62,6 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
-    is_slack_app_queue_workflow_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
@@ -2817,10 +2816,9 @@ def _start_mention_workflow(
         untagged_followup=untagged_followup,
         is_ext_shared_channel=is_ext_shared_channel,
     )
-    # Deriving the ID is free, the flag evaluation is remote — check in that
-    # order. Events without channel/ts fall back to the per-message workflow.
+    # Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
-    if queue_workflow_id is not None and is_slack_app_queue_workflow_enabled(integration, slack_team_id):
+    if queue_workflow_id is not None:
         _start_posthog_code_workflow(
             SlackAppMentionWorkflow,
             SlackAppMentionWorkflowInputs(),

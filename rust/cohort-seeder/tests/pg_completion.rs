@@ -17,19 +17,19 @@ use cohort_core::filters::{CohortId, TeamId};
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 use cohort_seeder::domain::{
     CompletionPhase, DispatchEpoch, MarkerPartition, MarkerWatch, MembershipPartition, NextOffset,
-    ObservationEnds, PartitionBitmap, ProducedOffset, ReconcileHwms, RunId, SeedPartition,
-    UndispatchedReason, WatchPositions,
+    ObservationEnds, PartitionBitmap, PersonShapeHash, ProducedOffset, ReconcileHwms,
+    ReconcileScope, RunId, SeedPartition, UndispatchedReason, WatchPositions,
 };
 use cohort_seeder::store::chunks::PgChunkStore;
 use cohort_seeder::store::completion::{
-    cas_run_reconciling, confirm_reconciling, discover_completions, load_current_behavioral_hashes,
-    load_observation_participations, mark_chunks_planned, mark_participation_completed,
-    mark_run_observed, mark_run_observed_unreconcilable, persist_marker_observations,
-    persist_observation_ends, read_planning_stamp, record_participation_partial,
-    record_participation_shortfall, runs_with_all_chunks_confirmed, CompletionStoreError,
-    CurrentBehavioralHash, PlanningStampOutcome,
+    cas_run_reconciling, confirm_reconciling, count_reconciling_by_kind, discover_completions,
+    load_current_shape_hashes, load_observation_participations, mark_chunks_planned,
+    mark_participation_completed, mark_run_observed, mark_run_observed_unreconcilable,
+    persist_marker_observations, persist_observation_ends, read_planning_stamp,
+    record_participation_partial, record_participation_shortfall, runs_with_all_chunks_confirmed,
+    CompletionStoreError, CurrentShapeHash, PlanningStampOutcome,
 };
-use cohort_seeder::store::runs::RunKind;
+use cohort_seeder::store::runs::{load_reconcile_run, RunKind};
 use cohort_seeder::store::RenderedError;
 use cohort_seeder::test_support;
 use common_types::cohort::TeamAllowlist;
@@ -38,11 +38,14 @@ use sqlx::PgPool;
 
 mod support;
 use support::{
-    empty_pinned, ensure_fence_lost, insert_cohort, insert_participation, insert_person_run,
-    insert_reconciling_run, insert_run, person_pinned, set_marker_bits, with_db,
+    empty_pinned, ensure_fence_lost, insert_cohort, insert_participation,
+    insert_person_participation, insert_person_run, insert_reconciling_run, insert_run,
+    person_pinned, set_marker_bits, with_db,
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
+/// What discovery binds once `SEEDER_PERSON_SEEDS_ENABLED` is on.
+const BOTH_KINDS: &[RunKind] = &[RunKind::Behavioral, RunKind::PersonProperty];
 
 fn full_hwms() -> ReconcileHwms {
     let offsets: BTreeMap<SeedPartition, ProducedOffset> =
@@ -99,28 +102,42 @@ async fn planning_stamp_is_idempotent_and_refuses_non_seeding() -> Result<()> {
     .await
 }
 
-/// The person-kind inertness contract: `discover_completions` never surfaces a person run — the
-/// reconcile protocol stays behavioral-only by design — while the kind-parameterized stamp pair
-/// lets a person run earn its planning proof and refuses the wrong kind.
+/// Discovery is gated by the caller's allowed kinds — the dark proof: with the person gate off a
+/// person run is invisible, and with it on the same run surfaces carrying its kind.
 #[tokio::test]
-async fn completion_discovery_excludes_person_runs_but_the_stamp_is_kind_aware() -> Result<()> {
+async fn completion_discovery_is_gated_by_the_allowed_kinds() -> Result<()> {
     with_db(|pool| async move {
         let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
 
-        ensure!(discover_completions(&pool, &TeamAllowlist::All)
-            .await?
+        let dark = discover_completions(&pool, &TeamAllowlist::All, &[RunKind::Behavioral]).await?;
+        ensure!(dark
             .iter()
             .all(|completion| completion.run_id != person_run));
+
+        let lit = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        let discovered = lit
+            .iter()
+            .find(|completion| completion.run_id == person_run)
+            .context("the person run surfaces once its kind is allowed")?;
+        ensure!(discovered.kind == RunKind::PersonProperty);
+        Ok(())
+    })
+    .await
+}
+
+/// Every kind-bound entry point refuses a run id presented under the other kind, so the two
+/// protocols can never write each other's rows.
+#[tokio::test]
+async fn kind_bound_entry_points_refuse_the_other_kind() -> Result<()> {
+    with_db(|pool| async move {
+        let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
+        let behavioral_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
 
         ensure!(matches!(
             mark_chunks_planned(&pool, person_run, RunKind::Behavioral).await?,
             PlanningStampOutcome::Skipped
         ));
-        ensure!(
-            read_planning_stamp(&pool, person_run, RunKind::PersonProperty)
-                .await?
-                .is_none()
-        );
         ensure!(matches!(
             mark_chunks_planned(&pool, person_run, RunKind::PersonProperty).await?,
             PlanningStampOutcome::Stamped
@@ -130,10 +147,79 @@ async fn completion_discovery_excludes_person_runs_but_the_stamp_is_kind_aware()
                 .await?
                 .is_some()
         );
-        // The behavioral-filtered read still refuses to see it.
         ensure!(read_planning_stamp(&pool, person_run, RunKind::Behavioral)
             .await?
             .is_none());
+        mark_chunks_planned(&pool, behavioral_run, RunKind::Behavioral).await?;
+
+        // The CAS out of `seeding` is the gate into the reconcile protocol; each kind holds only
+        // its own runs.
+        ensure!(cas_run_reconciling(&pool, person_run, RunKind::Behavioral)
+            .await?
+            .is_none());
+        ensure!(
+            cas_run_reconciling(&pool, behavioral_run, RunKind::PersonProperty)
+                .await?
+                .is_none()
+        );
+        ensure!(
+            cas_run_reconciling(&pool, person_run, RunKind::PersonProperty)
+                .await?
+                .is_some()
+        );
+
+        // And once reconciling, the re-dispatch claim is bound the same way.
+        ensure!(confirm_reconciling(&pool, person_run, RunKind::Behavioral)
+            .await?
+            .is_none());
+        ensure!(
+            confirm_reconciling(&pool, person_run, RunKind::PersonProperty)
+                .await?
+                .is_some()
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// A person run's fence is its person hash: `load_reconcile_run` and the observation load both read
+/// the kind-matching column and ignore the `''` sibling that would otherwise fail closed.
+#[tokio::test]
+async fn person_run_loads_pin_the_person_hash_and_ignore_the_empty_behavioral_column() -> Result<()>
+{
+    with_db(|pool| async move {
+        let run_id = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
+        insert_person_participation(&pool, run_id, 2, 301, "person-shape").await?;
+
+        let run = load_reconcile_run(&pool, run_id).await?;
+        ensure!(run.kind() == RunKind::PersonProperty);
+        let scopes: Vec<ReconcileScope> = run.tiles().map(|tile| tile.scope().clone()).collect();
+        ensure!(
+            scopes
+                == vec![ReconcileScope::PersonProperty(PersonShapeHash::parse(
+                    "person-shape"
+                )?)]
+        );
+
+        let participations =
+            load_observation_participations(&pool, run_id, RunKind::PersonProperty).await?;
+        ensure!(participations.len() == 1);
+        ensure!(participations[0].scope == scopes[0]);
+
+        // Read under the wrong kind and the sibling column's `''` fails closed rather than
+        // silently pinning nothing. Symmetric: a behavioral run read as person does the same.
+        let behavioral_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        insert_participation(&pool, behavioral_run, 2, 302, false, empty_pinned()).await?;
+        for (run, kind) in [
+            (run_id, RunKind::Behavioral),
+            (behavioral_run, RunKind::PersonProperty),
+        ] {
+            ensure!(matches!(
+                load_observation_participations(&pool, run, kind).await,
+                Err(CompletionStoreError::InvalidShapeHash { .. })
+            ));
+        }
         Ok(())
     })
     .await
@@ -149,8 +235,8 @@ async fn cas_reconciling_is_single_winner_and_gated_on_planned_and_confirmed() -
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         mark_chunks_planned(&pool, ready, RunKind::Behavioral).await?;
         let (left, right) = tokio::join!(
-            cas_run_reconciling(&pool, ready),
-            cas_run_reconciling(&pool, ready)
+            cas_run_reconciling(&pool, ready, RunKind::Behavioral),
+            cas_run_reconciling(&pool, ready, RunKind::Behavioral)
         );
         let winners = [left?, right?].into_iter().filter(Option::is_some).count();
         ensure!(
@@ -161,7 +247,9 @@ async fn cas_reconciling_is_single_winner_and_gated_on_planned_and_confirmed() -
         // Unplanned seeding run: CAS refused.
         let unplanned =
             insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
-        ensure!(cas_run_reconciling(&pool, unplanned).await?.is_none());
+        ensure!(cas_run_reconciling(&pool, unplanned, RunKind::Behavioral)
+            .await?
+            .is_none());
 
         // Planned but with an unconfirmed chunk: CAS refused.
         let pending =
@@ -170,7 +258,9 @@ async fn cas_reconciling_is_single_winner_and_gated_on_planned_and_confirmed() -
         PgChunkStore::new(pool.clone())
             .plan_chunks(pending, [100], ONE_BAND)
             .await?;
-        ensure!(cas_run_reconciling(&pool, pending).await?.is_none());
+        ensure!(cas_run_reconciling(&pool, pending, RunKind::Behavioral)
+            .await?
+            .is_none());
         Ok(())
     })
     .await
@@ -193,7 +283,7 @@ async fn record_dispatch_resets_participations_and_mints_fresh_epoch() -> Result
         .execute(&pool)
         .await?;
 
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable for dispatch")?;
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -220,7 +310,7 @@ async fn record_dispatch_resets_participations_and_mints_fresh_epoch() -> Result
 
         // Re-dispatch: a fresh claim records a new fence at or after the first.
         set_marker_bits(&pool, run_id, 301, 5).await?;
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("re-dispatch should be claimable")?;
         let next_epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -246,12 +336,12 @@ async fn revert_clears_the_dispatch_record_and_returns_to_seeding() -> Result<()
     with_db(|pool| async move {
         let run_id = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
         let _ = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
 
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be re-claimable")?;
         claim.revert(&pool).await?;
@@ -266,7 +356,7 @@ async fn revert_clears_the_dispatch_record_and_returns_to_seeding() -> Result<()
         .await?;
         ensure!(status == "seeding" && cleared);
 
-        let discovered = discover_completions(&pool, &TeamAllowlist::All).await?;
+        let discovered = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
         let phase = discovered
             .iter()
             .find(|completion| completion.run_id == run_id)
@@ -284,10 +374,10 @@ async fn revert_is_fenced_against_a_dispatch_recorded_after_the_claim() -> Resul
     with_db(|pool| async move {
         let run_id = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
-        let stale = confirm_reconciling(&pool, run_id)
+        let stale = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
-        let winner = confirm_reconciling(&pool, run_id)
+        let winner = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable twice")?;
         let epoch = winner.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -316,10 +406,10 @@ async fn record_is_fenced_against_a_dispatch_recorded_after_the_claim() -> Resul
     with_db(|pool| async move {
         let run_id = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
-        let stale = confirm_reconciling(&pool, run_id)
+        let stale = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
-        let winner = confirm_reconciling(&pool, run_id)
+        let winner = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable twice")?;
         let epoch = winner.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -405,7 +495,7 @@ async fn recording_a_partial_preserves_an_existing_supersession_reason() -> Resu
         .bind(run_id)
         .execute(&pool)
         .await?;
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -441,7 +531,7 @@ async fn fenced_writes_reject_stale_epoch_and_wrong_status() -> Result<()> {
     with_db(|pool| async move {
         let run_id = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -498,7 +588,7 @@ async fn fenced_participation_writes_lose_an_epoch_superseded_mid_statement() ->
     with_db(|pool| async move {
         let run_id = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
         let _initial = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -593,7 +683,7 @@ async fn capturing_ends_leaves_the_watcher_positions_alone() -> Result<()> {
     with_db(|pool| async move {
         let run_id = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, run_id, 2, 301, false, empty_pinned()).await?;
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -630,18 +720,29 @@ async fn unreconcilable_runs_are_marked_observed_for_django() -> Result<()> {
     with_db(|pool| async move {
         let stranded = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, stranded, 2, 301, true, empty_pinned()).await?;
-        mark_run_observed_unreconcilable(&pool, stranded).await?;
+        mark_run_observed_unreconcilable(&pool, stranded, RunKind::Behavioral).await?;
 
-        let discovered = discover_completions(&pool, &TeamAllowlist::All).await?;
-        let phase = discovered
+        let observed_stamp: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT reconcile_observed_at FROM cohort_backfill_runs WHERE id = $1",
+        )
+        .bind(stranded)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(observed_stamp.is_some());
+        // Observing it is what removes it from the driver's working set: everything left is
+        // Django's, and the gauge reads it from the aggregate instead.
+        let discovered = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        ensure!(!discovered
             .iter()
-            .find(|completion| completion.run_id == stranded)
-            .map(|completion| completion.phase.clone());
-        ensure!(phase == Some(CompletionPhase::Observed));
+            .any(|completion| completion.run_id == stranded));
+        let counts = count_reconciling_by_kind(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        ensure!(counts.get(&RunKind::Behavioral) == Some(&1));
 
         let live = insert_reconciling_run(&pool, 3).await?;
         insert_participation(&pool, live, 3, 401, false, empty_pinned()).await?;
-        ensure_fence_lost(mark_run_observed_unreconcilable(&pool, live).await)?;
+        ensure_fence_lost(
+            mark_run_observed_unreconcilable(&pool, live, RunKind::Behavioral).await,
+        )?;
         let observed: Option<DateTime<Utc>> = sqlx::query_scalar(
             "SELECT reconcile_observed_at FROM cohort_backfill_runs WHERE id = $1",
         )
@@ -661,7 +762,7 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
     with_db(|pool| async move {
         let run_id = insert_reconciling_run(&pool, 2).await?;
         insert_participation(&pool, run_id, 2, 401, false, empty_pinned()).await?;
-        let claim = confirm_reconciling(&pool, run_id)
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
             .await?
             .context("run should be claimable")?;
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -697,7 +798,8 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
         .await?;
         ensure!(stored < 0, "bit 63 must store as a negative BIGINT");
 
-        let participations = load_observation_participations(&pool, run_id).await?;
+        let participations =
+            load_observation_participations(&pool, run_id, RunKind::Behavioral).await?;
         let bits = participations
             .iter()
             .find(|participation| participation.cohort_id == CohortId(401))
@@ -713,9 +815,10 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
 }
 
 /// Discovery classifies each completion phase, including a reconciling run whose completion
-/// columns are all NULL.
+/// columns are all NULL — and drops the observed run, whose remaining work is Django's, while the
+/// reconciling-run count still reports it.
 #[tokio::test]
-async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result<()> {
+async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()> {
     with_db(|pool| async move {
         let unplanned =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
@@ -726,7 +829,7 @@ async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result
 
         let dispatched = insert_reconciling_run(&pool, 4).await?;
         insert_participation(&pool, dispatched, 4, 401, false, empty_pinned()).await?;
-        let claim = confirm_reconciling(&pool, dispatched)
+        let claim = confirm_reconciling(&pool, dispatched, RunKind::Behavioral)
             .await?
             .context("dispatched run should be claimable")?;
         let _ = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
@@ -744,13 +847,13 @@ async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result
 
         let observed = insert_reconciling_run(&pool, 6).await?;
         insert_participation(&pool, observed, 6, 601, false, empty_pinned()).await?;
-        let claim = confirm_reconciling(&pool, observed)
+        let claim = confirm_reconciling(&pool, observed, RunKind::Behavioral)
             .await?
             .context("observed run should be claimable")?;
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
         mark_run_observed(&pool, observed, epoch).await?;
 
-        let discovered = discover_completions(&pool, &TeamAllowlist::All).await?;
+        let discovered = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
         let phase = |run| {
             discovered
                 .iter()
@@ -769,35 +872,62 @@ async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result
                     UndispatchedReason::NeverDispatched
                 ))
         );
-        ensure!(phase(observed) == Some(CompletionPhase::Observed));
+        // Dropped from discovery rather than hydrated and matched away: a run parked here behind
+        // Django's readiness gate would otherwise cost two per-partition JSONB decodes every tick.
+        ensure!(phase(observed).is_none());
+
+        // The three reconciling runs, observed or not, all still reach the gauge.
+        let counts = count_reconciling_by_kind(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        ensure!(counts.get(&RunKind::Behavioral) == Some(&3));
+        ensure!(!counts.contains_key(&RunKind::PersonProperty));
+
+        // Both statements have a team-scoped variant, and dev — where this rollout lands first —
+        // is the environment that runs allowlisted.
+        let allowlisted = TeamAllowlist::Only([4, 6].into_iter().collect());
+        let scoped = discover_completions(&pool, &allowlisted, BOTH_KINDS).await?;
+        ensure!(scoped.iter().map(|row| row.run_id).eq([dispatched]));
+        let scoped_counts = count_reconciling_by_kind(&pool, &allowlisted, BOTH_KINDS).await?;
+        ensure!(scoped_counts.get(&RunKind::Behavioral) == Some(&2));
         Ok(())
     })
     .await
 }
 
-/// The current-hash read distinguishes present, deleted, absent, and NULL/unparseable cohorts.
+/// The current-shape read distinguishes present, deleted, absent, and NULL/unparseable cohorts, and
+/// reads each kind out of its own column.
 #[tokio::test]
-async fn current_behavioral_hashes_read_present_deleted_absent_and_null() -> Result<()> {
+async fn current_shape_hashes_read_present_deleted_absent_and_null_per_kind() -> Result<()> {
     with_db(|pool| async move {
-        insert_cohort(&pool, 501, 2, Some("shape-a"), false).await?;
-        insert_cohort(&pool, 502, 2, Some("shape-b"), true).await?;
-        insert_cohort(&pool, 503, 2, None, false).await?;
+        // Distinct per column, so reading the wrong one is a mismatch rather than a coincidence.
+        insert_cohort(&pool, 501, 2, Some("behavioral-a"), Some("person-a"), false).await?;
+        insert_cohort(&pool, 502, 2, Some("behavioral-b"), Some("person-b"), true).await?;
+        insert_cohort(&pool, 503, 2, None, None, false).await?;
         // 504 intentionally absent.
 
-        let hashes = load_current_behavioral_hashes(
-            &pool,
-            TeamId(2),
-            &[CohortId(501), CohortId(502), CohortId(503), CohortId(504)],
-        )
-        .await?;
+        for (kind, expected) in [
+            (RunKind::Behavioral, "behavioral-a"),
+            (RunKind::PersonProperty, "person-a"),
+        ] {
+            let hashes = load_current_shape_hashes(
+                &pool,
+                TeamId(2),
+                &[CohortId(501), CohortId(502), CohortId(503), CohortId(504)],
+                kind,
+            )
+            .await?;
 
-        ensure!(matches!(
-            hashes.get(&CohortId(501)),
-            Some(CurrentBehavioralHash::Present(hash)) if hash.as_str() == "shape-a"
-        ));
-        ensure!(hashes.get(&CohortId(502)) == Some(&CurrentBehavioralHash::Deleted));
-        ensure!(hashes.get(&CohortId(503)) == Some(&CurrentBehavioralHash::Indeterminate));
-        ensure!(!hashes.contains_key(&CohortId(504)));
+            ensure!(
+                hashes.get(&CohortId(501))
+                    == Some(&CurrentShapeHash::Present(ReconcileScope::parse(
+                        kind.scope(),
+                        expected
+                    )?)),
+                "{kind:?} reads its own column",
+            );
+            ensure!(hashes.get(&CohortId(502)) == Some(&CurrentShapeHash::Deleted));
+            ensure!(hashes.get(&CohortId(503)) == Some(&CurrentShapeHash::Indeterminate));
+            ensure!(!hashes.contains_key(&CohortId(504)));
+        }
         Ok(())
     })
     .await

@@ -666,11 +666,14 @@ jobs:
             - name: Checkout release scripts
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  fetch-depth: 0
+                  filter: blob:none
                   sparse-checkout: |
                       products/desktop/apps/code/scripts/merge-mac-manifests.mjs
                       products/desktop/apps/code/scripts/generate-release-download-tables.mjs
                       products/desktop/apps/code/scripts/build-releases-feed.mjs
                       products/desktop/apps/code/scripts/inject-release-notes.mjs
+                      .github/scripts/desktop/generate-release-notes.mjs
                   sparse-checkout-cone-mode: false
 
             - name: Setup Node.js
@@ -720,8 +723,8 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  gh api repos/PostHog/code/releases/generate-notes -f tag_name="v$APP_VERSION" --jq '.body' > /tmp/release-notes.md
-                  printf '\n' >> /tmp/release-notes.md
+                  CURRENT_TAG="desktop-v$APP_VERSION"
+                  node .github/scripts/desktop/generate-release-notes.mjs "$CURRENT_TAG" > /tmp/release-notes.md
                   node products/desktop/apps/code/scripts/generate-release-download-tables.mjs "$APP_VERSION" /tmp/checksums >> /tmp/release-notes.md
                   gh release edit "v$APP_VERSION" --repo PostHog/code --draft=false --notes-file /tmp/release-notes.md
 
