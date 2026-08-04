@@ -8,6 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
+import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
 import {
     BatchResolverState,
@@ -17,7 +18,7 @@ import {
 } from '../services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobInvocation } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow } from '../types'
 import {
     convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals,
     convertBatchHogFlowRequestToHogFunctionInvocationGlobals,
@@ -263,33 +264,37 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const children: CyclotronV2JobInit[] = eligibleIds.map((id) =>
-            invocationToV2JobInit(
-                isAccountAudience
-                    ? buildAccountHogFlowInvocation({
-                          siteUrl: this.config.SITE_URL,
-                          parentRunId: state.batchJobId,
-                          team,
-                          hogFlowId: hogFlow.id,
-                          externalId: id,
-                          groupType: page.accountGroupType ?? '',
-                          defaultVariables,
-                      })
-                    : buildHogFlowInvocation({
-                          siteUrl: this.config.SITE_URL,
-                          parentRunId: state.batchJobId,
-                          team,
-                          hogFlowId: hogFlow.id,
-                          personId: id,
-                          defaultVariables,
-                      })
-            )
+        const invocations: CyclotronJobInvocation[] = eligibleIds.map((id) =>
+            isAccountAudience
+                ? buildAccountHogFlowInvocation({
+                      siteUrl: this.config.SITE_URL,
+                      parentRunId: state.batchJobId,
+                      team,
+                      hogFlowId: hogFlow.id,
+                      externalId: id,
+                      groupType: page.accountGroupType ?? '',
+                      defaultVariables,
+                  })
+                : buildHogFlowInvocation({
+                      siteUrl: this.config.SITE_URL,
+                      parentRunId: state.batchJobId,
+                      team,
+                      hogFlowId: hogFlow.id,
+                      personId: id,
+                      defaultVariables,
+                  })
         )
+
+        const { allowed, maskedCount } = await this.filterMaskedInvocations(hogFlow, invocations)
+        const children: CyclotronV2JobInit[] = allowed.map((invocation) => invocationToV2JobInit(invocation))
 
         const newState: BatchResolverState = {
             ...state,
             cursor: page.cursor,
+            // Masked people never get enqueued, so they don't spend the audience budget either —
+            // the cap bounds recipients, not rows the audience query returned.
             totalEnqueued: state.totalEnqueued + children.length,
+            totalMasked: state.totalMasked + maskedCount,
             pagesProcessed: state.pagesProcessed + 1,
             attempts: 0, // reset on successful page commit
         }
@@ -309,12 +314,78 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         if (pageTruncated) {
             this.emitTruncationLog(newState)
         }
+        if (newState.pendingTerminal === 'completed') {
+            this.emitMaskingSummaryLog(newState)
+        }
 
         counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'success' }).inc()
 
         logger.info(
             '📝',
-            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} (${newState.totalEnqueued} total, ${newState.pagesProcessed} pages)`
+            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} (${newState.totalEnqueued} total, ${newState.pagesProcessed} pages, ${newState.totalMasked} masked)`
+        )
+    }
+
+    /**
+     * Apply the flow's trigger masking to a page of batch children.
+     *
+     * Event-triggered runs get masked in `HogFlowInvocationPipeline`, which batch children
+     * never pass through — they are built here and enqueued straight onto the hogflow queue.
+     * Without this, masking silently did nothing for batch and scheduled enrollments, so a
+     * repeating schedule re-enrolled its whole audience on every run.
+     *
+     * The masker keys on the flow's masking bytecode (e.g. `{person.id}`) and takes the same
+     * Redis token per key as the event path, so an event trigger and a batch run of the same
+     * flow share one masking window rather than each getting their own.
+     */
+    private async filterMaskedInvocations(
+        hogFlow: HogFlow,
+        invocations: CyclotronJobInvocation[]
+    ): Promise<{ allowed: CyclotronJobInvocation[]; maskedCount: number }> {
+        if (!hogFlow.trigger_masking || invocations.length === 0) {
+            return { allowed: invocations, maskedCount: 0 }
+        }
+
+        // filterByMasking reads `trigger_masking` off the invocation, so the flow has to ride
+        // along. Only the fields invocationToV2JobInit reads are serialized into the child job,
+        // so the extra reference never reaches the queue.
+        const decorated = invocations.map((invocation) => ({ ...invocation, hogFlow }) as CyclotronJobInvocationHogFlow)
+        const { masked, notMasked } = await this.hogMasker.filterByMasking(decorated)
+
+        if (masked.length > 0) {
+            this.hogFunctionMonitoringService.queueAppMetrics(
+                [
+                    {
+                        team_id: hogFlow.team_id,
+                        app_source_id: hogFlow.id,
+                        metric_kind: 'other',
+                        metric_name: 'masked',
+                        count: masked.length,
+                    },
+                ],
+                'hog_flow'
+            )
+        }
+
+        return { allowed: notMasked, maskedCount: masked.length }
+    }
+
+    private emitMaskingSummaryLog(state: BatchResolverState): void {
+        if (state.totalMasked === 0) {
+            return
+        }
+        const message = `Masking suppressed ${state.totalMasked} recipient${state.totalMasked === 1 ? '' : 's'} that had already entered this workflow within the masking window. ${state.totalEnqueued} were enrolled.`
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: state.teamId,
+                    log_source: 'hog_flow',
+                    log_source_id: state.batchJobId,
+                    instance_id: state.batchJobId,
+                    ...logEntry('info', message),
+                },
+            ],
+            'hog_flow'
         )
     }
 
@@ -342,6 +413,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
     private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         this.emitTruncationLog(state)
+        this.emitMaskingSummaryLog(state)
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',

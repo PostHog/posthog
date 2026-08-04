@@ -3689,6 +3689,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             groupTypeIndex: 2,
             cursor: null,
             totalEnqueued: 0,
+            totalMasked: 0,
             pagesProcessed: 0,
         })
         expect(state.pendingTerminal).toBeUndefined()
@@ -3997,6 +3998,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             maxAudienceSize: 100,
             cursor: 'some-cursor',
             totalEnqueued: 100,
+            totalMasked: 0,
             pagesProcessed: 1,
             attempts: 0,
             startedAt: new Date().toISOString(),
@@ -4063,6 +4065,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             maxAudienceSize: 1000,
             cursor: null,
             totalEnqueued: 0,
+            totalMasked: 0,
             pagesProcessed: 0,
             attempts: MAX_RESOLVER_ATTEMPTS - 1,
             startedAt: new Date().toISOString(),
@@ -4126,6 +4129,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             maxAudienceSize: 1000,
             cursor: 'last-cursor',
             totalEnqueued: 5,
+            totalMasked: 0,
             pagesProcessed: 1,
             attempts: MAX_RESOLVER_ATTEMPTS - 1,
             startedAt: new Date().toISOString(),

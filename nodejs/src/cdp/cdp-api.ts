@@ -1153,6 +1153,7 @@ export class CdpApi {
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,
+                totalMasked: 0,
                 pagesProcessed: 0,
                 attempts: 0,
                 startedAt: new Date().toISOString(),

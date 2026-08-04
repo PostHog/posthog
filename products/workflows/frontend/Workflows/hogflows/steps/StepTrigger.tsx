@@ -673,7 +673,7 @@ function StepTriggerConfigurationBatch({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
-    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { partialSetWorkflowActionConfig, setWorkflowValue } = useActions(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -688,12 +688,15 @@ function StepTriggerConfigurationBatch({
                 <LemonSegmentedButton
                     size="small"
                     value={isAccountAudience ? 'accounts' : 'persons'}
-                    onChange={(audience_type) =>
+                    onChange={(audience_type) => {
                         // Person and account filters are mutually invalid, so switching resets them.
                         partialSetWorkflowActionConfig(action.id, {
                             filters: { audience_type, properties: [] },
                         })
-                    }
+                        // Masking hashes are audience-specific ({person.id} vs the account key), so a
+                        // carried-over hash would resolve empty and mask the whole audience as one.
+                        setWorkflowValue('trigger_masking', null)
+                    }}
                     options={[
                         { value: 'persons' as const, label: 'People' },
                         { value: 'accounts' as const, label: 'Accounts' },
@@ -743,6 +746,19 @@ function StepTriggerConfigurationBatch({
             )}
 
             <BatchScheduleSection />
+
+            <LemonDivider />
+            <FrequencySection
+                options={isAccountAudience ? BATCH_ACCOUNT_FREQUENCY_OPTIONS : BATCH_PERSON_FREQUENCY_OPTIONS}
+                description={
+                    isAccountAudience
+                        ? 'Limit how often an account can enter this workflow, including on repeat runs of a schedule'
+                        : 'Limit how often a person can enter this workflow, including on repeat runs of a schedule'
+                }
+                // Batch runs are spaced days apart, so the event trigger's 30-minute default would
+                // suppress nothing. Start at 30 days; the picker goes up to a year.
+                defaultTtl={BATCH_DEFAULT_MASKING_TTL}
+            />
         </div>
     )
 }
@@ -835,6 +851,26 @@ const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
     { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
 ]
 
+const BATCH_DEFAULT_MASKING_TTL = 24 * 60 * 60 * 30
+
+const BATCH_PERSON_FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
+    { value: null, label: 'Every time this workflow runs' },
+    { value: '{person.id}', label: 'One time' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
+]
+
+// An account audience carries no person, so a person-keyed hash resolves empty and masks the
+// whole audience under one key. The account's key rides on the batch event's distinct_id.
+const BATCH_ACCOUNT_FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
+    { value: null, label: 'Every time this workflow runs' },
+    { value: '{event.distinct_id}', label: 'One time' },
+    {
+        value: "{concat(event.distinct_id, '-', formatDateTime(now(), '%Y-%m-%d'))}",
+        label: 'Once per calendar day',
+        fixedTtl: CALENDAR_DAY_TTL,
+    },
+]
+
 const TTL_OPTIONS = [
     { value: null, label: 'indefinitely' },
     { value: 5 * 60, label: '5 minutes' },
@@ -871,9 +907,12 @@ function TTLSelect({
 function FrequencySection({
     options = FREQUENCY_OPTIONS,
     description = 'Limit how often users can enter this workflow',
+    defaultTtl = 60 * 30,
 }: {
     options?: TriggerFrequencyOption[]
     description?: string
+    /** TTL pre-filled when masking is first switched on, before the user picks one. */
+    defaultTtl?: number
 }): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
@@ -900,7 +939,7 @@ function FrequencySection({
                                 val
                                     ? {
                                           hash: val,
-                                          ttl: option?.fixedTtl ?? workflow.trigger_masking?.ttl ?? 60 * 30,
+                                          ttl: option?.fixedTtl ?? workflow.trigger_masking?.ttl ?? defaultTtl,
                                       }
                                     : null
                             )

@@ -42,6 +42,10 @@ export const BatchResolverStateSchema = z.object({
     maxAudienceSize: z.number().int().nonnegative(),
     cursor: z.string().nullable(),
     totalEnqueued: z.number().int().nonnegative(),
+    // People the flow's trigger_masking suppressed because they were already enrolled
+    // inside the masking TTL. Accumulated across pages so the run can report one summary
+    // instead of a line per page. Defaults for jobs written before the field existed.
+    totalMasked: z.number().int().nonnegative().default(0),
     pagesProcessed: z.number().int().nonnegative(),
     // Resets to 0 on each successful page transition. Increments on every
     // retry path (fetch failure, terminal write failure). Old job rows

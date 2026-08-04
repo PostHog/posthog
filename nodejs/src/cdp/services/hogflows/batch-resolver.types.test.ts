@@ -17,6 +17,7 @@ describe('BatchResolverState serialization', () => {
             maxAudienceSize: 100,
             cursor: null,
             totalEnqueued: 0,
+            totalMasked: 0,
             pagesProcessed: 0,
             attempts: 0,
             startedAt: '2026-01-01T00:00:00.000Z',

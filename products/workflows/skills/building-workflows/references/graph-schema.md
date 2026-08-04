@@ -67,11 +67,11 @@ Discriminated on `config.type`:
 
 - `event` — `{ "type": "event", "filters": { "events": [{ "id": "<event>", "name": "<event>", "type": "events", "order": 0, "properties": [<cond>] }], "properties": [<cond>], "filter_test_accounts": false } }`. Fires on **every** matching occurrence. Throttle repeats with `trigger_masking` (dedup/sampling — not behavioral filtering).
 - `webhook` / `manual` / `tracking_pixel` — `{ "type": "webhook", "template_id": "<id>", "inputs": { ... } }`. Function-style triggers, so `template_id` is **required** and is a fixed literal: `template-source-webhook` for both `webhook` and `manual`, `template-source-webhook-pixel` for `tracking_pixel`. Omitting it fails the create with `Template not found` against the trigger node. Discover the inputs the same way as `function` nodes (see "Discovering function templates").
-- `batch` — `{ "type": "batch", "filters": { "properties": [<cond>] } }`. The audience: person-property conditions and/or cohort references. **No event/action filters** (silently dropped, so rejected). Does not fire on enable — dispatch a one-off broadcast with `workflows-run-batch`, or make it **recurring** with `workflows-schedule-create` (attaches an RRULE schedule; each firing re-broadcasts to this same `config.filters.properties` audience). A recurring workflow is a `batch` trigger plus a schedule — there is no separate "schedule" trigger type to author.
+- `batch` — `{ "type": "batch", "filters": { "properties": [<cond>] } }`. The audience: person-property conditions and/or cohort references. **No event/action filters** (silently dropped, so rejected). Does not fire on enable — dispatch a one-off broadcast with `workflows-run-batch`, or make it **recurring** with `workflows-schedule-create` (attaches an RRULE schedule; each firing re-broadcasts to this same `config.filters.properties` audience). A recurring workflow is a `batch` trigger plus a schedule — there is no separate "schedule" trigger type to author. Set `trigger_masking` on a recurring workflow so each firing skips people it already enrolled within the TTL.
 
-### Trigger masking (throttling an event trigger)
+### Trigger masking (throttling enrollment)
 
-`trigger_masking` is a top-level workflow field (not an action) that throttles an already-matching `event` trigger — it dedups/samples firings, it does not decide who enters.
+`trigger_masking` is a top-level workflow field (not an action) that throttles an already-matching trigger — it dedups/samples enrollments, it does not decide who enters.
 
 ```json
 "trigger_masking": { "hash": "{person.id}", "ttl": 3600, "threshold": null }
@@ -81,6 +81,8 @@ Discriminated on `config.type`:
 - `ttl` — seconds to suppress repeats of the same hash (60–94608000).
 - `threshold?` — fire once per N matches of the same hash (a sampler: N=3 fires on the 1st, 4th, 7th…). Omit to fire once then suppress within `ttl`.
 - Don't send `bytecode` — compiled server-side from `hash`.
+
+Masking applies to `batch` triggers too, so a recurring schedule over a static audience only enrolls each person once per `ttl` instead of re-enrolling the whole audience on every firing. Both trigger types share one window per hash key: a person masked by an event trigger is also skipped by a batch run of the same workflow. Account audiences carry no person, so key their masking on `{event.distinct_id}` (the account key) rather than `{person.id}`.
 
 ### Condition shape (`<cond>`)
 
