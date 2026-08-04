@@ -74,7 +74,7 @@ import {
   type ThreadScrollResume,
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
-import { buildResponseCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import { copyFromContextMenu } from "@posthog/ui/features/sessions/components/copyContextTarget";
@@ -314,7 +314,7 @@ function formatTimestamp(ts: number): string {
 
 /**
  * Hover-revealed footer under a completed agent turn: the turn's timestamp plus a button copying
- * the agent response. It is rendered right-aligned under agent-side content while the end-aligned
+ * the whole turn. It is rendered right-aligned under agent-side content while the end-aligned
  * user bubble keeps its own footer. The `group` container reveals it when the turn is hovered.
  */
 function TurnFooter({
@@ -330,7 +330,7 @@ function TurnFooter({
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
-      {copyText && <CopyButton value={copyText} label="Copy response" />}
+      {copyText && <CopyButton value={copyText} label="Copy turn" />}
     </ChatMessageFooter>
   );
 }
@@ -723,7 +723,11 @@ const ThreadRow = memo(function ThreadRow({
         </div>
         <TurnFooter
           timestamp={completedTurnTimestamp(item)}
-          copyText={buildResponseCopyText(item.items) ?? undefined}
+          copyText={
+            buildTurnCopyText(
+              item.prompt ? [item.prompt, ...item.items] : item.items,
+            ) ?? undefined
+          }
         />
       </ChatMessageScrollerItem>
     );

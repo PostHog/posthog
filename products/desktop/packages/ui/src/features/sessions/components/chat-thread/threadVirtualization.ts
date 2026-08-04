@@ -1,6 +1,6 @@
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import type { ToolGroupItem } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
-import { buildResponseCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
 
 /** A row is either a parsed conversation item or a synthesized group of tool calls. */
 export type ThreadItem = ConversationItem | ToolGroupItem;
@@ -113,7 +113,9 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
       const copyText =
         timestamp == null
           ? undefined
-          : (buildResponseCopyText(row.items) ?? undefined);
+          : (buildTurnCopyText(
+              row.prompt ? [row.prompt, ...row.items] : row.items,
+            ) ?? undefined);
       for (let i = 0; i < row.items.length; i++) {
         const item = row.items[i];
         const isTrailing = i === row.items.length - 1;

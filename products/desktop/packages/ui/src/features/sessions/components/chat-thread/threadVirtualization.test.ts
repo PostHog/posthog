@@ -112,7 +112,7 @@ describe("flattenTurnRows", () => {
     ]);
   });
 
-  it("excludes the prompt that opened the turn from copied responses", () => {
+  it("includes the prompt that opened the copied turn", () => {
     const done = agentTurn(
       "d",
       [
@@ -124,7 +124,9 @@ describe("flattenTurnRows", () => {
       ],
       userMessage("u1"),
     );
-    expect(flattenTurnRows([done]).at(-1)?.turnCopyText).toBe("reply");
+    expect(flattenTurnRows([done]).at(-1)?.turnCopyText).toBe(
+      "msg u1\n\nreply",
+    );
   });
 
   it("leaves copy text off a turn that is still streaming", () => {
