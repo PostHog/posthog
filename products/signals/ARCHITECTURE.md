@@ -1177,14 +1177,14 @@ Every check **fails open** — a Redis or flag-read error lets work through rath
 
 Gates, in pipeline order:
 
-| Stage              | Where                                                             | Behavior when limited (enforced)                                                                                              |
-| ------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| ingestion          | `check_signals_quota_limited_activity` (buffer flush)             | Batch dropped before safety filter / flush (pre-existing gate)                                                                  |
-| scout runs         | `run_signals_scout_activity` + manual-trigger API                 | Run skipped / trigger 429s (pre-existing gate)                                                                                  |
-| `promotion`        | `assign_and_emit_signal_activity`                                 | Signal still assigned, weighted, and emitted, but the report is not promoted — no summary run spawns; status left untouched     |
-| `summary_entry`    | `SignalReportSummaryWorkflow`, before any work                    | Workflow exits; report stays `candidate`                                                                                        |
-| `pre_repo_selection` / `pre_research` | `SignalReportSummaryWorkflow`, between the heavy steps | Workflow reverts the report `in_progress → candidate` and exits; an in-flight research **activity** is never interrupted |
-| `autostart`        | `maybe_autostart_implementation_task` (all callers)               | No implementation task is created — the step that would lead to the billable PR                                                 |
+| Stage                                 | Where                                                  | Behavior when limited (enforced)                                                                                            |
+| ------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| ingestion                             | `check_signals_quota_limited_activity` (buffer flush)  | Batch dropped before safety filter / flush (pre-existing gate)                                                              |
+| scout runs                            | `run_signals_scout_activity` + manual-trigger API      | Run skipped / trigger 429s (pre-existing gate)                                                                              |
+| `promotion`                           | `assign_and_emit_signal_activity`                      | Signal still assigned, weighted, and emitted, but the report is not promoted — no summary run spawns; status left untouched |
+| `summary_entry`                       | `SignalReportSummaryWorkflow`, before any work         | Workflow exits; report stays `candidate`                                                                                    |
+| `pre_repo_selection` / `pre_research` | `SignalReportSummaryWorkflow`, between the heavy steps | Workflow reverts the report `in_progress → candidate` and exits; an in-flight research **activity** is never interrupted    |
+| `autostart`                           | `maybe_autostart_implementation_task` (all callers)    | No implementation task is created — the step that would lead to the billable PR                                             |
 
 **Resume is organic, never automatic.**
 Nothing re-spawns paused work when the limit is raised or the billing period resets:
