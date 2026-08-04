@@ -59,6 +59,7 @@ interface InMemorySession {
   currentOrgId: string | null;
   currentProjectId: number | null;
   orgProjectsIncomplete: boolean;
+  scopedTeamIds: number[];
 }
 
 interface StoredSessionInput {
@@ -688,27 +689,53 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     options: TokenResponseOptions,
   ): Promise<InMemorySession> {
     const scopedOrgIds = tokenResponse.scoped_organizations ?? [];
-    const { accountKey, currentOrgId } = await this.fetchUserContext(
+    const scopedTeamIds = tokenResponse.scoped_teams ?? [];
+    const {
+      accountKey,
+      currentOrgId: userOrgId,
+      orgNames,
+    } = await this.fetchUserContext(
       tokenResponse.access_token,
       options.cloudRegion,
     );
-    // Team-scoped tokens (required_access_level=project) can arrive with an
-    // empty scoped_organizations list — the server only populates scoped_teams.
-    // Fall back to the current org from /api/users/@me/ so the picker isn't
-    // empty; without this the user is stranded on "No projects".
-    const orgIdsToFetch =
-      scopedOrgIds.length > 0
-        ? scopedOrgIds
-        : currentOrgId
-          ? [currentOrgId]
-          : [];
-    const { map: orgProjectsMap, incomplete: orgProjectsIncomplete } =
-      await this.buildOrgProjectsMap(
-        tokenResponse.access_token,
-        options.cloudRegion,
-        orgIdsToFetch,
-        this.session?.orgProjectsMap ?? {},
-      );
+
+    let currentOrgId = userOrgId;
+    let orgProjectsMap: OrgProjectsMap;
+    let orgProjectsIncomplete: boolean;
+    if (scopedTeamIds.length > 0) {
+      // Team-scoped tokens (required_access_level=project) are rejected by the
+      // server on every endpoint that isn't project-nested — including
+      // /api/organizations/*. Build the map from the scoped projects
+      // themselves; going through the org would 403 and strand the user on
+      // "No projects".
+      ({ map: orgProjectsMap, incomplete: orgProjectsIncomplete } =
+        await this.buildScopedTeamProjectsMap(
+          tokenResponse.access_token,
+          options.cloudRegion,
+          scopedTeamIds,
+          orgNames,
+        ));
+      if (!currentOrgId || !orgProjectsMap[currentOrgId]) {
+        currentOrgId = Object.keys(orgProjectsMap)[0] ?? currentOrgId;
+      }
+    } else {
+      // Org-scoped tokens can arrive with an empty scoped_organizations list.
+      // Fall back to the current org from /api/users/@me/ so the picker isn't
+      // empty.
+      const orgIdsToFetch =
+        scopedOrgIds.length > 0
+          ? scopedOrgIds
+          : currentOrgId
+            ? [currentOrgId]
+            : [];
+      ({ map: orgProjectsMap, incomplete: orgProjectsIncomplete } =
+        await this.buildOrgProjectsMap(
+          tokenResponse.access_token,
+          options.cloudRegion,
+          orgIdsToFetch,
+          this.session?.orgProjectsMap ?? {},
+        ));
+    }
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
@@ -733,6 +760,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       currentOrgId,
       currentProjectId,
       orgProjectsIncomplete,
+      scopedTeamIds,
     };
 
     return session;
@@ -766,6 +794,68 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     );
 
     return { map: Object.fromEntries(entries), incomplete };
+  }
+  private async buildScopedTeamProjectsMap(
+    accessToken: string,
+    cloudRegion: CloudRegion,
+    teamIds: number[],
+    orgNames: Record<string, string>,
+  ): Promise<{ map: OrgProjectsMap; incomplete: boolean }> {
+    const apiHost = getCloudUrlFromRegion(cloudRegion);
+    let incomplete = false;
+    const results = await Promise.all(
+      teamIds.map(async (teamId) => {
+        try {
+          const res = await this.executeAuthenticatedFetch(
+            fetch,
+            `${apiHost}/api/projects/${teamId}/`,
+            {},
+            accessToken,
+          );
+          if (!res.ok) {
+            // 4xx means the scoped project is gone or inaccessible — omit it
+            // rather than retrying forever through the recovery loop.
+            if (res.status >= 500) incomplete = true;
+            return null;
+          }
+          const raw = (await res.json().catch(() => null)) as {
+            id?: unknown;
+            name?: unknown;
+            organization?: unknown;
+          } | null;
+          if (typeof raw?.id !== "number") return null;
+          return {
+            orgId:
+              typeof raw.organization === "string" &&
+              raw.organization.length > 0
+                ? raw.organization
+                : "(unknown)",
+            project: {
+              id: raw.id,
+              name:
+                typeof raw.name === "string" && raw.name.length > 0
+                  ? raw.name
+                  : `Project ${raw.id}`,
+            },
+          };
+        } catch (error) {
+          this.logger.warn("Failed to fetch scoped project", { teamId, error });
+          incomplete = true;
+          return null;
+        }
+      }),
+    );
+
+    const map: OrgProjectsMap = {};
+    for (const result of results) {
+      if (!result) continue;
+      map[result.orgId] ??= {
+        orgName: orgNames[result.orgId] ?? "(unknown)",
+        projects: [],
+      };
+      map[result.orgId].projects.push(result.project);
+    }
+    return { map, incomplete };
   }
   private async fetchOrgProjects(
     accessToken: string,
@@ -957,7 +1047,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private async fetchUserContext(
     accessToken: string,
     cloudRegion: CloudRegion,
-  ): Promise<{ accountKey: string | null; currentOrgId: string | null }> {
+  ): Promise<{
+    accountKey: string | null;
+    currentOrgId: string | null;
+    orgNames: Record<string, string>;
+  }> {
     try {
       const response = await this.executeAuthenticatedFetch(
         fetch,
@@ -967,14 +1061,15 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       );
 
       if (!response.ok) {
-        return { accountKey: null, currentOrgId: null };
+        return { accountKey: null, currentOrgId: null, orgNames: {} };
       }
 
       const data = (await response.json().catch(() => ({}))) as {
         uuid?: unknown;
         distinct_id?: unknown;
         email?: unknown;
-        organization?: { id?: unknown } | null;
+        organization?: { id?: unknown; name?: unknown } | null;
+        organizations?: unknown;
       };
 
       let accountKey: string | null = null;
@@ -993,10 +1088,23 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       const currentOrgId =
         typeof orgId === "string" && orgId.length > 0 ? orgId : null;
 
-      return { accountKey, currentOrgId };
+      const orgNames: Record<string, string> = {};
+      const memberOrgs = Array.isArray(data.organizations)
+        ? data.organizations
+        : [];
+      for (const org of memberOrgs as { id?: unknown; name?: unknown }[]) {
+        if (typeof org?.id === "string" && typeof org.name === "string") {
+          orgNames[org.id] = org.name;
+        }
+      }
+      if (currentOrgId && typeof data.organization?.name === "string") {
+        orgNames[currentOrgId] = data.organization.name;
+      }
+
+      return { accountKey, currentOrgId, orgNames };
     } catch (error) {
       this.logger.warn("Failed to resolve user context", { error });
-      return { accountKey: null, currentOrgId: null };
+      return { accountKey: null, currentOrgId: null, orgNames: {} };
     }
   }
   private requireSession(): InMemorySession {
@@ -1266,13 +1374,29 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
       if (!session.orgProjectsIncomplete) return;
 
-      const orgIds = Object.keys(session.orgProjectsMap);
-      const { map, incomplete } = await this.buildOrgProjectsMap(
-        session.accessToken,
-        session.cloudRegion,
-        orgIds,
-        session.orgProjectsMap,
-      );
+      let map: OrgProjectsMap;
+      let incomplete: boolean;
+      if (session.scopedTeamIds.length > 0) {
+        const knownOrgNames = Object.fromEntries(
+          Object.entries(session.orgProjectsMap)
+            .filter(([, org]) => org.orgName !== "(unknown)")
+            .map(([orgId, org]) => [orgId, org.orgName]),
+        );
+        ({ map, incomplete } = await this.buildScopedTeamProjectsMap(
+          session.accessToken,
+          session.cloudRegion,
+          session.scopedTeamIds,
+          knownOrgNames,
+        ));
+      } else {
+        const orgIds = Object.keys(session.orgProjectsMap);
+        ({ map, incomplete } = await this.buildOrgProjectsMap(
+          session.accessToken,
+          session.cloudRegion,
+          orgIds,
+          session.orgProjectsMap,
+        ));
+      }
 
       // The session may have been replaced (logout, re-login) while the fetch
       // was in flight; committing the stale one would resurrect it.
