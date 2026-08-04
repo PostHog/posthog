@@ -38,6 +38,7 @@ from products.managed_warehouse.backend.common import (
     is_dev_mode,
 )
 from products.managed_warehouse.backend.facade.contracts import (
+    CPUnavailableError,
     ManagedWarehouseSourceJobStatus,
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
@@ -379,6 +380,11 @@ async def _prepare_data_imports_ducklake_metadata(
                 groups={"organization": str(gate_team.organization_id), "project": str(gate_team.id)},
                 send_feature_flag_events=False,
             )
+    except CPUnavailableError as error:
+        await logger.awarning(
+            "Duckgres control plane unavailable resolving batch sink ownership; copying all schemas",
+            error=str(error),
+        )
     except Exception as error:
         await logger.awarning("Failed to resolve duckgres batch sink ownership; copying all schemas", error=str(error))
         capture_exception(error)

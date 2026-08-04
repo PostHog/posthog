@@ -26,6 +26,7 @@ from products.managed_warehouse.backend.facade.api import (
     has_provisioned_warehouse,
     is_dev_mode,
 )
+from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
 
 from ..metrics import get_node_suspended_metric
 from .utils import (
@@ -224,13 +225,22 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
         return shadow_result
     except Exception as e:
         duration = time.monotonic() - start_time
-        capture_exception(e, {"sql": sql, "inputs": inputs})
-        await logger.awarning(
-            "Duckgres shadow materialization failed",
-            node_name=node.name,
-            error=str(e),
-            duration_seconds=round(duration, 2),
-        )
+        cp_unavailable = isinstance(e, CPUnavailableError)
+        if cp_unavailable:
+            await logger.awarning(
+                "Duckgres shadow materialization failed: control plane unavailable",
+                node_name=node.name,
+                error=str(e),
+                duration_seconds=round(duration, 2),
+            )
+        else:
+            capture_exception(e, {"sql": sql, "inputs": inputs})
+            await logger.awarning(
+                "Duckgres shadow materialization failed",
+                node_name=node.name,
+                error=str(e),
+                duration_seconds=round(duration, 2),
+            )
         shadow_result = DuckgresShadowResult(
             row_count=0,
             duration_seconds=duration,
@@ -239,6 +249,10 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             error=str(e),
         )
         await _resolve_duckgres_job(inputs.job_id, shadow_result)
+        # A control-plane blip isn't a failing model query — don't let it count toward
+        # consecutive-failure suspension of an otherwise healthy node.
+        if cp_unavailable:
+            return shadow_result
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,

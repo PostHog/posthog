@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 # ticks and per-batch schema resolutions coalesce onto one CP call per minute.
 CACHE_TTL_SECONDS: float = 60.0
 
+# TTL for caching an unreachable control plane (a `None` fetch). Shorter than
+# CACHE_TTL_SECONDS so every caller doesn't re-hit an already-struggling control plane on
+# every request during an outage, while recovery is still picked up quickly.
+NEGATIVE_CACHE_TTL_SECONDS: float = 10.0
+
 
 @dataclass
 class CPTeam:
@@ -118,7 +123,7 @@ def team_from_row(row: dict, *, organization_id: str | None = None) -> CPTeam | 
 
 
 _cache_lock = threading.Lock()
-_cache: dict[tuple[str, ...], tuple[float, list[dict]]] = {}
+_cache: dict[tuple[str, ...], tuple[float, list[dict] | None]] = {}
 _cache_epoch = 0
 _cache_generations: dict[tuple[str, ...], int] = {}
 
@@ -142,17 +147,23 @@ def invalidate_org_cache(organization_id: str) -> None:
 def _cached_rows(
     key: tuple[str, ...], fetch: Callable[[], list[dict] | None], *, use_cache: bool = True
 ) -> list[dict] | None:
-    """Serve `key` from the TTL cache unless the caller requires a fresh CP read."""
+    """Serve `key` from the TTL cache unless the caller requires a fresh CP read.
+
+    An unreachable control plane (`fetch` returning `None`) is cached too, under the
+    shorter `NEGATIVE_CACHE_TTL_SECONDS` — otherwise every caller re-hits an already
+    struggling control plane on every single request for the duration of an outage.
+    """
     with _cache_lock:
         hit = _cache.get(key)
-        if use_cache and hit is not None and time.monotonic() - hit[0] < CACHE_TTL_SECONDS:
-            return hit[1]
+        if use_cache and hit is not None:
+            ttl = CACHE_TTL_SECONDS if hit[1] is not None else NEGATIVE_CACHE_TTL_SECONDS
+            if time.monotonic() - hit[0] < ttl:
+                return hit[1]
         generation = (_cache_epoch, _cache_generations.get(key, 0))
     rows = fetch()
-    if rows is not None:
-        with _cache_lock:
-            if generation == (_cache_epoch, _cache_generations.get(key, 0)):
-                _cache[key] = (time.monotonic(), rows)
+    with _cache_lock:
+        if generation == (_cache_epoch, _cache_generations.get(key, 0)):
+            _cache[key] = (time.monotonic(), rows)
     return rows
 
 

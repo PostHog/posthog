@@ -181,11 +181,28 @@ class TestTTLCache:
             cp_teams.list_org_teams("org-2")
         assert mock_fetch.call_count == 2
 
-    def test_failed_fetches_are_not_cached(self) -> None:
-        # An outage must not poison the cache: the next call retries immediately.
+    def test_failed_fetches_are_negative_cached_briefly(self) -> None:
+        # An outage must not turn into a retry storm against an already-struggling
+        # control plane: repeat callers within the negative-cache window get the
+        # cached miss instead of triggering another upstream call.
         with patch(
             "products.managed_warehouse.backend.cp_teams._fetch_org_rows", side_effect=[None, [_row()]]
         ) as mock_fetch:
+            first = cp_teams.list_org_teams("org-1")
+            second = cp_teams.list_org_teams("org-1")
+        assert mock_fetch.call_count == 1
+        assert first is None
+        assert second is None
+
+    def test_negative_cache_entry_expires_and_refetches(self) -> None:
+        # Once the negative-cache window passes, the next call must retry rather than
+        # keeping the outage cached forever.
+        with (
+            patch("products.managed_warehouse.backend.cp_teams.NEGATIVE_CACHE_TTL_SECONDS", 0.0),
+            patch(
+                "products.managed_warehouse.backend.cp_teams._fetch_org_rows", side_effect=[None, [_row()]]
+            ) as mock_fetch,
+        ):
             assert cp_teams.list_org_teams("org-1") is None
             teams = cp_teams.list_org_teams("org-1")
         assert mock_fetch.call_count == 2

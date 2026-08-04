@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from posthog.models import Organization, Team
 
 from products.managed_warehouse.backend.facade.contracts import (
+    CPUnavailableError,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
@@ -172,5 +173,8 @@ def test_is_duckgres_sink_team_member_reads_the_control_plane() -> None:
         assert is_duckgres_sink_team_member(non_member.id) is False
 
     with patch.object(enablement, "list_org_team_memberships", return_value=None):
-        with pytest.raises(RuntimeError):
+        # Must raise the same CPUnavailableError type team_state uses, not a plain
+        # RuntimeError — callers (e.g. the ducklake copy workflow) branch on it to log
+        # a control-plane blip instead of reporting it as an application bug.
+        with pytest.raises(CPUnavailableError):
             is_duckgres_sink_team_member(member.id)

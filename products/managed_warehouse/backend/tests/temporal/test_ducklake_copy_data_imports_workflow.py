@@ -217,6 +217,61 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_prepare_falls_back_to_copying_all_schemas_on_cp_outage(ateam, monkeypatch):
+    # A duckgres control-plane blip resolving sink membership must not be reported as a
+    # bug (it's an expected, transient failure mode) and must not lose schemas — falling
+    # back to "copy everything" is the safe direction, mirroring the sink's own posture.
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["created_at"])
+    monkeypatch.setattr(ducklake_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr("products.managed_warehouse.backend.common.is_dev_mode", lambda: False)
+
+    def _raise_cp_unavailable(team_id):
+        raise ducklake_module.CPUnavailableError("duckgres control plane unreachable resolving sink membership")
+
+    monkeypatch.setattr(
+        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.is_duckgres_sink_team_member",
+        _raise_cp_unavailable,
+    )
+
+    credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
+        team=ateam, access_key="k", access_secret="s"
+    )
+    v3_source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam, source_id="v3", connection_id="c1", source_type="Postgres", status="Running"
+    )
+    v3_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(team=ateam, name="pg", source=v3_source)
+    non_v3_source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam, source_id="nv3", connection_id="c2", source_type="Stripe", status="Running"
+    )
+    non_v3_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+        team=ateam,
+        name="charges",
+        format="Delta",
+        url_pattern="s3://bucket/path",
+        credential=credential,
+        external_data_source=non_v3_source,
+        columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+    )
+    non_v3_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+        team=ateam,
+        name="charges",
+        source=non_v3_source,
+        table=non_v3_table,
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "DateTime"},
+    )
+
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job", schema_ids=[v3_schema.id, non_v3_schema.id])
+
+    with patch.object(ducklake_module, "capture_exception") as mock_capture:
+        result = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    mock_capture.assert_not_called()
+    assert {m.source_schema_id for m in result} == {str(v3_schema.id), str(non_v3_schema.id)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monkeypatch):
     # Mock Delta partition detection since we can't read actual Delta metadata in tests
     monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["created_at"])

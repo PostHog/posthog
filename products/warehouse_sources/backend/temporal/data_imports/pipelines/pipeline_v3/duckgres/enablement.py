@@ -44,7 +44,7 @@ def is_duckgres_sink_team_member(team_id: int) -> bool:
     organization_id = get_org_id_for_team(team_id)
     teams = list_org_team_memberships(organization_id, use_cache=False)
     if teams is None:
-        raise RuntimeError(f"duckgres control plane unreachable resolving sink membership for team {team_id}")
+        raise CPUnavailableError(f"duckgres control plane unreachable resolving sink membership for team {team_id}")
     return any(team.team_id == team_id for team in teams)
 
 
