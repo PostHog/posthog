@@ -362,7 +362,6 @@ export const ChannelHomeComposer = forwardRef<
     [sessionId, modeOption, setConfigOption],
   );
 
-  const hints = ["@ to add files", "/ for skills"].join(", ");
   const isBusy = isCreatingTask || isStartingCanvas;
   const submitComposer = canvasArmed ? handleCanvasSubmit : submit;
 
@@ -394,7 +393,7 @@ export const ChannelHomeComposer = forwardRef<
         placeholder={
           canvasArmed
             ? "Describe the canvas to build — the agent generates and publishes it"
-            : `What do you want to ship? ${hints}`
+            : `What do you want to ship?`
         }
         editorHeight="large"
         disabled={isBusy}

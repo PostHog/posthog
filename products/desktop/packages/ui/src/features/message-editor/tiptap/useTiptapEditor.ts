@@ -904,6 +904,16 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     [editor, draft, attachments],
   );
 
+  // Position 1 is the start of the first paragraph. Writing the slash there
+  // and dropping the caret after it leaves the editor in exactly the state
+  // typing "/" would, which is what the suggestion plugin watches for, so the
+  // command list opens on its own rather than needing to be opened here.
+  const insertSlashCommand = useCallback(() => {
+    if (!editor) return;
+    editor.chain().insertContentAt(1, "/").focus(2).run();
+    draft.saveDraft(editor, attachments);
+  }, [editor, draft, attachments]);
+
   const removeChipById = useCallback(
     (chipId: string) => {
       if (!editor) return;
@@ -964,6 +974,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     setContent,
     insertEditorContent,
     insertChip,
+    insertSlashCommand,
     removeChipById,
     replaceChipAttrs,
     attachments,
