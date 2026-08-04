@@ -324,10 +324,11 @@ export class LazyLoader<T> {
     }
 
     /**
-     * Invoke the loader and normalize its result into a map this class owns: no prototype, one
-     * entry per requested key, and `undefined` collapsed to `null`. The loader hands back a plain
-     * object, where a key like `__proto__` resolves up the prototype chain instead of reading as
-     * absent.
+     * Invoke the loader and normalize its result into a map this class owns: no prototype, an entry
+     * for every requested key, and `undefined` collapsed to `null`. Keys the loader returns beyond
+     * those requested are kept, so a loader can warm the cache with extras. The loader hands back a
+     * plain object, where a key like `__proto__` resolves up the prototype chain instead of reading
+     * as absent.
      */
     private async invokeLoader(keys: string[]): Promise<Record<string, T | null>> {
         const loaded = await this.invokeLoaderWithRetry(keys)
