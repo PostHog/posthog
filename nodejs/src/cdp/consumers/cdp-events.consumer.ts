@@ -1,5 +1,4 @@
 import { Message } from 'node-rdkafka'
-import { validate as isUuid } from 'uuid'
 
 import { KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
@@ -16,6 +15,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
+import { UUID } from '~/common/utils/utils'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
@@ -146,7 +146,7 @@ export class CdpEventsConsumer<
             new Set(
                 opens
                     .map((g) => g.event.properties['$notification_workflow_id'])
-                    .filter((id): id is string => typeof id === 'string' && isUuid(id))
+                    .filter((id): id is string => typeof id === 'string' && UUID.validateString(id, false))
             )
         )
         if (!workflowIds.length) {
