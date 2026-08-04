@@ -31,8 +31,8 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-    DeltaTableHelper,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
+    DeltaTableRef,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -139,7 +139,7 @@ def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -
 def _maybe_flag_pre_extraction(
     schema: ExternalDataSchema,
     job: ExternalDataJob,
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     enabled: bool,
 ) -> dict[str, Any] | None:
@@ -156,7 +156,7 @@ def _maybe_flag_pre_extraction(
     instead of paying for a second flag evaluation.
     """
     try:
-        delta_table = async_to_sync(helper.get_delta_table)()
+        delta_table = async_to_sync(table_ref.get_delta_table)()
         if delta_table is None:
             logger.debug("repartition: no delta table on disk, cannot measure for repartition")
             return None
@@ -261,13 +261,13 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
     resource_name = schema.resolved_s3_folder_name or schema.name
-    helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=logger)
+    table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=logger)
 
     if pending is None and swap is None:
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
         # on-disk measurement. Measure now and self-flag if it's over budget — the only path that can
         # rescue a table which OOMs its merge every run (and so never reaches post-load detection).
-        pending = _maybe_flag_pre_extraction(schema, job, helper, logger, enabled)
+        pending = _maybe_flag_pre_extraction(schema, job, table_ref, logger, enabled)
         if pending is None:
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
@@ -295,17 +295,20 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # and on worker shutdown, so Temporal reschedules us instead of timing the activity out.
         with HeartbeaterSync(logger=logger):
             result = async_to_sync(repartition_table_in_place)(
-                helper=helper,
+                table_ref=table_ref,
                 schema=schema,
                 target=target,
                 logger=logger,
                 claim_token=claim_token,
             )
     except RepartitionSupersededError:
-        # A newer attempt claimed the schema and owns the table now. Stop quietly: recording a failure
-        # here would burn an attempt and double-report the run the newer claimant is already handling.
+        # A newer attempt claimed the schema and owns the table now. Stop without recording a *failure*
+        # (that would burn an attempt and double-report the run the newer claimant is already handling),
+        # but still emit the skip: a started event with no terminal event leaves `repartition_pending`
+        # set and no way to tell a stood-down attempt from one that vanished.
         logger.info("repartition: superseded by a newer attempt, standing down")
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+        _capture_stood_down(schema, inputs, trigger_reason, "superseded", logger)
         return
     except RepartitionUnpartitionableError as e:
         # Terminal: the table can't be partitioned on its keys. Clear the flag AND engage the cooldown —
@@ -342,6 +345,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # failure would burn an attempt and pollute error tracking with self-inflicted noise.
             logger.info("repartition: failed after being superseded, standing down", exc_info=True)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+            _capture_stood_down(schema, inputs, trigger_reason, "superseded_after_error", logger)
             return
         if _is_transient_infra_error(e):
             # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
@@ -365,6 +369,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
             capture_exception(e)
+            _capture_stood_down(schema, inputs, trigger_reason, "transient_infra_error", logger)
             return
         failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
@@ -388,6 +393,31 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         outcome=outcome,
         duration_seconds=duration,
     )
+
+
+def _capture_stood_down(
+    schema: ExternalDataSchema,
+    inputs: RepartitionActivityInputs,
+    trigger_reason: str,
+    reason: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Emit the closing event for an attempt that stopped without finishing or failing.
+
+    These paths deliberately record no failure, but without a closing event a rewrite that stood down
+    is indistinguishable from one that disappeared mid-flight — both leave `repartition_pending` set
+    and a lone `warehouse_repartition_started`. Reported as skipped so failure dashboards stay clean,
+    and `terminal=False` because the pending marker survives: a later run retries the rewrite, unlike
+    the skips that clear it.
+    """
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update({"trigger_reason": trigger_reason, "reason": reason, "terminal": False})
+    try:
+        capture_repartition_event("warehouse_repartition_skipped", props)
+    except Exception:
+        # Every caller is an except-handler whose contract is to swallow, so a telemetry failure must
+        # not escape: it would fail an activity that deliberately stood down and trigger a retry.
+        logger.warning("repartition: failed to capture stand-down event", exc_info=True)
 
 
 def _handle_failure(

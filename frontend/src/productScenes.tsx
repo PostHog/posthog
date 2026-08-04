@@ -103,10 +103,17 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
     LogsSamplingDetail: () =>
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
+    LogsRetentionNew: () => import('../../products/logs/frontend/scenes/LogsRetentionNewScene/LogsRetentionNewScene'),
+    LogsRetentionDetail: () =>
+        import('../../products/logs/frontend/scenes/LogsRetentionDetailScene/LogsRetentionDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
+    McpGateway: () => import('../../products/mcp_store/frontend/gateway/McpGatewayScene'),
+    McpGatewayServer: () => import('../../products/mcp_store/frontend/gateway/GatewayServerScene'),
+    McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
+    McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),

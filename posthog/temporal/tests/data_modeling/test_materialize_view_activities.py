@@ -12,7 +12,6 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
-import pytest_asyncio
 import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
@@ -41,7 +40,6 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
-    DAG,
     DataModelingJob,
     DataModelingJobEngine,
     DataModelingJobStatus,
@@ -53,50 +51,6 @@ from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
-
-
-@pytest_asyncio.fixture
-async def asaved_query(ateam, auser):
-    query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
-        team=ateam,
-        name="test_model",
-        query={"query": "SELECT 1", "kind": "HogQLQuery"},
-        created_by=auser,
-    )
-    yield query
-    await database_sync_to_async(query.delete)()
-
-
-@pytest_asyncio.fixture
-async def adag(ateam):
-    dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-dag")
-    yield dag
-    await database_sync_to_async(dag.delete)()
-
-
-@pytest_asyncio.fixture
-async def anode(ateam, asaved_query, adag):
-    node = await database_sync_to_async(Node.objects.create)(
-        team=ateam,
-        saved_query=asaved_query,
-        dag=adag,
-        name="test_model",
-        type=NodeType.MAT_VIEW,
-    )
-    yield node
-    await database_sync_to_async(node.delete)()
-
-
-@pytest_asyncio.fixture
-async def ajob(ateam, asaved_query):
-    job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam,
-        saved_query=asaved_query,
-        status=DataModelingJob.Status.RUNNING,
-        workflow_id="test-workflow",
-    )
-    yield job
-    await database_sync_to_async(job.delete)()
 
 
 async def _make_job(ateam, saved_query, status, *, engine=DataModelingJobEngine.CLICKHOUSE, error=None):

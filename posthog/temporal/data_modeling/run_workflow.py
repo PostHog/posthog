@@ -62,8 +62,6 @@ from posthog.temporal.data_modeling.activities.fail_materialization import (
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
-from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
@@ -76,6 +74,11 @@ from products.data_warehouse.backend.facade.api import (
 from products.endpoints.backend.facade.temporal import (
     prepare_executable_query,
     update_materialization_ready_for_saved_query,
+)
+from products.managed_warehouse.backend.facade.temporal import (
+    DataModelingDuckLakeCopyInputs,
+    DuckLakeCopyDataModelingWorkflow,
+    DuckLakeCopyModelInput,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
@@ -417,7 +420,7 @@ async def handle_error(
     error_str = str(error)
     if job:
         await logger.ainfo("Marking job %s as failed", job.id)
-        await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}")
+        await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}", write_only=True)
         job.status = DataModelingJob.Status.FAILED
         job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
@@ -437,7 +440,7 @@ async def handle_cancelled(
 ):
     error_str = str(error)
     if job:
-        await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}")
+        await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}", write_only=True)
         job.status = DataModelingJob.Status.CANCELLED
         job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
@@ -602,7 +605,7 @@ async def materialize_model(
         raise
     except Exception as e:
         error_message = str(e)
-        await logger.aerror(f"Error materializing model {model_label}: {error_message}")
+        await logger.aerror(f"Error materializing model {model_label}: {strip_hostname_from_error(error_message)}")
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -758,7 +761,7 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     but the user-facing error has hostnames stripped to avoid exposing infrastructure details.
     """
 
-    await logger.aerror(f"mark_job_as_failed: {error_message}")
+    await logger.aerror(f"mark_job_as_failed: {error_message}", write_only=True)
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
     job.rows_materialized = 0

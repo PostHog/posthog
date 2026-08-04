@@ -86,11 +86,22 @@ export type LazyLoaderOptions<T> = {
 
 type LazyLoaderMap<T> = Record<string, T | null | undefined>
 
+/**
+ * A cached value together with the deadlines that govern it. These live on one object so that
+ * writing a value and stamping its deadlines cannot come apart: any code path that sets the
+ * value has to produce the deadlines too.
+ */
+type CacheEntry<T> = {
+    value: T | null
+    lastUsed: number
+    /** Past this, the next lookup reloads before returning. */
+    cacheUntil: number
+    /** Past this, the next lookup returns the cached value and reloads in the background. */
+    backgroundRefreshAfter?: number
+}
+
 export class LazyLoader<T> {
-    private cache: LazyLoaderMap<T>
-    private lastUsed: Record<string, number | undefined>
-    private cacheUntil: Record<string, number | undefined>
-    private backgroundRefreshAfter: Record<string, number | undefined>
+    private cache: Record<string, CacheEntry<T> | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
 
     private refreshAgeMs: number
@@ -108,11 +119,11 @@ export class LazyLoader<T> {
         | undefined
 
     constructor(private readonly options: LazyLoaderOptions<T>) {
-        this.cache = {}
-        this.lastUsed = {}
-        this.cacheUntil = {}
-        this.backgroundRefreshAfter = {}
-        this.pendingLoads = {}
+        // Keys come from callers and can be ingest tokens or distinct ids, so these maps have no
+        // prototype. On a plain object a key like `__proto__` resolves to `Object.prototype`
+        // instead of missing, and writing through it mutates a builtin the whole process shares.
+        this.cache = Object.create(null)
+        this.pendingLoads = Object.create(null)
 
         this.refreshAgeMs = this.options.refreshAgeMs ?? 1000 * 60 * 5 // 5 minutes
         this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
@@ -125,8 +136,15 @@ export class LazyLoader<T> {
         }
     }
 
-    public getCache(): LazyLoaderMap<T> {
-        return this.cache
+    /** A snapshot of the cached values. Mutating the result does not affect the cache. */
+    public getCache(): Record<string, T | null> {
+        const values: Record<string, T | null> = Object.create(null)
+        for (const [key, entry] of Object.entries(this.cache)) {
+            if (entry) {
+                values[key] = entry.value
+            }
+        }
+        return values
     }
 
     public async get(key: string): Promise<T | null> {
@@ -140,15 +158,18 @@ export class LazyLoader<T> {
 
     public markForRefresh(key: string | string[]): void {
         for (const k of Array.isArray(key) ? key : [key]) {
-            delete this.cacheUntil[k]
+            const entry = this.cache[k]
+            if (entry) {
+                // A cacheUntil of 0 forces the next lookup to reload before returning. The
+                // background deadline goes with it so the entry never holds two that disagree.
+                entry.cacheUntil = 0
+                entry.backgroundRefreshAfter = undefined
+            }
         }
     }
 
     public clear(): void {
-        this.cache = {}
-        this.lastUsed = {}
-        this.cacheUntil = {}
-        this.backgroundRefreshAfter = {}
+        this.cache = Object.create(null)
         this.cacheSize = 0
         // this.pendingLoads = {} // NOTE: We don't clear this
         this.updateCacheSizeMetric()
@@ -159,22 +180,19 @@ export class LazyLoader<T> {
         const keys = Object.keys(map)
         for (const key of keys) {
             const value = map[key] ?? null
-            // Track if this is a new key being added
-            const isNewKey = !(key in this.cache)
-            this.cache[key] = value
-            if (isNewKey) {
-                this.cacheSize++
-            }
-            // Always update the lastUsed time
-            this.lastUsed[key] = now
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
             const refreshAge = value === null ? this.refreshNullAgeMs : this.refreshAgeMs
-            this.cacheUntil[key] = now + refreshAge + jitter
+            const cacheUntil = now + refreshAge + jitter
+            // A null takes refreshNullAgeMs for both deadlines, putting them on the same instant,
+            // so nulls hard-refresh and never background-refresh.
+            const backgroundRefreshAfter = this.refreshBackgroundAgeMs
+                ? now + (value === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
+                : undefined
 
-            if (this.refreshBackgroundAgeMs) {
-                const bgAge = value === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs
-                this.backgroundRefreshAfter[key] = now + bgAge + jitter
+            if (this.cache[key] === undefined) {
+                this.cacheSize++
             }
+            this.cache[key] = { value, lastUsed: now, cacheUntil, backgroundRefreshAfter }
         }
         this.evictLRU()
         this.updateCacheSizeMetric()
@@ -189,7 +207,9 @@ export class LazyLoader<T> {
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
         return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
-            const results: Record<string, T | null> = {}
+            // No prototype, for the same reason as the cache: keys are caller-supplied, and this
+            // object is handed back to callers who may iterate or spread it.
+            const results: Record<string, T | null> = Object.create(null)
             const keysToLoad = new Set<string>()
 
             // First, check if all keys are already cached and update the lastUsed time
@@ -197,12 +217,12 @@ export class LazyLoader<T> {
                 const cached = this.cache[key]
 
                 if (cached !== undefined) {
-                    results[key] = cached
+                    results[key] = cached.value
                     // Always update the lastUsed time
-                    this.lastUsed[key] = Date.now()
+                    cached.lastUsed = Date.now()
 
-                    const cacheUntil = this.cacheUntil[key] ?? 0
-                    const backgroundRefreshAfter = this.backgroundRefreshAfter[key]
+                    const cacheUntil = cached.cacheUntil
+                    const backgroundRefreshAfter = cached.backgroundRefreshAfter
 
                     if (Date.now() > cacheUntil) {
                         keysToLoad.add(key)
@@ -242,7 +262,7 @@ export class LazyLoader<T> {
 
             for (const key of keys) {
                 // Grab the new cached result for all keys
-                results[key] = this.cache[key] ?? null
+                results[key] = this.cache[key]?.value ?? null
             }
 
             return results
@@ -312,22 +332,48 @@ export class LazyLoader<T> {
         // For keys the loader omitted (resolved to null), update the cache
         // so deleted/disabled items don't serve stale data.
         const now = Date.now()
-        const result: LazyLoaderMap<T> = {}
+        // Keys are caller-supplied: on a plain object, assigning `__proto__` would reassign this
+        // map's prototype instead of storing the value under that key.
+        const result: LazyLoaderMap<T> = Object.create(null)
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i]
-            if (results[i] === null && this.cache[key] !== null) {
-                const isNewKey = !(key in this.cache)
-                this.cache[key] = null
-                if (isNewKey) {
+            const entry = this.cache[key]
+            // An entry already holding null is rewritten once its deadline has lapsed. Nothing else
+            // would refresh it, since `setValues` only touches keys the loader returned, so leaving
+            // it alone would strand it permanently expired and make every later lookup block.
+            if (results[i] === null && (!entry || entry.value !== null || entry.cacheUntil <= now)) {
+                if (!entry) {
                     this.cacheSize++
                 }
-                this.lastUsed[key] = now
+                // Replace the entry rather than patching the previous value's fields. A
+                // backgroundRefreshAfter left over from when this key held a real value is
+                // necessarily in the past, because refreshBackgroundAgeMs is smaller than the
+                // refreshAgeMs the key just exceeded. Keeping it would background-refresh the key
+                // on every lookup for the whole null TTL.
                 const jitter = Math.floor(Math.random() * this.refreshJitterMs)
-                this.cacheUntil[key] = now + this.refreshNullAgeMs + jitter
+                this.cache[key] = {
+                    value: null,
+                    lastUsed: now,
+                    cacheUntil: now + this.refreshNullAgeMs + jitter,
+                }
             }
-            result[key] = this.cache[key] ?? null
+            result[key] = this.cache[key]?.value ?? null
         }
         return result
+    }
+
+    /**
+     * Invoke the loader and normalize its result into a map this class owns: no prototype, and
+     * `undefined` collapsed to `null`. The loader hands back a plain object, where a key like
+     * `__proto__` resolves up the prototype chain instead of reading as absent.
+     */
+    private async invokeLoader(keys: string[]): Promise<Record<string, T | null>> {
+        const loaded = await this.invokeLoaderWithRetry(keys)
+        const map: Record<string, T | null> = Object.create(null)
+        for (const [key, value] of Object.entries(loaded)) {
+            map[key] = value ?? null
+        }
+        return map
     }
 
     /**
@@ -337,7 +383,7 @@ export class LazyLoader<T> {
      * retry time rather than reusing a stale result. Only retriable errors (`error.isRetriable === true`)
      * are retried; anything else is rethrown immediately so genuine bugs surface rather than being masked.
      */
-    private async invokeLoader(keys: string[]): Promise<LazyLoaderMap<T>> {
+    private async invokeLoaderWithRetry(keys: string[]): Promise<LazyLoaderMap<T>> {
         const retry = this.options.loaderRetry
         if (!retry) {
             return await this.options.loader(keys)
@@ -384,16 +430,12 @@ export class LazyLoader<T> {
         const toEvict = this.cacheSize - this.maxSize + headroom
 
         const cacheKeys = Object.keys(this.cache)
-        cacheKeys.sort((a, b) => (this.lastUsed[a] ?? 0) - (this.lastUsed[b] ?? 0))
+        cacheKeys.sort((a, b) => (this.cache[a]?.lastUsed ?? 0) - (this.cache[b]?.lastUsed ?? 0))
 
         // Evict the least recently used entries
         const evictCount = Math.min(toEvict, cacheKeys.length)
         for (let i = 0; i < evictCount; i++) {
-            const key = cacheKeys[i]
-            delete this.cache[key]
-            delete this.lastUsed[key]
-            delete this.cacheUntil[key]
-            delete this.backgroundRefreshAfter[key]
+            delete this.cache[cacheKeys[i]]
             this.cacheSize--
         }
     }

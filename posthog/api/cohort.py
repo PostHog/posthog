@@ -671,7 +671,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # response small for teams with thousands of cohorts. Default output is
         # unchanged; only callers that explicitly ask get the trimmed shape.
         if self.context.get("basic_cohort_list"):
-            for field_name in ("filters", "query", "groups"):
+            # Keep `filters`: the feature-flag intent warning reads it off `cohortsById`
+            # (see featureFlagIntentWarningLogic.hasBehavioralCriteria) to flag behavioral
+            # cohorts that can't be evaluated locally. `last_error_message` is computed from
+            # a per-row correlated subquery over CohortCalculationHistory (see
+            # safely_get_queryset), and `experiment_set` costs a prefetch — basic-list callers
+            # read neither, so drop them and skip the extra queries there.
+            for field_name in ("query", "groups", "last_error_message", "experiment_set"):
                 self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
@@ -1579,8 +1585,9 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Return a basic payload that omits the heavy `filters`, `query`, and "
-                    "`groups` fields. Useful for pickers that only need id/name/count."
+                    "Return a basic payload that omits the `query`, `groups`, "
+                    "`last_error_message`, and `experiment_set` fields (`filters` is kept). "
+                    "Useful for pickers that only need id/name/count."
                 ),
             ),
         ]
@@ -1638,6 +1645,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         search_ordered = False
+        # `_is_basic_list_request()` returns False for non-list actions, so computing it once
+        # up front is safe and keeps the queryset and serializer paths reading the same flag.
+        is_basic_list = self._is_basic_list_request()
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -1660,29 +1670,35 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # add additional filters provided by the client
             queryset, search_ordered = self._filter_request(self.request, queryset)
 
-            # `?basic=true` callers never read these columns, so skip reading them
-            # off disk (the serializer drops them too; see CohortSerializer.__init__).
-            if self._is_basic_list_request():
-                queryset = queryset.defer("filters", "query", "groups")
-
-        last_error_code_subquery = Subquery(
-            CohortCalculationHistory.objects.filter(
-                cohort=OuterRef("pk"),
-                error__isnull=False,
-            )
-            .exclude(error="")
-            .order_by("-started_at")
-            .values("error_code")[:1]
-        )
+            # `?basic=true` callers never read `query`, so skip reading it off disk (the
+            # serializer drops it too; see CohortSerializer.__init__). `groups` is dropped
+            # from the payload but kept on disk: `to_representation`'s `filters` fallback reads
+            # `instance.properties`, which reads `groups`, so deferring it would add a per-row
+            # query for rows with a falsy `filters`. `filters` stays in the payload — the flag
+            # intent warning reads it off `cohortsById`.
+            if is_basic_list:
+                queryset = queryset.defer("query")
 
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
-        # `experiment_set` is a reverse relation, so it stays prefetched.
-        queryset = (
-            queryset.annotate(last_error_code=last_error_code_subquery)
-            .select_related("created_by", "team")
-            .prefetch_related("experiment_set")
-        )
+        queryset = queryset.select_related("created_by", "team")
+
+        # `experiment_set` is a reverse relation (a prefetch) and the per-row correlated
+        # subquery over CohortCalculationHistory only feeds `last_error_message`. The basic
+        # list payload drops both, so skip the prefetch and the per-row subquery there — the
+        # hot-path fetch would otherwise run a subquery per row for teams with thousands of
+        # cohorts.
+        if not is_basic_list:
+            last_error_code_subquery = Subquery(
+                CohortCalculationHistory.objects.filter(
+                    cohort=OuterRef("pk"),
+                    error__isnull=False,
+                )
+                .exclude(error="")
+                .order_by("-started_at")
+                .values("error_code")[:1]
+            )
+            queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
 
         if not search_ordered:
             queryset = queryset.order_by("-created_at")
