@@ -415,12 +415,11 @@ export interface BarsConfig {
     /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
      *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
      *  whose neighbours are in the thousands. Zero-valued bars are never floored: the point is to
-     *  keep small data readable, not to draw a bar where there is no data. Applies per bar segment,
-     *  but on a stacked chart an interior segment's floor is immediately overpainted by the segment
-     *  above it (which still starts where the unfloored stack truly ends) — only the outermost
-     *  segment's floor is ever visible, so this is intended for single-series volume charts,
-     *  grouped bars, and sparklines rather than multi-series (breakdown) stacks. Defaults to 0
-     *  (exact heights). */
+     *  keep small data readable, not to draw a bar where there is no data. On a stacked chart only
+     *  the outermost segment is floored: flooring an interior one would oversize a rect that the
+     *  segment above immediately overpaints, while still capturing the hover and clicks meant for
+     *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
+     *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
     minBarSize?: number
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this

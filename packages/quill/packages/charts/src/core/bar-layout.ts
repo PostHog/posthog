@@ -373,13 +373,18 @@ export function computeBarAtIndex({
     if (!isFinite(rawTopPixel) || !isFinite(bottomPixel)) {
         return null
     }
+    // Only the outermost segment is floored. Flooring an interior one oversizes its rect without
+    // moving the segment above it, so the extension is invisible — immediately overpainted — yet
+    // still wins hit-testing, since `resolveBarsAtCursor` takes the first rect containing the cursor:
+    // the tooltip and click would resolve to a series that isn't drawn there.
+    //
     // Floored against this segment's own bottom, not the axis baseline, so a floored segment grows
     // out of where it actually starts in the stack. Only a pixel the floor itself pushed out is
     // clamped back into the value scale's range (mirrors the grouped branch's baseline clamp above)
     // — an unfloored `rawTopPixel` outside the range is legitimate (e.g. a `valueDomain` narrower
     // than the stack total) and hit-testing above the plot still needs to resolve to it, so clamping
     // unconditionally would break that.
-    const flooredTopPixel = floorValuePixel(rawTopPixel, bottomPixel, raw, scales.minBarSize)
+    const flooredTopPixel = floorValuePixel(rawTopPixel, bottomPixel, raw, isTopOfStack ? scales.minBarSize : undefined)
     let topPixel = flooredTopPixel
     if (flooredTopPixel !== rawTopPixel) {
         const [valueRangeA, valueRangeB] = valueScale.range()
