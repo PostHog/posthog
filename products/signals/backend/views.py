@@ -49,6 +49,7 @@ from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.data_freshness import LOOKBACK_DAYS
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
@@ -137,10 +138,7 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
-from products.signals.backend.source_dormancy import (
-    LOOKBACK_DAYS as DORMANCY_LOOKBACK_DAYS,
-    dormant_source_products,
-)
+from products.signals.backend.source_dormancy import dormant_source_products
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     resolve_request_attribution,
@@ -275,9 +273,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         responses={200: SignalSourceDormancySerializer},
         description=(
-            "Enabled sources whose backing PostHog product has received no data recently, so they "
-            "are configured but cannot fire. Separate from the source list because answering it "
-            "probes several datastores; the result is cached per team."
+            "Source products whose backing PostHog product has received no data recently. Says "
+            "nothing about whether a source is enabled — callers pair this with the source list. "
+            "Separate from that list because answering it probes several datastores."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -286,7 +284,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             SignalSourceDormancySerializer(
                 {
                     "dormant_source_products": sorted(dormant_source_products(self.team)),
-                    "lookback_days": DORMANCY_LOOKBACK_DAYS,
+                    "lookback_days": LOOKBACK_DAYS,
                 }
             ).data
         )

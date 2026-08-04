@@ -22,7 +22,10 @@ export type AgentRosterSource =
 
 export interface AgentRosterDefinition {
     source: AgentRosterSource
-    /** Key into `SOURCE_PRODUCT_META` for the icon tile. */
+    /**
+     * The backend `source_product` string. Keys the icon tile via `SOURCE_PRODUCT_META`, and is
+     * matched against the dormancy endpoint's response, so it can't be repointed at a lookalike.
+     */
     sourceProduct: SignalSourceProduct
     label: string
     description: string

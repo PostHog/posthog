@@ -42,8 +42,8 @@ LOOKBACK_DAYS = 30
 QUIET_AFTER_DAYS = 7
 
 CACHE_TTL_SECONDS = 10 * 60
-# Bump when ProjectFreshness or SourceFreshness change shape: cached values are pickled, so old
-# entries would otherwise unpickle missing a field.
+# Bump when ProjectFreshness, SourceFreshness, or TeamProductFreshness change shape: cached values
+# are pickled, so old entries would otherwise unpickle missing a field.
 _CACHE_SCHEMA_VERSION = 1
 
 # Backstops for a pathological org, not a latency budget. Postgres has no server-side
@@ -157,16 +157,22 @@ class TeamProductFreshness:
     degraded: bool
 
 
+def _team_freshness_cache_key(team_id: int) -> str:
+    return f"team_product_freshness:v{_CACHE_SCHEMA_VERSION}:{team_id}"
+
+
 def get_team_product_freshness(team: Team) -> TeamProductFreshness:
-    """Which products this team received data for recently. Cached per team."""
-    cache_key = f"team_product_freshness:v{_CACHE_SCHEMA_VERSION}:{team.id}"
-    cached = get_safe_cache(cache_key)
+    """Which products this team received data for recently. Cached per team.
+
+    Usually a cache hit: the org sweep runs over this team too and seeds the same entries.
+    """
+    cached = get_safe_cache(_team_freshness_cache_key(team.id))
     if cached is not None:
         return cached
 
     found, degraded = _probe_all([team])
     result = TeamProductFreshness(last_data_at_by_product=found[team.id], degraded=degraded)
-    safe_cache_set(cache_key, result, CACHE_TTL_SECONDS)
+    safe_cache_set(_team_freshness_cache_key(team.id), result, CACHE_TTL_SECONDS)
     return result
 
 
@@ -206,6 +212,14 @@ def _compute(teams: list[Team]) -> list[ProjectFreshness]:
 
     quiet_before = datetime.now(UTC) - timedelta(days=QUIET_AFTER_DAYS)
     by_team, degraded = _probe_all(teams)
+    # The per-product answer is right here, and a caller asking about one team wants exactly it.
+    # Seeding now means that caller almost never runs the probes a second time.
+    for team in teams:
+        safe_cache_set(
+            _team_freshness_cache_key(team.id),
+            TeamProductFreshness(last_data_at_by_product=by_team[team.id], degraded=degraded),
+            CACHE_TTL_SECONDS,
+        )
     return reportable([derive_freshness(team, by_team[team.id], quiet_before) for team in teams], degraded=degraded)
 
 

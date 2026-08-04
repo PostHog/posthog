@@ -1470,7 +1470,7 @@ export const getSignalsSourceConfigsDormancyRetrieveUrl = (projectId: string) =>
 }
 
 /**
- * Enabled sources whose backing PostHog product has received no data recently, so they are configured but cannot fire. Separate from the source list because answering it probes several datastores; the result is cached per team.
+ * Source products whose backing PostHog product has received no data recently. Says nothing about whether a source is enabled — callers pair this with the source list. Separate from that list because answering it probes several datastores.
  */
 export const signalsSourceConfigsDormancyRetrieve = async (
     projectId: string,

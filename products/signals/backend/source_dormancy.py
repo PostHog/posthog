@@ -1,4 +1,4 @@
-"""Which enabled signal sources are watching a product the team doesn't actually use.
+"""Which signal sources are watching a product the team doesn't actually use.
 
 Turning a source on is a config decision, and a reasonable one to get wrong: the setup agent
 enables what looks plausible, and nothing later says the product behind it has never sent
@@ -14,13 +14,11 @@ Zendesk, pganalyze) has its data arrive through a warehouse sync or a webhook, a
 probes don't resolve per-connection, so those are left unjudged rather than guessed at.
 """
 
-from posthog.data_freshness import LOOKBACK_DAYS, get_team_product_freshness
+from posthog.data_freshness import get_team_product_freshness
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 
 from products.signals.backend.enums import SignalSourceProduct
-
-__all__ = ["LOOKBACK_DAYS", "PRODUCT_BEHIND_SOURCE", "dormant_source_products"]
 
 # The PostHog product each signal source reads from. Sources absent from this map are never
 # reported dormant — either no freshness declaration can answer for them, or they're fed by an
@@ -33,15 +31,13 @@ PRODUCT_BEHIND_SOURCE: dict[SignalSourceProduct, ProductKey] = {
     SignalSourceProduct.LLM_ANALYTICS: ProductKey.LLM_ANALYTICS,
     SignalSourceProduct.LOGS: ProductKey.LOGS,
     SignalSourceProduct.CONVERSATIONS: ProductKey.CONVERSATIONS,
-    SignalSourceProduct.ANALYTICS: ProductKey.PRODUCT_ANALYTICS,
 }
 
 
 def dormant_source_products(team: Team) -> set[SignalSourceProduct]:
     """The judgeable source products whose backing product sent nothing in the lookback window.
 
-    Empty when a probe failed: an unreachable store is indistinguishable from an unused product,
-    and telling someone to turn off a source that works is worse than saying nothing.
+    Empty when a probe failed, per `TeamProductFreshness`.
     """
     freshness = get_team_product_freshness(team)
     if freshness.degraded:
