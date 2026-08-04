@@ -10,9 +10,10 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { TaxonomicBreakdownFilterLogicProps, taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 type TaxonomicBreakdownPopoverProps = {
+    logicProps: TaxonomicBreakdownFilterLogicProps
     open: boolean
     setOpen: (open: boolean) => void
     children: React.ReactElement
@@ -22,6 +23,7 @@ type TaxonomicBreakdownPopoverProps = {
 }
 
 export const TaxonomicBreakdownPopover = ({
+    logicProps,
     open,
     setOpen,
     children,
@@ -33,10 +35,11 @@ export const TaxonomicBreakdownPopover = ({
     const { allEventNames, query, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { databaseLoading } = useValues(databaseTableListLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { includeSessions, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
+    const { includeSessions, taxonomicBreakdownType, currentDataWarehouseSchemaColumns } = useValues(
+        taxonomicBreakdownFilterLogic(logicProps)
+    )
 
-    const { currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
-    const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic)
+    const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic(logicProps))
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
     if (hasDataWarehouseSeries) {
