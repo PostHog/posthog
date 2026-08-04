@@ -483,11 +483,20 @@ export class ApiClient {
                         if (experimentMatch) {
                             const experimentId = experimentMatch[1]
                             console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
-                            throw new Error(
-                                `Experiment ${experimentId} not found in this project. ` +
+                            // Typed 404 (not a plain Error) so findRecoverableApiError can
+                            // classify this as recoverable agent input and skip exception
+                            // capture, same as buildApiError does for the generic case below.
+                            throw new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: errorText,
+                                url,
+                                method,
+                                message:
+                                    `Experiment ${experimentId} not found in this project. ` +
                                     `If the id is correct, the experiment may belong to a different project — ` +
-                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
-                            )
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`,
+                            })
                         }
                     }
 

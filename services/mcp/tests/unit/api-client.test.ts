@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
+import { PostHogApiError, findRecoverableApiError } from '@/lib/errors'
 
 describe('ApiClient', () => {
     it('should create ApiClient with required config', () => {
@@ -304,6 +305,31 @@ describe('ApiClient', () => {
             expect(url).toContain('short_id=abc12345')
             expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
             expect(url).not.toContain('filters_override')
+
+            vi.unstubAllGlobals()
+        })
+    })
+
+    describe('experiments().get() — 404 handling', () => {
+        it('rejects with a typed PostHogApiError that findRecoverableApiError can classify', async () => {
+            const mockFetch = vi
+                .fn()
+                .mockResolvedValue(new Response('Not found', { status: 404, statusText: 'Not Found' }))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+            const result = await client.experiments({ projectId: '1' }).get({ experimentId: 999 })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+
+            const recoverable = findRecoverableApiError(result.error)
+            expect(recoverable).toBeInstanceOf(PostHogApiError)
+            expect(recoverable?.status).toBe(404)
+            expect(result.error.message).toContain('Experiment 999 not found in this project')
+            expect(result.error.message).toContain('experiment-list')
 
             vi.unstubAllGlobals()
         })
