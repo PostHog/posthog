@@ -172,6 +172,7 @@ export interface hogFlowEditorLogicValues {
     highlightedDropzoneNodeId: string | null
     isCopyingNode: boolean
     isMovingNode: boolean
+    isZoomedOutFar: boolean
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -1888,6 +1889,9 @@ export interface hogFlowEditorLogicActions {
     setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => {
         reactFlowWrapper: RefObject<HTMLDivElement>
     }
+    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
+        isZoomedOutFar: boolean
+    }
     setSelectedNodeId: (selectedNodeId: string | null) => {
         selectedNodeId: string | null
     }
@@ -1988,6 +1992,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
+        setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
     reducers(() => ({
         mode: [
@@ -2038,6 +2043,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 startMovingNode: () => true,
                 stopMovingNode: () => false,
+            },
+        ],
+        isZoomedOutFar: [
+            false,
+            {
+                setIsZoomedOutFar: (_, { isZoomedOutFar }) => isZoomedOutFar,
             },
         ],
         movingNodeId: [
