@@ -5183,14 +5183,6 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
-export enum GraphType {
-    Bar = 'bar',
-    HorizontalBar = 'horizontalBar',
-    Line = 'line',
-    Histogram = 'histogram',
-    Pie = 'doughnut',
-}
-
 export type GraphDataset = ChartDataset<ChartType> &
     Partial<
         Pick<
