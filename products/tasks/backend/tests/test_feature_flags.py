@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from products.tasks.backend.feature_flags import is_dev_stack_image_bake_enabled
+from products.tasks.backend.feature_flags import is_dev_stack_image_bake_enabled, is_tasks_orchestration_enabled
 
 
 class TestIsDevStackImageBakeEnabled:
@@ -47,3 +47,10 @@ class TestIsDevStackImageBakeEnabled:
             assert is_dev_stack_image_bake_enabled() is False
 
         feature_enabled_mock.assert_not_called()
+
+
+@override_settings(DEBUG=True)
+def test_tasks_orchestration_is_enabled_in_development() -> None:
+    with patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled") as feature_enabled:
+        assert is_tasks_orchestration_enabled(distinct_id="user", organization_id="org") is True
+        feature_enabled.assert_not_called()
