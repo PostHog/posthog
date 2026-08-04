@@ -5230,6 +5230,10 @@ const api = {
             has_implementation_pr?: 'true' | 'false'
             /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
             suggested_reviewers?: string
+            /** Comma-separated scout skill_name slugs. */
+            scout?: string
+            /** Scout skill_name prefix — matches every scout in the family. */
+            scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
