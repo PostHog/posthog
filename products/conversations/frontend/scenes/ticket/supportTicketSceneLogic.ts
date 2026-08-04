@@ -179,7 +179,6 @@ export interface supportTicketSceneLogicValues {
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
-    activeEditingMessageId: string | null
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -189,6 +188,7 @@ export interface supportTicketSceneLogicValues {
     draftModeEnabled: boolean
     editableMessageId: string | null
     editingMessageId: string | null
+    editingMessageStale: boolean
     emailReplyBlockedReason: EmailReplyBlockedReason | null
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
@@ -461,7 +461,7 @@ export interface supportTicketSceneLogicMeta {
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
         editableMessageId: (messages: CommentType[], user: UserType | null) => string | null
-        activeEditingMessageId: (editingMessageId: string | null, editableMessageId: string | null) => string | null
+        editingMessageStale: (editingMessageId: string | null, editableMessageId: string | null) => boolean
         sidePanelContext: (ticket: Ticket | null) => SidePanelSceneContext | null
     }
 }
@@ -1033,13 +1033,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return null
             },
         ],
-        activeEditingMessageId: [
+        editingMessageStale: [
             (s) => [s.editingMessageId, s.editableMessageId],
-            (editingMessageId: string | null, editableMessageId: string | null): string | null =>
+            (editingMessageId: string | null, editableMessageId: string | null): boolean =>
                 // Messages are polled every few seconds, so a teammate's newer note can arrive while
-                // an editor is open. Gating on the still-editable id collapses that stale editor
-                // instead of leaving a form open over a note the backend would now reject.
-                editingMessageId && editingMessageId === editableMessageId ? editingMessageId : null,
+                // an editor is open. The editor stays mounted when that happens, because unmounting
+                // it would throw away a rewrite the author can no longer recover; saving is what gets
+                // blocked, since the note is no longer the newest one.
+                !!editingMessageId && editingMessageId !== editableMessageId,
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.ticket],
@@ -1251,7 +1252,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             // open editor between render and save. Saying so beats a Save button that does nothing.
             if (props.id === 'new' || !values.ticket?.id || messageId !== values.editableMessageId) {
                 actions.setMessageEditSaving(false)
-                lemonToast.error('This note can no longer be edited. Copy your text before leaving.')
+                lemonToast.error('A newer private note was added, so this one can no longer be saved.')
                 return
             }
             try {

@@ -13,14 +13,27 @@ import { Message } from './Message'
 jest.mock('../Editor', () => {
     const React = jest.requireActual<typeof import('react')>('react')
     return {
-        SupportEditor: ({ onCreate }: { onCreate: (editor: unknown) => void }) => {
+        // Stands in for the editor: `type` mutates the document the way a keystroke would, so the
+        // form's changed/unchanged handling can be exercised without tiptap.
+        SupportEditor: ({ onCreate, onUpdate }: { onCreate: (editor: unknown) => void; onUpdate: () => void }) => {
+            const docRef = React.useRef<{ type: string; edited?: boolean }>({ type: 'doc' })
             React.useEffect(() => {
-                onCreate({ getJSON: () => ({ type: 'doc' }), focus: () => {} })
+                onCreate({ getJSON: () => docRef.current, focus: () => {} })
                 // eslint-disable-next-line react-hooks/exhaustive-deps
             }, [])
-            return React.createElement('div', { 'data-attr': 'support-editor' })
+            return React.createElement(
+                'button',
+                {
+                    'data-attr': 'simulate-typing',
+                    onClick: () => {
+                        docRef.current = { type: 'doc', edited: true }
+                        onUpdate()
+                    },
+                },
+                'type'
+            )
         },
-        serializeToMarkdown: (): string => 'edited markdown',
+        serializeToMarkdown: (doc: { edited?: boolean }): string => (doc.edited ? 'edited markdown' : 'the note body'),
         messageBodyToRichContent: (content: string) => ({
             type: 'doc',
             content: [{ type: 'paragraph', content: [{ type: 'text', text: content }] }],
@@ -112,11 +125,41 @@ describe('Message', () => {
         expect(screen.queryByTestId('message-body')).not.toBeInTheDocument()
         expect(screen.queryByTestId('edit-private-note')).not.toBeInTheDocument()
 
+        // Nothing typed yet, so there is nothing to save. Blocking this is what keeps an untouched
+        // note from being rewritten and marked edited.
         await userEvent.click(screen.getByTestId('save-edit-private-note'))
-        expect(onSaveEdit).toHaveBeenCalledWith('edited markdown', { type: 'doc' })
+        expect(onSaveEdit).not.toHaveBeenCalled()
+
+        await userEvent.click(screen.getByTestId('simulate-typing'))
+        await userEvent.click(screen.getByTestId('save-edit-private-note'))
+        expect(onSaveEdit).toHaveBeenCalledWith('edited markdown', { type: 'doc', edited: true })
 
         await userEvent.click(screen.getByTestId('cancel-edit-private-note'))
         expect(onCancelEdit).toHaveBeenCalledTimes(1)
+    })
+
+    // Once a newer note supersedes this one the editor stays open so the rewrite isn't lost, but
+    // saving has to be refused with the reason shown.
+    it('blocks saving a superseded note but keeps the text on screen', async () => {
+        const onSaveEdit = jest.fn()
+        render(
+            <Message
+                message={privateNote()}
+                isCustomer={false}
+                canEdit
+                isEditing
+                editSaveDisabledReason="A newer private note was added"
+                onStartEdit={jest.fn()}
+                onCancelEdit={jest.fn()}
+                onSaveEdit={onSaveEdit}
+            />
+        )
+
+        await userEvent.click(screen.getByTestId('simulate-typing'))
+        await userEvent.click(screen.getByTestId('save-edit-private-note'))
+
+        expect(onSaveEdit).not.toHaveBeenCalled()
+        expect(screen.getByTestId('simulate-typing')).toBeInTheDocument()
     })
 
     test.each<[boolean, boolean]>([

@@ -41,6 +41,7 @@ export interface MessageListProps {
     editingMessageId?: string | null
     messageEditSaving?: boolean
     editDisabledReason?: string
+    editSaveDisabledReason?: string
     onStartEditMessage?: (messageId: string) => void
     onCancelEditMessage?: () => void
     onSaveEditMessage?: (messageId: string, content: string, richContent: JSONContent) => void
@@ -76,6 +77,7 @@ export function MessageList({
     editingMessageId = null,
     messageEditSaving = false,
     editDisabledReason,
+    editSaveDisabledReason,
     onStartEditMessage,
     onCancelEditMessage,
     onSaveEditMessage,
@@ -235,6 +237,7 @@ export function MessageList({
                         isEditing={message.id === editingMessageId}
                         editSaving={messageEditSaving}
                         editDisabledReason={editDisabledReason}
+                        editSaveDisabledReason={editSaveDisabledReason}
                         onStartEdit={onStartEditMessage ? () => onStartEditMessage(message.id) : undefined}
                         onCancelEdit={onCancelEditMessage}
                         onSaveEdit={

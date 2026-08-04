@@ -223,8 +223,15 @@ class CommentSerializer(serializers.ModelSerializer):
 
             if validated_data.keys():
                 # version is what clients render an "edited" marker from, so it may only move when
-                # the body actually differs. Saving an unchanged note must not mark it edited.
-                if validated_data.get("content") and validated_data["content"] != locked_instance.content:
+                # the body actually differs. Saving an unchanged comment must not mark it edited.
+                # rich_content counts too: clients render it in preference to content, and formatting
+                # that markdown cannot express changes it alone.
+                body_changed = (
+                    "content" in validated_data and validated_data["content"] != locked_instance.content
+                ) or (
+                    "rich_content" in validated_data and validated_data["rich_content"] != locked_instance.rich_content
+                )
+                if body_changed:
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_instance = super().update(locked_instance, validated_data)

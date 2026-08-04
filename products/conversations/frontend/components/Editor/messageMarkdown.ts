@@ -57,7 +57,10 @@ const MARKDOWN_TABLE_DELIMITER_ROW = /^\|(?:\s*:?-{2,}:?\s*\|)+\s*$/m
  * came from this editor, so they always load. */
 export function canEditMessageBody(content: string | null | undefined, richContent: unknown): boolean {
     if (richContent) {
-        return true
+        // Rich content is not automatically loadable: the reply API accepts any JSON that fits its
+        // size cap, and the thread renders with a wider schema than the editor holds, so a stored
+        // heading or quote would be dropped on open and lost on the next save.
+        return isRepresentable(richContent as JSONContent)
     }
     if (!content?.trim()) {
         return false

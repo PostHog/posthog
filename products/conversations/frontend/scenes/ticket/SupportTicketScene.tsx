@@ -107,7 +107,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         latestAiMessage,
         feedbackByMessageId,
         editableMessageId,
-        activeEditingMessageId,
+        editingMessageId,
+        editingMessageStale,
         messageEditSaving,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
@@ -259,9 +260,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
                         editableMessageId={editableMessageId}
-                        editingMessageId={activeEditingMessageId}
+                        editingMessageId={editingMessageId}
                         messageEditSaving={messageEditSaving}
                         editDisabledReason={sendDisabledReason}
+                        editSaveDisabledReason={
+                            editingMessageStale
+                                ? 'A newer private note was added, so this one can no longer be saved. Copy your text before closing.'
+                                : undefined
+                        }
                         onStartEditMessage={setEditingMessage}
                         onCancelEditMessage={() => setEditingMessage(null)}
                         onSaveEditMessage={editMessage}

@@ -68,6 +68,7 @@ export interface ChatViewProps {
     editingMessageId?: string | null
     messageEditSaving?: boolean
     editDisabledReason?: string
+    editSaveDisabledReason?: string
     onStartEditMessage?: (messageId: string) => void
     onCancelEditMessage?: () => void
     onSaveEditMessage?: (messageId: string, content: string, richContent: JSONContent) => void
@@ -110,6 +111,7 @@ export function ChatView({
     editingMessageId,
     messageEditSaving,
     editDisabledReason,
+    editSaveDisabledReason,
     onStartEditMessage,
     onCancelEditMessage,
     onSaveEditMessage,
@@ -141,6 +143,7 @@ export function ChatView({
                 editingMessageId={editingMessageId}
                 messageEditSaving={messageEditSaving}
                 editDisabledReason={editDisabledReason}
+                editSaveDisabledReason={editSaveDisabledReason}
                 onStartEditMessage={onStartEditMessage}
                 onCancelEditMessage={onCancelEditMessage}
                 onSaveEditMessage={onSaveEditMessage}

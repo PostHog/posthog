@@ -591,7 +591,7 @@ describe('supportTicketSceneLogic private note editing', () => {
             { content: 'edited body', rich_content: { type: 'doc' } },
             { scope: 'conversations_ticket', item_id: 'ticket-1' }
         )
-        expect(logic.values.activeEditingMessageId).toBeNull()
+        expect(logic.values.editingMessageId).toBeNull()
     })
 
     it('keeps the editor open when the save fails', async () => {
@@ -603,7 +603,7 @@ describe('supportTicketSceneLogic private note editing', () => {
             logic.actions.editMessage('n1', 'edited body', null)
         }).toFinishAllListeners()
 
-        expect(logic.values.activeEditingMessageId).toBe('n1')
+        expect(logic.values.editingMessageId).toBe('n1')
         expect(logic.values.messageEditSaving).toBe(false)
     })
 
@@ -617,16 +617,18 @@ describe('supportTicketSceneLogic private note editing', () => {
         expect(commentsUpdateMock).not.toHaveBeenCalled()
     })
 
-    // Messages are polled, so a teammate's newer note can land while the editor is open. Without
-    // this the form stays open over a note the backend would now reject.
-    it('closes an open editor when a newer private note arrives', async () => {
+    // Messages are polled, so a teammate's newer note can land while the editor is open. The editor
+    // has to stay open, because unmounting it would throw away a rewrite the author can't recover;
+    // only saving becomes impossible.
+    it('marks an open editor stale when a newer private note arrives, without closing it', async () => {
         logic.actions.setMessages([makeNote('n1', { authorUuid: MINE })])
         logic.actions.setEditingMessage('n1')
-        expect(logic.values.activeEditingMessageId).toBe('n1')
+        expect(logic.values.editingMessageStale).toBe(false)
 
         logic.actions.setMessages([makeNote('n1', { authorUuid: MINE }), makeNote('n2', { authorUuid: THEIRS })])
 
-        expect(logic.values.activeEditingMessageId).toBeNull()
+        expect(logic.values.editingMessageId).toBe('n1')
+        expect(logic.values.editingMessageStale).toBe(true)
     })
 
     // version is the only edit signal the comments API exposes, and it drives the "(edited)" marker.

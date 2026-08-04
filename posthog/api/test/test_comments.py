@@ -732,10 +732,25 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["version"] == 0
 
-    @mock.patch("posthog.models.comment.utils.send_mention_notifications")
+    def test_a_rich_content_only_change_marks_the_note_edited(self) -> None:
+        # Clients render rich_content in preference to content, and formatting markdown can't express
+        # (underline) changes only that, so the edited marker has to follow it too.
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        note = self._private_note(self.member)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{note.id}?scope=conversations_ticket",
+            {"content": note.content, "rich_content": {"type": "doc", "content": []}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 1
+
+    @mock.patch("posthog.api.comments.produce_discussion_mention_events")
+    @mock.patch("posthog.api.comments.send_mention_notifications")
     @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
     def test_editing_a_note_only_notifies_newly_added_mentions(
-        self, mock_send_email: mock.MagicMock, _mock_notify: mock.MagicMock
+        self, mock_send_email: mock.MagicMock, _mock_notify: mock.MagicMock, _mock_events: mock.MagicMock
     ) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
         already_mentioned = User.objects.create_and_join(self.organization, "already@posthog.com", None)

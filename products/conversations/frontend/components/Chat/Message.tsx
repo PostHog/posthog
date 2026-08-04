@@ -34,6 +34,8 @@ export interface MessageProps {
     isEditing?: boolean
     editSaving?: boolean
     editDisabledReason?: string
+    /** Blocks saving an open edit regardless of what was typed, e.g. once a newer note supersedes it. */
+    editSaveDisabledReason?: string
     onStartEdit?: () => void
     onCancelEdit?: () => void
     onSaveEdit?: (content: string, richContent: JSONContent) => void
@@ -51,6 +53,7 @@ export function Message({
     isEditing = false,
     editSaving = false,
     editDisabledReason,
+    editSaveDisabledReason,
     onStartEdit,
     onCancelEdit,
     onSaveEdit,
@@ -147,6 +150,7 @@ export function Message({
                                 <MessageEditForm
                                     message={message}
                                     saving={editSaving}
+                                    saveDisabledReason={editSaveDisabledReason}
                                     onCancel={onCancelEdit}
                                     onSave={onSaveEdit}
                                 />
