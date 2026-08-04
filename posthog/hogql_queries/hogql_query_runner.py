@@ -134,6 +134,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 connection_id=self.query.connectionId,
                 limit_context=self.limit_context,
                 workload=self.workload,
+                ch_user=self.ch_user,
                 settings=self.settings,
                 send_raw_query=True,
             )
@@ -164,6 +165,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             connection_id=self.query.connectionId,
             limit_context=self.limit_context,
             workload=self.workload,
+            ch_user=self.ch_user,
             settings=self.settings,
         )
         if paginator:
