@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 
 __all__ = [
@@ -12,6 +14,7 @@ __all__ = [
     "IneligibleSessionError",
     "IneligibleSessionKind",
     "ScannerFailureError",
+    "TransientDbError",
 ]
 
 # Strings survive Temporal's ActivityError wrapping via ApplicationError.type, so the
@@ -57,3 +60,9 @@ class ConsentWithdrawnError(_KindedApplicationError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, kind=_ConsentKind.NO_AI_CONSENT, type=INELIGIBLE_SESSION_ERROR_TYPE)
+
+
+class TransientDbError(NonReportableError):
+    """A Postgres pool blip (PgBouncer `query_wait_timeout`, dropped connection) hit an activity whose
+    Temporal RetryPolicy already recovers from it. One infra incident hits every call site in this file
+    at once, so reporting each as its own defect turns a single blip into a pile of error-tracking issues."""

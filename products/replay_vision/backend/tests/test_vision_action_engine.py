@@ -195,6 +195,26 @@ class TestEvaluateDue(BaseTest):
             act._evaluate_due(EvaluateDueVisionActionsInputs(scanner_id=scanner.id, team_id=other_team.id)), []
         )
 
+    def test_resolves_team_once_regardless_of_action_count(self) -> None:
+        # Each `for_team()` call without `canonical=True` does its own Team lookup. Before this fix,
+        # every due action inside the loop paid for one on top of the query used to claim it, while
+        # holding the SELECT FOR UPDATE transaction open — 1 + 2N round trips for N actions. Resolving
+        # once up front and passing canonical=True keeps this at a single lookup no matter how many
+        # actions this scanner's sweep claims.
+        scanner = _scanner(self.team)
+        actions = [_action(self.team, name=f"due-{i}", scanner=scanner) for i in range(3)]
+        for a in actions:
+            _make_due(a)
+
+        with patch(
+            "products.replay_vision.backend.temporal.vision_actions.activities.resolve_effective_team_id",
+            wraps=act.resolve_effective_team_id,
+        ) as mock_resolve:
+            result = act._evaluate_due(self._inputs(scanner))
+
+        self.assertEqual(len(result), 3)
+        mock_resolve.assert_called_once_with(self.team.id)
+
 
 class TestEngineActivities(BaseTest):
     def test_create_run_is_idempotent(self) -> None:

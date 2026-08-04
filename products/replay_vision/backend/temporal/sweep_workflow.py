@@ -59,6 +59,13 @@ _VISION_ACTION_EVAL_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=5), maximum_interval=dt.timedelta(minutes=1), maximum_attempts=3
 )
 
+# A handful of quick attempts so a short Postgres pool blip (tens of seconds) clears inside the same
+# tick instead of costing the whole 5-minute sweep. Bounded well under SWEEP_WORKFLOW_EXECUTION_TIMEOUT.
+_COUNT_IN_FLIGHT_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=3), maximum_interval=dt.timedelta(seconds=15), maximum_attempts=4
+)
+_COUNT_IN_FLIGHT_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=90)
+
 
 @wf.defn(name=SWEEP_SCANNER_WORKFLOW_NAME)
 class SweepScannerWorkflow(PostHogWorkflow):
@@ -90,15 +97,18 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
         # Hard concurrency caps: per scanner (one bad config) and per team (many scanners), enforced as the
         # min of the two headrooms. Skip entirely when saturated. Keeps any single tenant from flooding the
-        # shared rasterizer + provider concurrency. A DB error fails the count (single attempt), so the sweep
-        # skips this tick rather than dispatching against an unknown load; the next tick retries in 5 minutes.
+        # shared rasterizer + provider concurrency. The count never fails open (a made-up zero would defeat
+        # the cap it exists to enforce), but it gets a few quick retries so a short DB pool blip clears
+        # inside this tick; if it's still failing after those, the sweep skips this tick rather than
+        # dispatching against an unknown load, and the next tick retries in 5 minutes.
         count_inputs = CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id)
         if wf.patched("replay-vision-team-in-flight-caps"):
             in_flight = await wf.execute_activity(
                 count_in_flight_by_team_activity,
                 count_inputs,
                 start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-                retry_policy=common.RetryPolicy(maximum_attempts=1),
+                schedule_to_close_timeout=_COUNT_IN_FLIGHT_SCHEDULE_TO_CLOSE,
+                retry_policy=_COUNT_IN_FLIGHT_RETRY,
             )
             scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
         else:

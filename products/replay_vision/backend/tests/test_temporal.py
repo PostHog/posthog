@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, OperationalError
 from django.utils import timezone
 
 import httpx
@@ -87,6 +87,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionError,
     IneligibleSessionKind,
     ScannerFailureError,
+    TransientDbError,
 )
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
@@ -228,6 +229,31 @@ class TestCountInFlightAppliesActivity:
         )
 
         assert result == InFlightApplyCounts(scanner=2, team=2)
+
+    def test_wraps_a_transient_db_error_as_non_reportable(self) -> None:
+        # This counter deliberately never fails open (see the activity's docstring), but a transient
+        # Postgres pool blip is retryable and already tolerated by the activity's RetryPolicy, so it
+        # shouldn't page error tracking on its own the way an unclassified exception would.
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.count_in_flight_applies.ReplayObservation.in_flight_for_team",
+            side_effect=OperationalError("query_wait_timeout"),
+        ):
+            with pytest.raises(TransientDbError):
+                count_in_flight_by_team_activity(
+                    CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
+
+    def test_propagates_a_non_transient_db_error_unchanged(self) -> None:
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.count_in_flight_applies.ReplayObservation.in_flight_for_team",
+            side_effect=OperationalError('relation "missing_table" does not exist'),
+        ):
+            with pytest.raises(OperationalError):
+                count_in_flight_by_team_activity(
+                    CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
 
 
 @pytest.mark.django_db(transaction=True)

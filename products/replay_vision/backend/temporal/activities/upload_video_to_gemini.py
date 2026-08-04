@@ -17,9 +17,15 @@ from posthog.storage import object_storage
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.temporal.consent import is_ai_data_processing_approved_resilient
+from products.replay_vision.backend.temporal.db_errors import is_transient_db_error
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.errors import (
+    ConsentWithdrawnError,
+    FailureKind,
+    ScannerFailureError,
+    TransientDbError,
+)
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
@@ -41,6 +47,10 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
         except Exception as e:
             kind = classify_gemini_error(e)
             if kind is None:
+                if is_transient_db_error(e):
+                    # A Postgres pool blip (e.g. the consent re-check below), not a provider or scanner
+                    # defect — retryable, and not worth paging on its own (see TransientDbError).
+                    raise TransientDbError(str(e)) from e
                 raise
             # The raw error body can quote request content, so it stays out of both the user-visible
             # error_reason and the logs; code + status carry the diagnostic signal.
@@ -63,7 +73,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     # Re-check consent at the egress boundary, keyed off the team that owns the bytes: an admin may have
     # revoked it after the observation was created but before these bytes leave for Gemini. Fail closed so
     # a withdrawn org can't have recordings processed.
-    if not await sync_to_async(is_ai_data_processing_approved)(asset.team_id):
+    if not await is_ai_data_processing_approved_resilient(asset.team_id):
         raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
     video_bytes: bytes | None

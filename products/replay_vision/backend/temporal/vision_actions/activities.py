@@ -11,6 +11,7 @@ import structlog
 from temporalio import activity
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -23,7 +24,9 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
+from products.replay_vision.backend.temporal.db_errors import is_transient_db_error
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import TransientDbError
 from products.replay_vision.backend.temporal.vision_actions.types import (
     CreateVisionActionRunInputs,
     DueVisionAction,
@@ -61,7 +64,14 @@ def _is_every_match_alert(action: VisionAction) -> bool:
 @activity.defn
 @track_activity()
 async def evaluate_due_vision_actions_activity(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionAction]:
-    return await database_sync_to_async(_evaluate_due, thread_sensitive=False)(inputs)
+    try:
+        return await database_sync_to_async(_evaluate_due, thread_sensitive=False)(inputs)
+    except Exception as e:
+        if is_transient_db_error(e):
+            # Retryable (see this activity's RetryPolicy) and already tolerated by the sweep workflow's
+            # broad except around vision-action dispatch, so a pool blip here shouldn't page on its own.
+            raise TransientDbError(str(e)) from e
+        raise
 
 
 def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionAction]:
@@ -73,11 +83,15 @@ def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionActio
     """
     now = datetime.now(UTC)
     due: list[DueVisionAction] = []
+    # Resolved once, up front: for_team(..., canonical=True) below then skips its own per-call Team
+    # lookup. Without this every action in the loop paid for a redundant lookup while holding the
+    # SELECT FOR UPDATE transaction below open — 1 + 2N round trips through the pool for N actions.
+    team_id = resolve_effective_team_id(inputs.team_id)
     with transaction.atomic():
         # for_team scopes the read to one team (no all_teams scan); select_for_update guards against
         # a concurrent claim (belt-and-suspenders — per-scanner sweeps are already serialized).
         actions = (
-            VisionAction.objects.for_team(inputs.team_id)
+            VisionAction.objects.for_team(team_id, canonical=True)
             .select_for_update()
             .filter(
                 scanner_id=inputs.scanner_id,
@@ -98,7 +112,7 @@ def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionActio
             if every_match_alert and not _has_new_observations(action, now):
                 # Quiet tick: stamp the check time (feeds "Last checked") but skip the claim — no
                 # child workflow, no run row, no window query. One indexed EXISTS is the whole cost.
-                VisionAction.objects.for_team(inputs.team_id).filter(pk=action.id).update(
+                VisionAction.objects.for_team(team_id, canonical=True).filter(pk=action.id).update(
                     last_run_at=now, updated_at=now
                 )
                 continue
@@ -109,7 +123,7 @@ def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionActio
             # next_run_at when the schedule key changed, and we've already advanced it here — going
             # through .update() bypasses that override so the claim can't double-recompute the cursor.
             action._recompute_next_run_at()
-            VisionAction.objects.for_team(inputs.team_id).filter(pk=action.id).update(
+            VisionAction.objects.for_team(team_id, canonical=True).filter(pk=action.id).update(
                 next_run_at=action.next_run_at, last_run_at=now, updated_at=now
             )
             due.append(

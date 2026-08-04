@@ -11,7 +11,9 @@ from products.replay_vision.backend.enqueue_claims import (
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import in_flight_headroom
+from products.replay_vision.backend.temporal.db_errors import is_transient_db_error
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import TransientDbError
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
 
@@ -43,14 +45,24 @@ def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFl
     Counts DB rows rather than Temporal visibility so concurrency shares the quota system's
     single notion of in-flight. Rows stranded by failed workflows keep counting until the orphan
     reaper clears them, which throttles sweeps during an incident instead of piling on new work.
+
+    Deliberately does NOT fail open on a DB error — this counter guards the concurrency cap, and a
+    made-up zero would defeat that cap during exactly the kind of incident it exists to contain. Its
+    retry_policy gives a transient blip a few quick attempts instead; a genuine failure still fails
+    the whole tick, same as before.
     """
-    counts = ReplayObservation.in_flight_for_team(inputs.team_id).aggregate(
-        team=Count("id"),
-        scanner=Count("id", filter=Q(scanner_id=inputs.scanner_id)),
-    )
-    # On-demand scans hold enqueue claims until their rows persist.
-    team = counts["team"] + pending_enqueue_claims_for_team(inputs.team_id)
-    scanner = counts["scanner"] + pending_enqueue_claims_for_scanner(inputs.scanner_id)
+    try:
+        counts = ReplayObservation.in_flight_for_team(inputs.team_id).aggregate(
+            team=Count("id"),
+            scanner=Count("id", filter=Q(scanner_id=inputs.scanner_id)),
+        )
+        # On-demand scans hold enqueue claims until their rows persist.
+        team = counts["team"] + pending_enqueue_claims_for_team(inputs.team_id)
+        scanner = counts["scanner"] + pending_enqueue_claims_for_scanner(inputs.scanner_id)
+    except Exception as e:
+        if is_transient_db_error(e):
+            raise TransientDbError(str(e)) from e
+        raise
     # The workflow makes the same call on these counts; recorded here because metrics
     # can't be emitted from deterministic workflow code.
     if in_flight_headroom(scanner, team) <= 0:

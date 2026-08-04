@@ -31,13 +31,19 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
+from products.replay_vision.backend.temporal.consent import is_ai_data_processing_approved_resilient
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.conversation import function_calls, run_tool_loop
+from products.replay_vision.backend.temporal.db_errors import is_transient_db_error
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.errors import (
+    ConsentWithdrawnError,
+    FailureKind,
+    ScannerFailureError,
+    TransientDbError,
+)
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
 from products.replay_vision.backend.temporal.metrics import record_mission_pass, record_provider_call
@@ -94,6 +100,10 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
             # inspect the raw provider error and decide which layer owns the retry.
             kind = classify_gemini_error(e)
             if kind is None:
+                if is_transient_db_error(e):
+                    # A Postgres pool blip (e.g. the consent re-check below), not a provider or scanner
+                    # defect — retryable, and not worth paging on its own (see TransientDbError).
+                    raise TransientDbError(str(e)) from e
                 raise
             # The raw error body can quote request content (prompt text), so it stays out of both the
             # user-visible error_reason and the logs; code + status carry the diagnostic signal.
@@ -110,7 +120,7 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     # Re-check consent right before the provider generation — a separate egress step from the upload, so revocation
     # in the window between them must still abort before any recording data reaches the model. Fail closed.
-    if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
+    if not await is_ai_data_processing_approved_resilient(inputs.team_id):
         raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
     if inputs.snapshot_override is not None:

@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
+
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
@@ -28,12 +30,14 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     build_process_vision_action_workflow_id,
 )
+from products.replay_vision.backend.temporal.errors import TransientDbError
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
     InFlightApplyCounts,
+    RefreshPromptSuggestionInputs,
     SweepScannerInputs,
 )
 from products.replay_vision.backend.temporal.vision_actions.activities import evaluate_due_vision_actions_activity
@@ -237,6 +241,34 @@ class TestAdvanceScannerWatermarkActivity:
 
         scanner.refresh_from_db()
         assert scanner.scanner_version == original_version
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRefreshPromptSuggestionActivity:
+    def test_wraps_a_transient_db_error_as_non_reportable(self) -> None:
+        # The sweep workflow already treats this activity as best-effort (broad except, logged not
+        # paged) — but the Temporal interceptor captures an exception before that handler runs. A
+        # transient DB blip must not page on its own the way an unclassified exception would.
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion.refresh_prompt_suggestion_if_stale",
+            side_effect=OperationalError("query_wait_timeout"),
+        ):
+            with pytest.raises(TransientDbError):
+                refresh_prompt_suggestion_activity(
+                    RefreshPromptSuggestionInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
+
+    def test_propagates_a_non_transient_db_error_unchanged(self) -> None:
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion.refresh_prompt_suggestion_if_stale",
+            side_effect=OperationalError('relation "missing_table" does not exist'),
+        ):
+            with pytest.raises(OperationalError):
+                refresh_prompt_suggestion_activity(
+                    RefreshPromptSuggestionInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
 
 
 # SweepScannerWorkflow (mocked-Temporal)
