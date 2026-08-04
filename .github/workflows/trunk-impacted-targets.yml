@@ -99,7 +99,7 @@ jobs:
                   echo "$changed" | sed 's/^/  /'
                   printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
 
-                  # The script prints a JSON array on stdout, or "ALL" when it
+                  # The script prints a JSON array on stdout, or the JSON string "ALL" when it
                   # could not enumerate the targets, and never exits non-zero;
                   # it degrades to "ALL" internally on any error.
                   computed="$(printf '%s\n' "$changed" | node .github/scripts/trunk-impacted-targets.js)"

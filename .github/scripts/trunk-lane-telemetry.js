@@ -70,8 +70,17 @@ function buildProperties(changedFiles, impactedTargets, universe) {
     // Which blast radius each tripwire claimed, so a domain that turns out to
     // widen more than its share is visible without re-deriving it from paths.
     const tripwireDomains = {}
+    let semgrepDomains = null
     for (const file of tripwireFiles) {
-        const domain = tripwireDomain(file)
+        let domain = tripwireDomain(file)
+        if (domain === 'semgrep') {
+            try {
+                semgrepDomains = semgrepDomains || buildContext(REPO_ROOT).semgrepDomains || new Map()
+                domain = semgrepDomains.get(file) || 'universal'
+            } catch (error) {
+                domain = 'universal'
+            }
+        }
         tripwireDomains[domain] = (tripwireDomains[domain] || 0) + 1
     }
 
