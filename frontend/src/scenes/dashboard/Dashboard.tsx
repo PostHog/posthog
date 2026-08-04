@@ -150,7 +150,7 @@ function DashboardScene({
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" />
+                <InsightErrorState title="There was an error loading this dashboard" supportOnly />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
