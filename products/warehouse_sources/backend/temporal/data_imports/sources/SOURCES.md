@@ -484,6 +484,7 @@ the row lists both.
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP                        | requests                                                        | ✅                          |
+| postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | prefect_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
@@ -1214,7 +1215,6 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
-- postscript
 - power_bi_admin
 - practicepanther
 - preset
