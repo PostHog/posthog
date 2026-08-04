@@ -60,7 +60,7 @@ class WorldBankSource(ResumableSource[WorldBankSourceConfig, WorldBankResumeConf
             keywords=["world bank", "indicators", "gdp", "economic data"],
             caption="""Pull country-level development statistics from the [World Bank Indicators API](https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information) into the PostHog Data warehouse.
 
-The API is open, so no credentials are required. The World Bank publishes around 16,000 indicator series, which is far too much to sync wholesale, so enter the indicator codes you want, one per line. For example:
+The API is open, so no credentials are required. The World Bank publishes around 16,000 indicator series, which is far too much to sync wholesale, so enter the indicator codes you want (up to 50), one per line. For example:
 
 ```
 SP.POP.TOTL
@@ -101,6 +101,8 @@ The API has no "changed since" filter, and the World Bank revises historical val
         # error envelope, which the resource's required data selector rejects.
         return {
             "Required data_selector '[1]' matched nothing in the response": "The World Bank Indicators API returned an error instead of data. Check that every indicator code you entered is valid.",
+            # A code list that is empty or over the cap can't be fixed by retrying.
+            "World Bank source misconfigured": "Check the indicator codes on this source: the list is empty or has more codes than a single source can sync.",
         }
 
     def get_schemas(

@@ -33,6 +33,11 @@ BASE_URL_TEMPLATE = "https://api.worldbank.org/{api_version}"
 DATA_SELECTOR = "[1]"
 PAGE_COUNT_PATH = "[0].pages"
 
+# Every configured code costs its own paginated, full-history walk on every refresh (~17k
+# observations, ~17 requests each), so the list has to be bounded or a single source can pull the
+# whole 16,000-series catalog and consume worker, network, and storage capacity indefinitely.
+MAX_INDICATOR_CODES = 50
+
 # Source-create probes one request per indicator code, so cap how many are checked to keep the
 # form responsive. Codes beyond the cap are still synced; a bad one surfaces as a sync error.
 MAX_VALIDATED_INDICATOR_CODES = 20
@@ -58,6 +63,22 @@ def parse_indicator_codes(raw: Optional[str]) -> list[str]:
         if code and code not in codes:
             codes.append(code)
     return codes
+
+
+def check_indicator_codes(indicator_codes: list[str]) -> Optional[str]:
+    """User-facing error if the configured code list is empty or over the per-source cap.
+
+    Checked both when the source is created and again when a sync starts, so a list that was
+    saved before the cap existed (or through anything but the form) can't fan out unbounded.
+    """
+    if not indicator_codes:
+        return "Enter at least one World Bank indicator code, for example SP.POP.TOTL."
+    if len(indicator_codes) > MAX_INDICATOR_CODES:
+        return (
+            f"Too many indicator codes ({len(indicator_codes)}); enter at most {MAX_INDICATOR_CODES} distinct codes. "
+            "Each code is re-synced in full on every refresh."
+        )
+    return None
 
 
 def _page_count(response: Response) -> Optional[int]:
@@ -185,6 +206,12 @@ def _indicator_data_pages(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[WorldBankResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    # This is the fan-out point: one full paginated walk per code. Refuse an oversized list here
+    # rather than letting a stale config burn capacity indefinitely.
+    codes_error = check_indicator_codes(indicator_codes)
+    if codes_error:
+        raise ValueError(f"World Bank source misconfigured: {codes_error}")
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_index = resume.indicator_index if resume is not None else 0
     start_page = resume.page if resume is not None else 1
@@ -235,8 +262,9 @@ def world_bank_source(
 
 def validate_credentials(indicator_codes: list[str], api_version: str) -> tuple[bool, Optional[str]]:
     """Confirm the API is reachable and every configured indicator code resolves to a series."""
-    if not indicator_codes:
-        return False, "Enter at least one World Bank indicator code, for example SP.POP.TOTL."
+    codes_error = check_indicator_codes(indicator_codes)
+    if codes_error:
+        return False, codes_error
 
     base_url = BASE_URL_TEMPLATE.format(api_version=api_version)
     session = make_tracked_session()

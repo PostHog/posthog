@@ -10,8 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
     DATA_SELECTOR,
+    MAX_INDICATOR_CODES,
     WorldBankPaginator,
     WorldBankResumeConfig,
+    check_indicator_codes,
     flatten_observation,
     parse_indicator_codes,
     validate_credentials,
@@ -57,6 +59,27 @@ class TestParseIndicatorCodes:
         assert parse_indicator_codes(raw) == expected
 
 
+class TestCheckIndicatorCodes:
+    def test_accepts_a_list_at_the_cap(self) -> None:
+        assert check_indicator_codes([f"CODE.{index}" for index in range(MAX_INDICATOR_CODES)]) is None
+
+    def test_rejects_an_empty_list(self) -> None:
+        error = check_indicator_codes([])
+
+        assert error is not None and "SP.POP.TOTL" in error
+
+    def test_rejects_a_list_over_the_cap(self) -> None:
+        # Each code costs its own full-history walk on every refresh, so an unbounded list would
+        # let one source consume worker, network, and storage capacity indefinitely.
+        codes = [f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)]
+
+        error = check_indicator_codes(codes)
+
+        assert error is not None
+        assert str(MAX_INDICATOR_CODES) in error
+        assert str(len(codes)) in error
+
+
 class TestWorldBankPaginator:
     @pytest.mark.parametrize(
         ("pages", "expected_has_next"),
@@ -78,6 +101,26 @@ class TestWorldBankPaginator:
 
         assert paginator.page == 2
         assert paginator.has_next_page is expected_has_next
+
+    @pytest.mark.parametrize("body", [[], [{"page": 1}], "not-json"])
+    def test_falls_back_to_walking_when_the_page_count_is_unreadable(self, body: Any) -> None:
+        # A body with no metadata object, or one the JSON decoder rejects outright, must not
+        # abort pagination — it just costs one extra request to find the end.
+        response = MagicMock()
+        if body == "not-json":
+            response.json.side_effect = ValueError("no JSON object could be decoded")
+        else:
+            response.json.return_value = body
+
+        paginator = WorldBankPaginator()
+        paginator.update_state(response, data=[{"id": "ABW"}])
+
+        assert paginator.has_next_page is True
+
+    def test_str_reports_the_current_page(self) -> None:
+        paginator = WorldBankPaginator(page=7)
+
+        assert str(paginator) == "WorldBankPaginator(page=7)"
 
     def test_stops_on_empty_page(self) -> None:
         # Requesting a page past the end answers 200 with an empty row list rather than an error.
@@ -281,6 +324,24 @@ class TestWorldBankSourceTransport:
         assert sent_urls == ["https://api.worldbank.org/v2/country/all/indicator/B"]
         assert [params["page"] for params in sent_params] == [3]
 
+    @pytest.mark.parametrize(
+        "indicator_codes",
+        [[], [f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)]],
+    )
+    def test_indicator_data_refuses_an_out_of_bounds_code_list_before_requesting_anything(
+        self, indicator_codes: list[str]
+    ) -> None:
+        # Validation runs at source-create, but a config saved before the cap existed (or through
+        # anything but the form) would otherwise fan out unbounded on every refresh.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with pytest.raises(ValueError) as excinfo:
+            self._drive("indicator_data", manager, [], indicator_codes=indicator_codes)
+
+        assert "World Bank source misconfigured" in str(excinfo.value)
+        manager.load_state.assert_not_called()
+
 
 class TestValidateCredentials:
     def _validate(self, codes: list[str], responses: list[Response]) -> tuple[bool, Optional[str]]:
@@ -295,6 +356,14 @@ class TestValidateCredentials:
 
         assert ok is False
         assert error is not None and "SP.POP.TOTL" in error
+
+    def test_rejects_a_code_list_over_the_cap_without_probing(self) -> None:
+        # The cap has to be enforced at create time, not just at sync time, so an oversized list
+        # can never be saved in the first place.
+        ok, error = validate_credentials([f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)], "v2")
+
+        assert ok is False
+        assert error is not None and str(MAX_INDICATOR_CODES) in error
 
     def test_accepts_known_codes(self) -> None:
         ok, error = self._validate(

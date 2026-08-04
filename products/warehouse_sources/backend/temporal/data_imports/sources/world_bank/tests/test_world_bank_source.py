@@ -19,7 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import WorldBankResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
+    MAX_INDICATOR_CODES,
+    WorldBankResumeConfig,
+    world_bank_source,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -114,6 +118,23 @@ class TestWorldBankSource:
         raised = "Required data_selector '[1]' matched nothing in the response (body keys: list). ..."
 
         assert error_message_matches(raised, self.source.get_non_retryable_errors().keys())
+
+    def test_non_retryable_error_matches_an_out_of_bounds_code_list(self) -> None:
+        # Retrying an oversized code list just burns the same capacity again, so the sync has to
+        # fail immediately. The raised text and the matched pattern must stay in step.
+        with pytest.raises(ValueError) as excinfo:
+            list(
+                world_bank_source(
+                    endpoint="indicator_data",
+                    indicator_codes=[f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)],
+                    api_version="v2",
+                    team_id=123,
+                    job_id="job-id",
+                    resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+                )
+            )
+
+        assert error_message_matches(str(excinfo.value), self.source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_for_pipeline_plumbs_the_endpoint_through(self, endpoint: str) -> None:
