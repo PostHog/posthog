@@ -14,7 +14,7 @@ A request walks down this ladder and stops at the first tier whose conditions it
 | Tier                                     | What it is                                                                                                                                         | Typical latency |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
 | 0. Result cache                          | Django/HogQL cached response for the exact query fingerprint                                                                                       | ~ms             |
-| 1. Lazy precompute                       | Per-day UTC buckets on the aux cluster, built on demand, TTL-refreshed                                                                             | ~80–200ms       |
+| 1. Lazy precompute                       | Hourly UTC buckets (vitals: team-tz daily) on the aux cluster, built by background daily-UTC jobs, TTL-refreshed                                   | ~80–200ms       |
 | 2. Preaggregated tables (**deprecated**) | Daily preagg tables, modifier-gated; no new enrollments — retained only for the largest existing customers until lazy precompute fully replaces it | ~100ms–1s       |
 | 3. Live fast paths                       | Session-id-set (filtered) and no-join (unfiltered) shapes that avoid the full events↔sessions join                                                 | ~1–20s          |
 | 4. Full join                             | The original events↔sessions join; always works, slowest                                                                                           | ~5–60s          |
@@ -33,7 +33,8 @@ request
   │     per-query toggle defaults to opt-out for enrolled teams (#72645) —
   │     only an explicit useWebAnalyticsPrecompute: false rejects
   │   shape: family dispatch (see per-runner tables), no conversion goal,
-  │     no sampling, integer timezone, range ≤ 90d, filters events-evaluable
+  │     no sampling, integer timezone, `sessionsV2JoinMode` ≠ uuid,
+  │     range ≤ 90d, filters events-evaluable
   │     (restricted teams: single exact $host only)
   │   freshness: all day-buckets fresh per TTL band ──▶ serve *_lazy_query (~80–200ms)
   │     expired within 6h SWR grace ──▶ serve stale + enqueue revalidation
@@ -44,7 +45,8 @@ request
   │ not enrolled / unsupported
   ▼
 [3] Session-id-set fast path (filtered queries)
-  │   team on WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS, filters events-evaluable;
+  │   team on WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS or the
+  │     `web-analytics-session-id-set` rollout flag, filters events-evaluable;
   │   preflight selectivity query first (*_session_id_set_preflight)
   │ unfiltered / not allowlisted / preflight fails
   ▼
@@ -113,25 +115,27 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 
 ## Background warming systems
 
-Three writers keep buckets warm; user reads only ever consume.
+Four writers keep buckets warm; user reads only ever consume.
 
-| System                                             | Trigger tag                     | When                  | What it does                                                                                                                                                                              |
-| -------------------------------------------------- | ------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hourly demand warmer (Dagster, `cache_warming.py`) | `webAnalyticsQueryWarming`      | Hourly                | Selects hot shapes from query_log (kind `Web%`, ≥2 hits in 2 days; raw-path shapes keep a ≥10 bar), expands sub-30d ranges to −30d, replays via an 8-worker pool with the opt-in injected |
-| Warm-behind on miss                                | (background warming request)    | On any user-read miss | Debounced rebuild of exactly the shape that missed; self-heals first-hit misses in ~30–60s                                                                                                |
-| Stale revalidation                                 | `webAnalyticsStaleRevalidation` | On stale-grace serves | Refreshes expired buckets after serving the stale copy                                                                                                                                    |
+| System                                                               | Trigger tag                        | When                  | What it does                                                                                                                                                                              |
+| -------------------------------------------------------------------- | ---------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Eager baseline warmer (Dagster, `eager_web_analytics_precompute.py`) | `webAnalyticsEagerBaselineWarming` | Hourly at :05         | Pre-warms the fixed dashboard matrix (overview, goals, vitals, one stats query per breakdown) over a trailing 28d window for flag-enrolled teams (cap 200, 45-min cycle budget)           |
+| Hourly demand warmer (Dagster, `cache_warming.py`)                   | `webAnalyticsQueryWarming`         | Hourly                | Selects hot shapes from query_log (kind `Web%`, ≥2 hits in 2 days; raw-path shapes keep a ≥10 bar), expands sub-30d ranges to −30d, replays via an 8-worker pool with the opt-in injected |
+| Warm-behind on miss                                                  | (background warming request)       | On any user-read miss | Debounced rebuild of exactly the shape that missed; self-heals first-hit misses in ~30–60s                                                                                                |
+| Stale revalidation                                                   | `webAnalyticsStaleRevalidation`    | On stale-grace serves | Refreshes expired buckets after serving the stale copy                                                                                                                                    |
 
 ## Flags and team allowlists
 
-| Gate                                                  | Type             | Controls                                                                                                        |
-| ----------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| `web-analytics-precompute-toggle`                     | Org feature flag | Lazy precompute enrollment; enrolled teams read by default (opt-out). Evaluated locally, fails closed           |
-| `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`              | Env allowlist    | Flag-independent precompute enrollment (shared with Dagster warmers, where flag evaluation is unreliable)       |
-| `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` | Env allowlist    | Lifts the single-`$host` filter-shape restriction — any filter combo becomes precomputable (own cache key each) |
-| `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS`               | Env allowlist    | Filtered fast path (live tier)                                                                                  |
-| `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %          | Env + percentage | Unfiltered fast path — 100% on Cloud                                                                            |
-| `useWebAnalyticsPrecompute`                           | Per-query field  | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                     |
-| `useWebAnalyticsPreAggregatedTables`                  | Query modifier   | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                    |
+| Gate                                                  | Type              | Controls                                                                                                        |
+| ----------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
+| `web-analytics-precompute-toggle`                     | Org feature flag  | Lazy precompute enrollment; enrolled teams read by default (opt-out). Evaluated locally, fails closed           |
+| `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`              | Env allowlist     | Flag-independent precompute enrollment (shared with Dagster warmers, where flag evaluation is unreliable)       |
+| `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` | Env allowlist     | Lifts the single-`$host` filter-shape restriction — any filter combo becomes precomputable (own cache key each) |
+| `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS`               | Env allowlist     | Filtered fast path (live tier)                                                                                  |
+| `web-analytics-session-id-set`                        | Team rollout flag | Filtered fast path enrollment without the env allowlist — either gate admits the team                           |
+| `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %          | Env + percentage  | Unfiltered fast path — 100% on Cloud                                                                            |
+| `useWebAnalyticsPrecompute`                           | Per-query field   | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                     |
+| `useWebAnalyticsPreAggregatedTables`                  | Query modifier    | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                    |
 
 ## query_type tag reference
 
@@ -142,7 +146,7 @@ Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_la
 | Overview        | `web_overview_lazy_query/insert`, `web_overview_preaggregated_query`                                       | `web_overview_no_join_query`, `web_overview_session_id_set_query` (+`_preflight`), `web_overview_query`                                                                                                                                      |
 | Stats table     | `web_stats_paths_lazy_*`, `web_stats_frustration_lazy_*`, `web_stats_lazy_*`, `stats_table_preaggregated*` | `stats_table_no_join_*`, `stats_table_session_id_set_*` (+`_preflight`), `stats_table_path_bounce[_and_avg_time]`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_frustration_metrics`, `stats_table_simple_breakdown` |
 | Goals           | `web_goals_lazy_query/insert`                                                                              | `web_goals_query`                                                                                                                                                                                                                            |
-| Vitals          | `web_vitals_paths_lazy_insert`                                                                             | `web_vitals_path_breakdown_query`                                                                                                                                                                                                            |
+| Vitals          | `web_vitals_paths_lazy_query/insert`                                                                       | `web_vitals_path_breakdown_query`                                                                                                                                                                                                            |
 | External clicks | —                                                                                                          | `external_clicks_query`                                                                                                                                                                                                                      |
 
 ## Reading a slow tile
