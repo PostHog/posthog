@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.data_freshness import Freshness, derive_freshness
+from posthog.data_freshness import Freshness, ProjectFreshness, derive_freshness, reportable
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 
@@ -78,3 +78,15 @@ class TestDeriveFreshness(SimpleTestCase):
             [ProductKey.SESSION_REPLAY, ProductKey.PRODUCT_ANALYTICS, ProductKey.LOGS],
         )
         self.assertEqual(result.last_data_at, _ago(1))
+
+    def test_a_failed_probe_only_keeps_live_verdicts(self) -> None:
+        # A probe that failed can't be told apart from a product with no data, so a stale or
+        # never verdict might just be the missing probe. Warning on those would be wrong.
+        results = [
+            ProjectFreshness(team_id=1, freshness=Freshness.LIVE, last_data_at=_ago(0), sources=[]),
+            ProjectFreshness(team_id=2, freshness=Freshness.STALE, last_data_at=_ago(20), sources=[]),
+            ProjectFreshness(team_id=3, freshness=Freshness.NEVER, last_data_at=None, sources=[]),
+        ]
+
+        self.assertEqual(reportable(results, degraded=False), results)
+        self.assertEqual([r.team_id for r in reportable(results, degraded=True)], [1])

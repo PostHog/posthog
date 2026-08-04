@@ -42,7 +42,6 @@ LOOKBACK_DAYS = 30
 QUIET_AFTER_DAYS = 7
 
 CACHE_TTL_SECONDS = 10 * 60
-DEGRADED_CACHE_TTL_SECONDS = 60
 # Bump when ProjectFreshness or SourceFreshness change shape: cached values are pickled, so old
 # entries would otherwise unpickle missing a field.
 _CACHE_SCHEMA_VERSION = 1
@@ -139,16 +138,14 @@ def get_organization_data_freshness(organization_id: str, teams: list[Team]) -> 
     if cached is not None:
         return cached
 
-    result, degraded = _compute(teams)
-    # An unreachable store reads as "no data", which is the wrong answer to pin for a full TTL.
-    safe_cache_set(cache_key, result, DEGRADED_CACHE_TTL_SECONDS if degraded else CACHE_TTL_SECONDS)
+    result = _compute(teams)
+    safe_cache_set(cache_key, result, CACHE_TTL_SECONDS)
     return result
 
 
-def _compute(teams: list[Team]) -> tuple[list[ProjectFreshness], bool]:
-    """Returns the per-team verdicts, and whether any probe failed so the caller can cache accordingly."""
+def _compute(teams: list[Team]) -> list[ProjectFreshness]:
     if not teams:
-        return [], False
+        return []
 
     now = datetime.now(UTC)
     quiet_before = now - timedelta(days=QUIET_AFTER_DAYS)
@@ -173,7 +170,18 @@ def _compute(teams: list[Team]) -> tuple[list[ProjectFreshness], bool]:
             logger.warning("data_freshness_probe_failed", probe=name, error=str(e))
             capture_exception(e)
 
-    return [derive_freshness(team, by_team[team.id], quiet_before) for team in teams], degraded
+    return reportable([derive_freshness(team, by_team[team.id], quiet_before) for team in teams], degraded=degraded)
+
+
+def reportable(results: list[ProjectFreshness], *, degraded: bool) -> list[ProjectFreshness]:
+    """Drop verdicts a failed probe could have changed.
+
+    Finding recent data stays true whatever else broke, but finding none is indistinguishable
+    from not having been able to look, so those projects say nothing rather than warn wrongly.
+    """
+    if not degraded:
+        return results
+    return [result for result in results if result.freshness == Freshness.LIVE]
 
 
 def _probes(
