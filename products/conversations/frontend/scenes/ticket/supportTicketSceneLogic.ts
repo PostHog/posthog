@@ -224,7 +224,6 @@ export interface supportTicketSceneLogicValues {
     messageSending: boolean
     messages: CommentType[]
     messagesLoading: boolean
-    sendIdempotencyKey: string | null
     olderMessagesLoading: boolean
     person: PersonType | null
     personLoading: boolean
@@ -232,6 +231,7 @@ export interface supportTicketSceneLogicValues {
     previousTicketsLoading: boolean
     priority: TicketPriority | null
     replyRecipientDescription: string
+    sendIdempotencyKey: string | null
     sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
     status: TicketStatus | null
@@ -248,6 +248,9 @@ export interface supportTicketSceneLogicActions {
         value: true
     } // supportTicketsSceneLogic
     loadTags: () => any // tagsModel
+    appendMessage: (message: CommentType) => {
+        message: CommentType
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -382,12 +385,6 @@ export interface supportTicketSceneLogicActions {
     setHasMoreMessages: (hasMore: boolean) => {
         hasMore: boolean
     }
-    appendMessage: (message: CommentType) => {
-        message: CommentType
-    }
-    setSendIdempotencyKey: (key: string | null) => {
-        key: string | null
-    }
     setMessageSending: (sending: boolean) => {
         sending: boolean
     }
@@ -405,6 +402,9 @@ export interface supportTicketSceneLogicActions {
     }
     setPriority: (priority: TicketPriority) => {
         priority: TicketPriority
+    }
+    setSendIdempotencyKey: (key: string | null) => {
+        key: string | null
     }
     setSnoozedUntil: (snoozedUntil: string | null) => {
         snoozedUntil: string | null
