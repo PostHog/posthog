@@ -563,6 +563,25 @@ describe('HogWatcher', () => {
             expect(observeResultsSpy).toHaveBeenCalledWith([results[0], results[1], results[2]])
             expect(observeResultsSpy).toHaveBeenCalledWith([results[3]])
         })
+
+        it('rejects every caller when a buffered flush fails without an unhandled rejection', async () => {
+            const error = new Error('valkey unavailable')
+            observeResultsSpy.mockRejectedValueOnce(error)
+            const unhandledRejection = jest.fn()
+            process.on('unhandledRejection', unhandledRejection)
+            try {
+                const calls = [
+                    watcher.observeResultsBuffered(createResult({})),
+                    watcher.observeResultsBuffered(createResult({})),
+                    watcher.observeResultsBuffered(createResult({})),
+                ]
+                await expect(Promise.all(calls)).rejects.toThrow(error)
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(unhandledRejection).not.toHaveBeenCalled()
+            } finally {
+                process.off('unhandledRejection', unhandledRejection)
+            }
+        })
     })
 
     describe('reader fallback', () => {
@@ -590,9 +609,9 @@ describe('HogWatcher', () => {
 
             const state = await watcherWithFailingReader.getPersistedState(hogFunctionId)
 
-            // observeResults uses useClient (mget), getPersistedState uses usePipeline
-            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
-            expect(failingReader.usePipeline).toHaveBeenCalledTimes(1)
+            // Both the cluster-safe observeResults reads and getPersistedState use pipelines.
+            expect(failingReader.useClient).not.toHaveBeenCalled()
+            expect(failingReader.usePipeline).toHaveBeenCalledTimes(2)
             expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
             expect(loggerWarnSpy).toHaveBeenCalledWith(
                 '🔀',

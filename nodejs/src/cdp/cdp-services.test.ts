@@ -1,6 +1,6 @@
 import { RedisV2 } from '~/common/redis/redis-v2'
 
-import { createCdpReaderRedisPool } from './cdp-services'
+import { createCdpReaderRedisPool, createCdpValkeyShadowPools } from './cdp-services'
 
 const mockReaderPool: RedisV2 = {
     useClient: jest.fn((_opts, cb) => cb({ ping: () => Promise.resolve('PONG') } as any)),
@@ -105,5 +105,35 @@ describe('createCdpReaderRedisPool', () => {
         const logMessage = logSpy.mock.calls[0]?.[1] as string
         expect(logMessage).not.toContain('supersecret')
         expect(logMessage).toContain('prod-redis.internal')
+    })
+})
+
+describe('createCdpValkeyShadowPools', () => {
+    it('enables cluster mode for the local Valkey mirror', () => {
+        const result = createCdpValkeyShadowPools(
+            {
+                CDP_VALKEY_HOST: 'valkey-cluster',
+                CDP_VALKEY_PORT: 6379,
+                CDP_VALKEY_PASSWORD: '',
+                CDP_VALKEY_READER_HOST: '',
+                CDP_VALKEY_READER_PORT: 6379,
+                CDP_VALKEY_DUAL_ENABLED: true,
+                CDP_VALKEY_CLUSTER_MODE: true,
+                CDP_VALKEY_TLS: false,
+                REDIS_POOL_MIN_SIZE: 1,
+                REDIS_POOL_MAX_SIZE: 4,
+            },
+            'test-redis'
+        )
+
+        expect(result).toEqual({ writer: mockReaderPool, reader: mockReaderPool })
+        expect(createRedisV2PoolFromConfig).toHaveBeenCalledWith(
+            expect.objectContaining({
+                connection: expect.objectContaining({
+                    url: 'valkey-cluster',
+                    clusterMode: true,
+                }),
+            })
+        )
     })
 })

@@ -126,6 +126,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_CLUSTER_MODE'
         | 'CDP_VALKEY_TLS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
@@ -259,6 +260,7 @@ export function createCdpValkeyShadowPools(
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_CLUSTER_MODE'
         | 'CDP_VALKEY_TLS'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
@@ -291,6 +293,7 @@ export function createCdpValkeyShadowPools(
                 tls,
             },
             name: `${name}-shadow`,
+            clusterMode: config.CDP_VALKEY_CLUSTER_MODE,
         },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
@@ -319,6 +322,7 @@ export function createCdpValkeyShadowPools(
                     tls,
                 },
                 name: `${name}-shadow-reader`,
+                clusterMode: config.CDP_VALKEY_CLUSTER_MODE,
             },
             poolMinSize: config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,

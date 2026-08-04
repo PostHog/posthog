@@ -2,6 +2,18 @@
 
 Node.js services for PostHog: ingestion pipeline, CDP, session recording, and more.
 
+## Testing CDP with Valkey Cluster locally
+
+The development Compose stack includes a single-node Valkey instance with all 16,384 Redis Cluster slots assigned. Start it and run the focused tests with:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --wait valkey-cluster
+pnpm --dir nodejs exec jest --runInBand --forceExit src/cdp/services/monitoring/hog-watcher.valkey.integration.test.ts
+pnpm --dir nodejs exec jest --runInBand --forceExit src/cdp/services/monitoring/hog-watcher.service.test.ts
+```
+
+Containers discover slots through the announced Docker-network address. Host-side tests connect through `127.0.0.1:6390`.
+
 ## Running tests
 
 Tests run against **dedicated test databases**, never the dev stack's databases:

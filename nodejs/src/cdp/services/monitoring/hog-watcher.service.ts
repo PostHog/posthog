@@ -100,6 +100,7 @@ export class HogWatcherService {
         promise: Promise<void>
         timeout: NodeJS.Timeout
         complete: () => void
+        fail: (error: unknown) => void
     } | null = null
 
     private redisReader: RedisV2
@@ -470,11 +471,20 @@ export class HogWatcherService {
         const stateKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE}/${fc.functionId}`)
         const lockKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE_LOCK}/${fc.functionId}`)
 
-        const readStates = (pool: RedisV2) =>
-            pool.useClient({ name: 'readStatesForObserve' }, async (client) => {
-                const [states, locks] = await Promise.all([client.mget(...stateKeys), client.mget(...lockKeys)])
-                return { states, locks }
+        const readStates = async (pool: RedisV2) => {
+            const result = await pool.usePipeline({ name: 'readStatesForObserve' }, (pipeline) => {
+                stateKeys.forEach((key) => pipeline.get(key))
+                lockKeys.forEach((key) => pipeline.get(key))
             })
+            const error = result?.find(([commandError]) => commandError)?.[0]
+            if (error) {
+                throw error
+            }
+            return {
+                states: result?.slice(0, stateKeys.length).map(([, value]) => value) ?? [],
+                locks: result?.slice(stateKeys.length).map(([, value]) => value) ?? [],
+            }
+        }
 
         const requests = functionCostEntries.map((fc) => ({ id: fc.functionId, cost: fc.cost }))
         const [stateRes, rateLimitRes] = await Promise.all([
@@ -525,25 +535,28 @@ export class HogWatcherService {
         // We need to make sure that we only process the results once
         if (!this.queuedResults) {
             let resolvePromise: () => void
-            const promise = new Promise<void>((resolve) => {
+            let rejectPromise: (error: unknown) => void
+            const promise = new Promise<void>((resolve, reject) => {
                 resolvePromise = resolve
+                rejectPromise = reject
             })
 
             this.queuedResults = {
                 results: [],
                 promise,
                 complete: resolvePromise!,
-                timeout: setTimeout(() => this.flushBufferedResults(), this.config.observeResultsBufferTimeMs),
+                fail: rejectPromise!,
+                timeout: setTimeout(() => void this.flushBufferedResults(), this.config.observeResultsBufferTimeMs),
             }
         }
 
-        this.queuedResults.results.push(result)
+        const queuedResults = this.queuedResults
+        queuedResults.results.push(result)
 
-        if (this.queuedResults.results.length >= this.config.observeResultsBufferMaxResults) {
+        if (queuedResults.results.length >= this.config.observeResultsBufferMaxResults) {
             await this.flushBufferedResults()
-        } else {
-            await this.queuedResults.promise
         }
+        await queuedResults.promise
     }
 
     private async flushBufferedResults() {
@@ -551,10 +564,14 @@ export class HogWatcherService {
             return
         }
 
-        const { results, timeout, complete } = this.queuedResults
+        const { results, timeout, complete, fail } = this.queuedResults
         clearTimeout(timeout)
         this.queuedResults = null
-        await this.observeResults(results)
-        complete()
+        try {
+            await this.observeResults(results)
+            complete()
+        } catch (error) {
+            fail(error)
+        }
     }
 }
