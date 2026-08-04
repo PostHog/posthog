@@ -367,13 +367,17 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         return ""
 
     def get_needs_reauth(self, obj: MCPServerInstallation) -> bool:
-        if obj.auth_type != "oauth":
+        if obj.auth_type != "oauth" or obj.url == COMPOSIO_HUB_URL:
             return False
         sensitive = obj.sensitive_configuration or {}
         return bool(sensitive.get("needs_reauth"))
 
     def get_pending_oauth(self, obj: MCPServerInstallation) -> bool:
-        if obj.auth_type != "oauth":
+        # Composio holds the vendor tokens, so this row has no access token by design and there is
+        # no OAuth flow to resume. Reporting it as pending makes clients offer a "continue OAuth"
+        # action that resolves to nothing — readiness here means "has a connected app" instead,
+        # which is what the proxy and the sandbox facade both check.
+        if obj.auth_type != "oauth" or obj.url == COMPOSIO_HUB_URL:
             return False
         sensitive = obj.sensitive_configuration or {}
         return not sensitive.get("access_token")

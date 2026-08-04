@@ -157,3 +157,12 @@ class TestComposioInstallationListing(APIBaseTest):
         assert response.status_code == 204
         assert MCPServerInstallation.objects.filter(id=self.hub.id).exists()
         assert {entry["url"] for entry in self._list()} == {other_template.url}
+
+    def test_connected_app_is_not_reported_as_pending_oauth(self) -> None:
+        # Composio holds the vendor tokens, so the hub has no access token by design. Reporting it
+        # as pending made clients offer "Continue OAuth", which resolves against an installation id
+        # that doesn't exist and 404s.
+        entry = next(e for e in self._list() if e["url"] == self.template.url)
+
+        assert entry["pending_oauth"] is False
+        assert entry["needs_reauth"] is False
