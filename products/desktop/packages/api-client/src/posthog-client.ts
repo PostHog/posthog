@@ -5460,6 +5460,7 @@ export class PostHogAPIClient {
     description: string;
     body: string;
     files?: LlmSkillFileInput[];
+    metadata?: Record<string, unknown>;
   }): Promise<LlmSkill> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/environments/${teamId}/llm_skills/`;
@@ -5492,6 +5493,7 @@ export class PostHogAPIClient {
       body: string;
       description?: string;
       files?: LlmSkillFileInput[];
+      metadata?: Record<string, unknown>;
       base_version: number;
     },
   ): Promise<LlmSkill> {
