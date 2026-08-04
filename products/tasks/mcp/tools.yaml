@@ -613,7 +613,6 @@ tools:
                 description: >
                     The child's verbatim prompt. Make it specific, self-contained, and complete because the child works
                     independently.
-                required: true
         feature_flag: tasks-orchestration
         response:
             include:
