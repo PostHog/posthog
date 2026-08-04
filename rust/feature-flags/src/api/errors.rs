@@ -604,6 +604,15 @@ impl From<sqlx::Error> for FlagError {
                     // Connection resets, serialization failures, and other transient
                     // connection-level Postgres faults are retryable, so surface them as a
                     // 503 rather than treating a DB blip as a hard 500 SDKs won't retry.
+                    //
+                    // DatabaseUnavailable carries no payload, so log the cause here or the
+                    // SQLSTATE is lost — that detail is what distinguishes a connection
+                    // blip (08***) from resource exhaustion (53***) during an incident.
+                    tracing::warn!(
+                        sqlstate = e.as_database_error().and_then(|db| db.code()).as_deref(),
+                        "Transient database error, returning 503: {}",
+                        e
+                    );
                     FlagError::DatabaseUnavailable
                 } else {
                     // Genuine internal faults (data corruption, unknown SQLSTATEs) stay 500.
