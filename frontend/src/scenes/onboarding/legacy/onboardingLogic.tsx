@@ -420,6 +420,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 s.isCloudOrDev,
                 s.subscribedDuringOnboarding,
                 s.canInviteTeammates,
+                s.featureFlags,
             ],
             (
                 primary: ProductKey | null,
@@ -430,7 +431,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 shouldShowBilling: boolean,
                 isCloudOrDev: boolean | undefined,
                 subscribedDuringOnboarding: boolean,
-                canInviteTeammates: boolean
+                canInviteTeammates: boolean,
+                featureFlags: FeatureFlagsSet
             ): OnboardingStepDescriptor[] => {
                 if (!primary) {
                     return []
@@ -444,6 +446,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     isCloudOrDev: Boolean(isCloudOrDev),
                     subscribedDuringOnboarding,
                     canInviteTeammates,
+                    featureFlags,
                 }
                 const productSteps = orderedProducts.flatMap((p, i) => {
                     const provider = onboardingProviderRegistry[p]

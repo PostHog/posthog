@@ -17,9 +17,13 @@ from products.web_analytics.backend.path_cleaning_suggestions.service import (
 
 logger = structlog.get_logger(__name__)
 
-# LLM generation is orders of magnitude slower and costlier than the framework's
-# ClickHouse detectors, so batches stay small and strictly sequential.
-LLM_EXECUTION_POLICY = HealthExecutionPolicy(batch_size=10, max_concurrent=1)
+# The framework enumerates every active team before batching — it has no way to
+# pre-target the enrolled cohort — so batches must stay large or Cloud turns into
+# thousands of serial no-op activities that each filter down to zero candidates.
+# The expensive part (one LLM call per candidate) is bounded inside detect():
+# candidates are the cohort intersection, processed strictly sequentially, so a
+# big batch costs one activity, not a burst of LLM calls.
+LLM_EXECUTION_POLICY = HealthExecutionPolicy(batch_size=5000, max_concurrent=1)
 
 
 class PathCleaningSuggestionsCheck(HealthCheck):

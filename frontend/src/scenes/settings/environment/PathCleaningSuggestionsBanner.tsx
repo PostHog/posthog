@@ -17,7 +17,7 @@ function PathCleaningPreviewModal({
     suggestionId: string
     restrictedReason: string | null
 }): JSX.Element {
-    const { previewOpen, preview, previewLoading } = useValues(pathCleaningSuggestionsLogic)
+    const { previewOpen, preview, previewLoading, applying } = useValues(pathCleaningSuggestionsLogic)
     const { closePreview, applySuggestion } = useActions(pathCleaningSuggestionsLogic)
 
     return (
@@ -36,6 +36,7 @@ function PathCleaningPreviewModal({
                         type="primary"
                         onClick={() => applySuggestion(suggestionId)}
                         disabledReason={restrictedReason}
+                        loading={applying}
                     >
                         Apply all
                     </LemonButton>
@@ -79,7 +80,7 @@ function PathCleaningPreviewModal({
 
 export function PathCleaningSuggestionsBanner(): JSX.Element | null {
     const flagEnabled = useFeatureFlag('WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS')
-    const { latestSuggestion, suggestionsLoading } = useValues(pathCleaningSuggestionsLogic)
+    const { latestSuggestion, suggestionsLoading, applying } = useValues(pathCleaningSuggestionsLogic)
     const { applySuggestion, dismissSuggestion, openPreview } = useActions(pathCleaningSuggestionsLogic)
     // Applying writes path_cleaning_filters, an admin-gated team field — mirror the backend gate.
     const restrictedReason = useRestrictedArea({
@@ -102,6 +103,7 @@ export function PathCleaningSuggestionsBanner(): JSX.Element | null {
                     children: 'Apply all',
                     onClick: () => applySuggestion(latestSuggestion.id),
                     disabledReason: restrictedReason,
+                    loading: applying,
                 }}
                 onClose={() => dismissSuggestion(latestSuggestion.id)}
             >
