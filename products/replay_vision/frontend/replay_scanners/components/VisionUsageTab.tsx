@@ -76,15 +76,12 @@ export function VisionUsageTab(): JSX.Element {
               }`
             : undefined
 
-    // Enabled scanners that are only projected to spend get a row too: a fresh scanner with a big
-    // estimate is exactly the one worth seeing before it costs anything.
     const rows = usageScanners.filter(
         (s: ReplayScanner) => s.credits_this_month > 0 || (s.enabled && (s.estimated_monthly_credits ?? 0) > 0)
     )
     const hiddenCount = usageScanners.length - rows.length
     const totalCredits = rows.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
-    // A $0 limit blocks scanning outright, but it's meaningless as a bar denominator, so it deliberately
-    // lands in the same branch as "no limit".
+    // A $0 limit really blocks scanning, but as a bar denominator it deliberately counts as "no limit".
     const creditLimit = hasCap && quota.credit_limit > 0 ? quota.credit_limit : null
 
     // The period window comes from the quota, so dispatching before it lands would abort the in-flight query
