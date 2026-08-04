@@ -168,11 +168,11 @@ class TestDeferFollowupEndpoint(APIBaseTest):
             origin_product=Task.OriginProduct.LOOP,
             loop=self.loop,
         )
-        self.run = self.task.create_run(mode="background", extra_state={"loop_id": str(self.loop.id)})
+        self.task_run = self.task.create_run(mode="background", extra_state={"loop_id": str(self.loop.id)})
 
     def defer(self, until):
         return self.client.post(
-            f"/api/projects/@current/tasks/{self.task.id}/runs/{self.run.id}/defer_followup/",
+            f"/api/projects/@current/tasks/{self.task.id}/runs/{self.task_run.id}/defer_followup/",
             {"until": until.isoformat(), "reason": "Not enough data yet"},
             format="json",
         )
