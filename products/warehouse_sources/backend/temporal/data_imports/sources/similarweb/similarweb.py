@@ -152,7 +152,10 @@ def _request(
 
     if not response.ok:
         logger.error(f"Similarweb API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-        response.raise_for_status()
+        # Don't use raise_for_status(): it embeds response.url — which carries the api_key query
+        # param — into the exception message, and that propagates to the job's stored error, logs,
+        # and analytics. Raise with the param-free url instead.
+        raise requests.HTTPError(f"Similarweb API returned status {response.status_code} for {url}")
 
     body = response.json()
     return body if isinstance(body, dict) else {}
@@ -427,8 +430,10 @@ def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
             params={"api_key": api_key},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
-    except Exception as e:
-        return False, f"Could not reach the Similarweb API ({e}). Please retry."
+    except Exception:
+        # The exception can carry the prepared request URL, including the api_key query param, so
+        # keep it out of the returned message rather than interpolating str(e).
+        return False, "Could not reach the Similarweb API. Please retry."
 
     if response.status_code == 200:
         return True, None
