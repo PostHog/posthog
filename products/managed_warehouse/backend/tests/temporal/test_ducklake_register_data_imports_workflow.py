@@ -14,6 +14,7 @@ from products.managed_warehouse.backend.facade.contracts import ManagedWarehouse
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
+    S3_COPY_BATCH_SIZE,
     DuckLakeRegisterDataImportsActivityInputs,
     DuckLakeRegisterDataImportsGateInputs,
     DuckLakeRegisterDataImportsInputs,
@@ -144,7 +145,7 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
 def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monkeypatch):
     class FakeS3:
         def __init__(self) -> None:
-            self.copies: list[tuple[str, str]] = []
+            self.copy_calls: list[tuple[list[str], list[str], int]] = []
 
         def find(self, prefix: str, detail: bool = False):
             files = {
@@ -153,8 +154,8 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
             }
             return files if detail else list(files)
 
-        def copy(self, source: str, destination: str) -> None:
-            self.copies.append((source, destination))
+        def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
+            self.copy_calls.append((sources, destinations, batch_size))
 
     s3 = FakeS3()
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
@@ -191,17 +192,20 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
 
     assert applied is True
     connect.assert_called_once_with("postgresql://duckgres", autocommit=True)
-    assert s3.copies == [
+    assert s3.copy_calls == [
         (
-            "source/team/customers__query/_ph_partition_key=2026-07/a.parquet",
-            "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-            "_ph_partition_key=2026-07/a.parquet",
-        ),
-        (
-            "source/team/customers__query/_ph_partition_key=2026-08/b.parquet",
-            "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-            "_ph_partition_key=2026-08/b.parquet",
-        ),
+            [
+                "source/team/customers__query/_ph_partition_key=2026-07/a.parquet",
+                "source/team/customers__query/_ph_partition_key=2026-08/b.parquet",
+            ],
+            [
+                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+                "_ph_partition_key=2026-07/a.parquet",
+                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+                "_ph_partition_key=2026-08/b.parquet",
+            ],
+            S3_COPY_BATCH_SIZE,
+        )
     ]
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_indexes = [index for index, query in enumerate(executed) if "ducklake_add_data_files" in query]
