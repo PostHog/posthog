@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+export const TaskParentMessageSchema = z.string().trim().min(1)
+
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { normalizeParamAliases } from '../tools/cast-helpers'

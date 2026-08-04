@@ -9957,6 +9957,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-notify-parent": {
+        "description": "Send a message to and wake the parent task. Use this for progress updates, questions, or results. Calling this tool does not complete or stop the child. The platform identifies the calling child automatically, so this tool only works from inside a running cloud task.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Notify parent task",
+        "title": "Notify parent task",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks-orchestration"
+    },
     "tasks-retrieve": {
         "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use the task ID returned by tasks-spawn to check a child task. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
         "category": "Tasks",
