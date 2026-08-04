@@ -38,26 +38,38 @@ describe("FreeformCanvas", () => {
   });
 
   describe("open-external", () => {
+    let userActivationIsActive = true;
+
     beforeEach(() => {
       vi.useFakeTimers();
+      userActivationIsActive = true;
+      Object.defineProperty(navigator, "userActivation", {
+        configurable: true,
+        get: () => ({
+          hasBeenActive: true,
+          isActive: userActivationIsActive,
+        }),
+      });
     });
 
     afterEach(() => {
       vi.useRealTimers();
       vi.mocked(openExternalUrl).mockClear();
+      Reflect.deleteProperty(navigator, "userActivation");
     });
 
-    it("opens PostHog https URLs once the user has focused the canvas", () => {
+    it("opens PostHog https URLs during a user activation", () => {
       const iframe = renderCanvas();
-      iframe.focus();
 
       postFromCanvas(iframe, "https://posthog.com/docs");
 
       expect(openExternalUrl).toHaveBeenCalledWith("https://posthog.com/docs");
     });
 
-    it("drops opens when the user has not interacted with the canvas", () => {
+    it("drops opens without a current user activation", () => {
       const iframe = renderCanvas();
+      userActivationIsActive = false;
+      iframe.focus();
 
       postFromCanvas(iframe, "https://posthog.com/docs");
 
@@ -66,7 +78,6 @@ describe("FreeformCanvas", () => {
 
     it("drops non-PostHog URLs", () => {
       const iframe = renderCanvas();
-      iframe.focus();
 
       postFromCanvas(iframe, "https://example.com");
       postFromCanvas(iframe, "javascript:alert(1)");
@@ -77,7 +88,6 @@ describe("FreeformCanvas", () => {
 
     it("throttles rapid opens so canvas code cannot spam the launcher", () => {
       const iframe = renderCanvas();
-      iframe.focus();
 
       postFromCanvas(iframe, "https://posthog.com/a");
       postFromCanvas(iframe, "https://posthog.com/b");

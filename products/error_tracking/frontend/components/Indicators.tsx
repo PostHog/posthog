@@ -51,6 +51,12 @@ interface IssueStatusConfig {
     tooltip?: string
 }
 
+const UNKNOWN_STATUS_CONFIG: IssueStatusConfig = {
+    color: '#6b7280',
+    intentLabel: 'Unknown status',
+    label: 'Unknown',
+}
+
 export const ISSUE_STATUS_CONFIG: Record<IssueStatus, IssueStatusConfig> = {
     active: {
         color: '#f59e0b',
@@ -82,17 +88,11 @@ export const ISSUE_STATUS_CONFIG: Record<IssueStatus, IssueStatusConfig> = {
     },
 }
 
-const FALLBACK_STATUS_CONFIG: IssueStatusConfig = {
-    color: '#6b7280',
-    intentLabel: 'Unknown status',
-    label: 'Unknown',
-}
-
 // A status can arrive from outside the enum at runtime (stale persisted filters, URL params,
 // AI-tool output, or deprecated status names), and an unguarded config lookup crashes the whole
 // scene. Render a neutral fallback instead.
 export function getIssueStatusConfig(status: IssueStatus): IssueStatusConfig {
-    return ISSUE_STATUS_CONFIG[status] ?? FALLBACK_STATUS_CONFIG
+    return ISSUE_STATUS_CONFIG[status] ?? UNKNOWN_STATUS_CONFIG
 }
 
 export const IssueStatusDot = ({ status, className }: { status: IssueStatus; className?: string }): JSX.Element => (
