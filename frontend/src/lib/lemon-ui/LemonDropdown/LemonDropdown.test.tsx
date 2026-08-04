@@ -34,12 +34,49 @@ describe('LemonDropdown', () => {
         const overlay = document.querySelector('.Popover')
         expect(overlay).toBeInTheDocument()
 
-        // Child trigger's onMouseLeave (guards against floatingRef.current.contains).
-        expect(() => fireEvent.mouseLeave(trigger, { relatedTarget })).not.toThrow()
-        // Overlay's onMouseLeaveInside (guards against referenceRef.current.contains).
-        expect(() => fireEvent.mouseLeave(overlay!, { relatedTarget })).not.toThrow()
+        jest.useFakeTimers()
+        try {
+            // Child trigger's onMouseLeave (guards against floatingRef.current.contains).
+            expect(() => fireEvent.mouseLeave(trigger, { relatedTarget })).not.toThrow()
+            // Overlay's onMouseLeaveInside (guards against referenceRef.current.contains).
+            expect(() => fireEvent.mouseLeave(overlay!, { relatedTarget })).not.toThrow()
 
-        // The "cursor has left" branch should still run, closing the dropdown.
-        expect(onVisibilityChange).toHaveBeenCalledWith(false)
+            // The "cursor has left" branch should still run, closing the dropdown after the hover-close grace period.
+            jest.runAllTimers()
+            expect(onVisibilityChange).toHaveBeenCalledWith(false)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('does not close a hover dropdown when the cursor moves from the trigger into the panel', () => {
+        const onVisibilityChange = jest.fn()
+
+        render(
+            <LemonDropdown
+                trigger="hover"
+                startVisible
+                onVisibilityChange={onVisibilityChange}
+                overlay={<div>Menu</div>}
+            >
+                <button>Open</button>
+            </LemonDropdown>
+        )
+
+        const trigger = screen.getByText('Open')
+        const overlay = document.querySelector('.Popover')!
+
+        jest.useFakeTimers()
+        try {
+            // Leaving the trigger towards the panel schedules a close...
+            fireEvent.mouseLeave(trigger, { relatedTarget: overlay })
+            // ...but entering the panel before the grace period elapses must cancel it.
+            fireEvent.mouseEnter(overlay)
+            jest.runAllTimers()
+
+            expect(onVisibilityChange).not.toHaveBeenCalledWith(false)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

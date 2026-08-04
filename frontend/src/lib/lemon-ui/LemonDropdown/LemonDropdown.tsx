@@ -1,6 +1,13 @@
-import React, { MouseEventHandler, useContext, useRef, useState } from 'react'
+import React, { MouseEventHandler, useContext, useEffect, useRef, useState } from 'react'
 
 import { Popover, PopoverOverlayContext, PopoverProps } from '../Popover'
+
+// Hovering off the trigger towards the panel (or vice versa) briefly crosses a gap that is
+// neither element - e.g. the arrow/offset area between a `placement="top"` panel and its
+// trigger. Without a grace period, that gap closes the dropdown, which reopens it the moment
+// the cursor lands back on the trigger, causing rapid flicker. This delay lets the close be
+// cancelled if the cursor re-enters either the trigger or the panel before it fires.
+const HOVER_CLOSE_DELAY_MS = 150
 
 export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {
     visible?: boolean
@@ -51,6 +58,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
 
         const floatingRef = useRef<HTMLDivElement>(null)
         const referenceRef = useRef<HTMLSpanElement>(null)
+        const closeTimeoutRef = useRef<number | null>(null)
 
         const effectiveVisible = visible ?? localVisible
 
@@ -60,6 +68,23 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             }
             onVisibilityChange?.(value)
         }
+
+        const cancelScheduledClose = (): void => {
+            if (closeTimeoutRef.current !== null) {
+                window.clearTimeout(closeTimeoutRef.current)
+                closeTimeoutRef.current = null
+            }
+        }
+
+        const scheduleClose = (): void => {
+            cancelScheduledClose()
+            closeTimeoutRef.current = window.setTimeout(() => {
+                closeTimeoutRef.current = null
+                setVisible(false)
+            }, HOVER_CLOSE_DELAY_MS)
+        }
+
+        useEffect(() => cancelScheduledClose, [])
 
         return (
             <Popover
@@ -77,6 +102,11 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     closeOnClickInside && setVisible(false)
                     onClickInside?.(e)
                 }}
+                onMouseEnterInside={() => {
+                    if (trigger === 'hover') {
+                        cancelScheduledClose()
+                    }
+                }}
                 onMouseLeaveInside={(e) => {
                     // relatedTarget is null when leaving the window and isn't always a Node, so
                     // Node.contains() would throw — treat anything that isn't a contained Node as "left".
@@ -85,7 +115,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                         trigger === 'hover' &&
                         !(relatedTarget instanceof Node && referenceRef.current?.contains(relatedTarget))
                     ) {
-                        setVisible(false)
+                        scheduleClose()
                     }
                     onMouseLeaveInside?.(e)
                 }}
@@ -94,6 +124,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             >
                 {React.cloneElement(children, {
                     onClick: (e: React.MouseEvent): void => {
+                        cancelScheduledClose()
                         setVisible(!effectiveVisible)
                         children.props.onClick?.(e)
                         if (parentPopoverLevel > -1) {
@@ -104,6 +135,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     },
                     onMouseEnter: (): void => {
                         if (trigger === 'hover') {
+                            cancelScheduledClose()
                             setVisible(true)
                         }
                     },
@@ -113,7 +145,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                             trigger === 'hover' &&
                             !(relatedTarget instanceof Node && floatingRef.current?.contains(relatedTarget))
                         ) {
-                            setVisible(false)
+                            scheduleClose()
                         }
                     },
                     'aria-haspopup': 'true',

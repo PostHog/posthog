@@ -2,7 +2,7 @@ import './index.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconClock, IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
@@ -22,6 +22,11 @@ import { teamLogic } from '../../../scenes/teamLogic'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
+
+// The popover content remounts every time it opens, so without a gate a hover trigger that
+// flickers open/closed would spam `timezone component viewed`. This throttles repeat reports
+// from the same label to one per window, while still recording genuinely separate later views.
+const TZ_LABEL_VIEW_REPORT_THROTTLE_MS = 10_000
 
 // One shared 1s ticker for every mounted TZLabel: a table can render hundreds of them, and an
 // interval per instance means hundreds of timer wake-ups per second for text that changes about
@@ -68,8 +73,10 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     time,
     title,
     displayTimezone,
+    lastReportedViewAtRef,
 }: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
     time: dayjs.Dayjs
+    lastReportedViewAtRef: React.MutableRefObject<number>
 }): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
@@ -92,7 +99,11 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     }
 
     useOnMountEffect(() => {
-        reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
+        const now = Date.now()
+        if (now - lastReportedViewAtRef.current > TZ_LABEL_VIEW_REPORT_THROTTLE_MS) {
+            lastReportedViewAtRef.current = now
+            reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
+        }
     })
 
     const displayedTime = displayTimezone ? safeTimezone(displayTimezone) : null
@@ -210,6 +221,10 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     },
     ref
 ): JSX.Element {
+    // Persists across the popover's open/close cycles (unlike its content, which remounts each
+    // time), so the view-report throttle survives rapid reopens.
+    const lastReportedViewAtRef = useRef(0)
+
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
     const displayTime = useMemo(() => {
         if (!displayTimezone) {
@@ -282,6 +297,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
                         showSeconds={showSeconds}
                         title={title}
                         displayTimezone={displayTimezone}
+                        lastReportedViewAtRef={lastReportedViewAtRef}
                     />
                 }
             >
