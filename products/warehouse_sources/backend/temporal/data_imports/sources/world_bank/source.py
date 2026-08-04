@@ -156,4 +156,10 @@ The API has no "changed since" filter, and the World Bank revises historical val
                 resumable_source_manager=resumable_source_manager,
             ),
             primary_keys=PRIMARY_KEYS[endpoint],
+            # The resume checkpoint advances after every yielded page, so each page has to be
+            # durable before the next one moves the bookmark past it. Each yielded item is already
+            # a whole API page, so chunk_size=1 flushes it to Delta on its own rather than letting
+            # several pages sit in the batcher's buffer — a mid-sync failure would otherwise resume
+            # past the buffered pages and finish the full-refresh table with silent gaps.
+            chunk_size=1,
         )
