@@ -139,6 +139,7 @@ describe('aiObservabilityDatasetLogic', () => {
         mockDatasetsApi.updateItem.mockResolvedValue(mockDatasetItem1)
         mockDatasetsApi.exportDataset.mockResolvedValue(mockDatasetExport)
         mockDatasetsApi.getExport.mockResolvedValue(mockDatasetExport)
+        mockDatasetsApi.getExportContentUrl.mockReturnValue('#dataset-export-download')
         mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset, archived: true })
         mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset)
         mockDatasetsApi.archiveItem.mockResolvedValue({ ...mockDatasetItem1, archived: true, version: 2 })
@@ -418,7 +419,7 @@ describe('aiObservabilityDatasetLogic', () => {
     })
 
     describe('dataset export', () => {
-        it('starts an export pinned to the selected revision', async () => {
+        it('starts an export and links its status and download', async () => {
             const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
             logic.mount()
             logic.actions.sceneMounted()
@@ -427,7 +428,78 @@ describe('aiObservabilityDatasetLogic', () => {
 
             expect(mockDatasetsApi.exportDataset).toHaveBeenCalledWith(mockDataset.id, 7)
             expect(logic.values.datasetExport).toEqual(mockDatasetExport)
-            expect(lemonToast.success).toHaveBeenCalledWith('Dataset export is ready to download.')
+            expect(lemonToast.info).toHaveBeenCalledWith(
+                `Preparing dataset revision ${mockDatasetExport.dataset_revision} for download.`,
+                {
+                    button: {
+                        label: 'View status',
+                        action: expect.any(Function),
+                    },
+                }
+            )
+            const statusToastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => void }
+            }
+            statusToastOptions.button.action()
+
+            expect(router.values.location.pathname).toContain(urls.aiObservabilityDataset(mockDataset.id))
+            expect(router.values.searchParams.export).toBe(String(mockDatasetExport.id))
+
+            expect(lemonToast.success).toHaveBeenCalledWith('Dataset export is ready to download.', {
+                button: {
+                    label: 'Download',
+                    action: expect.any(Function),
+                },
+            })
+            const downloadToastOptions = (lemonToast.success as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => void }
+            }
+            await expectLogic(logic, () => downloadToastOptions.button.action()).toFinishAllListeners()
+
+            expect(mockDatasetsApi.getExportContentUrl).toHaveBeenCalledWith(mockDataset.id, mockDatasetExport.id)
+            expect(window.location.hash).toBe('#dataset-export-download')
+            window.location.hash = ''
+        })
+
+        it('loads an export linked from its status notification', async () => {
+            const pendingExport: DatasetExportReadApi = {
+                ...mockDatasetExport,
+                status: 'pending',
+            }
+            mockDatasetsApi.getExport.mockResolvedValue(pendingExport)
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                router.actions.push(urls.aiObservabilityDataset(mockDataset.id), {
+                    export: String(pendingExport.id),
+                })
+            ).toFinishAllListeners()
+
+            expect(mockDatasetsApi.getExport).toHaveBeenCalledWith(mockDataset.id, pendingExport.id)
+            expect(logic.values.datasetExport).toEqual(pendingExport)
+        })
+
+        it('keeps the linked export available for a status retry when loading fails', async () => {
+            const exportId = 456
+            mockDatasetsApi.getExport.mockRejectedValue(new ApiError('Export status unavailable', 500))
+            silenceKeaLoadersErrors()
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+
+            try {
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.aiObservabilityDataset(mockDataset.id), {
+                        export: String(exportId),
+                    })
+                ).toFinishAllListeners()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+
+            expect(logic.values.datasetExport).toBeNull()
+            expect(logic.values.datasetExportRetryId).toBe(exportId)
+            expect(logic.values.datasetExportErrorOperation).toBe('status')
         })
 
         it('retries export creation when a new request fails after an earlier export completed', async () => {

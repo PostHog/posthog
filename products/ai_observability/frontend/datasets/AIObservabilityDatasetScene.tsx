@@ -63,7 +63,6 @@ import {
 } from './aiObservabilityDatasetLogic'
 import { getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { DatasetItemModal } from './DatasetItemModal'
-import { datasetsApi } from './datasetsApi'
 import { EditDatasetForm } from './EditDatasetForm'
 import { JSONColumn } from './JSONColumn'
 import { RefreshButton } from './RefreshButton'
@@ -330,6 +329,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         datasetExportLoading,
         datasetExportLoadError,
         datasetExportErrorOperation,
+        datasetExportRetryId,
     } = useValues(aiObservabilityDatasetLogic)
     const {
         closeModalAndRefetchDatasetItems,
@@ -340,6 +340,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         setFilters,
         exportDataset,
         loadDatasetExport,
+        downloadDatasetExport,
     } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
     const selectedItemReadOnly = !canEditDataset || !!selectedDatasetItem?.archived
@@ -394,10 +395,10 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                     <LemonBanner
                         type="error"
                         action={
-                            datasetExportErrorOperation === 'status' && datasetExport
+                            datasetExportErrorOperation === 'status' && datasetExportRetryId !== null
                                 ? {
                                       children: 'Check again',
-                                      onClick: () => loadDatasetExport({ exportId: datasetExport.id }),
+                                      onClick: () => loadDatasetExport({ exportId: datasetExportRetryId }),
                                       loading: datasetExportLoading,
                                   }
                                 : {
@@ -430,9 +431,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                         type="success"
                         action={{
                             children: 'Download',
-                            onClick: () => {
-                                window.location.href = datasetsApi.getExportContentUrl(dataset.id, datasetExport.id)
-                            },
+                            onClick: () => downloadDatasetExport(datasetExport.id),
                         }}
                     >
                         Revision {datasetExport.dataset_revision} is ready to download.
