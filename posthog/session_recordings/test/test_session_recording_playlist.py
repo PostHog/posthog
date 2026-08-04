@@ -18,8 +18,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -45,6 +47,8 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+
+from ee.models.rbac.access_control import AccessControl
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -1000,6 +1004,35 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 p_collection_one.id,
                 p_collection_two.id,
             }
+
+    def test_user_access_level_reflects_object_level_restriction(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        open_collection = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="Open collection", type=SessionRecordingPlaylist.PlaylistType.COLLECTION
+        )
+        restricted_collection = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="Restricted collection", type=SessionRecordingPlaylist.PlaylistType.COLLECTION
+        )
+        AccessControl.objects.create(
+            resource="session_recording_playlist",
+            resource_id=str(restricted_collection.id),
+            team=self.team,
+            access_level="viewer",
+        )
+
+        self.client.force_login(member)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?type=collection")
+        assert response.status_code == status.HTTP_200_OK
+
+        results_by_id = {p["id"]: p for p in response.json()["results"]}
+        assert results_by_id[open_collection.id]["user_access_level"] == "editor"
+        assert results_by_id[restricted_collection.id]["user_access_level"] == "viewer"
 
     def test_create_playlist_in_specific_folder(self):
         response = self._create_playlist(

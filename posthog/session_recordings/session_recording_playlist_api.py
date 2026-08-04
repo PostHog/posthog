@@ -492,6 +492,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "type",
             "is_synthetic",
             "_create_in_folder",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -503,6 +504,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "last_modified_by",
             "recordings_counts",
             "is_synthetic",
+            "user_access_level",
         ]
 
     created_by = UserBasicSerializer(read_only=True)

@@ -329,7 +329,11 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
                                             <LemonButton
                                                 fullWidth
                                                 size="small"
-                                                disabledReason={accessControlDisabledReason}
+                                                disabledReason={getAccessControlDisabledReason(
+                                                    AccessControlResourceType.SessionRecording,
+                                                    AccessControlLevel.Editor,
+                                                    playlist.user_access_level
+                                                )}
                                                 onClick={() => {
                                                     handleBulkAddToPlaylist(playlist.short_id)
                                                     handleClose()

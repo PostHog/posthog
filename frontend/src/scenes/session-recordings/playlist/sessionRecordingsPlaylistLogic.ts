@@ -1468,34 +1468,34 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings()
         },
         handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
-            await lemonToast.promise(
-                (async () => {
-                    try {
+            try {
+                await lemonToast.promise(
+                    (async () => {
                         await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to show the new recordings
                         handleLoadCollectionRecordings(short_id)
-                    } catch (e) {
-                        posthog.captureException(e)
-                    }
-                })(),
-                {
-                    success: `${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } added to collection!`,
-                    error: 'Failed to add to collection!',
-                    pending: `Adding ${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } to the collection...`,
-                },
-                {
-                    button: {
-                        label: 'View collection',
-                        action: () => router.actions.push(urls.replayPlaylist(short_id)),
+                    })(),
+                    {
+                        success: `${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } added to collection!`,
+                        error: 'Failed to add to collection!',
+                        pending: `Adding ${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } to the collection...`,
                     },
-                }
-            )
+                    {
+                        button: {
+                            label: 'View collection',
+                            action: () => router.actions.push(urls.replayPlaylist(short_id)),
+                        },
+                    }
+                )
+            } catch (e) {
+                posthog.captureException(e)
+            }
         },
         handleBulkDeleteFromPlaylist: async ({ short_id }: { short_id: string }) => {
             await lemonToast.promise(

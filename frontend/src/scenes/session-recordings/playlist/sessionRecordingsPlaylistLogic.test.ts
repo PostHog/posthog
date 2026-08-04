@@ -958,6 +958,24 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
             })
         })
+
+        describe('adding recordings to a collection', () => {
+            it('does not clear the selection when the add request fails', async () => {
+                jest.spyOn(api.recordings, 'bulkAddRecordingsToPlaylist').mockRejectedValue(new Error('nope'))
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                }).toDispatchActions(['setSelectedRecordingsIds'])
+
+                await expectLogic(logic, () =>
+                    logic.actions.handleBulkAddToPlaylist('some-playlist')
+                ).toNotHaveDispatchedActions(['setSelectedRecordingsIds'])
+
+                expect(logic.values.selectedRecordingsIds).toEqual(['abc', 'def'])
+            })
+        })
     })
 
     describe('person specific logic', () => {

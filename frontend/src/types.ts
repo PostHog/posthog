@@ -1975,6 +1975,7 @@ export interface SessionRecordingPlaylistType {
     /** Whether this playlist is a synthetic (virtual) playlist that's computed on-demand */
     is_synthetic?: boolean
     _create_in_folder?: string | null
+    user_access_level?: AccessControlLevel
 }
 
 export interface SavedSessionRecordingPlaylistsFilters {
