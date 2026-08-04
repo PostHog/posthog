@@ -120,11 +120,9 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_person_ids,
     use_workflows_batch_audience_query,
 )
-from products.workflows.backend.services.revisions import use_workflows_revisions
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
-    use_workflows_timing_reschedule,
 )
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
@@ -136,15 +134,6 @@ logger = structlog.get_logger(__name__)
 # Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
 # (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
-
-# Active workflows are read-only via MCP unless the workflows-revisions flag routes edits to the
-# draft (see perform_update / graph): edits can break runs already scheduled or in flight, and
-# there's no revision history to roll back. Shared by the plain update path and the graph endpoint.
-MCP_ACTIVE_EDIT_REJECTION = (
-    "Editing an active workflow isn't supported via MCP yet — changes can break runs already "
-    "scheduled or in flight, and there's no revision history to roll back. If you need different "
-    "behavior, create a new draft workflow."
-)
 
 # The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
 # else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
@@ -2388,9 +2377,6 @@ class DraftExistsError(exceptions.APIException):
     default_code = "draft_exists"
 
 
-REVISIONS_DISABLED_MESSAGE = "Revision history isn't enabled for this project yet."
-
-
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
 # and it signs the exact draft it previewed — so a valid token proves the caller saw the impact
 # summary for the draft being published. Short max-age keeps the previewed counts fresh.
@@ -2707,9 +2693,6 @@ class HogFlowViewSet(
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
         route_to_draft = False
-        # Resolved once, before the write transaction: the flag check can hit the network and must
-        # not extend the select_for_update row-lock hold (same rule as _maybe_reschedule_timing_edits).
-        revisions_enabled = use_workflows_revisions(self.team)
         if self._is_mcp_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
@@ -2733,12 +2716,9 @@ class HogFlowViewSet(
                     "changes steps by id and leaves the rest of the graph untouched."
                 )
 
-            # Content edits on an active workflow stage a draft when the revisions cycle is on for the
-            # team; otherwise active workflows stay read-only via MCP. Status-only PATCHes (lifecycle
-            # tools) pass through either way, and metadata-only edits apply live once the flag is on.
+            # Content edits on an active workflow stage a draft rather than landing live. Status-only
+            # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
             if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
-                if not revisions_enabled:
-                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
                 route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
 
         instance_id = serializer.instance.id
@@ -2789,14 +2769,9 @@ class HogFlowViewSet(
                 bump = False
                 if before_update is not None:
                     self._refresh_action_redirects(
-                        serializer.instance,
-                        before_update,
-                        serializer.validated_data.get("actions"),
-                        enabled=revisions_enabled,
+                        serializer.instance, before_update, serializer.validated_data.get("actions")
                     )
-                    bump = self._stage_revision_bump(
-                        serializer.instance, before_update, serializer.validated_data, enabled=revisions_enabled
-                    )
+                    bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
                 serializer.save()
                 if bump:
                     assert before_update is not None
@@ -2833,32 +2808,25 @@ class HogFlowViewSet(
         instance.id = flow_id
         self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
 
-    def _refresh_action_redirects(
-        self, target: HogFlow, old: HogFlow, new_actions: Optional[list], enabled: bool
-    ) -> None:
+    def _refresh_action_redirects(self, target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
         # Skip-forward for deleted steps: refresh the redirect map whenever a live graph write is about
         # to land, while both the old graph (`old`, the locked pre-write row) and the new actions are in
         # hand. Must run before serializer.save() so the map persists in the same write, transaction,
-        # and worker reload as the graph it describes. Flag-gated with the rest of the revisions cycle;
-        # `enabled` is the caller's pre-transaction flag evaluation so no network call runs under the lock.
+        # and worker reload as the graph it describes.
         # No status gate: disabling a flow doesn't purge its parked runs (the worker only cancels them
         # if they wake while the flow is still disabled), so a step deleted during a disable/re-enable
         # window needs its redirect recorded just like one deleted live.
-        if new_actions is None or not enabled:
+        if new_actions is None:
             return
         target.action_redirects = compute_action_redirects(
             old.actions or [], old.edges or [], new_actions, old.action_redirects
         )
 
-    def _stage_revision_bump(self, instance: HogFlow, before: HogFlow, validated_data: dict, enabled: bool) -> bool:
+    def _stage_revision_bump(self, instance: HogFlow, before: HogFlow, validated_data: dict) -> bool:
         # Revision history: only live-content changes get a version. Compared pre-save so the bumped
         # version lands in the same UPDATE (and worker reload) as the content it describes. The
         # serializer injects derived fields (trigger, billable_action_types) into every validated
         # payload, so a status/metadata-only write compares equal here and stays unversioned.
-        # `enabled` is the caller's pre-transaction flag evaluation — the flag check can hit the
-        # network and must not run under the select_for_update lock.
-        if not enabled:
-            return False
         raw_old = snapshot_flow_content(before)
         raw_new = {
             **raw_old,
@@ -2928,19 +2896,11 @@ class HogFlowViewSet(
         # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
         instance = self.get_object()
 
-        # Resolved before the write transaction: the flag check can hit the network and must not
-        # extend the select_for_update row-lock hold.
-        revisions_enabled = use_workflows_revisions(self.team)
-
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
-            route_to_draft = False
-            if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
-                if not revisions_enabled:
-                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
-                route_to_draft = True
+            route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
 
             # Optimistic concurrency, mirroring perform_update: the graph endpoint is the only MCP
             # path that writes graph content, so it carries the base_updated_at staleness contract.
@@ -2977,12 +2937,8 @@ class HogFlowViewSet(
             if route_to_draft:
                 self._write_draft(locked, locked, serializer.validated_data)
             else:
-                self._refresh_action_redirects(
-                    locked, before_update, serializer.validated_data.get("actions"), enabled=revisions_enabled
-                )
-                bump = self._stage_revision_bump(
-                    locked, before_update, serializer.validated_data, enabled=revisions_enabled
-                )
+                self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
+                bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
                 serializer.save()
                 if bump:
@@ -3025,18 +2981,10 @@ class HogFlowViewSet(
         # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
         instance = self.get_object()
 
-        # Resolved before the write transaction: the flag check can hit the network and must not
-        # extend the select_for_update row-lock hold.
-        revisions_enabled = use_workflows_revisions(self.team)
-
-        # A doomed request must fail here, before the expensive render below, not under the lock.
-        # The locked section re-checks and stays authoritative if the status flips in between.
-        if self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE and not revisions_enabled:
-            raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
-
-        # Rendering is a synchronous Unlayer HTTP call, so it also runs before the transaction,
-        # against the unlocked row. Draft routing is predicted the same way the locked section
-        # decides it; if the routing or the design moves before the lock, the apply conflicts.
+        # Rendering is a synchronous Unlayer HTTP call, so it runs before the transaction, against the
+        # unlocked row — it must not extend the select_for_update hold. Draft routing is predicted the
+        # same way the locked section decides it; if the routing or the design moves before the lock,
+        # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
             predicts_draft = self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE
@@ -3050,11 +2998,7 @@ class HogFlowViewSet(
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
-            route_to_draft = False
-            if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
-                if not revisions_enabled:
-                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
-                route_to_draft = True
+            route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
 
             # Same staleness contract as /graph: draft edits race against other draft edits, so the
             # baseline is the draft's timestamp once one exists.
@@ -3085,9 +3029,7 @@ class HogFlowViewSet(
             if route_to_draft:
                 self._write_draft(locked, locked, serializer.validated_data)
             else:
-                bump = self._stage_revision_bump(
-                    locked, before_update, serializer.validated_data, enabled=revisions_enabled
-                )
+                bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
                 serializer.save()
                 if bump:
@@ -3117,10 +3059,10 @@ class HogFlowViewSet(
 
         Called wherever the LIVE config changes - a direct save (the builder path, where save
         is go-live), the graph endpoint, or publish - and never for draft writes, which don't
-        touch what runs execute. Deliberately called AFTER the writing transaction commits:
-        the feature-flag check can hit the network, and must not extend the select_for_update
-        row-lock hold. on_commit outside an atomic block runs the enqueue immediately, and in
-        tests (where an outer transaction wraps the request) it defers to that commit.
+        touch what runs execute. Deliberately called AFTER the writing transaction, so the diff and
+        the enqueue never extend the select_for_update row-lock hold. on_commit outside an atomic
+        block runs the enqueue immediately, and in tests (where an outer transaction wraps the
+        request) it defers to that commit.
         """
         if not before or after.status != HogFlow.State.ACTIVE:
             return
@@ -3133,8 +3075,6 @@ class HogFlowViewSet(
         else:
             action_ids = get_timing_reschedule_action_ids(before.actions, after.actions)
         if not action_ids:
-            return
-        if not use_workflows_timing_reschedule(self.team):
             return
         team_id = self.team_id
         hog_flow_id = str(after.id)
@@ -3230,9 +3170,6 @@ class HogFlowViewSet(
     def publish(self, request: Request, *args, **kwargs):
         # Promote the staged draft to the live config. Two-step by design: a call without confirm only
         # echoes impact (how many runs are in flight), so callers — especially agents — never publish blind.
-        if not use_workflows_revisions(self.team):
-            raise exceptions.ValidationError("Publishing drafts isn't enabled for this project yet.")
-
         param_serializer = HogFlowPublishRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
         confirm = param_serializer.validated_data["confirm"]
@@ -3294,12 +3231,8 @@ class HogFlowViewSet(
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
             serializer.is_valid(raise_exception=True)
-            # enabled=True: the flag was already checked (and required) at the top of this method,
-            # before the transaction — re-evaluating it here would put a network call under the lock.
-            self._refresh_action_redirects(
-                locked, before_update, serializer.validated_data.get("actions"), enabled=True
-            )
-            bump = self._stage_revision_bump(locked, before_update, serializer.validated_data, enabled=True)
+            self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
+            bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)
             # save() runs update(), which recovers the draft's secrets (from the merged live+draft
             # encrypted maps) and re-splits them into the live encrypted_inputs column. The draft's own
             # secret column is then cleared alongside the draft.
@@ -3331,9 +3264,6 @@ class HogFlowViewSet(
     @action(detail=True, methods=["POST"])
     def discard_draft(self, request: Request, *args, **kwargs):
         # Throw away the staged draft. Idempotent: discarding when nothing is staged is a no-op.
-        if not use_workflows_revisions(self.team):
-            raise exceptions.ValidationError("Drafts aren't enabled for this project yet.")
-
         instance = self.get_object()
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
@@ -3358,8 +3288,6 @@ class HogFlowViewSet(
     def revisions(self, request: Request, *args, **kwargs):
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
-        if not use_workflows_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         instance = self.get_object()
         queryset = HogFlowRevision.objects.filter(hog_flow=instance).order_by("-version").select_related("created_by")
         page = self.paginate_queryset(queryset)
@@ -3371,8 +3299,6 @@ class HogFlowViewSet(
     )
     @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)")
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
-        if not use_workflows_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         instance = self.get_object()
         try:
             revision = HogFlowRevision.objects.get(hog_flow=instance, version=int(version or 0))
@@ -3392,8 +3318,6 @@ class HogFlowViewSet(
         # Rollback (or roll-forward) = copy the revision's content into the draft, then go through
         # the normal publish preview + confirm. Nothing here touches the live config, so the impact
         # of the rollback is always previewed and confirmed like any other publish.
-        if not use_workflows_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         param_serializer = HogFlowRevisionRestoreRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 

@@ -58,8 +58,7 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
 import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
 // Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally
-// not registered: editing active workflows is blocked, and exposing disable invited a
-// disable→edit→enable workaround. The factory stays in lifecycle.ts for easy re-enable.
+// not registered; the factory stays in lifecycle.ts for easy re-enable.
 import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
