@@ -339,67 +339,6 @@ tools:
             provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't
             pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from
             the PostHog UI before retrying.
-    llma-evaluation-directory-create:
-        operation: evaluation_directories_create
-        enabled: true
-        scopes:
-            - evaluation:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create evaluation directory
-        description: >
-            Create a top-level directory for organizing online evaluations. Directory names must be unique within the
-            project, ignoring capitalization.
-    llma-evaluation-directory-delete:
-        operation: evaluation_directories_destroy
-        enabled: true
-        scopes:
-            - evaluation:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete evaluation directory
-        description: >
-            Delete an evaluation directory. Evaluations in the directory are preserved and moved to the top level.
-    llma-evaluation-directory-get:
-        operation: evaluation_directories_retrieve
-        enabled: true
-        scopes:
-            - evaluation:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get evaluation directory
-        description: >
-            Get an evaluation directory by UUID, including its name and active evaluation count.
-    llma-evaluation-directory-list:
-        operation: evaluation_directories_list
-        enabled: true
-        scopes:
-            - evaluation:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List evaluation directories
-        description: >
-            List the project's evaluation directories and active evaluation counts.
-    llma-evaluation-directory-update:
-        operation: evaluation_directories_partial_update
-        enabled: true
-        scopes:
-            - evaluation:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update evaluation directory
-        description: >
-            Rename an evaluation directory. Directory names must be unique within the project, ignoring capitalization.
     llma-evaluation-create:
         operation: evaluations_create
         enabled: true
@@ -430,6 +369,67 @@ tools:
             Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views.
             Historical evaluation results ($ai_evaluation events) are preserved.
         soft_delete: true
+    llma-evaluation-directory-create:
+        operation: evaluation_directories_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create evaluation directory
+        description: >
+            Create a top-level directory for organizing online evaluations. Directory names must be unique within the
+            project, ignoring capitalization.
+    llma-evaluation-directory-delete:
+        operation: evaluation_directories_destroy
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete evaluation directory
+        description: |
+            Delete an evaluation directory. Evaluations in the directory are preserved and moved to the top level.
+    llma-evaluation-directory-get:
+        operation: evaluation_directories_retrieve
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation directory
+        description: |
+            Get an evaluation directory by UUID, including its name and active evaluation count.
+    llma-evaluation-directory-list:
+        operation: evaluation_directories_list
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluation directories
+        description: |
+            List the project's evaluation directories and active evaluation counts.
+    llma-evaluation-directory-update:
+        operation: evaluation_directories_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation directory
+        description: |
+            Rename an evaluation directory. Directory names must be unique within the project, ignoring capitalization.
     llma-evaluation-get:
         operation: evaluations_retrieve
         enabled: true
