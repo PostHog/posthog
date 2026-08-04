@@ -153,8 +153,6 @@ class UsageCounters(TypedDict):
     sandbox_compute_credits: int
     sandbox_compute_cpu_millicore_seconds: int
     sandbox_compute_memory_mib_seconds: int
-    sandbox_compute_cpu_cost_microusd: int
-    sandbox_compute_memory_cost_microusd: int
     workflow_emails: int
     workflow_push: int
     workflow_destinations_dispatched: int
@@ -167,8 +165,6 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_credits",
     "sandbox_compute_cpu_millicore_seconds",
     "sandbox_compute_memory_mib_seconds",
-    "sandbox_compute_cpu_cost_microusd",
-    "sandbox_compute_memory_cost_microusd",
 )
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
@@ -1135,12 +1131,6 @@ def update_all_orgs_billing_quotas(
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": convert_team_usage_rows_to_dict(
             sandbox_compute_usage.memory_mib_seconds
         ),
-        "teams_with_sandbox_compute_cpu_cost_microusd_in_period": convert_team_usage_rows_to_dict(
-            sandbox_compute_usage.cpu_cost_microusd
-        ),
-        "teams_with_sandbox_compute_memory_cost_microusd_in_period": convert_team_usage_rows_to_dict(
-            sandbox_compute_usage.memory_cost_microusd
-        ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
         ),
@@ -1224,12 +1214,6 @@ def update_all_orgs_billing_quotas(
             sandbox_compute_memory_mib_seconds=all_data["teams_with_sandbox_compute_memory_mib_seconds_in_period"].get(
                 team.id, 0
             ),
-            sandbox_compute_cpu_cost_microusd=all_data["teams_with_sandbox_compute_cpu_cost_microusd_in_period"].get(
-                team.id, 0
-            ),
-            sandbox_compute_memory_cost_microusd=all_data[
-                "teams_with_sandbox_compute_memory_cost_microusd_in_period"
-            ].get(team.id, 0),
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),

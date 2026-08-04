@@ -61,8 +61,6 @@ class OrganizationUsageInfo(TypedDict):
     sandbox_compute_credits: OrganizationUsageResource | None
     sandbox_compute_cpu_millicore_seconds: OrganizationUsageResource | None
     sandbox_compute_memory_mib_seconds: OrganizationUsageResource | None
-    sandbox_compute_cpu_cost_microusd: OrganizationUsageResource | None
-    sandbox_compute_memory_cost_microusd: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None

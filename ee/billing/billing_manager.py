@@ -483,8 +483,6 @@ class BillingManager:
                 sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
                 sandbox_compute_cpu_millicore_seconds=usage_summary.get("sandbox_compute_cpu_millicore_seconds", {}),
                 sandbox_compute_memory_mib_seconds=usage_summary.get("sandbox_compute_memory_mib_seconds", {}),
-                sandbox_compute_cpu_cost_microusd=usage_summary.get("sandbox_compute_cpu_cost_microusd", {}),
-                sandbox_compute_memory_cost_microusd=usage_summary.get("sandbox_compute_memory_cost_microusd", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),

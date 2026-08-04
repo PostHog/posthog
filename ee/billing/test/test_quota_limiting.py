@@ -2339,8 +2339,6 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         sandbox_compute_credits=0,
         sandbox_compute_cpu_millicore_seconds=0,
         sandbox_compute_memory_mib_seconds=0,
-        sandbox_compute_cpu_cost_microusd=0,
-        sandbox_compute_memory_cost_microusd=0,
         cdp_trigger_events=0,
         rows_exported=0,
         workflow_emails=0,
@@ -2608,8 +2606,6 @@ class TestPatchTodaysUsage(BaseTest):
                 "limit": None,
                 "todays_usage": 0,
             },
-            "sandbox_compute_cpu_cost_microusd": {"usage": 7, "limit": None, "todays_usage": 0},
-            "sandbox_compute_memory_cost_microusd": {"usage": 11, "limit": None, "todays_usage": 0},
             "period": _PERIOD,
         }
         self.organization.save()
@@ -2619,8 +2615,6 @@ class TestPatchTodaysUsage(BaseTest):
             sandbox_compute_credits=3,
             sandbox_compute_cpu_millicore_seconds=9_876_543_210,
             sandbox_compute_memory_mib_seconds=7_654_321_098,
-            sandbox_compute_cpu_cost_microusd=13,
-            sandbox_compute_memory_cost_microusd=17,
         )
 
         assert _patch_todays_usage(self.organization, todays_usage) is True
@@ -2632,8 +2626,6 @@ class TestPatchTodaysUsage(BaseTest):
         assert self.organization.usage["sandbox_compute_credits"]["todays_usage"] == 3
         assert self.organization.usage["sandbox_compute_cpu_millicore_seconds"]["todays_usage"] == 9_876_543_210
         assert self.organization.usage["sandbox_compute_memory_mib_seconds"]["todays_usage"] == 7_654_321_098
-        assert self.organization.usage["sandbox_compute_cpu_cost_microusd"]["todays_usage"] == 13
-        assert self.organization.usage["sandbox_compute_memory_cost_microusd"]["todays_usage"] == 17
 
     def test_missing_billing_components_preserve_the_last_known_breakdown(self) -> None:
         existing_component = {"usage": 10, "limit": None, "todays_usage": 3}
