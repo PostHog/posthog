@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -31,7 +32,7 @@ SLACK_USER = "U_ADMIN"
 
 # Slack's documented Block Kit caps. Exceeding any of them makes `views.publish` fail with
 # `invalid_blocks`, which takes down the whole Home tab and not just this card.
-MAX_PIE_SEGMENTS = 12
+MAX_MODEL_ROWS = 6
 MAX_CHART_POINTS = 20
 MAX_LABEL_CHARS = 20
 MAX_SECTION_FIELDS = 10
@@ -160,30 +161,28 @@ class TestWindowCoercion:
 class TestStatsCardRendering:
     def test_card_omitted_when_state_is_none(self):
         view = _render(None)
-        assert not _blocks_of_type(view, "data_visualization")
         assert not _blocks_of_type(view, "data_table")
         assert "Workspace activity" not in str(view)
 
     def test_empty_window_renders_controls_without_charts(self):
         view = _render(StatsState(window_days=30))
         assert "Workspace activity" in str(view)
-        # An empty window has no series to plot; a chart with no data is invalid.
-        assert not _blocks_of_type(view, "data_visualization")
+        # An empty window has nothing to plot and nobody to list.
         assert not _blocks_of_type(view, "data_table")
+        assert "*Models*" not in str(view)
 
-    def test_model_pie_folds_the_tail_and_stays_within_slack_caps(self):
+    def test_model_bars_fold_the_tail_without_losing_counts(self):
         models = tuple(ModelUsage(model=f"model-{i}", runtime_adapter="claude", value=20 - i) for i in range(15))
         view = _render(StatsState(tasks_started=100, models=models))
 
-        pie = next(c for c in _blocks_of_type(view, "data_visualization") if c["chart"]["type"] == "pie")
-        segments = pie["chart"]["segments"]
+        block = next(b for b in view["blocks"] if b["type"] == "section" and "*Models*" in str(b.get("text")))
+        lines = [line for line in block["text"]["text"].splitlines() if line and not line.startswith(("*", "`"))]
 
-        assert len(segments) <= MAX_PIE_SEGMENTS
-        assert segments[-1]["label"] == "Other"
-        # Nothing may be dropped: the folded tail carries the models that didn't fit.
-        assert sum(s["value"] for s in segments) == sum(m.value for m in models)
-        # Slack rejects a segment whose value isn't positive.
-        assert all(s["value"] > 0 for s in segments)
+        assert len(lines) <= MAX_MODEL_ROWS
+        assert lines[-1].startswith("Other")
+        # The folded tail carries the models that didn't get their own row.
+        counted = sum(int(line.rsplit(" ", 1)[-1]) for line in lines)
+        assert counted == sum(m.value for m in models)
 
     def test_headline_renders_as_a_two_column_field_grid(self):
         view = _render(
@@ -235,24 +234,35 @@ class TestStatsCardRendering:
                 ),
             )
         )
-        pie = next(c for c in _blocks_of_type(view, "data_visualization") if c["chart"]["type"] == "pie")
-        assert all(len(s["label"]) <= MAX_LABEL_CHARS for s in pie["chart"]["segments"])
+        block = next(b for b in view["blocks"] if b["type"] == "section" and "*Models*" in str(b.get("text")))
+        labels = [
+            line.split("  ")[0]
+            for line in block["text"]["text"].splitlines()
+            if line and not line.startswith(("*", "`"))
+        ]
+        # A long label would push the bar column out of alignment inside the fenced block.
+        assert all(len(label) <= MAX_LABEL_CHARS for label in labels)
 
-    def test_every_trend_series_carries_a_point_per_axis_category(self):
-        trend = tuple(TrendBucket(label=f"Day {i:02d}", opened=1, merged=1) for i in range(4))
-        view = _render(StatsState(tasks_started=4, tasks_with_pr=4, trend=trend))
+    def test_trend_sparklines_scale_both_series_against_one_peak(self):
+        trend = (
+            TrendBucket(label="Jul 07", opened=8, merged=0),
+            TrendBucket(label="Jul 14", opened=0, merged=4),
+        )
+        view = _render(StatsState(tasks_started=12, tasks_with_pr=8, trend=trend))
 
-        bar = next(c for c in _blocks_of_type(view, "data_visualization") if c["chart"]["type"] == "bar")
-        categories = bar["chart"]["axis_config"]["categories"]
+        text = next(b["elements"][0]["text"] for b in view["blocks"] if b["type"] == "context" and "*PRs*" in str(b))
+        opened, merged = re.findall(r"`([^`]+)`", text)
 
-        for series in bar["chart"]["series"]:
-            # Slack rejects a series that skips any axis category.
-            assert [p["label"] for p in series["data"]] == categories
+        assert len(opened) == len(merged) == len(trend)
+        # Shared peak: merged's 4 must read as half of opened's 8, not as its own maximum.
+        assert opened[0] == "█" and merged[0] == "▁"
+        assert merged[1] < opened[0]
+        assert "Jul 07 → Jul 14" in text
 
-    def test_trend_chart_omitted_when_the_window_produced_no_prs(self):
+    def test_trend_omitted_when_the_window_produced_no_prs(self):
         trend = (TrendBucket(label="Jul 07", opened=0, merged=0),)
         view = _render(StatsState(tasks_started=3, tasks_with_pr=0, trend=trend))
-        assert not [c for c in _blocks_of_type(view, "data_visualization") if c["chart"]["type"] == "bar"]
+        assert not [b for b in view["blocks"] if b["type"] == "context" and "*PRs*" in str(b)]
 
     def test_leaderboard_numbers_carry_both_display_text_and_sort_value(self):
         view = _render(StatsState(tasks_started=9, people=(PersonRow(name="Vojta", tasks=9, merged=6),)))

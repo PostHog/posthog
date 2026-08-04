@@ -929,13 +929,22 @@ def _tasks_controls_block(state: TasksState) -> dict:
     return {"type": "actions", "block_id": BLOCK_TASKS_CONTROLS, "elements": elements}
 
 
-# Block Kit caps on the stats card. These live with the renderer rather than the resolver
-# because they describe what Slack will draw, not what the workspace did.
-_STATS_MAX_PIE_SEGMENTS = 12
+# Display caps for the stats card. These live with the renderer rather than the resolver
+# because they describe what gets drawn, not what the workspace did.
+#
+# Charts are drawn as text. Block Kit does have a native `data_visualization` block, but
+# `views.publish` rejects it on the App Home surface with "Unsupported block type" — note
+# that `blocks.validate` accepts it, so the schema check is not proof a surface takes it.
+# `data_table` is fine on Home, hence the real table below the bars.
+_STATS_MAX_MODEL_ROWS = 6
 _STATS_MAX_LABEL_CHARS = 20
+_STATS_BAR_WIDTH = 12
 # Slack renders `section.fields` in two columns and rejects more than 10 cells.
 _STATS_MAX_FIELDS = 10
 _STATS_TABLE_PAGE_SIZE = 5
+
+# Eight levels of block-fill, so a sparkline reads as a shape rather than a row of dots.
+_SPARK_LEVELS = "▁▂▃▄▅▆▇█"
 
 _OUTCOME_EMOJI: dict[str, str] = {
     OUTCOME_DONE: "🦔",
@@ -946,7 +955,7 @@ _OUTCOME_EMOJI: dict[str, str] = {
 
 
 def _stats_section_blocks(state: StatsState) -> list[dict]:
-    """Render the workspace-activity card: headline counts, two charts, a leaderboard."""
+    """Render the workspace-activity card: a KPI grid, two text charts, a leaderboard."""
     blocks: list[dict] = [
         _section_title(
             "📊 Workspace activity",
@@ -969,8 +978,8 @@ def _stats_section_blocks(state: StatsState) -> list[dict]:
         block
         for block in (
             _stats_outcomes_block(state),
-            _stats_trend_chart(state),
-            _stats_models_chart(state),
+            _stats_trend_block(state),
+            _stats_models_block(state),
             _stats_people_table(state),
         )
         if block
@@ -1043,55 +1052,76 @@ def _stats_outcomes_block(state: StatsState) -> dict | None:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}]}
 
 
-def _stats_trend_chart(state: StatsState) -> dict | None:
-    """Grouped bars of PRs opened vs merged per bucket.
+def _stats_trend_block(state: StatsState) -> dict | None:
+    """PRs opened vs merged per bucket, as two sparklines on one line.
 
-    Skipped entirely when the window produced no PRs — an all-zero chart is noise.
+    Skipped when the window produced no PRs — a flat line of minima is noise.
     """
     buckets = state.trend
     if not buckets or not state.tasks_with_pr:
         return None
+
+    # One shared peak so the two lines are read against each other, not each rescaled.
+    peak = max(max(b.opened, b.merged) for b in buckets)
+    opened = _sparkline([b.opened for b in buckets], peak)
+    merged = _sparkline([b.merged for b in buckets], peak)
+    span = f"{buckets[0].label} → {buckets[-1].label}"
     return {
-        "type": "data_visualization",
-        "title": "PRs opened and merged",
-        "chart": {
-            "type": "bar",
-            "series": [
-                {"name": "Opened", "data": [{"label": b.label, "value": b.opened} for b in buckets]},
-                {"name": "Merged", "data": [{"label": b.label, "value": b.merged} for b in buckets]},
-            ],
-            "axis_config": {"categories": [b.label for b in buckets], "y_label": "PRs"},
-        },
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": f"*PRs* `{opened}` opened · `{merged}` merged   _{span}_",
+            }
+        ],
     }
 
 
-def _stats_models_chart(state: StatsState) -> dict | None:
-    """Share of runs per pinned model, with the long tail folded into "Other".
+def _stats_models_block(state: StatsState) -> dict | None:
+    """Share of runs per model, as a bar column with the long tail folded into "Other".
 
-    Slack rejects pie segments whose value isn't positive, so zero counts are dropped
-    rather than drawn as empty slices.
+    Rendered inside a fenced block so the bars and counts line up — proportional text
+    would leave the columns ragged.
     """
     if not state.models:
         return None
 
-    fits = len(state.models) <= _STATS_MAX_PIE_SEGMENTS
-    head = state.models if fits else state.models[: _STATS_MAX_PIE_SEGMENTS - 1]
-    tail = () if fits else state.models[_STATS_MAX_PIE_SEGMENTS - 1 :]
+    fits = len(state.models) <= _STATS_MAX_MODEL_ROWS
+    head = state.models if fits else state.models[: _STATS_MAX_MODEL_ROWS - 1]
+    tail = () if fits else state.models[_STATS_MAX_MODEL_ROWS - 1 :]
 
-    segments: list[dict[str, Any]] = [
-        {"label": _stats_model_label(usage), "value": usage.value} for usage in head if usage.value > 0
-    ]
+    rows = [(_stats_model_label(usage), usage.value) for usage in head if usage.value > 0]
     other = sum(usage.value for usage in tail)
     if other > 0:
-        segments.append({"label": "Other", "value": other})
-
-    if not segments:
+        rows.append(("Other", other))
+    if not rows:
         return None
-    return {"type": "data_visualization", "title": "Models used", "chart": {"type": "pie", "segments": segments}}
+
+    peak = max(value for _, value in rows)
+    width = max(len(label) for label, _ in rows)
+    lines = "\n".join(f"{label:<{width}}  {_bar(value, peak)} {value:>3}" for label, value in rows)
+    return {"type": "section", "text": {"type": "mrkdwn", "text": f"*Models*\n```\n{lines}\n```"}}
+
+
+def _sparkline(values: list[int], peak: int) -> str:
+    """Render counts as block-fill characters, scaled against `peak`."""
+    if peak <= 0:
+        return _SPARK_LEVELS[0] * len(values)
+    top = len(_SPARK_LEVELS) - 1
+    return "".join(_SPARK_LEVELS[min(top, value * top // peak)] for value in values)
+
+
+def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
+    """Fixed-width bar. Any non-zero value keeps at least one filled cell, so a small
+    count reads as present rather than absent."""
+    if peak <= 0 or value <= 0:
+        return "░" * width
+    filled = min(width, max(1, round(value * width / peak)))
+    return "█" * filled + "░" * (width - filled)
 
 
 def _stats_model_label(usage: ModelUsage) -> str:
-    """Display label for a model, truncated to Slack's 20-character chart-label cap."""
+    """Display label for a model, truncated so the bar column stays aligned."""
     label = _format_model_id(usage.model, owned_by=_provider_for_runtime_adapter(usage.runtime_adapter))
     if len(label) <= _STATS_MAX_LABEL_CHARS:
         return label
