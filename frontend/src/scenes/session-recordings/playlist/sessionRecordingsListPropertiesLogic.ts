@@ -170,6 +170,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                             // These are supplementary columns on the recordings list. A backend blip shouldn't
                             // toast, it should just leave this batch's rows without properties.
                             posthog.captureException(e)
+                            breakpoint()
                             return values.recordingProperties
                         }
                         try {
@@ -179,6 +180,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                             )
                         } catch (fallbackError) {
                             posthog.captureException(fallbackError)
+                            breakpoint()
                             return values.recordingProperties
                         }
                         // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { sessionRecordingPinnedPropertiesLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingPinnedPropertiesLogic'
 import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
@@ -295,5 +296,49 @@ describe('sessionRecordingsListPropertiesLogic', () => {
 
         // an outage on both queries isn't a 400, so the pin set isn't blacklisted (it's retried next batch)
         expect(logic.values.unqueryableExtraProperties).toBeNull()
+    })
+
+    it('does not crash when unmounted while the base query is in flight and fails', async () => {
+        let resolveQuery: ((value: unknown) => void) | undefined
+        useQueryMocks(() => new Promise((resolve) => (resolveQuery = resolve)))
+
+        const request = logic.asyncActions.loadPropertiesForSessions(mockSessons)
+        // the loader debounces for 100ms before issuing the query — wait for it to actually go out
+        while (!resolveQuery) {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        logic.unmount()
+        resolveQuery([500, { detail: 'ClickHouse is unavailable' }])
+
+        await request
+
+        expect(posthog.captureException).not.toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('Can not find path') })
+        )
+    })
+
+    it('does not crash when unmounted while the fallback query is in flight and fails', async () => {
+        let resolveFallback: ((value: unknown) => void) | undefined
+        useQueryMocks((query) => {
+            if (query.includes('$entry_utm_medium')) {
+                return [500, { detail: 'wide query fails' }]
+            }
+            return new Promise((resolve) => (resolveFallback = resolve))
+        })
+        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_medium'])
+
+        const request = logic.asyncActions.loadPropertiesForSessions(mockSessons)
+        // the wide query fails immediately; wait for the fallback query to actually go out
+        while (!resolveFallback) {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        logic.unmount()
+        resolveFallback([500, { detail: 'ClickHouse is unavailable' }])
+
+        await request
+
+        expect(posthog.captureException).not.toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('Can not find path') })
+        )
     })
 })
