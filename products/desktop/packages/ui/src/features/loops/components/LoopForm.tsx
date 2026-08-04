@@ -390,7 +390,7 @@ export function LoopForm({
 
         <Step
           title="Settings"
-          description="Choose access, context, notifications, and advanced behavior."
+          description="Choose who can see it, where it works, and when to notify you."
         >
           <div className="grid gap-4 md:grid-cols-2">
             <Field
@@ -420,7 +420,7 @@ export function LoopForm({
               hint={
                 values.repositories.length > 1
                   ? `${values.repositories.length - 1} more attached.`
-                  : "Optional. Choose a repository if this loop should inspect code or open PRs."
+                  : "Optional. Choose a repository if this loop should read code or open PRs."
               }
             >
               <LoopRepositoryPicker
@@ -467,7 +467,7 @@ export function LoopForm({
 
         <Step
           title="Advanced"
-          description="Model, reasoning, and PR automation."
+          description="Model, reasoning, and pull requests."
         >
           <Field label="Behavior">
             <LoopBehaviorFields
@@ -594,7 +594,7 @@ export function LoopForm({
           {step === 2 ? (
             <Step
               title="Settings"
-              description="Choose access, context, notifications, and advanced behavior."
+              description="Choose who can see it, where it works, and when to notify you."
             >
               <SettingsSection title="Access">
                 <Field
@@ -625,7 +625,7 @@ export function LoopForm({
                 <SettingsSection title="Channel context">
                   <Field
                     label="Context"
-                    hint="Attach this loop to a sidebar channel. Runs show in the channel feed, and the loop can update context.md or a canvas."
+                    hint="Attach this loop to a sidebar channel. Runs show in the channel feed. The loop can also update context.md or a canvas."
                   >
                     <LoopContextFields
                       value={values.contextTarget}
@@ -652,7 +652,7 @@ export function LoopForm({
                             ? "repository stays"
                             : "repositories stay"
                         } attached to this loop.`
-                      : "Optional. Choose a repository if this loop should inspect code or open PRs. Leave empty for report-only loops."
+                      : "Optional. Choose a repository if this loop should read code or open PRs. Leave empty for report-only loops."
                   }
                 >
                   <LoopRepositoryPicker
@@ -697,7 +697,7 @@ export function LoopForm({
                     Advanced
                   </Text>
                   <Text className="text-[11.5px] text-gray-9">
-                    Model, reasoning, and PR automation
+                    Model, reasoning, and pull requests
                   </Text>
                 </button>
                 {showAdvanced ? (

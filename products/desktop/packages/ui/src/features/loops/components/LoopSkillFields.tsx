@@ -217,9 +217,13 @@ export function LoopInstructionsFields({
 
   return (
     <>
-      <Field label="Instruction source" required className="max-w-[260px]">
+      <Field
+        label="How to give instructions"
+        required
+        className="max-w-[260px]"
+      >
         <SettingsOptionSelect
-          ariaLabel="Instruction source"
+          ariaLabel="How to give instructions"
           value={skill ? "skill" : "instructions"}
           disabled={disabled}
           size="lg"

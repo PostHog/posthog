@@ -69,7 +69,8 @@ const TRIGGER_TYPES: {
     type: "github",
     label: "GitHub activity",
     subtitle: "Runs on repository activity",
-    menuDescription: "Run when a repo has push, PR, or issue activity",
+    menuDescription:
+      "Run when a repo has push, pull request, or issue activity",
     icon: GithubLogo,
   },
   {
