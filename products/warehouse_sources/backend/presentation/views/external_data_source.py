@@ -1318,7 +1318,11 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
     )
     prefix = serializers.CharField(
-        max_length=100, required=False, allow_null=True, allow_blank=True, help_text="Table name prefix in HogQL."
+        max_length=100,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.",
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
@@ -1383,7 +1387,10 @@ class SourceSetupSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.",
+        help_text=(
+            "Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. "
+            "Does not filter which tables are imported. Defaults to the source type."
+        ),
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
