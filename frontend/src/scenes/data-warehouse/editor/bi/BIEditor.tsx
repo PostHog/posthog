@@ -17,6 +17,7 @@ import {
 import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSearchableSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 import { dayjs } from 'lib/dayjs'
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -82,6 +83,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         databaseConnectionId,
         databaseLoading,
     } = useValues(logic)
+    const { biEditorHeight, biEditorResizerProps } = useValues(editorSizingLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
     const {
@@ -103,7 +105,12 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     } = useActions(logic)
 
     return (
-        <div className="flex h-[42%] min-h-72 shrink-0 flex-col gap-3 overflow-auto border-b bg-primary p-3">
+        <div
+            className="relative flex min-h-44 shrink-0 flex-col gap-3 overflow-hidden border-b bg-primary p-3"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: `${biEditorHeight}px`, maxHeight: 'calc(100% - 10rem)' }}
+            ref={biEditorResizerProps.containerRef}
+        >
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="flex min-w-0 flex-col gap-1">
                     <div className="flex items-center gap-1">
@@ -181,7 +188,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                 </div>
             </div>
 
-            <div className="grid min-h-0 grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto lg:grid-cols-2">
                 <Shelf
                     shelf="rows"
                     title="Rows"
@@ -387,6 +394,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     })}
                 </Shelf>
             </div>
+            <Resizer {...biEditorResizerProps} />
         </div>
     )
 }
