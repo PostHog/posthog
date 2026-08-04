@@ -5890,6 +5890,10 @@ snapshots:
         hash: v1.k794b7964.5467f631734e8f360299aa3d5e4a8da5d7ecc2dbe47a5d0727ddfb0dbc9e7ce6.ZGcS-wnQsOO1G4M5I_hw9Aba6YZ1hKpvya9gfWsZvCs
     scenes-app-experiments--experiment-asymmetric-intervals--light:
         hash: v1.k794b7964.595a7efdddc81a3e15f508362a59e9487a3de93950597c714383efc66b6d4e6e.aeWvu1wPNmshDJ_cD8s1hqgaiNAeRROJnYkZu1m2niI
+    scenes-app-experiments--experiment-exposures-expanded--dark:
+        hash: v1.k794b7964.56095d76684633d164b2bd7f3e3da2aefefba1272f2818e3c8f2e4d1bff595c7.jIZ5N9SItEnQIRj-axX2BfRM21O5JSz_MSSH3JyLAd4
+    scenes-app-experiments--experiment-exposures-expanded--light:
+        hash: v1.k794b7964.724a28250f085bea69008b564ca8266298b8f927f6231d8c3ee40571356c99b5.hX_fvUeWfYI85mX0qLAi3WWzB-bHfef61kIPRKsrw8U
     scenes-app-experiments--experiment-frequentist-five-variants--dark:
         hash: v1.k794b7964.3e22f4570288ab145bb9ad96e4da9ad237e46a29cfefb3f758d9d7cf8db5a5d0.VPkcfBFukWV6eRSdNZJ65235H8o-OPsAkEmop4q68Co
     scenes-app-experiments--experiment-frequentist-five-variants--light:
