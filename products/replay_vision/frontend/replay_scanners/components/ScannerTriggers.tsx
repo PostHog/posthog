@@ -141,7 +141,6 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     onChange={(checked) =>
                                         applyUniversal({ ...universal, filter_test_accounts: checked })
                                     }
-                                    openSettingsInNewTab
                                 />
                             </div>
                             {/* -ml-2 cancels AndOrFilterSelect's built-in prefix indent so "Match" left-aligns with the rest. */}
