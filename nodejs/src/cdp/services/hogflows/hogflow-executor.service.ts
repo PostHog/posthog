@@ -84,9 +84,15 @@ export function createHogFlowInvocation(
             event: globals.event,
             actionStepCount: 0,
             variables: mergedVariables,
+            // Pinned at run start and persisted with the state, because the flow itself isn't: the
+            // job is re-loaded by functionId on every resume, so by the time a conversion lands the
+            // manager may be serving a newer version. Attribution reads this, not the live flow.
+            flowVersion: hogFlow.version,
         },
         teamId: hogFlow.team_id,
-        functionId: hogFlow.id, // TODO: Include version?
+        // The version lives on `state.flowVersion` rather than here — functionId is the cyclotron
+        // lookup key and re-loads the current flow by design.
+        functionId: hogFlow.id,
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
         groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue

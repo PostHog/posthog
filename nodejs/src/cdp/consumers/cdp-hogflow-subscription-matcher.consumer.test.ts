@@ -553,7 +553,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person_id: null,
                 },
             ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.wakeRows = [
+                {
+                    ...matcher.findRows[0],
+                    state: stateBuffer({ currentAction: { id: 'wait_node' }, flowVersion: 1 }),
+                },
+            ]
             matcher.updateRowCount = 1
             matcher.setHogFlows({ 'flow-1': flow })
 
@@ -591,6 +596,70 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                         $workflow_conversion_type: 'event',
                         $workflow_conversion_event: 'wuc_cancelled',
                     }),
+                })
+            )
+        })
+
+        // The whole point of the versioned series: "did conversion rate drop after we changed the
+        // email?" is only answerable if a conversion is credited to the version that sent to that
+        // person. Reading it off the freshly loaded flow credits whatever is live when they convert,
+        // so a broadcast under v1 followed by a republish silently moves all of v1's conversions to v2.
+        it.each([
+            {
+                name: 'the version the run started under, not the one live at conversion time',
+                parkedState: { currentAction: { id: 'wait_node' }, flowVersion: 1 },
+                expectedVersion: { id: 'flow-1', version: 1 },
+                expectedEventVersion: 1,
+            },
+            {
+                name: 'no version at all when the run predates the stamp',
+                parkedState: { currentAction: { id: 'wait_node' } },
+                expectedVersion: undefined,
+                expectedEventVersion: undefined,
+            },
+        ])('attributes a conversion to $name', async ({ parkedState, expectedVersion, expectedEventVersion }) => {
+            // The published flow has moved on to v2 since this run started.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                version: 2,
+                exit_condition: 'exit_on_conversion',
+                conversion: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer(parkedState) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    metric_name: 'conversion',
+                    app_source_version: expectedVersion,
+                }),
+                'hog_flow'
+            )
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $workflow_version: expectedEventVersion }),
                 })
             )
         })
@@ -784,7 +853,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person_id: null,
                 },
             ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ flowVersion: 2 }) }]
             matcher.updateRowCount = 1
             matcher.setHogFlows({ 'flow-1': flow })
 
@@ -797,6 +866,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     instance_id: 'flow-1',
                     metric_name: 'conversion',
                     count: 1,
+                    // The run id keys app_source_id, but the versioned mirror keys on the flow —
+                    // otherwise every batch run mints its own key and a broadcast's versions never
+                    // aggregate.
+                    app_source_version: { id: 'flow-1', version: 2 },
                 }),
                 'hog_flow'
             )

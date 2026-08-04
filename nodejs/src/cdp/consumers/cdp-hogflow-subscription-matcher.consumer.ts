@@ -123,7 +123,6 @@ type MatchedJob = {
     exitsOnConversion: boolean
     // Live version of the workflow at match time, so the conversion metric and event can be attributed
     // to the config that was running when the person converted.
-    flowVersion: number
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
@@ -349,7 +348,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     stepMatched,
                     conversionMatched,
                     exitsOnConversion: exitsOnConversion(hogflow),
-                    flowVersion: hogflow.version,
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
                     eventTimestamp: stepMatchedEventTimestamp,
@@ -500,7 +498,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         metric_kind: 'other',
                         metric_name: 'conversion',
                         count: 1,
-                        app_source_version: { id: m.functionId, version: m.flowVersion },
+                        // Omitted rather than defaulted when the run predates the stamp: the
+                        // conversion then lands only in the version-agnostic series, which is
+                        // better than crediting it to a version that never sent to this person.
+                        app_source_version:
+                            outcome.flowVersion !== undefined
+                                ? { id: m.functionId, version: outcome.flowVersion }
+                                : undefined,
                     })
                     // Emit the same billable $workflows_conversion event as the executor's property
                     // path, so event-based conversions also power insights/cohorts. Needs a
@@ -513,7 +517,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                             timestamp: new Date().toISOString(),
                             properties: {
                                 $workflow_id: m.functionId,
-                                $workflow_version: m.flowVersion,
+                                $workflow_version: outcome.flowVersion,
                                 $workflow_conversion_type: 'event',
                                 $workflow_conversion_event: m.conversionEventName,
                                 $workflow_conversion_event_uuid: m.conversionEventUuid,
@@ -1078,7 +1082,11 @@ function rewriteStatePersonId(
     }
 }
 
-type MatchOutcome = { state: Buffer; wake: boolean; countConversion: boolean }
+// `flowVersion` is the version the run *started* under, read out of the parked job's own state.
+// It is deliberately not taken from the freshly loaded flow: a conversion arriving after a
+// republish belongs to the version whose message the person received. Undefined for runs parked
+// before the stamp existed.
+type MatchOutcome = { state: Buffer; wake: boolean; countConversion: boolean; flowVersion?: number }
 
 // Applies a batch match to a parked job's state. Returns the new state plus whether the job should
 // be woken (`scheduled = NOW()`) and whether its conversion should be counted this run. Returns null
@@ -1136,7 +1144,12 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
             return null
         }
         parsed.state = updatedState
-        return { state: Buffer.from(JSON.stringify(parsed)), wake, countConversion }
+        return {
+            state: Buffer.from(JSON.stringify(parsed)),
+            wake,
+            countConversion,
+            flowVersion: updatedState.flowVersion,
+        }
     } catch (err) {
         logger.warn('Failed to parse state during match', { jobId: m.id, err })
         return null

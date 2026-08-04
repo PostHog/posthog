@@ -250,6 +250,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     parentRunId: state.batchJobId,
                     team,
                     hogFlowId: hogFlow.id,
+                    flowVersion: hogFlow.version,
                     personId,
                     defaultVariables,
                 })
@@ -441,6 +442,7 @@ function buildHogFlowInvocation(params: {
     parentRunId: string
     team: Team
     hogFlowId: string
+    flowVersion: number
     personId: string
     defaultVariables: Record<string, unknown>
 }): CyclotronJobInvocation {
@@ -459,6 +461,9 @@ function buildHogFlowInvocation(params: {
             personId: params.personId,
             actionStepCount: 0,
             variables: params.defaultVariables,
+            // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
+            // the send, so they have to attribute to the version that sent, not the one live then.
+            flowVersion: params.flowVersion,
         } as any,
         teamId: params.team.id,
         functionId: params.hogFlowId,
