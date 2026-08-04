@@ -1,6 +1,5 @@
 import dataclasses
 from enum import Enum
-from math import floor
 from typing import Any
 
 import structlog
@@ -14,7 +13,6 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from products.replay.backend.models.session_summaries import SingleSessionSummary
 
 from ee.hogai.session_summaries import SummaryValidationError
-from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummaryIssueTypes, SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import logging_session_ids
@@ -486,20 +484,26 @@ def combine_patterns_with_events_context(
             stats=_calculate_pattern_stats(pattern_events, len(session_ids)),
         )
         combined_patterns.append(enriched_pattern)
-    # If not enough patterns were properly enriched - fail the activity
-    # Using `floor` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
-    minimum_expected_patterns_count = max(1, floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO))
     successful_patterns_count = len(combined_patterns)
     failed_patterns_count = len(patterns.patterns) - successful_patterns_count
-    if minimum_expected_patterns_count > successful_patterns_count:
+    # Fail only when patterns exist but none could be enriched - a partial report is still useful,
+    # while failing the whole group summary over a few dropped patterns leaves the user with nothing
+    if patterns.patterns and not combined_patterns:
         exception_message = (
-            f"Too many patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
+            f"No patterns could be enriched with session meta, when summarizing {len(session_ids)} "
             f"sessions ({logging_session_ids(session_ids)}) for user {user_id}. "
-            f"Input: {len(patterns.patterns)}; success: {successful_patterns_count} "
-            f"(enriched: {len(combined_patterns)}); failure: {failed_patterns_count}"
+            f"Input: {len(patterns.patterns)}"
         )
         logger.exception(exception_message, user_id=user_id, signals_type="session-summaries")
         raise ApplicationError(exception_message)
+    if failed_patterns_count:
+        logger.warning(
+            f"Some patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
+            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}. "
+            f"Input: {len(patterns.patterns)}; success: {successful_patterns_count}; failure: {failed_patterns_count}",
+            user_id=user_id,
+            signals_type="session-summaries",
+        )
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     combined_patterns.sort(key=lambda p: severity_order.get(p.severity.value, 3))
     return EnrichedSessionGroupSummaryPatternsList(patterns=combined_patterns)

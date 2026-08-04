@@ -403,9 +403,12 @@ class SummarizeSessionsTool(MaxTool):
                         )
                         logger.error(msg, signals_type="session-summaries")
                         raise ValueError(msg)
-                    # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
-                    stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
-                    summary_str = stringifier.stringify_patterns()
+                    if not summary.patterns:
+                        summary_str = "No recurring patterns were found across these sessions."
+                    else:
+                        # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
+                        stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
+                        summary_str = stringifier.stringify_patterns()
                     note = self._format_failed_sessions_note(failed_sessions, total_requested=len(session_ids))
                     return note + summary_str, session_group_summary_id, failed_sessions
                 else:
