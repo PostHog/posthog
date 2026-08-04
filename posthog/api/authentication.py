@@ -55,6 +55,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -72,6 +73,7 @@ from posthog.passkey import generate_passkey_authentication_options, verify_pass
 from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
+    LoginPrecheckThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -399,8 +401,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def to_representation(
-        self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]
-    ) -> dict[str, str | list[WebauthnCredentialPrecheck]]:
+        self, instance: dict[str, str | bool | list[str] | list[WebauthnCredentialPrecheck]]
+    ) -> dict[str, str | bool | list[str] | list[WebauthnCredentialPrecheck]]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -421,10 +423,48 @@ class LoginPrecheckSerializer(serializers.Serializer):
             for cred in credentials
         ]
 
+        saml_available = OrganizationDomain.objects.get_is_saml_available_for_email(email)
+
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
-            "saml_available": OrganizationDomain.objects.get_is_saml_available_for_email(email),
+            "saml_available": saml_available,
             "webauthn_credentials": webauthn_credentials,
+            **self._available_local_methods(email, saml_available=saml_available),
+        }
+
+    @staticmethod
+    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+        """
+        Report whether this account can log in with a password, and which of its linked social
+        identities are actually usable on this instance, so the login form can stop offering a
+        password box (or a dead SSO button) to an account that cannot use it.
+
+        An email with no active user looks identical to a user who does have a password — a typo
+        must never be a dead end, and it keeps the account-existence signal limited to accounts
+        that are genuinely passwordless.
+        """
+        # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
+        # describe a different account than the one a password would authenticate: exact case first,
+        # then case-insensitive, and deterministic (last logged in) if case variations coexist.
+        user = EmailLookupHandler.get_user_by_email(email)
+        if user is None:
+            return {"password_login_available": True, "social_providers": []}
+
+        # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
+        # password, so the `bool(...)` half of the check is load-bearing.
+        password_login_available = bool(user.password) and user.has_usable_password()
+
+        usable_providers = {
+            provider for provider, available in get_instance_available_sso_providers().items() if available
+        }
+        if saml_available:
+            # SAML is domain-configured rather than instance-configured, so it isn't covered above.
+            usable_providers.add("saml")
+        linked_providers = set(user.social_auth.values_list("provider", flat=True))
+
+        return {
+            "password_login_available": password_login_available,
+            "social_providers": sorted(linked_providers & usable_providers),
         }
 
 
@@ -1076,6 +1116,7 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [LoginPrecheckThrottle]
 
 
 class PasswordResetSerializer(serializers.Serializer):
