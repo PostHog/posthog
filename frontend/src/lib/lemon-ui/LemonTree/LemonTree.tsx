@@ -1602,7 +1602,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         {
                             // for tree element
                             '--lemon-tree-button-height': 'var(--button-height-base)',
-                            '--lemon-tree-button-icon-offset-top': '5px',
+                            // Centers the 20px (size-5) icon box within the row, whatever the row height resolves to
+                            '--lemon-tree-button-icon-offset-top': 'calc((var(--lemon-tree-button-height) - 20px) / 2)',
                         } as CSSProperties
                     }
                 >
