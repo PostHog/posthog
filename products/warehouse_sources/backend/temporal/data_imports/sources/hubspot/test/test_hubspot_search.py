@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
+    HUBSPOT_METADATA_ENDPOINTS,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
 )
@@ -212,6 +213,43 @@ class TestResolveSearchProperties:
         assert "custom_field" in props  # non-hs_ custom prop discovered and appended
         assert "hs_internal_only" not in props  # hs_ props are not auto-added
         assert get_names_mock.call_args.kwargs["api_version"] == HUBSPOT_API_VERSION_2026_03
+
+    @pytest.mark.parametrize(
+        "endpoint,object_type,discover_all,expect_hs_prop",
+        [
+            # Engagement and commerce objects keep almost everything behind hs_-prefixed
+            # properties, so without discovery they sync only the two seeded columns.
+            ("calls", "calls", True, True),
+            ("line_items", "line_items", True, True),
+            # The original objects ship hand-written default lists; auto-adding every hs_ property
+            # would widen every existing customer's table.
+            ("deals", "deal", False, False),
+        ],
+    )
+    def test_discover_all_properties_controls_hs_prefixed_props(
+        self, endpoint: str, object_type: str, discover_all: bool, expect_hs_prop: bool
+    ) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names",
+            return_value=["hs_call_duration", "custom_field"],
+        ):
+            props, _ = _resolve_search_properties(
+                api_key="k",
+                refresh_token="r",
+                endpoint=endpoint,
+                object_type=object_type,
+                selected_properties=None,
+                include_custom_props=True,
+                required_props=["hs_lastmodifieddate", "hs_object_id"],
+                logger=MagicMock(),
+                source_id=None,
+                api_version=HUBSPOT_API_VERSION_2026_03,
+                discover_all_properties=discover_all,
+            )
+
+        assert ("hs_call_duration" in props) is expect_hs_prop
+        assert "custom_field" in props
+        assert HUBSPOT_ENDPOINTS[endpoint].discover_all_properties is discover_all
 
     def test_invalid_selected_ignored(self) -> None:
         logger = MagicMock()
@@ -987,6 +1025,25 @@ class TestHubspotSourceRouting:
             api_version=HUBSPOT_API_VERSION_V3,
         )
         assert resp.name == "deals"
+
+    @pytest.mark.parametrize("endpoint", list(HUBSPOT_METADATA_ENDPOINTS))
+    def test_lookup_tables_bypass_the_crm_paths(self, endpoint: str) -> None:
+        # Lookup tables aren't in HUBSPOT_ENDPOINTS, so routing them through the CRM paths raises
+        # KeyError. Their keys are also composite: falling back to ["id"] would let the deals and
+        # tickets "default" pipelines overwrite each other on merge.
+        resp = hubspot_source(
+            api_key="k",
+            refresh_token="r",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            use_search_path=False,
+            api_version=HUBSPOT_API_VERSION_V3,
+        )
+
+        assert resp.name == endpoint
+        assert resp.primary_keys == HUBSPOT_METADATA_ENDPOINTS[endpoint].primary_keys
+        assert resp.partition_mode is None
 
 
 class TestGetRowsFullRefresh:
