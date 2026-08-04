@@ -850,10 +850,8 @@ test('markdown alongside code contributes no lane of its own', () => {
 
 // hogli build:skills zips products/*/skills/*, and ci-agent-skills.yml gates on
 // those paths and on .agents/, so this markdown is a build input, not prose.
-// Both readers of a product skill are Python — the skill build and, for some
-// products, their own backend — so it claims the backend lane and not the
-// frontend one. A four-file docs PR was claiming every frontend product lane
-// off two SKILL.md files this way.
+// Skill markdown is a build input for the Python skill build (and sometimes the product backend).
+// No frontend suite reads these files, so they should claim the backend lane but not the frontend lane.
 test('skill markdown keeps the lane of the tree that builds it', () => {
     assert.deepEqual(computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT), ['agents'])
     const productSkill = computeTargets(['products/beta/skills/creating-experiments/SKILL.md'], CONTEXT)
