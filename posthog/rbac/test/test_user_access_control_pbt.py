@@ -40,6 +40,7 @@ from posthog.rbac.user_access_control import (
     ordered_access_levels,
 )
 from posthog.scopes import APIScopeObject
+from posthog.user_permissions import UserPermissions
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -395,6 +396,38 @@ def oracle_explicit_level(specs: list[RowSpec], order: list[AccessControlLevel])
     return None
 
 
+def oracle_project_membership_level(
+    specs: list[RowSpec],
+    membership_level: OrganizationMembership.Level,
+    role_based_access: bool,
+) -> Optional[OrganizationMembership.Level]:
+    # Mirrors UserTeamPermissions.effective_membership_level_for_parent_membership. Same
+    # shadowing as oracle_explicit_level, applied to project rows: rules naming the user (their
+    # member row, or a role they hold) decide, highest of them winning, so an all-"none" set of
+    # them denies instead of falling through to the team default. Role rows are invisible without
+    # ROLE_BASED_ACCESS, so a stale role rule neither grants nor denies.
+    if membership_level >= OrganizationMembership.Level.ADMIN:
+        return membership_level
+
+    visible = {"team_default", "self_member"} | ({"role_a"} if role_based_access else set())
+    matching = [s for s in specs if s.target in visible]
+    explicit = [s.level for s in matching if s.target != "team_default"]
+    team_default = [s.level for s in matching if s.target == "team_default"]
+
+    if explicit:
+        resolved = _max_level(explicit, PROJECT_LEVELS)
+    elif team_default:
+        resolved = _max_level(team_default, PROJECT_LEVELS)
+    else:
+        resolved = default_access_level("project")
+
+    return {
+        "none": None,
+        "member": OrganizationMembership.Level.MEMBER,
+        "admin": OrganizationMembership.Level.ADMIN,
+    }[cast(str, resolved)]
+
+
 def oracle_object_access_level(
     resource: APIScopeObject, specs: list[RowSpec], is_creator: bool, is_org_admin: bool
 ) -> AccessControlLevel:
@@ -544,6 +577,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
     def _fresh_uac(self) -> UserAccessControl:
         return UserAccessControl(self.user, self.team)
 
+    def _set_role_based_access(self, enabled: bool) -> None:
+        # Written on every example (not just when disabling) so the class-level in-memory
+        # organization, which hypothesis's per-example rollback does not restore, can't drift
+        # from the row the resolvers read
+        features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+        if enabled:
+            features.append({"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization.available_product_features = features
+        self.organization.save()
+
 
 class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
     def test_every_access_controlled_model_is_buildable(self):
@@ -690,6 +733,50 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert uac.access_level_for_resource(resource) == highest_access_level(effective)
         assert uac.get_user_access_level(obj) == highest_access_level(resource)
         assert uac.check_can_modify_access_levels_for_object(obj) is True
+
+    @given(
+        team_rows=project_rows(),
+        membership_level=membership_levels_st,
+        role_based_access=st.booleans(),
+    )
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_effective_membership_level_matches_oracle(self, team_rows, membership_level, role_based_access):
+        self._set_membership_level(membership_level)
+        self._set_role_based_access(role_based_access)
+        self._materialize_project_rows(team_rows)
+
+        expected = oracle_project_membership_level(team_rows, membership_level, role_based_access)
+        assert UserPermissions(self.user, self.team).current_team.effective_membership_level == expected
+
+    @given(
+        team_rows=project_rows(),
+        membership_level=membership_levels_st,
+        role_based_access=st.booleans(),
+    )
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_effective_membership_level_agrees_with_enforced_project_access(
+        self, team_rows, membership_level, role_based_access
+    ):
+        # The two project resolvers must not contradict each other: effective_membership_level
+        # gates ~25 call sites, while get_user_access_level is what PermissionClass 403s on, so a
+        # disagreement means one of them grants access the other denies.
+        self._set_membership_level(membership_level)
+        self._set_role_based_access(role_based_access)
+        self._materialize_project_rows(team_rows)
+
+        level = UserPermissions(self.user, self.team).current_team.effective_membership_level
+        enforced = self._fresh_uac().get_user_access_level(self.team)
+
+        assert (level is None) == (enforced == NO_ACCESS_LEVEL)
+        if membership_level == OrganizationMembership.Level.MEMBER:
+            assert (
+                level
+                == {
+                    "none": None,
+                    "member": OrganizationMembership.Level.MEMBER,
+                    "admin": OrganizationMembership.Level.ADMIN,
+                }[cast(str, enforced)]
+            )
 
     @given(data=object_resource_and_rows(), admin_target=st.sampled_from(sorted(MATCHING)))
     @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)

@@ -132,22 +132,18 @@ class UserPermissions:
         return result
 
     @cached_property
-    def _prefetched_role_memberships(self) -> dict[UUID, list[UUID]]:
-        """
-        Prefetch all role memberships for the user.
-        Returns a dict mapping organization_member_id to list of role_ids.
+    def _prefetched_role_ids(self) -> set[UUID]:
+        """Prefetch the ids of every role the user holds.
+
+        Keyed off the user rather than grouped by the `organization_member` FK because legacy
+        RoleMembership rows predating that FK have it NULL (see `RoleMembershipViewSet.
+        safely_get_queryset`), and grouping would silently drop their role rules — including
+        denials. Mirrors `UserAccessControl._user_role_ids`. Role ids are unique, so a role from
+        another organization can never match a row on this team.
         """
         from ee.models.rbac.role import RoleMembership
 
-        memberships = RoleMembership.objects.filter(user=self.user).values("organization_member_id", "role_id")
-
-        result: dict[UUID, list[UUID]] = {}
-        for membership in memberships:
-            org_member_id = membership["organization_member_id"]
-            if org_member_id not in result:
-                result[org_member_id] = []
-            result[org_member_id].append(membership["role_id"])
-        return result
+        return set(RoleMembership.objects.filter(user=self.user).values_list("role_id", flat=True))
 
     def set_preloaded_dashboard_tiles(self, tiles: list[DashboardTile]):
         """
@@ -213,7 +209,7 @@ class UserTeamPermissions:
         # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
         # project access settings page (and as resource-level role overrides).
         role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-        user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
+        user_roles = self.p._prefetched_role_ids
 
         # Rules naming this user — directly, or through a role they hold. These decide on their
         # own: the highest of them wins, and an explicit "none" is a denial rather than a miss

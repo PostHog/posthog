@@ -499,12 +499,35 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             access_level=access_level,
         )
 
-    def _grant_project_access_via_new_role(self, access_level: str) -> None:
+    def _grant_project_access_via_new_role(self, access_level: str, *, legacy_membership: bool = False) -> None:
         from ee.models.rbac.role import Role, RoleMembership
 
         role = Role.objects.create(name=f"Role {access_level}", organization=self.organization)
-        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=None if legacy_membership else self.organization_membership,
+        )
         self._grant_project_access(access_level, role=role)
+
+    @parameterized.expand(
+        [
+            ("denial", "none", None),
+            ("grant", "admin", OrganizationMembership.Level.ADMIN),
+        ]
+    )
+    def test_role_rule_applies_through_a_role_membership_without_organization_member(
+        self, _name, role_level, expected_level
+    ):
+        # RoleMembership.organization_member is nullable and legacy rows have it NULL, so resolving
+        # roles through that FK drops those rows' rules
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self._grant_project_access("member")
+        self._grant_project_access_via_new_role(role_level, legacy_membership=True)
+
+        assert self.permissions().current_team.effective_membership_level == expected_level
 
     @parameterized.expand(
         [
