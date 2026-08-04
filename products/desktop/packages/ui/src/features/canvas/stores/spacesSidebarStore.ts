@@ -10,9 +10,11 @@ import { persist } from "zustand/middleware";
 interface SpacesSidebarState {
   openSections: Record<string, boolean>;
   openAgents: boolean;
+  openAddSpace: boolean;
   setOpen: (channelId: string, open: boolean) => void;
   toggle: (channelId: string) => void;
   toggleAgents: () => void;
+  toggleAddSpace: () => void;
 }
 
 export const useSpacesSidebarStore = create<SpacesSidebarState>()(
@@ -20,6 +22,7 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
     (set) => ({
       openSections: {},
       openAgents: false,
+      openAddSpace: false,
       setOpen: (channelId, open) =>
         set((state) => ({
           openSections: { ...state.openSections, [channelId]: open },
@@ -32,6 +35,8 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
           },
         })),
       toggleAgents: () => set((state) => ({ openAgents: !state.openAgents })),
+      toggleAddSpace: () =>
+        set((state) => ({ openAddSpace: !state.openAddSpace })),
     }),
     { name: "spaces-sidebar" },
   ),

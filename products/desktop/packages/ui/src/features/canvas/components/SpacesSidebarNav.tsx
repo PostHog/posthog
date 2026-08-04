@@ -1,33 +1,27 @@
 import {
   CaretRightIcon,
-  CubeIcon,
+  CheckIcon,
   HouseIcon,
-  ListChecks,
+  ListChecksIcon,
   PlusIcon,
-  Robot,
-  Tray,
+  StarIcon,
+  TrayIcon,
 } from "@phosphor-icons/react";
-import {
-  Autocomplete,
-  AutocompleteInput,
-  AutocompleteItem,
-  AutocompleteList,
-  Button,
-  cn,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Separator,
-} from "@posthog/quill";
+import { cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
+import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
 import { SpaceSection } from "@posthog/ui/features/canvas/components/SpaceSection";
-import { useChannelStarMutations } from "@posthog/ui/features/canvas/hooks/useChannelStars";
+import {
+  useChannelStarMutations,
+  useChannelStars,
+} from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useSpacesSidebarSelectionStore } from "@posthog/ui/features/canvas/stores/spacesSidebarSelectionStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
@@ -37,257 +31,243 @@ import {
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo } from "react";
 
 /**
- * The static spaces nav: Home / Tasks / Inbox, then every starred space with
- * its tasks expanded inline beneath it, then "Add space" (star an existing
- * space or create a new one) and the pinned-agents section. Replaces the
- * panes slider under `code-spaces-layout`.
+ * The static spaces nav: the shell keeps ChannelNav (the highlighted icon row).
+ * Below it, Home / Tasks / Inbox as full-width items, then every starred space
+ * with its tasks expanded inline, then an "Add space" toggle that renders all
+ * project spaces as plain rows with a hover pin/star action, and Preview.
  */
 export function SpacesSidebarNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isHome =
     pathname === "/code" || pathname === "/code/" || pathname === "/";
-  const isTasks =
-    pathname.startsWith("/code/tasks") || pathname.startsWith("/website");
+  const isTasks = pathname.startsWith("/code/tasks");
   const isInbox =
     pathname.startsWith("/code/inbox") || pathname.startsWith("/inbox");
 
   const { slots: pinnedSpaces } = useStarredChannelSlots();
-  const { star } = useChannelStarMutations();
+  const { star, unstar } = useChannelStarMutations();
+  const { starredRefToShortcutId } = useChannelStars();
   const { channels } = useChannels();
   const { counts } = useInboxAllReports({
     ignoreFilters: true,
     refetchIntervalMs: 60_000,
   });
 
-  const openAgents = useSpacesSidebarStore((s) => s.openAgents);
-  const toggleAgents = useSpacesSidebarStore((s) => s.toggleAgents);
+  const openAddSpace = useSpacesSidebarStore((s) => s.openAddSpace);
+  const toggleAddSpace = useSpacesSidebarStore((s) => s.toggleAddSpace);
+  const showPreview = useSpacesSidebarSelectionStore((s) => s.showPreview);
+  const togglePreview = useSpacesSidebarSelectionStore((s) => s.togglePreview);
 
-  const [addOpen, setAddOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-
-  // The list is every channel not already pinned; the personal channel isn't a
-  // thing you pin to this list.
-  const addable = channels.filter(
-    (c) =>
-      c.name !== PERSONAL_CHANNEL_NAME &&
-      !pinnedSpaces.some((p) => p.id === c.id),
+  const allSpaces = useMemo(
+    () => channels.filter((c) => c.name !== PERSONAL_CHANNEL_NAME),
+    [channels],
   );
 
-  const addExisting = (channelId: string | null) => {
-    if (!channelId) return;
+  const togglePin = (channelId: string) => {
     const channel = channels.find((c) => c.id === channelId);
     if (!channel) return;
+    const shortcutId = starredRefToShortcutId.get(channel.path);
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-      action_type: "star",
+      action_type: shortcutId ? "unstar" : "star",
       surface: "sidebar",
       channel_id: channel.id,
     });
-    star(channel).catch((error: unknown) =>
-      toast.error("Couldn't add space", {
+    const run = shortcutId ? unstar(shortcutId) : star(channel);
+    run.catch((error: unknown) =>
+      toast.error(shortcutId ? "Couldn't unpin space" : "Couldn't pin space", {
         description: error instanceof Error ? error.message : String(error),
       }),
     );
-    useSpacesSidebarStore.getState().setOpen(channel.id, true);
-    setAddOpen(false);
   };
 
   return (
     <>
-      {/* Nav: Home / Tasks / Inbox */}
-      <div className="flex shrink-0 flex-col gap-px px-2 pt-1">
-        <Button
-          variant="default"
-          size="default"
-          left
-          data-selected={isHome || undefined}
-          className="w-full min-w-0 justify-start gap-2 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
-          onClick={() => navigateToCode()}
-        >
-          <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-            <HouseIcon size={16} weight={isHome ? "fill" : "regular"} />
-          </span>
-          <span className="truncate font-medium text-[13px]">Home</span>
-        </Button>
-        <Button
-          variant="default"
-          size="default"
-          left
-          data-selected={isTasks || undefined}
-          className="w-full min-w-0 justify-start gap-2 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
-          onClick={() => navigateToCode()}
-        >
-          <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-            <ListChecks size={16} weight={isTasks ? "fill" : "regular"} />
-          </span>
-          <span className="truncate font-medium text-[13px]">Tasks</span>
-        </Button>
+      {/* Icon row (kept as-is from the previous layout) */}
+      <ChannelNav />
 
-        {/* Inbox, with "+" and chevron affordances on hover */}
-        <div className="group/inbox flex w-full items-center">
-          <Button
-            variant="default"
-            size="default"
-            left
-            data-selected={isInbox || undefined}
-            className="min-w-0 flex-1 justify-start gap-2 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+      {/* Home / Tasks / Inbox */}
+      <div className="flex flex-col gap-px px-2">
+        <SidebarItem
+          depth={0}
+          icon={<HouseIcon size={16} />}
+          label="Home"
+          isActive={isHome}
+          onClick={() => navigateToCode()}
+        />
+        <SidebarItem
+          depth={0}
+          icon={<ListChecksIcon size={16} />}
+          label="Tasks"
+          isActive={isTasks}
+          onClick={() => navigateToCode()}
+        />
+        <div className="group/inbox">
+          <SidebarItem
+            depth={0}
+            icon={<TrayIcon size={16} />}
+            label="Inbox"
+            isActive={isInbox}
+            badge={<CountBadge count={counts.pulls} />}
+            endContent={
+              <span className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  aria-label="New task"
+                  className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-(--gray-4) focus:opacity-100 group-hover/inbox:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                      action_type: "file_task",
+                      surface: "sidebar",
+                    });
+                    openTaskInput();
+                  }}
+                >
+                  <PlusIcon size={12} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Inbox menu"
+                  className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-(--gray-4) focus:opacity-100 group-hover/inbox:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigateToInbox();
+                  }}
+                >
+                  <CaretRightIcon size={12} />
+                </button>
+              </span>
+            }
             onClick={() => navigateToInbox()}
-          >
-            <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-              <Tray size={16} weight={isInbox ? "fill" : "regular"} />
-            </span>
-            <span className="truncate font-medium text-[13px]">Inbox</span>
-            <CountBadge count={counts.pulls} className="ml-1" />
-          </Button>
-          <span className="flex shrink-0 items-center gap-0.5 pr-1">
-            <button
-              type="button"
-              aria-label="New task"
-              className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-gray-4 focus:opacity-100 group-hover/inbox:opacity-100"
-              onClick={() => {
-                track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                  action_type: "new_task_open",
-                  surface: "sidebar",
-                });
-                openTaskInput();
-              }}
-            >
-              <PlusIcon size={12} />
-            </button>
-            <button
-              type="button"
-              aria-label="Inbox menu"
-              className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-gray-4 focus:opacity-100 group-hover/inbox:opacity-100"
-              onClick={() => navigateToInbox()}
-            >
-              <CaretRightIcon size={12} />
-            </button>
-          </span>
+          />
         </div>
       </div>
 
-      {/* Pinned spaces */}
-      <div className="flex flex-col gap-px px-2 pt-1">
+      {/* Pinned (starred) spaces */}
+      <div className="flex flex-col gap-px px-2">
         {pinnedSpaces.map((space) => (
           <SpaceSection key={space.id} channel={space} />
         ))}
+      </div>
 
-        {/* Add space */}
-        <Popover open={addOpen} onOpenChange={setAddOpen}>
-          <PopoverTrigger
-            render={
-              <Button
-                variant="default"
-                size="default"
-                left
-                className="w-full min-w-0 justify-start gap-2 text-muted-foreground"
-              />
-            }
-          >
-            <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-              <PlusIcon size={14} />
-            </span>
-            <span className="truncate font-medium text-[13px]">Add space</span>
-          </PopoverTrigger>
-          <PopoverContent align="start" side="bottom" className="w-72 p-0">
-            <Autocomplete
-              open
-              inline
-              items={addable.map((c) => c.id)}
-              onValueChange={(value) => addExisting(value ?? null)}
-            >
-              <div className="p-1.5">
-                <AutocompleteInput
-                  placeholder="Find and add any existing spaces"
-                  aria-label="Find and add any existing spaces"
-                  className="h-8 text-[13px]"
+      {/* Add space: a full toggle like the others, rendering every space in the
+          project so it can be pinned/unpinned; clicking a row pins it. */}
+      <div className="flex flex-col gap-px px-2">
+        <div className="group/addspace">
+          <SidebarItem
+            depth={0}
+            label={
+              <>
+                <CaretRightIcon
+                  size={12}
+                  className={cn(
+                    "mr-1 inline-block text-muted-foreground transition-transform",
+                    openAddSpace && "rotate-90",
+                  )}
                 />
-              </div>
-              <AutocompleteList className="max-h-56">
-                {addable.length === 0 && (
-                  <div className="px-3 py-2 text-[13px] text-muted-foreground">
-                    No more spaces to add.
-                  </div>
-                )}
-                {addable.map((c) => (
-                  <AutocompleteItem key={c.id} value={c.id}>
-                    <span className="flex h-[18px] w-[18px] items-center justify-center text-muted-foreground">
-                      <CubeIcon size={14} />
-                    </span>
-                    <span className="truncate">{c.name}</span>
-                  </AutocompleteItem>
-                ))}
-              </AutocompleteList>
-            </Autocomplete>
-            <Separator />
-            <div className="p-1.5">
-              <Button
-                variant="default"
-                size="default"
-                left
-                className="w-full justify-start gap-2"
-                onClick={() => {
-                  setAddOpen(false);
-                  setCreateOpen(true);
+                Add space
+              </>
+            }
+            endContent={
+              <button
+                type="button"
+                aria-label="New space"
+                className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-(--gray-4) focus:opacity-100 group-hover/addspace:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                    action_type: "create",
+                    surface: "sidebar",
+                  });
+                  toggleAddSpace();
                 }}
               >
-                <CubeIcon size={14} />
-                New space
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
-
-      {/* Pinned agents (prototype placeholder) */}
-      <div className="mt-0.5 flex flex-col gap-px px-2 pt-1">
-        <div className="group/agents flex w-full items-center">
-          <Button
-            variant="default"
-            size="default"
-            left
-            className="min-w-0 flex-1 justify-start gap-2 text-muted-foreground"
-            onClick={toggleAgents}
-            aria-expanded={openAgents}
-          >
-            <CaretRightIcon
-              size={12}
-              className={cn(
-                "shrink-0 text-muted-foreground transition-transform",
-                openAgents && "rotate-90",
-              )}
-            />
-            <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-              <Robot size={16} />
-            </span>
-            <span className="truncate font-medium text-[13px]">Agents</span>
-          </Button>
-          <span className="flex shrink-0 items-center pr-1">
-            <button
-              type="button"
-              aria-label="Add agent"
-              className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-gray-4 focus:opacity-100 group-hover/agents:opacity-100"
-              onClick={() =>
-                track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                  action_type: "star",
-                  surface: "sidebar",
-                })
-              }
-            >
-              <PlusIcon size={12} />
-            </button>
-          </span>
+                <PlusIcon size={12} />
+              </button>
+            }
+            onClick={toggleAddSpace}
+            aria-expanded={openAddSpace}
+          />
         </div>
-        {openAgents && (
-          <div className="px-3 py-2 pl-7 text-[12px] text-muted-foreground">
-            Agents you pin will show here.
-          </div>
-        )}
-      </div>
+        {openAddSpace &&
+          allSpaces.map((channel) => {
+            const shortcutId = starredRefToShortcutId.get(channel.path);
+            return (
+              <div key={channel.id} className="group/space">
+                <SidebarItem
+                  depth={1}
+                  label={
+                    <>
+                      {shortcutId ? (
+                        <CheckIcon
+                          size={12}
+                          className="mr-1 inline-block text-yellow-9"
+                        />
+                      ) : null}
+                      {channel.name}
+                    </>
+                  }
+                  onClick={() => togglePin(channel.id)}
+                  endContent={
+                    <button
+                      type="button"
+                      aria-label={shortcutId ? "Unpin space" : "Pin space"}
+                      className={cn(
+                        "flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-opacity hover:bg-(--gray-4) focus:opacity-100",
+                        shortcutId
+                          ? "text-yellow-9 opacity-100"
+                          : "opacity-0 group-hover/space:opacity-100",
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        togglePin(channel.id);
+                      }}
+                    >
+                      <StarIcon
+                        size={13}
+                        weight={shortcutId ? "fill" : "regular"}
+                      />
+                    </button>
+                  }
+                />
+              </div>
+            );
+          })}
 
-      <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
+        {/* Preview toggle */}
+        <div className="group/preview">
+          <SidebarItem
+            depth={0}
+            label={
+              <>
+                <CaretRightIcon
+                  size={12}
+                  className={cn(
+                    "mr-1 inline-block text-muted-foreground transition-transform",
+                    showPreview && "rotate-90",
+                  )}
+                />
+                Preview
+              </>
+            }
+            endContent={
+              <button
+                type="button"
+                aria-label="Preview options"
+                className="flex h-5 w-5 items-center justify-center rounded text-gray-10 opacity-0 transition-opacity hover:bg-(--gray-4) focus:opacity-100 group-hover/preview:opacity-100"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <PlusIcon size={12} />
+              </button>
+            }
+            onClick={togglePreview}
+            aria-expanded={showPreview}
+          />
+        </div>
+      </div>
     </>
   );
 }

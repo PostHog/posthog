@@ -1,6 +1,5 @@
 import {
   CaretRightIcon,
-  CubeIcon,
   LinkIcon,
   PencilSimpleIcon,
   StarIcon,
@@ -17,7 +16,6 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
-import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
@@ -88,10 +86,6 @@ export function SpaceSection({ channel }: { channel: Channel }) {
     return () => assignTaskToCommandCenter(cellIndex, taskId);
   };
 
-  const glyph = channelGlyph(channel.name, { size: 14, space: true }) ?? (
-    <CubeIcon size={14} />
-  );
-
   return (
     <div className="group/space">
       {/* Header: chevron toggles the task list; the row itself opens the space. */}
@@ -116,9 +110,6 @@ export function SpaceSection({ channel }: { channel: Channel }) {
           className="min-w-0 flex-1 justify-start gap-2 data-selected:bg-fill-selected data-selected:text-foreground"
           onClick={() => toggle(channel.id)}
         >
-          <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-muted-foreground group-hover/space:text-foreground">
-            {glyph}
-          </span>
           <span
             className={cn(
               "truncate font-medium text-[13px]",
