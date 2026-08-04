@@ -141,6 +141,7 @@ class ErrorTrackingGroupingRuleListResponseSerializer(serializers.Serializer):
 
 class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
     serializer_class = ErrorTrackingGroupingRuleSerializer
     # The list endpoint returns all rules unpaginated ({"results": [...]}); without this the
     # default paginator makes the schema advertise limit/offset params the view doesn't honor.

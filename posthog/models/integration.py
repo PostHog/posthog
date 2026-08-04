@@ -2023,7 +2023,7 @@ class SlackIntegration:
         return config
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class SlackRequestSignature:
     signature: str
     timestamp: str
