@@ -46788,6 +46788,10 @@
             "additionalProperties": false,
             "description": "Customization of the main navigation sidebar.",
             "properties": {
+                "density": {
+                    "$ref": "#/definitions/SidebarDensity",
+                    "description": "Row density of the sidebar."
+                },
                 "items": {
                     "$ref": "#/definitions/SidebarItemsConfiguration"
                 },
@@ -46796,6 +46800,11 @@
                 }
             },
             "type": "object"
+        },
+        "SidebarDensity": {
+            "description": "How densely the sidebar renders its rows. An absent value means \"comfortable\".",
+            "enum": ["comfortable", "compact"],
+            "type": "string"
         },
         "SidebarItemsConfiguration": {
             "additionalProperties": false,

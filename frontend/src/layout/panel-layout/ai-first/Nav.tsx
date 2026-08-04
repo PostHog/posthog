@@ -1,3 +1,5 @@
+import './Nav.scss'
+
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -18,10 +20,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-
-import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
-
-import './Nav.scss'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -38,6 +36,7 @@ import {
     PanelLayoutNavIdentifier,
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
 import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'

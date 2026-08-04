@@ -175,7 +175,12 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import { HomepageSetting, SidebarItemsSetting, SidebarLayoutSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
+import {
+    HomepageSetting,
+    SidebarItemsSetting,
+    SidebarLayoutSetting,
+    SidebarMyToolsSetting,
+} from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'

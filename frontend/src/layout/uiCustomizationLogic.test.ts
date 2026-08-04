@@ -11,7 +11,12 @@ import { UserUIConfiguration } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { uiCustomizationLogic, withSidebarItemVisibility, withSidebarPatch, withSidebarSectionVisibility } from './uiCustomizationLogic'
+import {
+    uiCustomizationLogic,
+    withSidebarItemVisibility,
+    withSidebarPatch,
+    withSidebarSectionVisibility,
+} from './uiCustomizationLogic'
 
 describe('uiCustomizationLogic', () => {
     let logic: ReturnType<typeof uiCustomizationLogic.build>
@@ -156,10 +161,7 @@ describe('uiCustomizationLogic', () => {
             sidebar: { density: 'compact' },
         })
         expect(
-            withSidebarPatch(
-                { version: 1, sidebar: { items: { data: { visible: false } } } },
-                { density: 'compact' }
-            )
+            withSidebarPatch({ version: 1, sidebar: { items: { data: { visible: false } } } }, { density: 'compact' })
         ).toEqual({
             version: 1,
             sidebar: { items: { data: { visible: false } }, density: 'compact' },
