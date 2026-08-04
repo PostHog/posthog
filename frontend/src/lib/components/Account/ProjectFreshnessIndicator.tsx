@@ -23,19 +23,12 @@ const DATA_SOURCE_LABELS: Record<DataSourceEnumApi, string> = {
 }
 
 /**
- * Compact enough to sit in a menu row without crowding the project name, and unit-unambiguous
- * so a column of them can be compared at a glance. Notably `mo` rather than `m`, which would
- * read as minutes next to `1y`.
+ * Compact enough to sit in a menu row without crowding the project name. Only ever called for a
+ * gap of at least `quiet_after_days`, so it starts at days. `mo` rather than `m`, which would
+ * read as minutes.
  */
 function compactAge(timestamp: string): string {
     const then = dayjs(timestamp)
-    if (dayjs().diff(then, 'minute') < 60) {
-        return 'now'
-    }
-    const hours = dayjs().diff(then, 'hour')
-    if (hours < 24) {
-        return `${hours}h`
-    }
     const days = dayjs().diff(then, 'day')
     if (days < 30) {
         return `${days}d`
@@ -75,10 +68,12 @@ function SourceBreakdown({
 }
 
 /**
- * How long ago this project last received data of any kind, on every row rather than only the
- * problem ones. The question being answered is "which of these similarly-named projects is the
- * live one", which is a comparison across the whole list, so every row has to carry a value.
- * `now` next to a column of `3mo` answers it without needing color or a badge.
+ * A warning on projects that have stopped receiving data, and nothing at all on the ones that
+ * haven't. The label says what the duration measures rather than leaving a bare `12d` for the
+ * reader to interpret, because there is no column header in a menu to explain it.
+ *
+ * A project that has never received anything is stated plainly rather than warned about: a
+ * project created a minute ago legitimately has no data, and amber on it would be wrong.
  */
 export function ProjectFreshnessIndicator({
     freshness,
@@ -89,7 +84,7 @@ export function ProjectFreshnessIndicator({
     quietAfterDays: number
     lookbackDays: number
 }): JSX.Element | null {
-    if (!freshness) {
+    if (!freshness || freshness.freshness === 'live') {
         return null
     }
 
@@ -97,17 +92,14 @@ export function ProjectFreshnessIndicator({
     let headline: string
 
     if (freshness.freshness === 'never') {
-        label = 'Never'
+        label = 'No data yet'
         headline = 'This project has never received any data.'
     } else if (!freshness.last_data_at) {
-        label = `${lookbackDays}d+`
-        headline = `No data of any kind in the last ${lookbackDays} days.`
+        label = `No data for ${lookbackDays}d+`
+        headline = `No data of any kind has reached this project in over ${lookbackDays} days.`
     } else {
-        label = compactAge(freshness.last_data_at)
-        headline =
-            freshness.freshness === 'live'
-                ? `Last received data ${dayjs(freshness.last_data_at).fromNow()}.`
-                : `No data of any kind since ${dayjs(freshness.last_data_at).fromNow()}.`
+        label = `No data for ${compactAge(freshness.last_data_at)}`
+        headline = `No data of any kind has reached this project since ${dayjs(freshness.last_data_at).fromNow()}.`
     }
 
     return (
@@ -122,11 +114,8 @@ export function ProjectFreshnessIndicator({
         >
             <span
                 className={cn(
-                    'text-xxs shrink-0 ml-1 whitespace-nowrap tabular-nums',
-                    // The live row is the one being looked for, so it keeps normal contrast while
-                    // the rest recede. With one live project among ten only that row reads at full
-                    // strength; with ten live projects nothing is dimmed and nothing shouts.
-                    freshness.freshness === 'live' ? 'text-secondary' : 'text-tertiary opacity-70'
+                    'text-xxs shrink-0 ml-1 whitespace-nowrap',
+                    freshness.freshness === 'never' ? 'text-tertiary' : 'text-warning'
                 )}
             >
                 {label}
