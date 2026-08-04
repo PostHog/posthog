@@ -238,7 +238,12 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     # Event names are user-controlled (project tokens are public — anyone can fire
     # events with arbitrary names). Sanitize so an attacker can't seed the LLM
     # context with prompt-injection payloads via crafted event names.
-    sanitized = (sanitize_user_text(item.event, EVENT_NAME_MAX_LENGTH) for item in response.results)
+    # `count > 0` drops the runner's WELL_KNOWN_EVENT_NAMES padding, which it appends at count=0 so
+    # Max can offer filters on events a project could send. Under a "Top events" heading that padding
+    # is a claim the event fired, so a project with fewer real events than `limit` would otherwise be
+    # told `$pageleave` is one of its top events. Events that exist but are dormant are a separate
+    # line, built from the Postgres taxonomy by `_no_data_event_names`.
+    sanitized = (sanitize_user_text(item.event, EVENT_NAME_MAX_LENGTH) for item in response.results if item.count > 0)
     return [name for name in sanitized if name][:limit]
 
 

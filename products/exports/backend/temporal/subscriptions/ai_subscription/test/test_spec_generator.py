@@ -791,6 +791,20 @@ class TestTopEventNames(APIBaseTest):
 
         assert names == ["event_0", "event_1", "event_2"]
 
+    def test_excludes_zero_count_padding_events(self) -> None:
+        # The runner appends WELL_KNOWN_EVENT_NAMES at count=0 when there are no more real rows. Under a
+        # "Top events" heading those read as events that fired, so a project with fewer real events than
+        # the limit would be handed fabricated ones — the same misinformation the None/empty split avoids.
+        results = [
+            TeamTaxonomyItem(event="export created", count=42),
+            TeamTaxonomyItem(event="$pageleave", count=0),
+            TeamTaxonomyItem(event="$identify", count=0),
+        ]
+
+        names, _ = self._run_with_results(results, limit=20)
+
+        assert names == ["export created"]
+
 
 class TestGenerateQueryPlanSubstitution(APIBaseTest):
     """Test the substitution *behaviour* — that the planner actually receives the prompt and context
