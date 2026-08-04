@@ -294,30 +294,48 @@ class TestCloudsmithTransport:
         # keeps a partial run from advancing the watermark past repositories it never reached.
         assert response.sort_mode == "desc"
 
+    @parameterized.expand(
+        [
+            # The entitlement token is a live download credential.
+            (
+                "entitlements",
+                {"slug_perm": "tok", "name": "ci", "token": "secret", "_repositories_slug": "prod"},
+                {"slug_perm": "tok", "name": "ci", "repository_slug": "prod"},
+            ),
+            # `target_url` can embed an auth token and `templates` carries rendered request bodies.
+            (
+                "webhooks",
+                {
+                    "slug_perm": "wh",
+                    "target_url": "https://example.com/hook?token=secret",
+                    "templates": [{"event": "package.created", "template": "{}"}],
+                    "is_active": True,
+                    "_repositories_slug": "prod",
+                },
+                {"slug_perm": "wh", "is_active": True, "repository_slug": "prod"},
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )
-    def test_entitlements_fanout_strips_token(self, mock_rest_api_resources) -> None:
-        # The entitlement token is a live download credential; it must never land in a
-        # warehouse table any project member can query.
+    def test_fanout_strips_secret_fields(self, endpoint, raw_row, expected_row, mock_rest_api_resources) -> None:
+        # Credential-bearing fields must never land in a warehouse table any project member can query.
         mock_rest_api_resources.return_value = [
             _FakeResource("repositories", [{"slug": "prod"}]),
-            _FakeResource(
-                "entitlements",
-                [{"slug_perm": "tok", "name": "ci", "token": "secret", "_repositories_slug": "prod"}],
-            ),
+            _FakeResource(endpoint, [raw_row]),
         ]
 
         response = cloudsmith_source(
             api_key="key",
             workspace="acme",
-            endpoint="entitlements",
+            endpoint=endpoint,
             team_id=1,
             job_id="job-1",
             resumable_source_manager=_make_manager(),
         )
 
-        assert list(cast(Any, response.items())) == [{"slug_perm": "tok", "name": "ci", "repository_slug": "prod"}]
+        assert list(cast(Any, response.items())) == [expected_row]
 
     @parameterized.expand(
         [

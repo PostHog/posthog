@@ -114,6 +114,10 @@ CLOUDSMITH_ENDPOINTS: dict[str, CloudsmithEndpointConfig] = {
         primary_key=["repository_slug", "slug_perm"],
         partition_key="created_at",
         fanout=_REPOSITORY_FANOUT,
+        # `target_url` can embed an auth token in its path, query or userinfo, and `templates`
+        # carries the rendered request bodies - both are credentials a project member could
+        # replay from a warehouse table, so neither is synced.
+        strip_fields=("target_url", "templates"),
     ),
     "vulnerabilities": CloudsmithEndpointConfig(
         name="vulnerabilities",

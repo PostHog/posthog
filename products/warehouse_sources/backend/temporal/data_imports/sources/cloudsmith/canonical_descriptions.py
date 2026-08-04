@@ -124,12 +124,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "webhooks": {
-        "description": "A webhook configured on a repository, including the events it fires on and the delivery health of its most recent request.",
+        "description": "A webhook configured on a repository, including the events it fires on and the delivery health of its most recent request. The destination URL and request-body templates are not synced, since either can embed a delivery credential.",
         "docs_url": "https://help.cloudsmith.io/reference/webhooks_list",
         "columns": {
             "repository_slug": "Slug of the repository the webhook belongs to. Added by PostHog so webhooks stay distinguishable across repositories.",
             "slug_perm": "Permanent identifier for the webhook.",
-            "target_url": "The destination URL that webhook payloads are posted to.",
             "events": "The events the webhook is subscribed to, for example package.created.",
             "package_query": "Package search query that a package must match for the webhook to fire.",
             "is_active": "Whether the webhook fires on subscribed events.",

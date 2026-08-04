@@ -126,6 +126,10 @@ def _client_config(api_key: str) -> ClientConfig:
         # Cloudsmith API keys authenticate via the `X-Api-Key` header (HTTP basic also works, but
         # the header is the documented default and keeps the key out of the URL userinfo).
         "auth": {"type": "api_key", "name": "X-Api-Key", "api_key": api_key, "location": "header"},
+        # `capture=False` keeps raw responses out of HTTP sample storage: member emails, audit-log
+        # IP addresses and webhook targets ride in these bodies, and the name-based scrubber can't
+        # recognise them. Traffic is still metered and logged, with the API key redacted.
+        "session": make_tracked_session(redact_values=(api_key,), capture=False),
     }
 
 
@@ -138,7 +142,7 @@ def validate_credentials(api_key: str, workspace: str, schema_name: Optional[str
     if not WORKSPACE_SLUG_RE.match(workspace):
         return False, INVALID_WORKSPACE_ERROR
 
-    response = make_tracked_session(redact_values=(api_key,)).get(
+    response = make_tracked_session(redact_values=(api_key,), capture=False).get(
         f"{CLOUDSMITH_BASE_URL}/namespaces/{workspace}/",
         headers={"X-Api-Key": api_key, "Accept": "application/json"},
         timeout=10,
