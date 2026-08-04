@@ -430,14 +430,18 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
    viewBox and an svg clips at its own box: a crest past 1 comes back with its
    tip sliced flat at every size. Resting settled and rising to exactly full
    height keeps the wave inside the geometry by construction. */
+/* No rest segment: each spike rises for a third of the cycle and falls for
+   the other two, so every spike is always in motion. With the stagger at a
+   third of the duration (see LogoMark.tsx) the crests land evenly around the
+   loop — and whenever two spikes sit at their turning points at once, the
+   third is mid-fall at full speed, so the back never reads as paused. */
 @keyframes ph-spike-wave {
   0%,
-  45%,
   100% {
     opacity: 0.4;
     transform: scaleY(0.88);
   }
-  12% {
+  33.333% {
     opacity: 1;
     transform: scaleY(1);
   }

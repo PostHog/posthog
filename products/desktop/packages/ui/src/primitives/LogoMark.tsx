@@ -3,10 +3,11 @@ import type { CSSProperties } from "react";
 
 // How far apart neighbouring spikes crest. The keyframe (and its duration)
 // lives in styles/globals.css as `ph-spike-wave`, so the wave costs no JS
-// timers; the stagger here has to stay well inside that duration or the wave
-// stops reading as one gesture rolling across the back and becomes spikes
-// taking turns at random.
-const WAVE_STAGGER_MS = 150;
+// timers. This must be the duration divided by the spike count: crests then
+// land evenly around the loop and the wave rolls without a pause between
+// passes — shorter, and the spikes bunch up and the back goes dead until the
+// next lap.
+const WAVE_STAGGER_MS = 400;
 
 // The logomark's own geometry, from Logo.tsx. Width / height of the viewBox —
 // callers give a width and the height follows, so the mark can never be
