@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
+    HolderWorkflowDescription,
     ReleaseV3LockActivityInputs,
     acquire_v3_pipeline_lock_activity,
     check_pipeline_version_activity,
@@ -177,7 +178,12 @@ class TestTakeOverStaleLock:
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
 
     @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.RUNNING, None, False))
+    @patch(
+        f"{MODULE}._describe_holder_workflow",
+        return_value=HolderWorkflowDescription(
+            status=WorkflowExecutionStatus.RUNNING, job=None, status_is_assumed=False
+        ),
+    )
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_holder_workflow_running(
@@ -186,7 +192,10 @@ class TestTakeOverStaleLock:
         assert self._run() is False
 
     @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None, False))
+    @patch(
+        f"{MODULE}._describe_holder_workflow",
+        return_value=HolderWorkflowDescription(status=None, job=None, status_is_assumed=False),
+    )
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_describe_fails(
@@ -311,7 +320,9 @@ class TestTakeOverStaleLock:
         holder_job.status = holder_status
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, False),
+            return_value=HolderWorkflowDescription(
+                status=WorkflowExecutionStatus.COMPLETED, job=holder_job, status_is_assumed=False
+            ),
         ):
             assert self._run() is True
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
@@ -331,7 +342,9 @@ class TestTakeOverStaleLock:
         holder_job.status = "Running"
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, False),
+            return_value=HolderWorkflowDescription(
+                status=WorkflowExecutionStatus.COMPLETED, job=holder_job, status_is_assumed=False
+            ),
         ):
             assert self._run() is False
         mock_stale.assert_called_once()
