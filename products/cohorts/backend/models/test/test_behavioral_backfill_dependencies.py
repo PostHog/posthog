@@ -227,6 +227,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
             cohort_type=CohortType.REALTIME,
             filters=self._filters(7),
             last_backfill_events_at=ready_at,
+            last_realtime_cohort_calculation_at=ready_at,
         )
         before = self._orphan_count()
 
@@ -238,6 +239,9 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertIsNone(cohort.behavioral_filters_shape_hash)
         self.assertIsNone(cohort.person_filters_shape_hash)
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
+        # The allowlist bounds the calculation stamp's only invalidation path too, which is
+        # why lighting a team for realtime flag evaluation requires allowlisting it here.
+        self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
         self.assertEqual(self._orphan_count(), before)
 
     def _redis(self, *set_results: bool) -> mock.Mock:

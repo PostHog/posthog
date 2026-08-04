@@ -388,9 +388,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self._person_shape_changed = True
             if behavioral_shape_changed or person_shape_changed:
                 # The legacy workflow's stamp vouches for the whole-cohort membership
-                # computation, so either kind of leaf-shape change stales it. Its writer is
-                # retired, so nothing re-stamps an edited cohort; nulling here makes it fall
-                # out of realtime flag routing instead of serving the old definition forever.
+                # computation, so either kind of leaf-shape change stales it. Nothing
+                # schedules that workflow any more (only a manual trigger recomputes and
+                # re-stamps), so without this an edited cohort would keep routing flag
+                # evaluation to a membership table computed for its old definition.
                 self.last_realtime_cohort_calculation_at = None
 
             if maintained_update_fields is None:

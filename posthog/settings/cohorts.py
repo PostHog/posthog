@@ -50,7 +50,7 @@ BEHAVIORAL_BACKFILL_FINALIZER_ENABLED: bool = get_from_env(
 # Keep it off until every region's flags service runs
 # `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY=events_or_calculation_stamp` (after that flip's delta
 # queries and hypercache refresh). Under the service's default policy the routing predicate takes
-# *either* backfill timestamp as proof the membership table is populated, because ~19k cohorts
+# *either* backfill timestamp as proof the membership table is populated, because many cohorts
 # still carry a person stamp written by the legacy realtime workflow before #57545 removed that
 # write, and for those it correctly means "the legacy pipeline computed this cohort into
 # cohort_membership". A stamp written here means something different: only the person half is

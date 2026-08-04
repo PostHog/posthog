@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
@@ -56,29 +56,50 @@ fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &
 }
 
 /// Cohorts already warned about by `record_stamp_policy_divergence`, deduped for the same
-/// reason as `WARNED_MALFORMED_COHORTS` above.
-static WARNED_DIVERGENT_COHORTS: Lazy<Mutex<HashSet<(TeamId, CohortId)>>> =
-    Lazy::new(|| Mutex::new(HashSet::new()));
+/// reason as `WARNED_MALFORMED_COHORTS` above. An `RwLock` rather than a `Mutex` because
+/// divergence is the expected steady state for grandfathered cohorts, not an exception:
+/// once a cohort has been warned about, every later request only takes the read side.
+static WARNED_DIVERGENT_COHORTS: Lazy<RwLock<HashSet<(TeamId, CohortId)>>> =
+    Lazy::new(|| RwLock::new(HashSet::new()));
 
 /// Counts and logs a cohort on which the compat and disambiguated membership stamp
 /// policies disagree about realtime routing. The counter is traffic-weighted and can't
-/// identify *which* cohort diverges, so the deduped log carries the ids.
-pub(crate) fn record_stamp_policy_divergence(cohort: &Cohort) {
+/// identify *which* cohort diverges, so the deduped log carries the ids. `active_policy`
+/// labels which side of the flip the region is on, so a post-flip series (where a
+/// `would_lose` cohort has already been rerouted) can't be mistaken for a pre-flip one.
+pub(crate) fn record_stamp_policy_divergence(
+    cohort: &Cohort,
+    active_policy: MembershipStampPolicy,
+) {
     let Some(divergence) = MembershipStampPolicy::divergence(cohort) else {
         return;
     };
     common_metrics::inc(
         FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
-        &[("direction".to_string(), divergence.as_label().to_string())],
+        &[
+            ("direction".to_string(), divergence.as_label().to_string()),
+            (
+                "active_policy".to_string(),
+                active_policy.as_label().to_string(),
+            ),
+        ],
         1,
     );
 
-    let mut warned = WARNED_DIVERGENT_COHORTS.lock().unwrap();
+    if WARNED_DIVERGENT_COHORTS
+        .read()
+        .unwrap()
+        .contains(&(cohort.team_id, cohort.id))
+    {
+        return;
+    }
+    let mut warned = WARNED_DIVERGENT_COHORTS.write().unwrap();
     if warned.insert((cohort.team_id, cohort.id)) {
         tracing::warn!(
             cohort_id = cohort.id,
             team_id = cohort.team_id,
             direction = divergence.as_label(),
+            active_policy = active_policy.as_label(),
             "Membership stamp policies disagree on this cohort's realtime routing; the REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY flip would change it"
         );
     }
@@ -583,6 +604,7 @@ impl DependencyProvider for Cohort {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cohorts::cohort_models::CohortType;
     use crate::utils::test_utils::TestContext;
     use serde_json::json;
 
@@ -1156,6 +1178,35 @@ mod tests {
             condition_type: None,
             last_realtime_cohort_calculation_at: None,
         }
+    }
+
+    #[test]
+    fn test_record_stamp_policy_divergence_only_records_divergent_cohorts() {
+        let behavioral = json!({
+            "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+        });
+        let routed = |id| {
+            let mut cohort = create_dynamic_cohort_with_filters(id, json!({}));
+            cohort.cohort_type = Some(CohortType::Realtime);
+            cohort.condition_type = Some(behavioral.clone());
+            cohort
+        };
+
+        // Person stamp only: the flip would deroute it, so it must reach the warn set.
+        let mut divergent = routed(987_654);
+        divergent.last_backfill_person_properties_at = Some(chrono::Utc::now());
+        record_stamp_policy_divergence(&divergent, MembershipStampPolicy::AnyBackfillStamp);
+        record_stamp_policy_divergence(&divergent, MembershipStampPolicy::AnyBackfillStamp);
+
+        // Events stamp: both policies route it, so nothing is recorded — a recorder that
+        // fired unconditionally would make the rollout gate unreadable.
+        let mut agreed = routed(987_655);
+        agreed.last_backfill_events_at = Some(chrono::Utc::now());
+        record_stamp_policy_divergence(&agreed, MembershipStampPolicy::AnyBackfillStamp);
+
+        let warned = WARNED_DIVERGENT_COHORTS.read().unwrap();
+        assert!(warned.contains(&(divergent.team_id, divergent.id)));
+        assert!(!warned.contains(&(agreed.team_id, agreed.id)));
     }
 
     #[test]

@@ -2121,10 +2121,8 @@ impl FeatureFlagMatcher {
         let realtime_cohort_ids: Vec<CohortId> = if self.enable_realtime_cohort_evaluation {
             cohorts
                 .iter()
-                .filter(|c| {
-                    record_stamp_policy_divergence(c);
-                    self.membership_stamp_policy.uses_realtime_membership(c)
-                })
+                .inspect(|c| record_stamp_policy_divergence(c, self.membership_stamp_policy))
+                .filter(|c| self.membership_stamp_policy.uses_realtime_membership(c))
                 .map(|c| c.id)
                 .collect()
         } else {

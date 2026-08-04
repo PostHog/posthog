@@ -23,6 +23,9 @@ class CohortVisitor(
         "last_error_at",
         "last_backfill_events_at",
         "last_backfill_person_properties_at",
+        # Like the two above: a stamp vouches for `cohort_membership` rows the destination
+        # team has none of, and the flags service reads it as proof the table is populated.
+        "last_realtime_cohort_calculation_at",
         "filters_shape_hash",
         "behavioral_filters_shape_hash",
         "person_filters_shape_hash",
