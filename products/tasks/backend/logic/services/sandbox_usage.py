@@ -31,6 +31,7 @@ from products.tasks.backend.logic.services.sandbox_pricing import (
     ComputeRateCard,
     calculate_sandbox_compute_cost,
     validate_compute_rate_cards,
+    validate_reporting_window,
 )
 from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
@@ -164,6 +165,7 @@ def get_billable_sandbox_compute_usage_by_team(
     *,
     rate_cards: Sequence[ComputeRateCard] | None = None,
 ) -> SandboxComputeUsageByTeam:
+    validate_reporting_window(begin, end)
     rate_cards = COMPUTE_RATE_CARDS if rate_cards is None else rate_cards
     if not rate_cards:
         return SandboxComputeUsageByTeam([], [], [])
