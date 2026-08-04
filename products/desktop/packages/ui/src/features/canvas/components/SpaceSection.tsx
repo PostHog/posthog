@@ -18,8 +18,6 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { type Ref, useMemo, useState } from "react";
 
-const RECENTS_CAP = 5;
-
 /**
  * One pinned space in the static sidebar. The whole row is one click target:
  * it folds the space's task list open and closed (caret included — no separate
@@ -28,12 +26,18 @@ const RECENTS_CAP = 5;
  * main view, where the header tabs (Feed/Context/Loops/Artifacts) live. #me
  * wears its lock in the same right-hand well, stepping aside on hover.
  *
+ * The open list is the full list — the pinned-spaces region around these
+ * sections is the one scroll container, so no per-space scrollbars or
+ * "View all" hops. A search query (from the Spaces header) overrides the
+ * fold: matching spaces open on their matches, spaces without any disappear.
+ *
  * Expand state is local view state in `spacesSidebarStore`; the space's
  * presence in the sidebar is its star, managed from the All spaces directory.
  */
 export function SpaceSection({
   channel,
   dragHandleRef,
+  query,
 }: {
   channel: Channel;
   /**
@@ -42,6 +46,8 @@ export function SpaceSection({
    * the Command Center) without dnd-kit swallowing it.
    */
   dragHandleRef?: Ref<HTMLButtonElement>;
+  /** Lowercased search from the Spaces header, applied across every space. */
+  query?: string;
 }) {
   const open = useSpacesSidebarStore((s) => !!s.openSections[channel.id]);
   const toggle = useSpacesSidebarStore((s) => s.toggle);
@@ -81,21 +87,23 @@ export function SpaceSection({
     return task ? `task:${task[1]}` : null;
   }, [pathname]);
 
-  // The sidebar-wide "My tasks" toggle narrows every space's list to items the
-  // viewer created — the same fail-closed ownership rule #me itself uses.
-  const visibleItems = useMemo(
-    () => (onlyMine ? items.filter((i) => isOwnedBy(i, me)) : items),
-    [items, onlyMine, me],
-  );
+  // The sidebar-wide "Mine" toggle narrows every space's list to items the
+  // viewer created — the same fail-closed ownership rule #me itself uses —
+  // and the header search narrows it further by title.
+  const searching = !!query;
+  const visibleItems = useMemo(() => {
+    const mine = onlyMine ? items.filter((i) => isOwnedBy(i, me)) : items;
+    return query
+      ? mine.filter((i) => i.title.toLowerCase().includes(query))
+      : mine;
+  }, [items, onlyMine, me, query]);
   const sectionItems = useMemo(
-    () =>
-      [
-        ...visibleItems.filter((i) => i.pinned),
-        ...visibleItems.filter((i) => !i.pinned),
-      ].slice(0, RECENTS_CAP),
+    () => [
+      ...visibleItems.filter((i) => i.pinned),
+      ...visibleItems.filter((i) => !i.pinned),
+    ],
     [visibleItems],
   );
-  const overflowCount = visibleItems.length - sectionItems.length;
 
   const commandCenterAssigner = (taskId: string) => {
     const cellIndex = commandCenterCells.findIndex(
@@ -117,6 +125,10 @@ export function SpaceSection({
       params: { channelId: channel.id },
     });
   };
+
+  // While searching, a space is its matches — none means the whole section
+  // steps aside rather than listing an empty shell.
+  if (searching && sectionItems.length === 0) return null;
 
   return (
     <div>
@@ -193,8 +205,8 @@ export function SpaceSection({
       </div>
 
       {/* Tasks under the space, pinned first. Same inset as the channel
-          groups' trees (pl-5). */}
-      {open && (
+          groups' trees (pl-5). A search opens every matching space. */}
+      {(open || searching) && (
         <div className="flex flex-col gap-px pb-1 pl-5">
           {isLoading && sectionItems.length === 0 ? (
             <div className="flex flex-col gap-2 px-2 py-2">
@@ -206,74 +218,48 @@ export function SpaceSection({
               {onlyMine ? "None of your tasks here" : "No tasks yet"}
             </div>
           ) : (
-            <>
-              {/* Five recents, no inner scroll — the full list is one click
-                  away on the space's Recents page via View all. */}
-              <div className="flex flex-col gap-px">
-                {sectionItems.map((item) => (
-                  <ChannelItemRow
-                    key={item.key}
-                    item={item}
-                    channelId={channel.id}
-                    isActive={item.key === activeKey}
-                    actions={actions}
-                    isEditing={
-                      item.kind === "task" && editingTaskId === item.id
-                    }
-                    onRename={
-                      item.kind === "task"
-                        ? () => setEditingTaskId(item.id)
-                        : undefined
-                    }
-                    onAddToCommandCenter={
-                      item.kind === "task" &&
-                      !commandCenterCells.includes(item.id)
-                        ? commandCenterAssigner(item.id)
-                        : undefined
-                    }
-                    onEditSubmit={
-                      item.kind === "task"
-                        ? async (newTitle) => {
-                            setEditingTaskId(null);
-                            try {
-                              await renameTask({
-                                taskId: item.id,
-                                currentTitle: item.title,
-                                newTitle,
-                              });
-                            } catch (error) {
-                              toast.error("Couldn't rename task", {
-                                description:
-                                  error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                              });
-                            }
-                          }
-                        : undefined
-                    }
-                    onEditCancel={() => setEditingTaskId(null)}
-                  />
-                ))}
-              </div>
-              {/* The list is a cap, not the whole story — the rest live on the
-                  space's Recents page. */}
-              {overflowCount > 0 && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="justify-start text-[12px] text-muted-foreground"
-                  onClick={() =>
-                    void navigate({
-                      to: "/website/$channelId/history",
-                      params: { channelId: channel.id },
-                    })
-                  }
-                >
-                  View all ({visibleItems.length})
-                </Button>
-              )}
-            </>
+            sectionItems.map((item) => (
+              <ChannelItemRow
+                key={item.key}
+                item={item}
+                channelId={channel.id}
+                isActive={item.key === activeKey}
+                actions={actions}
+                isEditing={item.kind === "task" && editingTaskId === item.id}
+                onRename={
+                  item.kind === "task"
+                    ? () => setEditingTaskId(item.id)
+                    : undefined
+                }
+                onAddToCommandCenter={
+                  item.kind === "task" && !commandCenterCells.includes(item.id)
+                    ? commandCenterAssigner(item.id)
+                    : undefined
+                }
+                onEditSubmit={
+                  item.kind === "task"
+                    ? async (newTitle) => {
+                        setEditingTaskId(null);
+                        try {
+                          await renameTask({
+                            taskId: item.id,
+                            currentTitle: item.title,
+                            newTitle,
+                          });
+                        } catch (error) {
+                          toast.error("Couldn't rename task", {
+                            description:
+                              error instanceof Error
+                                ? error.message
+                                : String(error),
+                          });
+                        }
+                      }
+                    : undefined
+                }
+                onEditCancel={() => setEditingTaskId(null)}
+              />
+            ))
           )}
         </div>
       )}

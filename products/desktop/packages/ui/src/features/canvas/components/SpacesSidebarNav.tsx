@@ -1,9 +1,11 @@
 import { PointerSensor } from "@dnd-kit/dom";
 import { type DragDropEvents, DragDropProvider } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
-import { PlusIcon } from "@phosphor-icons/react";
+import { MagnifyingGlass, PlusIcon } from "@phosphor-icons/react";
 import {
   Button,
+  cn,
+  Input,
   MenuLabel,
   Separator,
   Switch,
@@ -23,7 +25,7 @@ import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spaces
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import type { RefCallback } from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 /**
  * One sortable pinned space. The header row is the drag handle (via
@@ -31,7 +33,15 @@ import { useMemo } from "react";
  * into the Command Center. #me renders outside this wrapper — it's always
  * first and doesn't reorder.
  */
-function SortableSpace({ space, index }: { space: Channel; index: number }) {
+function SortableSpace({
+  space,
+  index,
+  query,
+}: {
+  space: Channel;
+  index: number;
+  query?: string;
+}) {
   const { ref, handleRef, isDragging } = useSortable({
     id: space.id,
     index,
@@ -44,6 +54,7 @@ function SortableSpace({ space, index }: { space: Channel; index: number }) {
       <SpaceSection
         channel={space}
         dragHandleRef={handleRef as RefCallback<HTMLButtonElement>}
+        query={query}
       />
     </div>
   );
@@ -63,6 +74,12 @@ export function SpacesSidebarNav() {
   const toggleOnlyMyTasks = useSpacesSidebarStore((s) => s.toggleOnlyMyTasks);
   const spaceOrder = useSpacesSidebarStore((s) => s.spaceOrder);
   const setSpaceOrder = useSpacesSidebarStore((s) => s.setSpaceOrder);
+  // One search over every space's task list; transient view state.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const query = searchOpen
+    ? searchText.trim().toLowerCase() || undefined
+    : undefined;
 
   const me = pinnedSpaces.find((c) => c.name === PERSONAL_CHANNEL_NAME);
   // The user's drag order over the starred set; spaces they've never dragged
@@ -127,10 +144,27 @@ export function SpacesSidebarNav() {
 
       <Separator className="my-1 shrink-0" />
 
-      {/* The section label, with one filter over every space's task list. */}
+      {/* The section label, with search and one filter over every space's
+          task list. */}
       <div className="flex shrink-0 items-center justify-between px-2 pr-3">
         <MenuLabel>Spaces</MenuLabel>
         <div className="flex items-center gap-1.5">
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label="Search all spaces"
+            aria-pressed={searchOpen}
+            onClick={() => {
+              setSearchOpen((prev) => !prev);
+              setSearchText("");
+            }}
+            className={cn(
+              "text-muted-foreground",
+              searchOpen && "bg-fill-selected text-foreground",
+            )}
+          >
+            <MagnifyingGlass size={12} />
+          </Button>
           <span className="text-[12px] text-muted-foreground">Mine</span>
           <Tooltip>
             <TooltipTrigger
@@ -152,10 +186,25 @@ export function SpacesSidebarNav() {
         </div>
       </div>
 
-      {/* Pinned (starred) spaces; #me first and fixed, the rest reorderable. */}
+      {searchOpen && (
+        <div className="shrink-0 px-2 pb-1">
+          <Input
+            autoFocus
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder="Search all spaces…"
+            aria-label="Search tasks in all spaces"
+            className="h-6 text-[12px]"
+          />
+        </div>
+      )}
+
+      {/* Pinned (starred) spaces; #me first and fixed, the rest reorderable.
+          This region is the sidebar's one scroll container — spaces unfold
+          their full lists inside it, so there are no nested scrollbars. */}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <div className="flex flex-col gap-px">
-          {me && <SpaceSection channel={me} />}
+          {me && <SpaceSection channel={me} query={query} />}
           {/* The handle doubles as the fold toggle, so a small pickup
               distance keeps plain clicks from starting a drag. */}
           <DragDropProvider
@@ -168,7 +217,12 @@ export function SpacesSidebarNav() {
             ]}
           >
             {orderedSpaces.map((space, index) => (
-              <SortableSpace key={space.id} space={space} index={index} />
+              <SortableSpace
+                key={space.id}
+                space={space}
+                index={index}
+                query={query}
+              />
             ))}
           </DragDropProvider>
         </div>
