@@ -78,7 +78,11 @@ export function CompareFilter({
         <LemonSelect
             icon={<IconClock />}
             onSelect={(newValue) => {
-                if (newValue === 'compareTo') {
+                if (newValue === 'none') {
+                    updateCompareFilter({ compare: false, compare_to: undefined })
+                } else if (newValue === 'previous') {
+                    updateCompareFilter({ compare: true, compare_to: undefined })
+                } else if (newValue === 'compareTo') {
                     updateCompareFilter({ compare: true, compare_to: tentativeCompareTo })
                 }
             }}
@@ -103,13 +107,6 @@ export function CompareFilter({
             }}
             value={value}
             dropdownMatchSelectWidth={false}
-            onChange={(value) => {
-                if (value === 'none') {
-                    updateCompareFilter({ compare: false, compare_to: undefined })
-                } else if (value === 'previous') {
-                    updateCompareFilter({ compare: true, compare_to: undefined })
-                }
-            }}
             data-attr="compare-filter"
             options={options}
             size="small"
