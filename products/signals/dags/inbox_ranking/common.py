@@ -7,6 +7,7 @@ definition.
 """
 
 import datetime
+import tempfile
 
 import boto3
 import dagster
@@ -103,10 +104,18 @@ SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
 
 
 def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date: str | None = None) -> None:
+    """Write one Parquet object at a deterministic key.
+
+    Spooled to a temp file and uploaded with `upload_fileobj` rather than held as bytes for
+    `put_object`: the embeddings and model-data snapshots carry a 1536-float vector per live report,
+    so they grow past both the 5 GB single-request ceiling and what a second in-memory copy of the
+    encoded file costs. `upload_fileobj` switches to a multipart upload on its own once the object
+    is large enough."""
     metadata = {SNAPSHOT_DATE_METADATA_KEY: snapshot_date} if snapshot_date else {}
-    buffer = pa.BufferOutputStream()
-    pq.write_table(table, buffer, compression="zstd")
-    client.put_object(Bucket=bucket, Key=key, Body=buffer.getvalue().to_pybytes(), Metadata=metadata)
+    with tempfile.TemporaryFile() as spool:
+        pq.write_table(table, spool, compression="zstd")
+        spool.seek(0)
+        client.upload_fileobj(spool, bucket, key, ExtraArgs={"Metadata": metadata})
 
 
 def object_snapshot_date(client, bucket: str, key: str) -> str | None:

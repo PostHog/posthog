@@ -16,7 +16,7 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on Cloud, stopped elsewhere) and builds four assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds four assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -52,9 +52,9 @@ All reads route to the offline cluster replicas on Cloud (`etl_workload()`), car
 
 ### Operating it
 
-- Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch).
-- Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run.
-- The job is capped at 1h via `dagster/max_runtime`.
+- Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch). Every asset sits in the `inbox_ranking_etl` pool so concurrent partitions don't each start their own fleet-wide embeddings scan — the pool's limit is a Dagster deployment setting, provisioned with the bucket.
+- Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_` asset-name prefix.
+- The job is capped at 3h via `dagster/max_runtime` — the six label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them.
 
 ### Deletion and retention
 

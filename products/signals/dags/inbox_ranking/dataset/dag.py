@@ -30,6 +30,8 @@ import datetime
 from collections.abc import Iterator
 from typing import Any, cast
 
+from django.db.models import Q
+
 import dagster
 import pyarrow as pa
 
@@ -73,6 +75,16 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
 
 FEATURE_SCHEMA_VERSION = 1
 
+# Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
+# and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
+# promotion. Suppressed and deleted are absent on purpose: authored-then-hidden is not inventory.
+BORN_VISIBLE_STATUSES = (
+    SignalReport.Status.READY,
+    SignalReport.Status.PENDING_INPUT,
+    SignalReport.Status.IN_PROGRESS,
+    SignalReport.Status.RESOLVED,
+)
+
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
 LABELS_TABLE = "inbox_report_labels"
@@ -84,6 +96,11 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
     "tags": owner_tags,
     # Transient ClickHouse/S3 blips shouldn't fail the daily partition outright.
     "retry_policy": dagster.RetryPolicy(max_retries=2, delay=60),
+    # Step-level, so it also bounds the implicit __ASSET_JOB runs a multi-day UI backfill launches:
+    # each partition otherwise starts its own fleet-wide embeddings aggregation with a 20 GiB query
+    # budget. The limit itself is a Dagster deployment setting (charts repo), like the duckling
+    # backfill keys; this only names the pool it targets.
+    "pool": "inbox_ranking_etl",
 }
 
 
@@ -294,6 +311,21 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
     return judgments
 
 
+def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
+    """Reports that were in the inbox before the cutoff.
+
+    Two ways in, because not every visible report was promoted: the pipeline promotes a `potential`
+    report and stamps promoted_at, but the scout and custom-agent authoring paths create a report
+    already in a visible status and never stamp it. Keying only on promotion dropped every
+    directly-authored report until a user happened to interact with it, biasing the inventory toward
+    reports that already had engagement — the wrong bias for a ranking model. A never-promoted report
+    is only eligible while it is still visible, so a promotion after the cutoff (promoted_at set, not
+    null) still cannot leak in through the second branch."""
+    return Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
+        promoted_at__isnull=True, status__in=BORN_VISIBLE_STATUSES, created_at__lt=snapshot_end
+    )
+
+
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
@@ -312,15 +344,13 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     )
     labeled_ids = valid_report_uuids({row[0] for row in labeled_rows})
 
-    # Spine: reports promoted before the snapshot cutoff plus anything a label stream referenced
-    # before it, so raw `potential` noise and reports that appeared after the cutoff stay out.
-    # Labeled ids missing from Postgres (EU reports, hard-deleted rows) still get a model_data row
-    # downstream via the labels asset.
+    # Spine: reports in the inbox before the cutoff, plus anything a label stream referenced before
+    # it, so raw `potential` noise and reports that appeared after the cutoff stay out. Labeled ids
+    # missing from Postgres (EU reports, hard-deleted rows) still get a model_data row downstream
+    # via the labels asset.
     spine_ids: set[str] = {
         str(report_id)
-        for report_id in SignalReport.objects.filter(
-            promoted_at__isnull=False, promoted_at__lt=snapshot_end
-        ).values_list("id", flat=True)
+        for report_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list("id", flat=True)
     }
     for chunk in _chunked(sorted(labeled_ids)):
         spine_ids |= {
@@ -421,31 +451,49 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
         or [],
     )
 
-    rows: list[dict[str, Any]] = []
+    # Consumed column-wise straight into Arrow, and each source row is released as it is converted.
+    # This is the widest thing the dag holds — a 1536-float vector per live report, fleet-wide — so
+    # the intermediate list of row dicts that from_pylist would need is a whole extra copy of it.
+    row_count = len(results)
     tombstones = 0
-    for team_id, document_id, embedding, is_tombstone, inserted_at in results:
+    report_ids: list[str] = []
+    team_ids: list[int] = []
+    embeddings: list[list[float] | None] = []
+    inserted_ats: list[datetime.datetime | None] = []
+    tombstone_flags: list[bool] = []
+    for index in range(row_count):
+        team_id, document_id, embedding, is_tombstone, inserted_at = results[index]
+        results[index] = ()
         if is_tombstone:
             tombstones += 1
-        rows.append(
-            {
-                "snapshot_date": snapshot_date,
-                "report_id": str(document_id),
-                "report_team_id": int(team_id),
-                # Tombstoned vectors embed the fixed retraction text, not report content, so they
-                # are useless as features; keep the row for lineage but null the vector.
-                "embedding_small": None if is_tombstone else list(embedding),
-                "embedding_inserted_at": ensure_utc(inserted_at),
-                "embedding_rendering": EMBEDDING_RENDERING,
-                "is_tombstone": bool(is_tombstone),
-            }
-        )
+        report_ids.append(str(document_id))
+        team_ids.append(int(team_id))
+        # Tombstoned vectors embed the fixed retraction text, not report content, so they are
+        # useless as features; keep the row for lineage but null the vector.
+        embeddings.append(None if is_tombstone else list(embedding))
+        inserted_ats.append(ensure_utc(inserted_at))
+        tombstone_flags.append(bool(is_tombstone))
+    del results
+
+    table = pa.Table.from_pydict(
+        {
+            "snapshot_date": [snapshot_date] * row_count,
+            "report_id": report_ids,
+            "report_team_id": team_ids,
+            "embedding_small": embeddings,
+            "embedding_inserted_at": inserted_ats,
+            "embedding_rendering": [EMBEDDING_RENDERING] * row_count,
+            "is_tombstone": tombstone_flags,
+        },
+        schema=EMBEDDINGS_SCHEMA,
+    )
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, EMBEDDINGS_TABLE, partition_key)
-    write_parquet(s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=EMBEDDINGS_SCHEMA))
+    write_parquet(s3_client(), bucket, key, table)
     context.add_output_metadata(
         {
-            "rows": dagster.MetadataValue.int(len(rows)),
+            "rows": dagster.MetadataValue.int(row_count),
             "tombstones": dagster.MetadataValue.int(tombstones),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
@@ -636,7 +684,10 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     name="inbox_ranking_dataset_job",
     selection=[STATE_TABLE, EMBEDDINGS_TABLE, LABELS_TABLE, MODEL_DATA_TABLE],
     partitions_def=partition_def,
-    tags={**owner_tags, "dagster/max_runtime": str(60 * 60)},
+    # The six label streams run sequentially and each may take its full 600s query timeout, so an
+    # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
+    # the label windows only grow, since they accumulate from LABELS_EPOCH.
+    tags={**owner_tags, "dagster/max_runtime": str(3 * 60 * 60)},
 )
 
 

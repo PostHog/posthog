@@ -2,9 +2,16 @@ import datetime
 from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest
 
+from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
-from products.signals.dags.inbox_ranking.dataset.dag import MODEL_DATA_SCHEMA, assemble_model_rows, label_provenance_ok
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    MODEL_DATA_SCHEMA,
+    assemble_model_rows,
+    label_provenance_ok,
+    spine_report_filter,
+)
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
@@ -19,6 +26,7 @@ T1 = datetime.datetime(2026, 7, 20, 10, 0, tzinfo=datetime.UTC)
 T2 = datetime.datetime(2026, 7, 21, 10, 0, tzinfo=datetime.UTC)
 SNAPSHOT_END = datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
 AFTER_SNAPSHOT_END = datetime.datetime(2026, 7, 30, 1, 0, tzinfo=datetime.UTC)
+BEFORE_CUTOFF = datetime.datetime(2026, 7, 28, 9, 0, tzinfo=datetime.UTC)
 UUID_A = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
 UUID_B = "0198c0e8-93c8-0000-38f5-a934eeb1b93f"
 
@@ -222,3 +230,27 @@ def test_assembled_rows_match_the_parquet_schema_exactly():
         run_id="run-1",
     )
     assert set(rows[0]) == set(MODEL_DATA_SCHEMA.names)
+
+
+class TestSpineInclusion(BaseTest):
+    def _report(self, status, *, promoted_at=None, created_at=BEFORE_CUTOFF):
+        report = SignalReport.objects.create(team=self.team, status=status, title="t", summary="s")
+        SignalReport.objects.filter(id=report.id).update(created_at=created_at, promoted_at=promoted_at)
+        return str(report.id)
+
+    def test_spine_covers_authored_and_promoted_reports_as_of_the_cutoff(self):
+        promoted = self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF)
+        born_visible = self._report(SignalReport.Status.READY)
+        promoted_after_cutoff = self._report(SignalReport.Status.READY, promoted_at=AFTER_SNAPSHOT_END)
+        self._report(SignalReport.Status.POTENTIAL)
+        self._report(SignalReport.Status.SUPPRESSED)
+        created_after_cutoff = self._report(SignalReport.Status.READY, created_at=AFTER_SNAPSHOT_END)
+
+        in_spine = {
+            str(report_id)
+            for report_id in SignalReport.objects.filter(spine_report_filter(SNAPSHOT_END)).values_list("id", flat=True)
+        }
+
+        assert in_spine == {promoted, born_visible}
+        assert promoted_after_cutoff not in in_spine
+        assert created_after_cutoff not in in_spine
