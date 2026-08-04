@@ -16,13 +16,13 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { track } from "../../../shell/analytics";
+import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
+import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
 import { PromptInput } from "../../message-editor/components/PromptInput";
 import { contentToPlainText } from "../../message-editor/content";
 import { useDraftStore } from "../../message-editor/draftStore";
 import type { EditorHandle } from "../../message-editor/types";
-import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
-import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
 import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
 import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
