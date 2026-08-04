@@ -14,7 +14,6 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_revisions"
 RENDER_PATH = "products.workflows.backend.api.hog_flow.render_design_html"
 RENDERED_HTML = "<html>rendered</html>"
 
@@ -281,9 +280,8 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
 
     # ── Draft routing (mirrors the /graph endpoint's contract) ────────
 
-    @patch(FLAG_PATH, return_value=True)
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
-    def test_mcp_patch_on_active_flow_lands_in_draft(self, _mock_render, _flag):
+    def test_mcp_patch_on_active_flow_lands_in_draft(self, _mock_render):
         flow_id = self._create_flow(status="active")
         live_actions_before = HogFlow.objects.get(pk=flow_id).actions
 
@@ -296,25 +294,8 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         assert _stored_email_value(flow, from_draft=True)["subject"] == "Draft subject"
         assert response.json()["draft"] is not None
 
-    @patch(FLAG_PATH, return_value=False)
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
-    def test_mcp_patch_on_active_flow_rejected_when_flag_off(self, mock_render, _flag):
-        flow_id = self._create_flow(status="active")
-        response = self._patch_email(
-            flow_id,
-            {
-                "operations": [{"op": "update_content", "id": "text_1", "patch": {"values": {"text": "x"}}}],
-                "email_patch": {"subject": "x"},
-            },
-        )
-        assert response.status_code == 400, response.json()
-        assert "active workflow isn't supported via MCP" in response.json()["detail"]
-        # The rejection must land before the render, or a doomed request pays the Unlayer HTTP call.
-        mock_render.assert_not_called()
-
-    @patch(FLAG_PATH, return_value=True)
-    @patch(RENDER_PATH, return_value=RENDERED_HTML)
-    def test_mcp_patch_composes_on_existing_draft(self, _mock_render, _flag):
+    def test_mcp_patch_composes_on_existing_draft(self, _mock_render):
         # A graph patch stages a draft first; the email patch must apply on that draft, not reset it.
         flow_id = self._create_flow(status="active")
         graph = self.client.patch(
@@ -333,9 +314,8 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         assert draft_action["name"] == "Renamed step"
         assert draft_action["config"]["inputs"]["email"]["value"]["subject"] == "Draft subject"
 
-    @patch(FLAG_PATH, return_value=True)
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
-    def test_design_ops_compose_on_a_drafted_design(self, _mock_render, _flag):
+    def test_design_ops_compose_on_a_drafted_design(self, _mock_render):
         # Two consecutive draft design edits: the second must render against the draft's design,
         # not the live one, or the apply reads it as a concurrent edit and conflicts.
         flow_id = self._create_flow(status="active")
@@ -350,9 +330,8 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         email = _stored_email_value(HogFlow.objects.get(pk=flow_id), from_draft=True)
         assert email["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["text"] == "<p>Second</p>"
 
-    @patch(FLAG_PATH, return_value=True)
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
-    def test_stale_base_updated_at_rejected_with_409(self, _mock_render, _flag):
+    def test_stale_base_updated_at_rejected_with_409(self, _mock_render):
         flow_id = self._create_flow(status="active")
         first = self._patch_email(flow_id, {"email_patch": {"subject": "First"}})
         assert first.status_code == 200, first.json()
@@ -363,9 +342,8 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         )
         assert response.status_code == 409, response.json()
 
-    @patch(FLAG_PATH, return_value=True)
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
-    def test_web_patch_on_active_flow_applies_live_and_bumps_revision(self, _mock_render, _flag):
+    def test_web_patch_on_active_flow_applies_live_and_bumps_revision(self, _mock_render):
         flow_id = self._create_flow(status="active")
 
         response = self._patch_email(flow_id, {"email_patch": {"subject": "Live subject"}}, mcp=False)

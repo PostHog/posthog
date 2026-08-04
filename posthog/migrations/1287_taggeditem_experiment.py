@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         ("event_definitions", "0010_propertydefinition_warehouse_origin"),
         ("experiments", "0029_experiment_repository"),
         ("feature_flags", "0011_clean_flag_filters_recoverable_violations"),
-        ("posthog", "1285_drop_desktop_file_system"),
+        ("posthog", "1286_cleanup_orphaned_identity_provider_configs"),
         ("product_analytics", "0004_delete_revenue_analytics_insights"),
     ]
 
