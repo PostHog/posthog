@@ -1,5 +1,4 @@
 import re
-import json
 
 import structlog
 from pydantic import ValidationError
@@ -15,7 +14,7 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.facade.slack_settings import (
+from products.slack_app.backend.facade.run_preferences import (
     ModelChoice,
     available_model_choices,
     find_model_choice,
@@ -140,10 +139,7 @@ def classify_task_needs_repo(
             max_tokens=64,
             temperature=0,
         )
-        content = (response.choices[0].message.content or "").strip()
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        parsed = json.loads(content)
+        parsed = extract_json_object(response.choices[0].message.content or "") or {}
         # Haiku occasionally stringifies the bool ({"needs_repo": "false"}).
         # bool("false") is True, which would flip the defensive bias — handle
         # strings explicitly and treat any other unexpected shape as False.
@@ -233,10 +229,7 @@ def classify_message_is_agent_directed(
             max_tokens=64,
             temperature=0,
         )
-        content = (response.choices[0].message.content or "").strip()
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        parsed = json.loads(content)
+        parsed = extract_json_object(response.choices[0].message.content or "") or {}
         return bool(parsed.get("agent_directed", False))
     except Exception:
         logger.exception("classify_message_is_agent_directed_failed")
@@ -368,15 +361,12 @@ def classify_slack_app_model_override(
             temperature=0,
         )
         parsed = extract_json_object(response.choices[0].message.content or "")
-        if parsed is None:
-            logger.info("slack_app_model_override_unparseable_reply")
-            return None
         # The reply has the same shape as the result, so it parses straight into it —
-        # but the values are still the classifier's word, not ours, until checked
-        # against the catalogue below.
+        # but the model is still the classifier's word, not ours, until checked against
+        # the catalogue below.
         reply = SlackAppModelOverride.model_validate(parsed)
-    except ValidationError:
-        logger.info("slack_app_model_override_invalid_reply")
+    except (ValidationError, ValueError):
+        logger.info("slack_app_model_override_unusable_reply")
         return None
     except Exception:
         logger.exception("slack_app_model_override_classify_failed")
@@ -388,17 +378,12 @@ def classify_slack_app_model_override(
         # hallucination or a model we can't drive. Either way, don't act on it.
         logger.info("slack_app_model_override_unknown_model", requested_model=reply.model)
 
-    # Only a syntactic check — whether the model the run lands on supports this effort
-    # is settled when the run's preferences are resolved.
-    known_efforts = {e for c in choices for e in c.supported_efforts}
-    effort = (reply.reasoning_effort or "").strip().lower() or None
-    if effort and effort not in known_efforts:
-        logger.info("slack_app_model_override_unknown_effort", requested_effort=reply.reasoning_effort)
-        effort = None
-
-    if choice is None and effort is None:
+    # The effort rides through unchecked: which efforts a model supports depends on the
+    # model the run finally lands on, so it is settled once, where the preferences are
+    # resolved, rather than guessed against the catalogue-wide union here.
+    if choice is None and not reply.reasoning_effort:
         return None
-    return SlackAppModelOverride(model=choice.model if choice else None, reasoning_effort=effort)
+    return SlackAppModelOverride(model=choice.model if choice else None, reasoning_effort=reply.reasoning_effort)
 
 
 @activity.defn

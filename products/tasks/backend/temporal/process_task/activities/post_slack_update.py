@@ -106,6 +106,10 @@ def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+
+    # Deferred with the model import below: `facade.run_config` re-exports from
+    # `process_task.utils`, whose import graph reaches back to this module.
+    from products.tasks.backend.facade.run_config import parse_run_state
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -158,12 +162,12 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("eyes")
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            run_state = task_run.state if isinstance(task_run.state, dict) else {}
+            run_state = parse_run_state(task_run.state)
             handler.post_or_update_progress(
                 stage,
                 task_url,
-                model=run_state.get("model"),
-                reasoning_effort=run_state.get("reasoning_effort"),
+                model=run_state.model,
+                reasoning_effort=run_state.reasoning_effort,
             )
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)

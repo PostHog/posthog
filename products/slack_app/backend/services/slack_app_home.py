@@ -36,12 +36,11 @@ from products.slack_app.backend.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     available_model_choices,
+    describe_run_model,
     format_model_id,
     label_for,
-    provider_for_model,
-    provider_for_runtime_adapter,
 )
-from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, describe_run_model
+from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
     OUTCOME_CANCELLED,
@@ -474,7 +473,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL, owned_by=provider_for_model(SLACK_DEFAULT_MODEL))}. "
+                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. "
                         "Pick personal or workspace settings to override."
                     ),
                 },
@@ -1084,7 +1083,7 @@ def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
 
 def _stats_model_label(usage: ModelUsage) -> str:
     """Display label for a model, truncated so the bar column stays aligned."""
-    label = format_model_id(usage.model, owned_by=provider_for_runtime_adapter(usage.runtime_adapter))
+    label = format_model_id(usage.model)
     return _truncate(label, _STATS_COLUMN_LABEL_CHARS)
 
 
@@ -1112,9 +1111,8 @@ def _stats_footnote_blocks(state: StatsState) -> list[dict]:
 def _row_summary(row: SlackSettings | None) -> str:
     if not row or not row.runtime_adapter or not row.model:
         return "_(none)_"
-    owned_by = provider_for_runtime_adapter(row.runtime_adapter)
     parts = [
-        f"*Model:* {format_model_id(row.model, owned_by=owned_by)}",
+        f"*Model:* {format_model_id(row.model)}",
         f"*Runtime:* {label_for(row.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}",
     ]
     if row.reasoning_effort:

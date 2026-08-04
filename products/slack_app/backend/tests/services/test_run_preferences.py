@@ -2,12 +2,8 @@ import pytest
 from unittest.mock import patch
 
 from products.slack_app.backend.services import run_preferences
-from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices
-from products.slack_app.backend.services.run_preferences import (
-    SLACK_DEFAULT_MODEL,
-    describe_run_model,
-    resolve_run_preferences,
-)
+from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices, describe_run_model
+from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, resolve_run_preferences
 from products.slack_app.backend.services.slack_settings import AIPreferences
 
 # Real model ids: the resolver validates efforts against the tasks catalogue (the

@@ -39,6 +39,14 @@ class TestClassifySlackAppModelOverride:
                 None,
             ),
             ("case_insensitive_id", '{"model": "Claude-Fable-5"}', "claude-fable-5", None),
+            # An effort the chosen model can't do is dropped where the run's preferences
+            # are resolved, not here, so it survives the classifier untouched.
+            (
+                "model_with_unsupported_effort",
+                '{"model": "claude-fable-5", "reasoning_effort": "turbo"}',
+                "claude-fable-5",
+                "turbo",
+            ),
         ]
     )
     def test_returns_requested_choice(self, _name, content, expected_model, expected_effort):
@@ -56,8 +64,6 @@ class TestClassifySlackAppModelOverride:
             # A model we can't drive is a hallucination or an unsupported ask; either
             # way the run must fall back to the resolved preferences.
             ("unknown_model", '{"model": "gemini-3-pro", "reasoning_effort": null}'),
-            # An unknown effort with no model leaves nothing actionable behind.
-            ("unknown_effort_only", '{"model": null, "reasoning_effort": "turbo"}'),
             ("empty_reply", ""),
             ("prose_reply", "I think they want fable."),
             ("wrong_types", '{"model": 5, "reasoning_effort": []}'),
@@ -65,16 +71,6 @@ class TestClassifySlackAppModelOverride:
     )
     def test_returns_none(self, _name, content):
         assert self._classify("use fable for this", content) is None
-
-    def test_keeps_the_model_when_only_the_effort_is_unknown(self):
-        """A junk effort must not throw away a model the author really did ask for."""
-        override = self._classify(
-            "use fable for this",
-            '{"model": "claude-fable-5", "reasoning_effort": "turbo"}',
-        )
-        assert override is not None
-        assert override.model == "claude-fable-5"
-        assert override.reasoning_effort is None
 
     def test_llm_failure_falls_back_to_no_override(self):
         with patch(

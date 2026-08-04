@@ -24,9 +24,10 @@ def _runtime_adapter_by_provider() -> dict[str, str]:
     provider. Providers with no adapter (bedrock, vertex) are simply absent, which is
     what drops their models from the catalogue.
     """
-    # The tasks facade imports the tasks ORM, so it is loaded on use rather than at
-    # module scope — that keeps it off the slack_app import path, and lets the
-    # product's tests swap the facade in `sys.modules`.
+    # Deferred because `facade.run_config` re-exports from a module that imports the
+    # tasks ORM, mcp_store, and sandbox config at import time; keeping that off the
+    # slack_app import path is the reason, and the App Home tests' `sys.modules` swap
+    # depends on it staying that way.
     from products.tasks.backend.facade.run_config import (  # noqa: PLC0415
         RuntimeAdapter,
         get_provider_for_runtime_adapter,
@@ -113,39 +114,20 @@ def runtime_adapter_for(model: str | None) -> str | None:
     return None
 
 
-def provider_for_model(model: str | None) -> str:
-    """Gateway provider that serves this model, or `""` when we can't tell.
+def format_model_id(model_id: str, *, owned_by: str | None = None) -> str:
+    """OpenAI ids stay lowercase; Claude ids become `Claude Opus 4.8` etc.
 
-    Lets a caller holding only a model id (a stored preference, a run's state) format
-    it the way the picker does, instead of guessing the provider or dropping the
-    casing rules that depend on it.
+    Pass `owned_by` when the gateway already told you the provider. A caller holding
+    only a model id (a stored preference, a run's state) can omit it and the runtime
+    the model belongs to decides the casing.
     """
-    adapter = runtime_adapter_for(model)
-    if adapter is None:
-        return ""
-    return next((provider for provider, value in _runtime_adapter_by_provider().items() if value == adapter), "")
-
-
-def provider_for_runtime_adapter(runtime_adapter: str | None) -> str:
-    """The gateway `owned_by` a runtime adapter implies.
-
-    Read back out of the same derived mapping the catalogue is built from, so an adapter
-    added to the tasks product is answered here without touching this module.
-    """
-    for provider, adapter in _runtime_adapter_by_provider().items():
-        if adapter == runtime_adapter:
-            return provider
-    return "anthropic"
-
-
-def format_model_id(model_id: str, *, owned_by: str) -> str:
-    """OpenAI ids stay lowercase; Claude ids become `Claude Opus 4.8` etc."""
+    is_openai = owned_by == "openai" if owned_by is not None else runtime_adapter_for(model_id) == "codex"
     clean = model_id
     for provider in _runtime_adapter_by_provider():
         if clean.startswith(f"{provider}/"):
             clean = clean[len(provider) + 1 :]
             break
-    if owned_by == "openai":
+    if is_openai:
         return clean.lower()
 
     # Collapse `4-8` into `4.8` so version components survive the dash split.
@@ -163,14 +145,22 @@ def label_for(value: str | None, mapping: dict[str, str]) -> str:
     return mapping.get(value, value)
 
 
+def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
+    """Render the model a run is on, in one phrasing shared by the App Home card and
+    the progress message in the Slack thread."""
+    label = format_model_id(model) if model else "—"
+    if not reasoning_effort:
+        return f"*{label}*"
+    return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
+
+
 __all__ = [
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "ModelChoice",
     "available_model_choices",
+    "describe_run_model",
     "format_model_id",
     "label_for",
-    "provider_for_runtime_adapter",
-    "provider_for_model",
     "runtime_adapter_for",
 ]

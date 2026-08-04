@@ -13,7 +13,6 @@ from unittest.mock import patch
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_slack_app_model_override_activity
 from posthog.temporal.ai.slack_app.types import SlackAppModelOverride, SlackAppModelOverrideInput
 
@@ -25,24 +24,21 @@ ACTIVITY_MODULE = "posthog.temporal.ai.slack_app.activities.classifiers"
 
 
 @pytest.fixture
-def slack_user(db):
+def integration(db):
     organization = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=organization, name="Team")
-    integration = Integration.objects.create(
+    return Integration.objects.create(
         team=team,
         kind="slack",
         integration_id="T_WS",
         sensitive_config={"access_token": "xoxb"},
     )
-    user = User.objects.create_and_join(organization, "someone@posthog.com", None)
-    return integration, user
 
 
-def _input(integration: Integration, user: User, text: str) -> SlackAppModelOverrideInput:
+def _input(integration: Integration, text: str) -> SlackAppModelOverrideInput:
     return SlackAppModelOverrideInput(
         integration_id=integration.id,
         slack_team_id=integration.integration_id or "",
-        user_id=user.id,
         event_text=text,
     )
 
@@ -57,36 +53,31 @@ class TestClassifySlackAppModelOverrideActivity:
             (True, ()),
         ],
     )
-    def test_gates_return_no_override_without_calling_the_llm(self, slack_user, flag_on, catalogue):
-        integration, user = slack_user
+    def test_gates_return_no_override_without_calling_the_llm(self, integration, flag_on, catalogue):
         with (
             patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=flag_on),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=catalogue),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override") as classify,
         ):
-            result = classify_slack_app_model_override_activity(_input(integration, user, "use fable for this one"))
+            result = classify_slack_app_model_override_activity(_input(integration, "use fable for this one"))
         assert result is None
         classify.assert_not_called()
 
-    def test_classifies_a_mention_that_names_no_model(self, slack_user):
-        """No keyword gate stands in front of the classifier, so deciding that a
-        mention carries no model instruction is the model's call."""
-        integration, user = slack_user
+    @pytest.mark.parametrize(
+        "classified",
+        [
+            # No keyword gate stands in front of the classifier, so deciding a mention
+            # carries no model instruction is the model's call, not a word list's.
+            None,
+            SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high"),
+        ],
+    )
+    def test_passes_the_mention_to_the_classifier_and_returns_its_verdict(self, integration, classified):
         with (
             patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=True),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=CATALOGUE),
-            patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override", return_value=None) as classify,
+            patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override", return_value=classified) as classify,
         ):
             text = "fix the flaky checkout test"
-            assert classify_slack_app_model_override_activity(_input(integration, user, text)) is None
+            assert classify_slack_app_model_override_activity(_input(integration, text)) == classified
         classify.assert_called_once_with(text, CATALOGUE)
-
-    def test_returns_the_classified_override(self, slack_user):
-        integration, user = slack_user
-        override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")
-        with (
-            patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=True),
-            patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=CATALOGUE),
-            patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override", return_value=override),
-        ):
-            assert classify_slack_app_model_override_activity(_input(integration, user, "use fable")) == override

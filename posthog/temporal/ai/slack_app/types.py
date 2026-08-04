@@ -123,7 +123,7 @@ class SlackAppModelOverride(BaseModel):
     effort value that still has to be checked against whichever model the task ends
     up on. Either field may be absent — "run this with max effort" names no model,
     "use fable" names no effort. The merge onto the resolved preferences happens at
-    the point of use, in ``apply_model_override``.
+    the point of use, in ``resolve_run_preferences``.
     """
 
     model: str | None = None

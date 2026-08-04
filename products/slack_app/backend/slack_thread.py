@@ -7,7 +7,7 @@ from slack_sdk import WebClient
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.services.run_preferences import describe_run_model
+from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
 
 logger = structlog.get_logger(__name__)

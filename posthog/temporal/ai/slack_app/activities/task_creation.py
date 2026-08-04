@@ -633,7 +633,7 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.slack_settings import resolve_run_preferences
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
     run_prefs = resolve_run_preferences(
         integration,

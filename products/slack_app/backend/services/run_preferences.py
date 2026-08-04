@@ -1,4 +1,4 @@
-"""What model a Slack-triggered run actually uses, and how to say it.
+"""Which model a Slack-triggered run actually uses.
 
 One precedence chain, resolved in one place: a model named in the mention itself
 ("use fable for this one") beats the personal row, which beats the workspace row,
@@ -8,7 +8,7 @@ top — so no caller has to assemble a triple by hand.
 
 The triple is not three independent values. The runtime adapter follows from the
 model, and which reasoning efforts exist depends on that pair, so every result is
-built through `coherent_preferences` rather than field by field. A model named in a
+built through `_coherent_preferences` rather than field by field. A model named in a
 mention additionally has to be in the live catalogue (`model_catalogue`) — the same
 set the App Home picker offers — so an override can never select something the picker
 itself would refuse.
@@ -19,15 +19,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from products.slack_app.backend.services.model_catalogue import (
-    REASONING_EFFORT_DISPLAY_NAMES,
     ModelChoice,
     available_model_choices,
-    format_model_id,
-    label_for,
-    provider_for_model,
     runtime_adapter_for,
 )
-from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_ai_preferences
+from products.slack_app.backend.services.slack_settings import (
+    AIPreferences,
+    filter_unsupported_effort,
+    resolve_ai_preferences,
+)
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -38,11 +38,11 @@ if TYPE_CHECKING:
 SLACK_DEFAULT_MODEL = "claude-opus-5"
 
 
-def coherent_preferences(
+def _coherent_preferences(
     model: str | None,
     reasoning_effort: str | None,
     *,
-    fallback_runtime_adapter: str | None = None,
+    fallback_runtime_adapter: str | None,
 ) -> AIPreferences:
     """Assemble the one self-consistent triple for a model.
 
@@ -50,12 +50,10 @@ def coherent_preferences(
     doesn't support is dropped. `fallback_runtime_adapter` covers a model the tasks
     catalogue no longer lists, where a stored adapter is the best information left.
     """
-    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts  # noqa: PLC0415
-
     runtime_adapter = runtime_adapter_for(model) or fallback_runtime_adapter
-    effort = reasoning_effort.strip().lower() if reasoning_effort else None
-    if effort and effort not in {e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)}:
-        effort = None
+    effort = filter_unsupported_effort(
+        runtime_adapter, model, reasoning_effort.strip().lower() if reasoning_effort else None
+    )
     return AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=effort)
 
 
@@ -73,24 +71,32 @@ def resolve_run_preferences(
     own applies to whichever model the run was already going to use. Either can be
     absent, and a request we can't honour — a model that isn't on offer, an effort the
     model doesn't support — leaves the run on its saved preferences.
+
+    Note that `resolve_ai_preferences` yields nothing at all for a workspace that
+    hasn't enabled `slack-app-home`, so there the chain is the Slack default plus
+    whatever the mention asked for.
     """
+    if override_model:
+        # Only a model named in the mention needs the catalogue, and the saved rows
+        # can't influence the result, so neither is read on the other paths.
+        choice = find_model_choice(override_model, available_model_choices())
+        if choice is not None:
+            return _coherent_preferences(choice.model, override_effort, fallback_runtime_adapter=choice.runtime_adapter)
+
     saved = resolve_ai_preferences(integration, slack_user_id)
-    base = coherent_preferences(
+    base = _coherent_preferences(
         saved.model or SLACK_DEFAULT_MODEL,
         saved.reasoning_effort,
         fallback_runtime_adapter=saved.runtime_adapter,
     )
+    if not override_effort:
+        return base
 
-    choice = find_model_choice(override_model, available_model_choices())
-    if choice is not None:
-        return coherent_preferences(choice.model, override_effort, fallback_runtime_adapter=choice.runtime_adapter)
-    if override_effort:
-        requested = coherent_preferences(base.model, override_effort, fallback_runtime_adapter=base.runtime_adapter)
-        # An effort this model can't do is dropped by `coherent_preferences`; falling
-        # back to `base` rather than to the stripped result means an impossible ask
-        # leaves the run alone instead of quietly clearing a saved effort as well.
-        return requested if requested.reasoning_effort else base
-    return base
+    # An effort this model can't do is dropped by `_coherent_preferences`; falling back
+    # to `base` rather than to the stripped result means an impossible ask leaves the
+    # run alone instead of quietly clearing the saved effort as well.
+    requested = _coherent_preferences(base.model, override_effort, fallback_runtime_adapter=base.runtime_adapter)
+    return requested if requested.reasoning_effort else base
 
 
 def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> ModelChoice | None:
@@ -101,19 +107,8 @@ def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> Mo
     return next((c for c in choices if c.model.lower() == normalized), None)
 
 
-def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
-    """Render the model a run is on, in one phrasing shared by the App Home card and
-    the progress message in the Slack thread."""
-    label = format_model_id(model, owned_by=provider_for_model(model)) if model else "—"
-    if not reasoning_effort:
-        return f"*{label}*"
-    return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
-
-
 __all__ = [
     "SLACK_DEFAULT_MODEL",
-    "coherent_preferences",
-    "describe_run_model",
     "find_model_choice",
     "resolve_run_preferences",
 ]
