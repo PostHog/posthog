@@ -566,6 +566,11 @@ class TestHasExperimentField(BaseTest):
             ("active_experiment", "active", True),
             ("stopped_not_deleted_experiment", "stopped", True),
             ("deleted_experiment", "deleted", False),
+            # deleted is nullable, and `= false` excludes NULL in the Rust and ingestion
+            # mirrors of this predicate, so it must here too.
+            ("null_deleted_experiment", "deleted_null", False),
+            # The predicate filters on deleted alone, so an archived experiment still counts.
+            ("archived_experiment", "archived", True),
         ]
     )
     def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool):
@@ -576,6 +581,10 @@ class TestHasExperimentField(BaseTest):
             Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, end_date=datetime.now(UTC))
         elif experiment_state == "deleted":
             Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
+        elif experiment_state == "deleted_null":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=None)
+        elif experiment_state == "archived":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, archived=True)
 
         flags = _get_feature_flags_for_service(self.team)["flags"]
         assert flags[0]["has_experiment"] is expected

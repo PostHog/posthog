@@ -8,6 +8,7 @@ import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-mana
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
 import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { ExperimentFlagKeysManager } from '~/ingestion/common/flag-evaluations/experiment-flag-keys-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
@@ -16,6 +17,7 @@ import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
     createDedupeFeatureFlagCalledStep,
+    createMeasureExperimentFlagKeysStep,
     createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createValidateEventMetadataStep,
@@ -51,6 +53,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    experimentFlagKeysManager?: ExperimentFlagKeysManager
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
@@ -80,6 +83,7 @@ export function createPostTeamPreprocessingSubpipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
+        experimentFlagKeysManager,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
         groupTypeManager,
@@ -118,6 +122,11 @@ export function createPostTeamPreprocessingSubpipeline<
             // Must run after cookieless (keys on the final distinct_id) and before
             // person prefetch so duplicates skip person processing and the CH write.
             .pipeChunk(createDedupeFeatureFlagCalledStep(featureFlagCalledDedupService))
+            // Measure the experiment flag key cache against the surviving
+            // $feature_flag_called events. Runs after dedup so the load and the answer
+            // distribution match what the future routing fork will see, since the fork
+            // will only run on survivors.
+            .pipeChunk(createMeasureExperimentFlagKeysStep(experimentFlagKeysManager))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs.
             // Prefetch is fire-and-forget (best-effort cache warming), so retry here would be a
             // no-op — transient persons-Postgres failures are swallowed inside prefetchPersons so

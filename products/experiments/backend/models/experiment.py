@@ -306,9 +306,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
 def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
-    experiment iff a non-deleted Experiment row references it. The Rust flags service
-    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
-    keep the two in lockstep.
+    experiment iff a non-deleted Experiment row references it. Two services mirror this
+    in hand-written SQL and cannot import it, so keep all three in lockstep:
+    rust/feature-flags/src/flags/feature_flag_list.rs and
+    nodejs/src/ingestion/common/flag-evaluations/experiment-flag-keys-manager.ts, which
+    additionally excludes deleted flags — see the note at its query.
 
     Accepts a concrete id or an `OuterRef`, so it backs both helpers below.
     """

@@ -12,6 +12,7 @@ import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { ExperimentFlagKeysManager } from '~/ingestion/common/flag-evaluations/experiment-flag-keys-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { createMergeFoldPlanningStep } from '~/ingestion/common/persons/person-merge-fold'
@@ -98,6 +99,7 @@ export interface JoinedIngestionPipelineDeps {
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    experimentFlagKeysManager?: ExperimentFlagKeysManager
     teamManager: TeamManager
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
@@ -145,6 +147,7 @@ export function createJoinedIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
+        experimentFlagKeysManager,
         teamManager,
         cookielessManager,
         groupTypeManager,
@@ -164,6 +167,7 @@ export function createJoinedIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
+        experimentFlagKeysManager,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
         groupTypeManager,

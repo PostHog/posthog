@@ -25,6 +25,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { createExperimentFlagKeysManager } from '~/ingestion/common/flag-evaluations/experiment-flag-keys-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
 import {
@@ -411,6 +412,7 @@ export class IngestionApiServer implements NodeServer {
             this.featureFlagCalledDedupRedisPool,
             this.config
         )
+        const experimentFlagKeysManager = createExperimentFlagKeysManager(this.postgres, this.config)
 
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
@@ -424,6 +426,7 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService,
             overflowLaneTTLRefreshService,
             featureFlagCalledDedupService,
+            experimentFlagKeysManager,
             teamManager,
             cookielessManager: this.cookielessManager,
             groupTypeManager,

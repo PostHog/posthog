@@ -56,6 +56,10 @@ import {
     FeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,
 } from './common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import {
+    ExperimentFlagKeysManager,
+    createExperimentFlagKeysManager,
+} from './common/flag-evaluations/experiment-flag-keys-manager'
 import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
@@ -123,6 +127,7 @@ export class IngestionConsumer {
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
     private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    private experimentFlagKeysManager?: ExperimentFlagKeysManager
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -212,6 +217,8 @@ export class IngestionConsumer {
             this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
             this.config
         )
+
+        this.experimentFlagKeysManager = createExperimentFlagKeysManager(this.deps.postgres, this.config)
 
         this.hogTransformer = deps.hogTransformer
 
@@ -312,6 +319,7 @@ export class IngestionConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             featureFlagCalledDedupService: this.featureFlagCalledDedupService,
+            experimentFlagKeysManager: this.experimentFlagKeysManager,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
