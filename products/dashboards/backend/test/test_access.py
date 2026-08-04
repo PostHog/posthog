@@ -12,6 +12,7 @@ from products.dashboards.backend.access import (
     dashboard_access_method,
     record_dashboard_access,
     record_dashboard_cache_outcome,
+    record_dashboard_view,
 )
 
 
@@ -46,6 +47,23 @@ class TestDashboardAccessMetrics:
         record_dashboard_access(access_method)
 
         assert REGISTRY.get_sample_value("posthog_dashboard_access_total", labels) == before + 1
+
+    @parameterized.expand(
+        [
+            (DashboardAccessMethod.HUMAN, True),
+            (DashboardAccessMethod.SHARED, True),
+            (DashboardAccessMethod.EMBEDDED, True),
+            (DashboardAccessMethod.API, False),
+        ]
+    )
+    def test_record_dashboard_view_only_bumps_last_accessed_at_for_real_viewers(
+        self, access_method: DashboardAccessMethod, expect_bump: bool
+    ) -> None:
+        dashboard = MagicMock()
+
+        record_dashboard_view(dashboard, access_method)
+
+        assert dashboard.save.called == expect_bump
 
     @parameterized.expand(
         [

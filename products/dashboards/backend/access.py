@@ -49,9 +49,15 @@ def record_dashboard_access(access_method: DashboardAccessMethod) -> None:
     _otel.record_counter_twin(DASHBOARD_ACCESS_COUNTER, 1, {"access_method": access_method.value})
 
 
+HUMAN_ACCESS_METHODS = frozenset(
+    {DashboardAccessMethod.HUMAN, DashboardAccessMethod.SHARED, DashboardAccessMethod.EMBEDDED}
+)
+
+
 def record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
-    dashboard.last_accessed_at = now()
-    dashboard.save(update_fields=["last_accessed_at"])
+    if access_method in HUMAN_ACCESS_METHODS:
+        dashboard.last_accessed_at = now()
+        dashboard.save(update_fields=["last_accessed_at"])
     record_dashboard_access(access_method)
 
 
