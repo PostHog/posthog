@@ -4355,6 +4355,10 @@ describe("AgentServer HTTP Mode", () => {
           expect(prompt).toContain("# Identity");
           expect(prompt).toContain("PostHog Slack app");
           expect(prompt).toContain("Do NOT refer to yourself as Claude");
+          expect(prompt).toContain("# PostHog products first");
+          expect(prompt).toContain(
+            "Never send the user to a third-party product for something PostHog does",
+          );
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         },
       );
@@ -4430,6 +4434,7 @@ describe("AgentServer HTTP Mode", () => {
         ).buildCloudSystemPrompt();
         expect(prompt).not.toContain("# Identity");
         expect(prompt).not.toContain("PostHog Slack app");
+        expect(prompt).not.toContain("# PostHog products first");
         delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
       });
     });

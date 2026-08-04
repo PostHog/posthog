@@ -1,7 +1,11 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLlmGatewayUrl } from "./gateway";
-import { DEFAULT_MODEL, fallbackModelConfigs } from "./models";
+import {
+  DEFAULT_MODEL,
+  fallbackModelConfigs,
+  resolveModelConfigsFromGatewayModels,
+} from "./models";
 import * as oauth from "./oauth";
 import {
   buildPosthogProvider,
@@ -257,6 +261,27 @@ describe("model classification", () => {
     expect(glm).toBeDefined();
     expect(glm?.api).toBe("anthropic-messages");
     expect(glm?.input).toEqual(["text"]);
+  });
+
+  it("routes gateway-advertised DeepSeek through anthropic-messages without reasoning", () => {
+    const [deepseek] = resolveModelConfigsFromGatewayModels(
+      [
+        {
+          id: "deepseek-ai/deepseek-v4-flash-0731",
+          owned_by: "baseten",
+          context_window: 1_048_000,
+        },
+      ],
+      "us",
+    );
+    expect(deepseek?.api).toBe("anthropic-messages");
+    expect(deepseek?.reasoning).toBe(false);
+    expect(deepseek?.baseUrl).toBeUndefined();
+    expect(deepseek?.contextWindow).toBe(1_048_000);
+  });
+
+  it("keeps DeepSeek out of the offline fallback list", () => {
+    expect(byId("us").has("deepseek-ai/deepseek-v4-flash-0731")).toBe(false);
   });
 
   it("points OpenAI models at the region-specific gateway", () => {

@@ -235,6 +235,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -1999,6 +2000,20 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
     }
 
+    public messagingPreferencesExportOptOutsCsv(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
+    }
+
+    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('bulk_add_opt_outs')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -2227,6 +2242,9 @@ function captureLivestream401Debug(url: string, authHeader: string | undefined, 
         })
     }
 }
+
+/** `?basic=true` response: the serializer drops these fields (see CohortSerializer.__init__). */
+export type BasicCohortType = Omit<CohortType, 'groups' | 'experiment_set' | 'last_error_message'>
 
 const api = {
     cspReporting: {
@@ -3416,6 +3434,20 @@ const api = {
             } = {}
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
+        },
+        async listBasic(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<BasicCohortType>> {
+            // `?basic=true` returns a trimmed payload — the narrowed BasicCohortType return type
+            // keeps callers from reading a field the serializer dropped (see CohortSerializer).
+            return await new ApiRequest()
+                .cohorts()
+                .withQueryString(toParams({ ...params, basic: true }))
+                .get()
         },
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest()
@@ -5198,6 +5230,10 @@ const api = {
             has_implementation_pr?: 'true' | 'false'
             /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
             suggested_reviewers?: string
+            /** Comma-separated scout skill_name slugs. */
+            scout?: string
+            /** Scout skill_name prefix — matches every scout in the family. */
+            scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -6659,6 +6695,18 @@ const api = {
         async addOptOut(identifier: string, categoryKey?: string): Promise<OptOutEntry> {
             return await new ApiRequest().messagingPreferencesAddOptOut().create({
                 data: { identifier, category_key: categoryKey },
+            })
+        },
+        async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
+            const response = await new ApiRequest()
+                .messagingPreferencesExportOptOutsCsv()
+                .withQueryString({ category_key: categoryKey })
+                .getResponse()
+            return await response.blob()
+        },
+        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
+            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
+                data: { opt_outs: optOuts, category_key: categoryKey },
             })
         },
     },

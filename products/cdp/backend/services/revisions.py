@@ -5,20 +5,20 @@ from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
-WORKFLOWS_REVISIONS_FLAG = "workflows-revisions"
+DESTINATIONS_REVISIONS_FLAG = "destinations-revisions"
 
 
-def use_workflows_revisions(team: Team) -> bool:
-    """Gates the draft → test → publish cycle on active workflows; off means today's behavior
-    (active workflows are read-only via MCP).
+def use_destinations_revisions(team: Team) -> bool:
+    """Gates the draft → review → publish cycle on enabled functions; off means today's behavior
+    (every edit lands straight on the live config that workers execute).
 
-    A raised exception (Redis/HyperCache blip, network glitch, SDK bug) is treated as "flag off" —
-    the rejection path is the safe fallback, making the flag a kill switch for the whole cycle.
+    A raised exception (Redis/HyperCache blip, network glitch, SDK bug) is treated as "flag off" so
+    the flag is a kill switch: edits keep applying live, exactly as they did before this shipped.
     """
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                WORKFLOWS_REVISIONS_FLAG,
+                DESTINATIONS_REVISIONS_FLAG,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
                 group_properties={
@@ -29,9 +29,9 @@ def use_workflows_revisions(team: Team) -> bool:
         )
     except Exception:
         logger.warning(
-            "workflows.revisions.feature_flag_check_failed_defaulting_off",
+            "cdp.revisions.feature_flag_check_failed_defaulting_off",
             team_id=team.id,
-            flag=WORKFLOWS_REVISIONS_FLAG,
+            flag=DESTINATIONS_REVISIONS_FLAG,
             exc_info=True,
         )
         return False
