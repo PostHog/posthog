@@ -2200,11 +2200,6 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
         if not attrs.get("pending_user_message") and not pending_user_artifact_ids:
             attrs.pop("pending_user_message", None)
 
-        if _is_pi_task_run_request(self.context):
-            if errors:
-                raise serializers.ValidationError(errors)
-            return attrs
-
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(
             attrs.get(field) is not None
@@ -2249,7 +2244,12 @@ class TaskRunBootstrapCreateRequestSerializer(
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
     RUN_SOURCE_CHOICES = [source.value for source in RunSource]
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    PI_THINKING_LEVEL_CHOICES = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+    REASONING_EFFORT_CHOICES = [
+        "off",
+        "minimal",
+        *(effort.value for effort in PUBLIC_REASONING_EFFORTS),
+    ]
 
     environment = serializers.ChoiceField(
         choices=[environment.value for environment in tasks_facade.TaskRunEnvironment],
@@ -2371,6 +2371,21 @@ class TaskRunBootstrapCreateRequestSerializer(
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
+        is_pi_task = _is_pi_task_run_request(self.context)
+        if is_pi_task:
+            pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
+            for field in pi_incompatible_fields:
+                if attrs.get(field) is not None:
+                    errors[field] = "This field cannot be used with a Pi task."
+
+            reasoning_effort = attrs.get("reasoning_effort")
+            if reasoning_effort is not None and reasoning_effort not in self.PI_THINKING_LEVEL_CHOICES:
+                errors["reasoning_effort"] = "This thinking level is not supported by Pi."
+
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
+
         if initial_permission_mode is not None:
             if runtime_adapter is None:
                 errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
@@ -2387,11 +2402,6 @@ class TaskRunBootstrapCreateRequestSerializer(
                         f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
                         f"'{runtime_adapter}'. Supported values: {allowed_values}."
                     )
-
-        if _is_pi_task_run_request(self.context):
-            if errors:
-                raise serializers.ValidationError(errors)
-            return attrs
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(

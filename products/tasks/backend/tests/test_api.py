@@ -2365,7 +2365,8 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["auto_publish"], True)
         mock_workflow.assert_not_called()
 
-    def test_create_run_endpoint_accepts_pi_model_selection(self):
+    @parameterized.expand([("high",), ("off",)])
+    def test_create_run_endpoint_accepts_pi_model_selection(self, thinking_level: str):
         task = self.create_task(runtime=Task.Runtime.PI)
 
         response = self.client.post(
@@ -2373,7 +2374,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {
                 "environment": "cloud",
                 "model": "gpt-5.6-terra",
-                "reasoning_effort": "high",
+                "reasoning_effort": thinking_level,
             },
             format="json",
         )
@@ -2381,7 +2382,34 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task_run = TaskRun.objects.get(id=response.json()["id"])
         self.assertEqual(task_run.state["model"], "gpt-5.6-terra")
-        self.assertEqual(task_run.state["reasoning_effort"], "high")
+        self.assertEqual(task_run.state["reasoning_effort"], thinking_level)
+
+    @parameterized.expand(
+        [
+            ("runtime_adapter", {"runtime_adapter": "codex"}),
+            ("context_window", {"context_window": "1m"}),
+            ("fast_mode", {"fast_mode": True}),
+            ("initial_permission_mode", {"initial_permission_mode": "plan"}),
+            ("reasoning_effort", {"reasoning_effort": "ultracode"}),
+        ]
+    )
+    def test_create_run_endpoint_rejects_invalid_configuration_for_pi(
+        self, field: str, pi_incompatible_config: dict[str, str | bool]
+    ) -> None:
+        task = self.create_task(runtime=Task.Runtime.PI)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "model": "gpt-5.6-terra",
+                **pi_incompatible_config,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(field, response.json())
 
     # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
     @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
