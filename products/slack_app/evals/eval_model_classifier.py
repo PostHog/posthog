@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 
-from posthog.temporal.ai.slack_app.activities.classifiers import classify_slack_app_model_override
+from posthog.temporal.ai.slack_app.activities import classifiers
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -143,15 +143,24 @@ SUBJECT_MATTER_CASES = [
 
 async def eval_model_classifier(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
+        # Recorded on every case so an experiment says which model produced its scores —
+        # otherwise two runs of the same suite are indistinguishable in the history, which
+        # is exactly what you go to the history to compare.
+        classifier_model = classifiers.MODEL_OVERRIDE_CLASSIFIER_MODEL
         try:
             # Sync, and blocking on the gateway — keep it off the event loop so cases
             # still run concurrently under the harness's limiter.
-            override = await asyncio.to_thread(classify_slack_app_model_override, case.prompt, CHOICES)
+            override = await asyncio.to_thread(classifiers.classify_slack_app_model_override, case.prompt, CHOICES)
         except Exception as error:
-            return {"override": None, "error": f"{type(error).__name__}: {error}"}
+            return {
+                "classifier_model": classifier_model,
+                "override": None,
+                "error": f"{type(error).__name__}: {error}",
+            }
         return {
+            "classifier_model": classifier_model,
             "override": override.model_dump() if override else None,
-            "last_message": repr(override.model_dump() if override else None),
+            "last_message": f"{classifier_model}: {override.model_dump() if override else None}",
         }
 
     await OneShotPublicEval(
