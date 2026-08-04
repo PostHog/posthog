@@ -1865,6 +1865,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             ("dedupes_after_normalization", ["revenue", "Revenue", "REVENUE"], ["revenue"]),
             ("slugifies_punctuation", ["cost_spike", "billing/usage"], ["billingusage", "cost-spike"]),
             ("empty_list_clears", [], []),
+            # The length cap is measured on the slug, not the raw string. A raw entry longer than
+            # the cap whose punctuation strips down to a short slug has to be accepted: rejecting
+            # it would 400 a tag the desktop editor showed as fine, since the editor measures the
+            # normalized form too.
+            ("long_raw_input_that_normalizes_short", ["revenue" + "!" * 60], ["revenue"]),
         ]
     )
     def test_partial_update_normalizes_tags(self, _name: str, payload: list[str], expected: list[str]) -> None:
@@ -1898,6 +1903,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("blank_after_normalization", ["!!!"]),
+            # Over the cap once normalized (all-alphanumeric, so the slug is the same length).
             ("over_the_per_tag_length_cap", ["a" * (SignalScoutConfig.MAX_TAG_LENGTH + 1)]),
             ("over_the_count_cap", [f"tag-{index}" for index in range(SignalScoutConfig.MAX_TAGS + 1)]),
         ]

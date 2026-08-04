@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0084_signalscoutconfig_network_access"),
+        ("signals", "0085_signalscoutnote_feedback_origin"),
     ]
 
     operations = [

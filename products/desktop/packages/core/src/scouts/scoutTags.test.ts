@@ -60,6 +60,17 @@ describe("parseScoutTagsInput", () => {
       tooLong: [long],
     });
   });
+
+  it("measures the cap on the slug, not the raw input", () => {
+    // Long raw entry, short slug. Rejecting this would disagree with the server,
+    // which also measures the normalized form.
+    const noisy = `revenue${"!".repeat(60)}`;
+    expect(noisy.length).toBeGreaterThan(MAX_SCOUT_TAG_LENGTH);
+    expect(parseScoutTagsInput(noisy)).toEqual({
+      tags: ["revenue"],
+      tooLong: [],
+    });
+  });
 });
 
 describe("withScoutTagsAdded", () => {

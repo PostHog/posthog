@@ -23,8 +23,15 @@ export function normalizeScoutTag(raw: string): string {
 export interface ParsedScoutTags {
   tags: string[];
   /**
-   * Entries over `MAX_SCOUT_TAG_LENGTH`. Reported rather than dropped so the
-   * editor can say the tag didn't take instead of silently swallowing it.
+   * Entries whose *normalized* form is over `MAX_SCOUT_TAG_LENGTH`. Reported
+   * rather than dropped so the editor can say the tag didn't take instead of
+   * silently swallowing it.
+   *
+   * Measured after normalization on purpose, matching the server: the cap is
+   * about what gets stored, so "revenue" followed by 60 exclamation marks is a
+   * 7-character tag and fine. Checking the raw string here instead would reject
+   * it locally, and checking it on only one side would 400 a tag this editor had
+   * shown as valid.
    */
   tooLong: string[];
 }

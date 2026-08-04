@@ -1880,22 +1880,25 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
 _SCOUT_TAGS_HELP_TEXT = (
     'Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to '
     "lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored "
-    f"sorted; at most {SignalScoutConfig.MAX_TAGS} tags of "
-    f"{SignalScoutConfig.MAX_TAG_LENGTH} characters each. Pass the full desired set — a write "
-    "replaces the existing tags rather than merging into them. Filter the config list with the "
-    "`tags` query parameter."
+    f"sorted; at most {SignalScoutConfig.MAX_TAGS} tags, each at most "
+    f"{SignalScoutConfig.MAX_TAG_LENGTH} characters once normalized. Pass the full desired set — "
+    "a write replaces the existing tags rather than merging into them. Filter the config list "
+    "with the `tags` query parameter."
 )
 
 
 def _scout_tags_field() -> serializers.ListField:
     """Writable `tags` field shared by the update and create paths.
 
-    The per-tag `max_length` sits on the child rather than after normalization because
-    `slugify_tag` only ever shortens a string, so an accepted input can never overflow the
-    column.
+    Deliberately no `max_length` on the child: DRF would apply it to the raw string, before
+    `slugify_tag` strips punctuation and collapses hyphen runs, so `"revenue!!!…"` would 400
+    even though it stores as the 7-character `revenue`. The cap describes what is stored, so
+    `_validate_scout_tags` enforces it after normalization — which is also the only way it can
+    agree with the desktop editor, which shows the normalized tag as you type. Unbounded raw
+    input is bounded by `DATA_UPLOAD_MAX_MEMORY_SIZE`, and the slug regexes are linear.
     """
     return serializers.ListField(
-        child=serializers.CharField(max_length=SignalScoutConfig.MAX_TAG_LENGTH),
+        child=serializers.CharField(),
         required=False,
         allow_empty=True,
         max_length=SignalScoutConfig.MAX_TAGS,
@@ -1917,6 +1920,13 @@ def _validate_scout_tags(value: list[str]) -> list[str]:
         tag = slugify_tag(raw)
         if not tag:
             raise serializers.ValidationError(f"Tag {raw!r} is empty once normalized to a lowercase slug.")
+        # Measured on the slug, not the raw input: what lands in the column is what the cap is
+        # about, and the desktop editor checks the same thing.
+        if len(tag) > SignalScoutConfig.MAX_TAG_LENGTH:
+            raise serializers.ValidationError(
+                f"Tag {raw!r} is {len(tag)} characters once normalized, over the "
+                f"{SignalScoutConfig.MAX_TAG_LENGTH} limit."
+            )
         normalized.add(tag)
     return sorted(normalized)
 
