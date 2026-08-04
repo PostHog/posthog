@@ -1,6 +1,10 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import type { RpcCommand, RpcResponse } from "@posthog/agent/pi/rpc-transport";
 import type { PiRuntime } from "@posthog/agent/pi/runtime";
+import type { PiExtensionEvent } from "@posthog/agent/pi/types";
 import type { RootLogger } from "@posthog/di/logger";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ITaskMetadataRepository } from "../../db/repositories/task-metadata-repository";
@@ -27,10 +31,23 @@ function successfulResponse(command: string): RpcResponse {
   } as RpcResponse;
 }
 
-afterEach(() => {
+const temporaryDirectories: string[] = [];
+
+async function temporaryDirectory(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "posthog-pi-session-"));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { force: true, recursive: true })),
+  );
 });
 
 describe("selectPiPoolEvictionCandidate", () => {
@@ -221,6 +238,304 @@ describe("PiSessionService start", () => {
     expect(setThinkingLevel.mock.invocationCallOrder[0]).toBeLessThan(
       prompt.mock.invocationCallOrder[0],
     );
+  });
+});
+
+describe("PiSessionService project trust", () => {
+  it("persists repository trust, stops the runtime, and applies it on resume", async () => {
+    const agentDir = await temporaryDirectory();
+    const repository = await temporaryDirectory();
+    const worktree = join(repository, "worktree");
+    const commonGitDir = join(repository, ".git");
+    const worktreeGitDir = join(commonGitDir, "worktrees", "task-1");
+    await mkdir(join(worktree, ".pi", "extensions"), { recursive: true });
+    await mkdir(worktreeGitDir, { recursive: true });
+    await writeFile(join(worktree, ".git"), `gitdir: ${worktreeGitDir}\n`);
+    await writeFile(join(worktreeGitDir, "commondir"), "../..\n");
+    await writeFile(
+      join(worktreeGitDir, "gitdir"),
+      `${join(worktree, ".git")}\n`,
+    );
+    vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+
+    const clients = [0, 1, 2].map(
+      () =>
+        ({
+          start: vi.fn(async () => {}),
+          stop: vi.fn(async () => {}),
+          getState: vi.fn(async () => ({
+            isStreaming: false,
+            sessionFile: "/tmp/session.jsonl",
+            sessionId: "session-1",
+          })),
+          setThinkingLevel: vi.fn(async () => {}),
+          prompt: vi.fn(async () => {}),
+        }) as unknown as PiRpcClient,
+    );
+    let runtimeIndex = 0;
+    const runtimeFactory = {
+      create: vi.fn(async () => {
+        const client = clients[runtimeIndex++];
+        return {
+          client,
+          process: { pid: 123, once: vi.fn() },
+          onRuntimeEvent: vi.fn(),
+          onConversationEvent: vi.fn(),
+          onExtensionEvent: vi.fn(),
+        } as unknown as PiRuntime;
+      }),
+    } as PiRuntimeFactory;
+    const metadata = {
+      upsert: vi.fn(),
+      findByTaskId: vi.fn(() => ({
+        piSessionFile: "/tmp/session.jsonl",
+      })),
+    } as unknown as ITaskMetadataRepository;
+    const processTracking = {
+      register: vi.fn(),
+      unregister: vi.fn(),
+    } as unknown as ProcessTrackingService;
+    const service = new PiSessionService(
+      runtimeFactory,
+      metadata,
+      processTracking,
+      rootLogger,
+    );
+
+    await service.start({
+      taskId: "task-1",
+      cwd: worktree,
+      projectTrustPath: repository,
+      prompt: "hello",
+    });
+    expect(service.getProjectTrust("task-1")).toEqual({
+      trusted: false,
+      hasProjectResources: true,
+    });
+    expect(runtimeFactory.create).toHaveBeenLastCalledWith({
+      cwd: worktree,
+      model: undefined,
+      projectTrusted: false,
+    });
+
+    vi.mocked(clients[0].stop).mockRejectedValueOnce(new Error("stop failed"));
+    await expect(service.setProjectTrusted("task-1", true)).rejects.toThrow(
+      "stop failed",
+    );
+    expect(service.getProjectTrust("task-1").trusted).toBe(false);
+    expect(service.health("task-1").state).toBe("idle");
+    expect(processTracking.unregister).not.toHaveBeenCalled();
+
+    await service.resume({
+      taskId: "task-1",
+      cwd: worktree,
+      projectTrustPath: repository,
+    });
+    expect(clients[0].stop).toHaveBeenCalledTimes(2);
+    expect(runtimeFactory.create).toHaveBeenLastCalledWith({
+      cwd: worktree,
+      sessionFile: "/tmp/session.jsonl",
+      projectTrusted: false,
+    });
+
+    await service.setProjectTrusted("task-1", true);
+    expect(clients[1].stop).toHaveBeenCalledOnce();
+    expect(processTracking.unregister).toHaveBeenCalledWith(
+      123,
+      "pi-session-stopped",
+    );
+
+    await service.resume({
+      taskId: "task-1",
+      cwd: worktree,
+      projectTrustPath: repository,
+    });
+    expect(runtimeFactory.create).toHaveBeenLastCalledWith({
+      cwd: worktree,
+      sessionFile: "/tmp/session.jsonl",
+      projectTrusted: true,
+    });
+    expect(service.getProjectTrust("task-1").trusted).toBe(true);
+  });
+
+  it("rejects trust from a repository unrelated to the runtime cwd", async () => {
+    const trustedRepository = await temporaryDirectory();
+    const unrelatedRepository = await temporaryDirectory();
+    const runtimeFactory = {
+      create: vi.fn(),
+    } as unknown as PiRuntimeFactory;
+    const service = new PiSessionService(
+      runtimeFactory,
+      { upsert: vi.fn() } as unknown as ITaskMetadataRepository,
+      {
+        register: vi.fn(),
+        unregister: vi.fn(),
+      } as unknown as ProcessTrackingService,
+      rootLogger,
+    );
+
+    await expect(
+      service.start({
+        taskId: "task-1",
+        cwd: unrelatedRepository,
+        projectTrustPath: trustedRepository,
+        prompt: "hello",
+      }),
+    ).rejects.toThrow(
+      "Pi project trust path must match the runtime repository or its registered Git worktree",
+    );
+    expect(runtimeFactory.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("PiSessionService extension UI", () => {
+  it("streams current-session extension events and forwards responses", async () => {
+    const extensionHandlers: Array<(event: PiExtensionEvent) => void> = [];
+    const clients = Array.from({ length: 2 }, (_, index) => ({
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn().mockResolvedValue({
+        isStreaming: false,
+        sessionFile: `/tmp/session-${index}.jsonl`,
+        sessionId: `session-${index}`,
+      }),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      respondToExtensionUI: vi.fn().mockResolvedValue(undefined),
+    })) as unknown as PiRpcClient[];
+    let runtimeIndex = 0;
+    const runtimeFactory = {
+      create: vi.fn(async () => {
+        const client = clients[runtimeIndex++];
+        return {
+          client,
+          process: undefined,
+          onRuntimeEvent: vi.fn(),
+          onConversationEvent: vi.fn(),
+          onExtensionEvent: vi.fn((handler) => {
+            extensionHandlers.push(handler);
+            return () => {};
+          }),
+        };
+      }),
+    } as unknown as PiRuntimeFactory;
+    const service = new PiSessionService(
+      runtimeFactory,
+      { upsert: vi.fn() } as unknown as ITaskMetadataRepository,
+      {
+        register: vi.fn(),
+        unregister: vi.fn(),
+      } as unknown as ProcessTrackingService,
+      rootLogger,
+    );
+    const abortController = new AbortController();
+    await service.start({ taskId: "task-1", cwd: "/tmp", prompt: "hello" });
+    extensionHandlers[0]({
+      type: "extension_ui_request",
+      id: "startup-notification",
+      method: "notify",
+      message: "Ephemeral startup notification",
+    });
+    const startupRequest: PiExtensionEvent = {
+      type: "extension_ui_request",
+      id: "startup-extension",
+      method: "confirm",
+      title: "Continue?",
+      message: "Run the startup extension?",
+    };
+    extensionHandlers[0](startupRequest);
+
+    const iterator = service
+      .extensionEvents("task-1", abortController.signal)
+      [Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: startupRequest,
+    });
+
+    const firstEvent = iterator.next();
+    const request: PiExtensionEvent = {
+      ...startupRequest,
+      id: "extension-1",
+      message: "Run the extension?",
+    };
+    extensionHandlers[0](request);
+
+    await expect(firstEvent).resolves.toEqual({ done: false, value: request });
+
+    const response = {
+      type: "extension_ui_response" as const,
+      id: "extension-1",
+      confirmed: true,
+    };
+    await service.respondToExtensionUI("task-1", response);
+    expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith(response);
+
+    const pendingEvent = iterator.next();
+    const pendingRequest = { ...request, id: "pending-extension" };
+    extensionHandlers[0](pendingRequest);
+    await expect(pendingEvent).resolves.toEqual({
+      done: false,
+      value: pendingRequest,
+    });
+    const queuedRequest = { ...request, id: "queued-extension" };
+    extensionHandlers[0](queuedRequest);
+    await iterator.return?.();
+    await vi.waitFor(() => {
+      expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: pendingRequest.id,
+        cancelled: true,
+      });
+      expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: queuedRequest.id,
+        cancelled: true,
+      });
+    });
+
+    const orphanedRequest = { ...request, id: "orphaned-extension" };
+    extensionHandlers[0](orphanedRequest);
+    await vi.waitFor(() =>
+      expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: orphanedRequest.id,
+        cancelled: true,
+      }),
+    );
+
+    const oldIterator = service
+      .extensionEvents("task-1", abortController.signal)
+      [Symbol.asyncIterator]();
+    const oldEvent = oldIterator.next();
+    extensionHandlers[0]({ ...request, id: "buffered-old-extension" });
+    await service.start({
+      taskId: "task-1",
+      cwd: "/tmp/replacement",
+      prompt: "hello again",
+    });
+    await expect(oldEvent).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+
+    const replacementRequest: PiExtensionEvent = {
+      ...request,
+      id: "extension-2",
+    };
+    const replacementIterator = service
+      .extensionEvents("task-1", abortController.signal)
+      [Symbol.asyncIterator]();
+    const replacementEvent = replacementIterator.next();
+    extensionHandlers[0]({ ...request, id: "stale-extension" });
+    extensionHandlers[1](replacementRequest);
+
+    await expect(replacementEvent).resolves.toEqual({
+      done: false,
+      value: replacementRequest,
+    });
+
+    abortController.abort();
+    await replacementIterator.return?.();
   });
 });
 
