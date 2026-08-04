@@ -265,7 +265,7 @@ export const ServerError: Story = {
 export const Loading: Story = {
     parameters: {
         pageUrl: urls.dashboard(LOADING_DASHBOARD_ID),
-        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.Spinner' },
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[aria-label="Loading dashboard"]' },
     },
 }
 
