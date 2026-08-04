@@ -78,6 +78,15 @@ class GithubOrgNotFoundError(Exception):
     pass
 
 
+class GithubRepositoryTooLargeError(Exception):
+    """GitHub's /stats/code_frequency permanently 422s once a repository passes 10,000 commits — a
+    documented limit of that specific endpoint (other stats endpoints keep working, just with
+    zeroed addition/deletion counts for large repos). Retrying can never succeed, so `_fetch_page`
+    raises this and the caller syncs zero rows instead of failing the schema forever."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -245,6 +254,20 @@ def _is_empty_repository_response(response: requests.Response) -> bool:
     return isinstance(message, str) and "repository is empty" in message.lower()
 
 
+def _is_repository_too_large_for_code_frequency(response: requests.Response) -> bool:
+    """GitHub returns 422 on /stats/code_frequency with a stable "must have fewer than 10000
+    commits" message once a repository crosses that commit count — a hard, permanent limit of this
+    one endpoint, not a transient or credential problem."""
+    if response.status_code != 422:
+        return False
+    try:
+        body = response.json()
+        message = body.get("message", "") if isinstance(body, dict) else ""
+    except (ValueError, TypeError):
+        message = response.text or ""
+    return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
@@ -289,6 +312,17 @@ def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
+    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
+    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
+    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
+    # before the request so the message names the fix.
+    repo = repository.strip()
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        return (
+            False,
+            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+        )
+
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 
@@ -676,6 +710,9 @@ def _fetch_page(
     if _is_empty_repository_response(response):
         raise GithubEmptyRepositoryError()
 
+    if _is_repository_too_large_for_code_frequency(response):
+        raise GithubRepositoryTooLargeError()
+
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
     # like an empty repository, not a real "repository not found".
@@ -709,6 +746,11 @@ def _iter_pages(
             response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=skip_on_not_found)
         except GithubOrgNotFoundError:
             logger.debug(f"Github: org-scoped endpoint not found, syncing zero rows: url={url}")
+            return
+        except GithubEmptyRepositoryError:
+            # `commits` is a fan_out_parent (check_runs, commit_statuses), so this walk can hit the
+            # same empty-repo 409 that get_rows handles directly for the non-fan-out `commits` read.
+            logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
             return
         data = response.json()
         if response_data_path and isinstance(data, dict):
@@ -996,11 +1038,21 @@ def get_rows(
         except GithubOrgNotFoundError:
             logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
             break
+        except GithubRepositoryTooLargeError:
+            logger.debug(f"Github: repository too large for code frequency stats, syncing zero rows: url={url}")
+            break
 
         # The /stats/* aggregates are computed asynchronously: GitHub answers 202 with no body
         # while a fresh computation runs. Nothing to sync this time; the next sync picks it up.
         if response.status_code == 202:
             logger.debug(f"Github: statistics not ready yet, syncing zero rows: url={url}")
+            break
+
+        # A 204 No Content has an empty body, which GitHub returns on the /stats/* endpoints for a
+        # repository with no commit activity. There is nothing to parse, so sync zero rows rather
+        # than crashing on response.json(), because an empty body raises a JSONDecodeError.
+        if response.status_code == 204:
+            logger.debug(f"Github: 204 no content, syncing zero rows: url={url}")
             break
 
         data = response.json()

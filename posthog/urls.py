@@ -48,6 +48,7 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
+from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
@@ -742,6 +743,9 @@ if settings.TEST:
 # Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
 # app./us./eu. subdomains because only the path changes; the host is preserved by the
 # relative redirect.
+urlpatterns.append(
+    re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact")
+)
 urlpatterns.append(
     opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
 )

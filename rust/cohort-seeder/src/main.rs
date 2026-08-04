@@ -31,6 +31,7 @@ use cohort_seeder::kafka::markers::MarkerWatcher;
 use cohort_seeder::kafka::pacing::TilePacer;
 use cohort_seeder::kafka::producer::SeedTileProducer;
 use cohort_seeder::observability;
+use cohort_seeder::store::runs::RunKind;
 
 common_alloc::used!();
 
@@ -117,9 +118,16 @@ async fn async_main(config: Config) -> Result<()> {
         scanner: PersonScanner::new(clickhouse_client),
         pacer: TilePacer::new(person_settings.seeds_per_sec),
     });
-    let completion = build_completion(&config, &pool, &producer, observe_policy, watch_handle)
-        .await
-        .context("validating completion driver policies")?;
+    let completion = build_completion(
+        &config,
+        settings.completion_kinds(),
+        &pool,
+        &producer,
+        observe_policy,
+        watch_handle,
+    )
+    .await
+    .context("validating completion driver policies")?;
     let claimed_by = format!("cohort-seeder:{}", uuid::Uuid::now_v7());
     let orchestrator = SeederOrchestrator::new(
         pool,
@@ -172,6 +180,7 @@ struct WiredCompletion {
 /// name would otherwise surface only as runs stuck re-dispatching forever.
 async fn build_completion(
     config: &Config,
+    kinds: &'static [RunKind],
     pool: &sqlx::PgPool,
     producer: &SeedTileProducer,
     observe_policy: ObservePolicy,
@@ -199,7 +208,7 @@ async fn build_completion(
     .context("joining membership topic verification task")?
     .context("verifying the membership topic is reachable")?;
 
-    let mut driver = CompletionDriver::new(pool.clone(), config.team_allowlist.clone());
+    let mut driver = CompletionDriver::new(pool.clone(), config.team_allowlist.clone(), kinds);
 
     if let AutoDispatchPolicy::Enabled(register_backfill) = dispatch_policy {
         let max_inflight = NonZeroUsize::new(config.seeder_max_inflight_tiles)

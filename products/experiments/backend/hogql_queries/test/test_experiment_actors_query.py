@@ -5,6 +5,8 @@ This test file is written FIRST to define the behavior we want for experiment fu
 The implementation will follow to make these tests pass.
 """
 
+from datetime import timedelta
+
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -14,12 +16,20 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import ActorsQuery, EventsNode, ExperimentActorsQuery, ExperimentFunnelMetric, ExperimentQuery
+from posthog.schema import (
+    ActorsQuery,
+    EventsNode,
+    ExperimentActorsQuery,
+    ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
+    ExperimentQuery,
+)
 
 from posthog.hogql.context import HogQLContext
 
@@ -27,6 +37,7 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import print_cohort_hogql_query
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 
@@ -179,6 +190,46 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         distinct_ids = {row[1]["distinct_ids"][0] for row in response.results}
         for distinct_id in distinct_ids:
             assert distinct_id.startswith(f"user_{variant}_")
+
+    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4))
+    def test_experiment_funnel_actors_resolves_explicit_default_exposure_event(self) -> None:
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+        experiment.start_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1)
+        experiment.end_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=3)
+        experiment.save(update_fields=["start_date", "end_date"])
+
+        distinct_id = "user_exposed_after_cutoff"
+        _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$experiment_exposure",
+            distinct_id=distinct_id,
+            timestamp=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=1),
+            properties={"$feature_flag": feature_flag.key, "$feature_flag_response": "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id=distinct_id,
+            timestamp=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=2),
+        )
+        flush_persons_and_events()
+
+        actors_query = ActorsQuery(
+            source=ExperimentActorsQuery(
+                kind="ExperimentActorsQuery",
+                source=experiment_query,
+                funnelStep=1,
+                funnelStepBreakdown="control",
+                exposureConfig=ExperimentEventExposureConfig(event="$feature_flag_called", properties=[]),
+            ),
+            select=["id", "person"],
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert [row[1]["distinct_ids"][0] for row in response.results] == [distinct_id]
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries

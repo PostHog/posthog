@@ -2,7 +2,7 @@ import logging
 from collections.abc import Iterable
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.core.paginator import Paginator
 from django.db.models import Q
 
@@ -25,15 +25,18 @@ def _batched(iterable: Iterable, size: int) -> Iterable[list]:
         yield batch
 
 
-def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool = False):
+def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool = False) -> dict[str, int]:
     """
-    Ensure existing SES email identities have SES Tenants and Tenant Resource Associations.
+    Ensure existing SES email identities have SES Tenants and Tenant Resource Associations
+    (the identity plus every configuration set sends reference).
 
-    The command is idempotent.
+    Idempotent. Returns counts so callers can tell a complete pass from a partial one:
+    {"tenants": ..., "associations_ok": ..., "tenant_failures": ..., "association_failures": ...}.
     """
+    counts = {"tenants": 0, "associations_ok": 0, "tenant_failures": 0, "association_failures": 0}
     if team_ids and domains:
         print("Please provide either team_ids or domains, not both")  # noqa: T201
-        return
+        return counts
 
     query = (
         Integration.objects.filter(kind="email")
@@ -70,7 +73,7 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
 
     if not pairs:
         print("No SES email identities found to migrate.")  # noqa: T201
-        return
+        return counts
 
     sts_client = boto3.client(
         "sts",
@@ -84,7 +87,8 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
     except (ClientError, BotoCoreError) as e:
         logger.exception("Failed to get AWS account id for SES tenant association: %s", e)
         print("Error determining AWS account ID. Aborting.")  # noqa: T201
-        return
+        counts["tenant_failures"] = len(pairs)
+        return counts
 
     for batch in _batched(pairs, 50):
         for team_id, domain in batch:
@@ -110,33 +114,45 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
             except (ClientError, BotoCoreError) as e:
                 logger.exception("Error creating SES tenant '%s': %s", tenant_name, e)
                 print(f"Error creating tenant '{tenant_name}': {e}")  # noqa: T201
+                counts["tenant_failures"] += 1
                 continue
+            counts["tenants"] += 1
 
-            # Create association if missing
-            try:
-                if dry_run:
-                    print(f"[DRY-RUN] Would associate identity '{identity_arn}' with tenant '{tenant_name}'")  # noqa: T201
-                else:
-                    try:
-                        tenant_client.create_tenant_resource_association(
-                            TenantName=tenant_name,
-                            ResourceArn=identity_arn,
-                        )
-                        print(f"Associated identity '{domain}' with tenant '{tenant_name}'")  # noqa: T201
-                    except ClientError as e:
-                        if e.response.get("Error", {}).get("Code") == "AlreadyExistsException":
-                            print(f"Association already exists for '{domain}' and tenant '{tenant_name}'")  # noqa: T201
-                        else:
-                            raise
-            except (ClientError, BotoCoreError) as e:
-                logger.exception(
-                    "Error creating SES tenant_resource_association for '%s' on '%s': %s",
-                    domain,
-                    tenant_name,
-                    e,
-                )
-                print(f"Error creating tenant_resource_association for '{domain}' on '{tenant_name}': {e}")  # noqa: T201
-                continue
+            # Associate the identity plus the configuration sets sends reference — an attributed
+            # send fails unless EVERY resource it uses is associated with the tenant.
+            resource_arns = [identity_arn] + [
+                f"arn:aws:ses:{settings.SES_REGION}:{aws_account_id}:configuration-set/{config_set}"
+                for config_set in settings.SES_TENANT_CONFIGURATION_SETS
+            ]
+            for resource_arn in resource_arns:
+                try:
+                    if dry_run:
+                        print(f"[DRY-RUN] Would associate '{resource_arn}' with tenant '{tenant_name}'")  # noqa: T201
+                    else:
+                        try:
+                            tenant_client.create_tenant_resource_association(
+                                TenantName=tenant_name,
+                                ResourceArn=resource_arn,
+                            )
+                            print(f"Associated '{resource_arn}' with tenant '{tenant_name}'")  # noqa: T201
+                        except ClientError as e:
+                            if e.response.get("Error", {}).get("Code") == "AlreadyExistsException":
+                                print(f"Association already exists for '{resource_arn}' and tenant '{tenant_name}'")  # noqa: T201
+                            else:
+                                raise
+                    counts["associations_ok"] += 1
+                except (ClientError, BotoCoreError) as e:
+                    logger.exception(
+                        "Error creating SES tenant_resource_association for '%s' on '%s': %s",
+                        resource_arn,
+                        tenant_name,
+                        e,
+                    )
+                    print(f"Error creating tenant_resource_association for '{resource_arn}' on '{tenant_name}': {e}")  # noqa: T201
+                    counts["association_failures"] += 1
+                    continue
+
+    return counts
 
 
 class Command(BaseCommand):
@@ -167,4 +183,16 @@ class Command(BaseCommand):
         team_ids = [int(x) for x in team_ids_opt.split(",")] if team_ids_opt else []
         domains = [x.strip() for x in domains_opt.split(",")] if domains_opt else []
 
-        migrate_ses_tenants(team_ids=team_ids, domains=domains, dry_run=dry_run)
+        counts = migrate_ses_tenants(team_ids=team_ids, domains=domains, dry_run=dry_run)
+
+        self.stdout.write(
+            f"Summary: {counts['tenants']} tenants processed, "
+            f"{counts['associations_ok']} associations ensured, "
+            f"{counts['tenant_failures']} tenant failures, "
+            f"{counts['association_failures']} association failures"
+        )
+        failures = counts["tenant_failures"] + counts["association_failures"]
+        if failures:
+            # Non-zero exit: an incomplete pass must not read as a successful rollout step —
+            # tenants missing an association fail attributed sends. Rerun for the logged tenants.
+            raise CommandError(f"{failures} SES tenant migration step(s) failed — rerun after fixing; see logs above.")

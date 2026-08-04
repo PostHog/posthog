@@ -1314,6 +1314,11 @@ class ExternalDataSourceType(models.TextChoices):
     CLAY = "Clay", "Clay"
     TRADABLEBITS = "TradableBits", "TradableBits"
     SWAN = "Swan", "Swan"
+    HYROS = "Hyros", "Hyros"
+    ODOO = "Odoo", "Odoo"
+    AIRBRIDGE = "Airbridge", "Airbridge"
+    SNOVIO = "Snovio", "Snovio"
+    GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
