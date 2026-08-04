@@ -41,7 +41,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
     [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
-    [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.ExploreEvents]: () => import('./activity/explore/EventsScene'),
     [Scene.ExploreSessions]: () => import('./activity/explore/SessionsScene'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),

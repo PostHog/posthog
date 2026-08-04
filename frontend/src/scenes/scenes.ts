@@ -195,14 +195,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Shared metrics',
         activityScope: ActivityScope.EXPERIMENT,
     },
-    [Scene.Experiments]: {
-        projectBased: true,
-        name: 'Experiments',
-        activityScope: ActivityScope.EXPERIMENT,
-        description:
-            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
-        iconType: 'experiment',
-    },
     [Scene.Activity]: {
         projectBased: true,
         name: 'Activity',
@@ -828,7 +820,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
-    [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
