@@ -145,7 +145,7 @@ Step 7 absorbs it into the `OutputTable`; the mode-scoped demand is folded in at
 #### Step 11 · v1 converges on the shared strata
 
 - **Goal.** v1's `Destination` bridges to `(Pipeline, Lane)`; v1 topic resolution goes through the shared table; v1's `serialize_batch` uses the Step-4 serializer. The v1 `Sink`/`Router` trait convergence stays gated on the per-event response model, as before.
-- **Parity proof.** v1_pipeline (17) + v1_sink_integration (10) unmodified.
+- **Parity proof.** v1_pipeline (17) + v1_sink_integration (10) unmodified, plus `overflow_parity.rs` unmodified. That suite drives both pipelines end to end over the overflow and rate-limit matrix and is the oracle for the ordering-vs-person-processing contract this step has to carry across (see the Hazard note under "v1 convergence on the outputs machinery"). Both paths already share `OrderingGuarantee` from `crate::ordering`.
 - **Size.** M/L.
 
 ### Stage E — prep hoists up; sinks become pure transport
@@ -185,7 +185,12 @@ Goal: v1 endpoints publish through `dyn Outputs` like every other ingress, so fa
 5. **Plan retirement.** The 20c commit deletes this document — the plan must not outlive its last step.
    Anything still load-bearing then (the repartitioning design note, the ordering-vs-person-processing contract) graduates into module docs or `v1/sinks/DESIGN.md` first.
 
-**Hazard.** `pipeline::resolve`'s overflow arm couples `ForceLimited` to `ForceDisablePersonProcessing` (and a null key) — the exact v0 behavior v1 deliberately decoupled. The `Destination::Overflow` → metadata mapping must select `overflow_reason`/flags that keep v1's semantics (event-keyed overflow; person-processing disable only when the operator set it), or `resolve` learns a v1-shaped overflow intent. Verify against v1's kafka sink key handling per destination before choosing.
+**Hazard.** The `Destination::Overflow` → metadata mapping must preserve the split between the two intents that ride together on this lane: whether person processing is disabled (a customer-visible instruction, the `force_disable_person_processing` header) and whether the partition key is dropped (a load decision, `OrderingGuarantee`). Both paths now state the same rule, so the mapping has one contract to satisfy rather than two dialects to reconcile:
+
+- The header follows the stamped person-processing flag alone. A burst over the overflow limiter's budget spreads the key without touching it.
+- The key is dropped on the analytics main/overflow and AI overflow lanes when either the person-processing flag or an explicit spread decision is set, and nowhere else. Historical, dlq, custom redirects and the AI main topic keep it regardless.
+
+`overflow_parity.rs` is the oracle: it drives both pipelines over the overflow and rate-limit matrix and pins lane, key presence, and header. Extend it with the mapped v1 destinations rather than reasoning about the two paths separately.
 
 **Accepted deltas:** `sent_at` fractional-second formatting (parse-equal; v1 adopts v0's serializer) and the v1 sink-stage metrics (`capture_v1_serialize_*`, per-sink publish metrics), superseded by the outputs-layer metrics.
 
