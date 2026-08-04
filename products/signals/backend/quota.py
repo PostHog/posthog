@@ -66,12 +66,13 @@ class SignalsQuotaGate:
     enforced: bool
 
 
-def _enforcement_enabled(team: "Team") -> bool:
+def signals_quota_enforcement_enabled(team: "Team") -> bool:
     """Whether quota-gate enforcement is rolled out to this team's org.
 
     Org-keyed like the `signals-pr-refunds` gate (the limit is the org's billing cap). Fails open
     (no enforcement) on a flag-read error, matching the quota check's own fail-open policy: a flag
-    outage must not stall the fleet's pipelines.
+    outage must not stall the fleet's pipelines. Also gates visibility of the refund-summary
+    endpoint (the widget's source for the paused state), which must work with refunds off.
     """
     try:
         org_id = str(team.organization_id)
@@ -97,7 +98,7 @@ def signals_quota_gate(team: "Team") -> SignalsQuotaGate:
     """
     if not is_team_signals_quota_limited(team.api_token):
         return SignalsQuotaGate(limited=False, enforced=False)
-    return SignalsQuotaGate(limited=True, enforced=_enforcement_enabled(team))
+    return SignalsQuotaGate(limited=True, enforced=signals_quota_enforcement_enabled(team))
 
 
 def capture_signal_report_quota_paused(team: "Team", *, report_id: str | None, stage: str, enforced: bool) -> None:
