@@ -314,6 +314,67 @@ class TestGitHubPRWebhook(TestCase):
         assert run.output is not None
         self.assertIs(run.output.get("pr_merged"), True)
 
+    @parameterized.expand(
+        [
+            ("opted_in_child", {"parent_task_id": "parent", "wake_on": ["pr_merged"]}, True, 1),
+            ("not_opted_in", {"parent_task_id": "parent", "wake_on": []}, True, 0),
+            ("parentless", {"wake_on": ["pr_merged"]}, True, 0),
+            ("closed_unmerged", {"parent_task_id": "parent", "wake_on": ["pr_merged"]}, False, 0),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merge_parent_wake(self, name, state, merged, expected_wakes, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = f"https://github.com/posthog/posthog/pull/{name}"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={**state, "verified_pr_urls": [pr_url]},
+            output={"pr_url": pr_url},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": pr_url, "merged": merged},
+        }
+
+        with patch("products.tasks.backend.webhooks.notify_parent_of_child_event") as mock_notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_notify.call_count, expected_wakes)
+        if expected_wakes:
+            mock_notify.assert_called_once_with(run, "pr_merged")
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_duplicate_pr_merge_delivery_wakes_parent_once(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/782"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "parent_task_id": "parent",
+                "wake_on": ["pr_merged"],
+                "verified_pr_urls": [pr_url],
+            },
+            output={"pr_url": pr_url},
+        )
+        payload = self._merged_pr_payload(pr_url)
+
+        with patch("products.tasks.backend.webhooks.notify_parent_of_child_event") as mock_notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                first_response = self._make_webhook_request(payload)
+                second_response = self._make_webhook_request(payload)
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        mock_notify.assert_called_once_with(run, "pr_merged")
+
     def _closed_pr_payload(self, pr_url: str) -> dict:
         return {
             "action": "closed",
