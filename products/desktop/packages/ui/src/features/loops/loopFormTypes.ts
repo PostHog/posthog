@@ -276,8 +276,13 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
 /** A condition holding several accepted values shows them comma-separated in the editor's
  * single input, so a comma is how the user writes and edits a multi-value condition. Splitting
  * here rather than in the input's `onChange` keeps typing a plain string: parsing per keystroke
- * turns "a," into ["a", ""] and re-renders a separator the user can't delete. The cost is that
- * a value cannot itself contain a comma, which no GitHub payload scalar we match on does. */
+ * turns "a," into ["a", ""] and re-renders a separator the user can't delete.
+ *
+ * The cost is that the editor cannot express a value containing a literal comma. Free-text
+ * paths like `pull_request.title` and `requested_team.name` can hold one, and the API accepts
+ * it, so a condition authored there reads as several values once someone edits that row here.
+ * Matching a comma-bearing value is an API/MCP-only capability until this becomes a real
+ * multi-value input rather than one string field. */
 function payloadConditionValues(
   condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
 ): string[] {

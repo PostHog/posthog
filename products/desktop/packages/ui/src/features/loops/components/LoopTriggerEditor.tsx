@@ -86,6 +86,21 @@ function triggerTypeMeta(type: LoopSchemas.LoopTriggerTypeEnum) {
   return TRIGGER_TYPES.find((t) => t.type === type) ?? TRIGGER_TYPES[0];
 }
 
+/** Names whichever half of the trigger is unfinished, so the disabled save button has a
+ * reason. A blank condition row used to report the repository and events as missing. */
+function githubTriggerInvalidMessage(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+): string {
+  if (
+    !config.repository ||
+    !config.github_integration_id ||
+    !config.events.length
+  ) {
+    return "Pick a repository and at least one event to finish this trigger.";
+  }
+  return "Fill in a path and a value for each payload condition, or remove the empty rows.";
+}
+
 interface LoopTriggerEditorProps {
   triggers: LoopTriggerDraft[];
   onChange: (triggers: LoopTriggerDraft[]) => void;
@@ -220,7 +235,9 @@ function TriggerCard({
   const invalidMessage = isTriggerDraftValid(trigger)
     ? null
     : trigger.type === "github"
-      ? "Pick a repository and at least one event to finish this trigger."
+      ? githubTriggerInvalidMessage(
+          trigger.config as LoopSchemas.LoopGithubTriggerConfig,
+        )
       : "Set when this trigger fires.";
 
   return (
@@ -648,8 +665,10 @@ function GithubTriggerFields({
       <SubField label="Payload conditions">
         <div className="flex flex-col gap-2">
           <span className="text-[12px] text-gray-10">
-            Optional. Narrow the events further by matching fields in the GitHub
-            payload, like the team asked to review.
+            Optional. Match fields in the GitHub payload to narrow things
+            further. Use <code>action</code> to run on one pull request action
+            only, and <code>requested_team.slug</code> for the team asked to
+            review. Separate several accepted values with commas.
           </span>
           {conditions.map((condition, index) => (
             <div
