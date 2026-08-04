@@ -4,13 +4,24 @@ import type { Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
+  type AgentSessionEvent,
   RpcClient,
   type RpcClientOptions,
+  type RpcEventListener,
 } from "@earendil-works/pi-coding-agent";
 import { safePiEnvironment } from "./rpc-environment";
-import type { PiQueueSnapshot, RpcExtensionUIResponse } from "./types";
+import type {
+  PiExtensionEvent,
+  PiQueueSnapshot,
+  RpcExtensionUIResponse,
+} from "./types";
+
+export type PiRpcEvent = AgentSessionEvent | PiExtensionEvent;
+
+type PiRpcEventListener = (event: PiRpcEvent) => void;
 
 export type PiRpcClient = RpcClient & {
+  onEvent(listener: PiRpcEventListener): () => void;
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
   respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void>;
@@ -88,6 +99,14 @@ class SecurePiRpcClient extends RpcClient {
     private readonly projectTrusted: boolean,
   ) {
     super(secureOptions);
+  }
+
+  onEvent(listener: PiRpcEventListener): () => void;
+  override onEvent(listener: RpcEventListener): () => void;
+  override onEvent(
+    listener: PiRpcEventListener | RpcEventListener,
+  ): () => void {
+    return super.onEvent((event) => listener(event));
   }
 
   override async start(): Promise<void> {

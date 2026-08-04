@@ -36,9 +36,7 @@ export class PiRuntime {
   constructor(client: PiRpcClient) {
     this.client = client;
     this.translator = createPiConversationTranslator();
-    client.onEvent((event) =>
-      this.handleEvent(event as AgentSessionEvent | PiExtensionEvent),
-    );
+    client.onEvent((event) => this.handleEvent(event));
   }
 
   get process() {
