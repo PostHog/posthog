@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import type { DragEvent, ReactNode } from 'react'
 
-import { IconCalculator, IconDatabase, IconFilter } from '@posthog/icons'
+import { IconCalculator, IconDatabase, IconFilter, IconGraph, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSelect, LemonSnack } from '@posthog/lemon-ui'
 
-import { IconTableChart } from 'lib/lemon-ui/icons'
+import { dayjs } from 'lib/dayjs'
+import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
 import { ChartDisplayType } from '~/types'
 
@@ -14,20 +16,22 @@ import {
     BI_FIELD_DRAG_MIME_TYPE,
     BIFilterOperator,
     BIShelf,
+    BIField,
+    isDateTimeBIField,
     isNumericBIField,
     parseBIField,
 } from './biEditorTypes'
 
-const CHART_TYPE_OPTIONS = [
-    { value: ChartDisplayType.Auto, label: 'Auto' },
-    { value: ChartDisplayType.ActionsTable, label: 'Table' },
-    { value: ChartDisplayType.ActionsLineGraph, label: 'Line chart' },
-    { value: ChartDisplayType.ActionsBar, label: 'Bar chart' },
-    { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart' },
-    { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart' },
-    { value: ChartDisplayType.ActionsPie, label: 'Pie chart' },
-    { value: ChartDisplayType.TwoDimensionalHeatmap, label: '2d heatmap' },
-    { value: ChartDisplayType.BoldNumber, label: 'Big number' },
+const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.Element }[] = [
+    { value: ChartDisplayType.Auto, label: 'Auto', icon: <IconGraph /> },
+    { value: ChartDisplayType.ActionsTable, label: 'Table', icon: <IconTableChart /> },
+    { value: ChartDisplayType.ActionsLineGraph, label: 'Line chart', icon: <IconTrends /> },
+    { value: ChartDisplayType.ActionsBar, label: 'Bar chart', icon: <IconGraph /> },
+    { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconGraph /> },
+    { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart', icon: <IconAreaChart /> },
+    { value: ChartDisplayType.ActionsPie, label: 'Pie chart', icon: <IconPieChart /> },
+    { value: ChartDisplayType.TwoDimensionalHeatmap, label: '2D heatmap', icon: <IconHeatmap /> },
+    { value: ChartDisplayType.BoldNumber, label: 'Big number', icon: <Icon123 /> },
 ]
 
 const AGGREGATION_OPTIONS: { value: BIAggregation; label: string }[] = [
@@ -37,6 +41,7 @@ const AGGREGATION_OPTIONS: { value: BIAggregation; label: string }[] = [
     { value: 'average', label: 'Average' },
     { value: 'minimum', label: 'Minimum' },
     { value: 'maximum', label: 'Maximum' },
+    { value: 'custom', label: 'SQL expression' },
 ]
 
 const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
@@ -47,6 +52,7 @@ const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
     { value: 'less_than', label: 'Less than' },
     { value: 'is_set', label: 'Is set' },
     { value: 'is_not_set', label: 'Is not set' },
+    { value: 'custom', label: 'SQL condition' },
 ]
 
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
@@ -57,9 +63,12 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         removeFieldFromShelf,
         resetConfig,
         setChartType,
+        setFieldExpression,
+        setFilterCustomExpression,
         setFilterOperator,
         setFilterValue,
         setValueAggregation,
+        setValueCustomExpression,
     } = useActions(logic)
 
     return (
@@ -82,14 +91,21 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                 <div className="flex items-end gap-2">
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Chart type</LemonLabel>
-                        <LemonSelect
-                            value={config.chartType}
-                            options={CHART_TYPE_OPTIONS}
-                            onChange={setChartType}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            data-attr="bi-editor-chart-type"
-                        />
+                        <div className="flex flex-wrap gap-1" role="group" aria-label="Chart type">
+                            {CHART_TYPE_OPTIONS.map((option) => (
+                                <LemonButton
+                                    key={option.value}
+                                    type={config.chartType === option.value ? 'primary' : 'secondary'}
+                                    active={config.chartType === option.value}
+                                    icon={option.icon}
+                                    size="small"
+                                    tooltip={option.label}
+                                    aria-label={option.label}
+                                    data-attr={`bi-editor-chart-type-${option.value}`}
+                                    onClick={() => setChartType(option.value)}
+                                />
+                            ))}
+                        </div>
                     </div>
                     <LemonButton
                         type="secondary"
@@ -111,9 +127,12 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     onDropField={addFieldToShelf}
                 >
                     {config.rows.map((field, index) => (
-                        <LemonSnack key={field.id} onClose={() => removeFieldFromShelf('rows', index)}>
-                            {field.name}
-                        </LemonSnack>
+                        <FieldExpressionEditor
+                            key={field.id}
+                            field={field}
+                            onChange={(expression) => setFieldExpression('rows', index, expression)}
+                            onRemove={() => removeFieldFromShelf('rows', index)}
+                        />
                     ))}
                 </Shelf>
 
@@ -125,9 +144,12 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     onDropField={addFieldToShelf}
                 >
                     {config.columns.map((field, index) => (
-                        <LemonSnack key={field.id} onClose={() => removeFieldFromShelf('columns', index)}>
-                            {field.name}
-                        </LemonSnack>
+                        <FieldExpressionEditor
+                            key={field.id}
+                            field={field}
+                            onChange={(expression) => setFieldExpression('columns', index, expression)}
+                            onRemove={() => removeFieldFromShelf('columns', index)}
+                        />
                     ))}
                 </Shelf>
 
@@ -139,24 +161,45 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     onDropField={addFieldToShelf}
                 >
                     {config.values.map((value, index) => (
-                        <div key={`${value.field.id}-${index}`} className="flex min-w-0 items-center gap-2">
-                            <LemonSelect
-                                value={value.aggregation}
-                                options={AGGREGATION_OPTIONS.map((option) => ({
-                                    ...option,
-                                    disabledReason:
-                                        !isNumericBIField(value.field) &&
-                                        ['sum', 'average', 'minimum', 'maximum'].includes(option.value)
-                                            ? 'This calculation requires a numeric field'
-                                            : undefined,
-                                }))}
-                                onChange={(aggregation) => setValueAggregation(index, aggregation)}
-                                size="xsmall"
-                                dropdownMatchSelectWidth={false}
+                        <div
+                            key={`${value.field.id}-${index}`}
+                            className="flex min-w-64 flex-1 flex-col gap-2 rounded border bg-primary p-2"
+                        >
+                            <div className="flex min-w-0 items-center gap-2">
+                                <LemonSelect
+                                    value={value.aggregation}
+                                    options={AGGREGATION_OPTIONS.map((option) => ({
+                                        ...option,
+                                        disabledReason:
+                                            !isNumericBIField(value.field) &&
+                                            ['sum', 'average', 'minimum', 'maximum'].includes(option.value)
+                                                ? 'This calculation requires a numeric field'
+                                                : undefined,
+                                    }))}
+                                    onChange={(aggregation) => setValueAggregation(index, aggregation)}
+                                    size="xsmall"
+                                    dropdownMatchSelectWidth={false}
+                                />
+                                <LemonSnack onClose={() => removeFieldFromShelf('values', index)}>
+                                    {value.field.name}
+                                </LemonSnack>
+                            </div>
+                            <LemonInput
+                                value={value.field.expression}
+                                onChange={(expression) => setFieldExpression('values', index, expression)}
+                                placeholder="Field or SQL expression"
+                                aria-label={`${value.field.name} field or SQL expression`}
+                                size="small"
                             />
-                            <LemonSnack onClose={() => removeFieldFromShelf('values', index)}>
-                                {value.field.name}
-                            </LemonSnack>
+                            {value.aggregation === 'custom' ? (
+                                <LemonInput
+                                    value={value.customExpression ?? ''}
+                                    onChange={(customExpression) => setValueCustomExpression(index, customExpression)}
+                                    placeholder="Aggregation SQL expression"
+                                    aria-label={`${value.field.name} aggregation SQL expression`}
+                                    size="small"
+                                />
+                            ) : null}
                         </div>
                     ))}
                 </Shelf>
@@ -169,27 +212,57 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     onDropField={addFieldToShelf}
                 >
                     {config.filters.map((filter, index) => {
-                        const filterNeedsValue = filter.operator !== 'is_set' && filter.operator !== 'is_not_set'
+                        const filterNeedsValue = !['is_set', 'is_not_set', 'custom'].includes(filter.operator)
                         return (
-                            <div key={filter.field.id} className="flex min-w-0 flex-wrap items-center gap-2">
-                                <LemonSnack onClose={() => removeFieldFromShelf('filters', index)}>
-                                    {filter.field.name}
-                                </LemonSnack>
-                                <LemonSelect
-                                    value={filter.operator}
-                                    options={FILTER_OPERATOR_OPTIONS}
-                                    onChange={(operator) => setFilterOperator(index, operator)}
-                                    size="xsmall"
-                                    dropdownMatchSelectWidth={false}
-                                />
-                                {filterNeedsValue ? (
-                                    <LemonInput
-                                        value={filter.value}
-                                        onChange={(value) => setFilterValue(index, value)}
-                                        placeholder="Value"
-                                        size="small"
-                                        className="min-w-32 flex-1"
+                            <div
+                                key={filter.field.id}
+                                className="flex min-w-64 flex-1 flex-col gap-2 rounded border bg-primary p-2"
+                            >
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <LemonSnack onClose={() => removeFieldFromShelf('filters', index)}>
+                                        {filter.field.name}
+                                    </LemonSnack>
+                                    <LemonSelect
+                                        value={filter.operator}
+                                        options={FILTER_OPERATOR_OPTIONS}
+                                        onChange={(operator) => setFilterOperator(index, operator)}
+                                        size="xsmall"
+                                        dropdownMatchSelectWidth={false}
                                     />
+                                </div>
+                                <LemonInput
+                                    value={filter.field.expression}
+                                    onChange={(expression) => setFieldExpression('filters', index, expression)}
+                                    placeholder="Field or SQL expression"
+                                    aria-label={`${filter.field.name} field or SQL expression`}
+                                    size="small"
+                                />
+                                {filter.operator === 'custom' ? (
+                                    <LemonInput
+                                        value={filter.customExpression ?? ''}
+                                        onChange={(customExpression) =>
+                                            setFilterCustomExpression(index, customExpression)
+                                        }
+                                        placeholder="Filter SQL condition"
+                                        aria-label={`${filter.field.name} filter SQL condition`}
+                                        size="small"
+                                    />
+                                ) : filterNeedsValue ? (
+                                    isDateTimeBIField(filter.field) ? (
+                                        <DateTimeFilterInput
+                                            field={filter.field}
+                                            value={filter.value}
+                                            onChange={(value) => setFilterValue(index, value)}
+                                        />
+                                    ) : (
+                                        <LemonInput
+                                            value={filter.value}
+                                            onChange={(value) => setFilterValue(index, value)}
+                                            placeholder="Value"
+                                            aria-label={`${filter.field.name} filter value`}
+                                            size="small"
+                                        />
+                                    )
                                 ) : null}
                             </div>
                         )
@@ -197,6 +270,55 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                 </Shelf>
             </div>
         </div>
+    )
+}
+
+function FieldExpressionEditor({
+    field,
+    onChange,
+    onRemove,
+}: {
+    field: BIField
+    onChange: (expression: string) => void
+    onRemove: () => void
+}): JSX.Element {
+    return (
+        <div className="flex min-w-64 flex-1 flex-col gap-2 rounded border bg-primary p-2">
+            <LemonSnack onClose={onRemove}>{field.name}</LemonSnack>
+            <LemonInput
+                value={field.expression}
+                onChange={onChange}
+                placeholder="Field or SQL expression"
+                aria-label={`${field.name} field or SQL expression`}
+                size="small"
+            />
+        </div>
+    )
+}
+
+function DateTimeFilterInput({
+    field,
+    value,
+    onChange,
+}: {
+    field: BIField
+    value: string
+    onChange: (value: string) => void
+}): JSX.Element {
+    const selectedDate = value && dayjs(value).isValid() ? dayjs(value) : null
+    const includesTime = field.type === 'datetime'
+
+    return (
+        <LemonCalendarSelectInput
+            value={selectedDate}
+            onChange={(date) => onChange(date?.format(includesTime ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD') ?? '')}
+            granularity={includesTime ? 'minute' : 'day'}
+            format={includesTime ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY'}
+            use24HourFormat
+            clearable
+            placeholder={includesTime ? 'Select date and time' : 'Select date'}
+            buttonProps={{ size: 'small', 'aria-label': `${field.name} filter date` }}
+        />
     )
 }
 

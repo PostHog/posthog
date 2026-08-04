@@ -19,6 +19,14 @@ const revenueField: BIField = {
     source: { table: 'events' },
 }
 
+const timestampField: BIField = {
+    id: 'warehouse:events:timestamp',
+    name: 'timestamp',
+    expression: 'timestamp',
+    type: 'datetime',
+    source: { table: 'events' },
+}
+
 describe('BI editor query generation', () => {
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
@@ -68,6 +76,44 @@ describe('BI editor query generation', () => {
         })
 
         expect(result?.query).toContain('count(*) AS count')
+    })
+
+    it('keeps nested object paths and explicit SQL expressions in the generated query', () => {
+        const browserField: BIField = {
+            id: 'warehouse:events:properties',
+            name: 'properties',
+            expression: 'properties.$browser',
+            type: 'json',
+            source: { table: 'events' },
+        }
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsBar,
+            rows: [browserField],
+            columns: [],
+            values: [
+                {
+                    field: revenueField,
+                    aggregation: 'custom',
+                    customExpression: "sumIf(properties.revenue, event = 'purchase')",
+                },
+            ],
+            filters: [
+                { field: timestampField, operator: 'greater_than', value: '2026-08-04 09:30:00' },
+                {
+                    field: browserField,
+                    operator: 'custom',
+                    value: '',
+                    customExpression: "properties.$browser != 'HeadlessChrome'",
+                },
+            ],
+            limit: 100,
+        })
+
+        expect(result?.query).toContain('properties.$browser')
+        expect(result?.query).toContain("sumIf(properties.revenue, event = 'purchase') AS custom_revenue")
+        expect(result?.query).toContain("timestamp > '2026-08-04 09:30:00'")
+        expect(result?.query).toContain("properties.$browser != 'HeadlessChrome'")
     })
 
     test.each([

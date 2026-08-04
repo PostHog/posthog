@@ -9,7 +9,7 @@ export enum BIEditorView {
 
 export type BIShelf = 'rows' | 'columns' | 'values' | 'filters'
 
-export type BIAggregation = 'count' | 'count_distinct' | 'sum' | 'average' | 'minimum' | 'maximum'
+export type BIAggregation = 'count' | 'count_distinct' | 'sum' | 'average' | 'minimum' | 'maximum' | 'custom'
 
 export type BIFilterOperator =
     | 'equals'
@@ -19,6 +19,7 @@ export type BIFilterOperator =
     | 'less_than'
     | 'is_set'
     | 'is_not_set'
+    | 'custom'
 
 export interface BIDataSource {
     table: string
@@ -36,12 +37,14 @@ export interface BIField {
 export interface BIValue {
     field: BIField
     aggregation: BIAggregation
+    customExpression?: string
 }
 
 export interface BIFilter {
     field: BIField
     operator: BIFilterOperator
     value: string
+    customExpression?: string
 }
 
 export interface BIConfig {
@@ -75,6 +78,10 @@ const NUMERIC_FIELD_TYPES = new Set<DatabaseSerializedFieldType>(['integer', 'fl
 
 export function isNumericBIField(field: BIField): boolean {
     return NUMERIC_FIELD_TYPES.has(field.type)
+}
+
+export function isDateTimeBIField(field: BIField): boolean {
+    return field.type === 'date' || field.type === 'datetime'
 }
 
 export function isBIFieldCompatible(source: BIDataSource | null, field: BIField): boolean {
@@ -126,8 +133,15 @@ function sanitizeAlias(value: string): string {
     return alias || 'value'
 }
 
+const DOTTED_IDENTIFIER_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/
+
+function fieldExpression(field: BIField): string {
+    const expression = field.expression.trim() || field.name
+    return DOTTED_IDENTIFIER_REGEX.test(expression) ? escapeDottedHogQLIdentifier(expression) : expression
+}
+
 function aggregationExpression(value: BIValue): string {
-    const field = escapeDottedHogQLIdentifier(value.field.expression)
+    const field = fieldExpression(value.field)
 
     switch (value.aggregation) {
         case 'count':
@@ -142,11 +156,17 @@ function aggregationExpression(value: BIValue): string {
             return `min(${field})`
         case 'maximum':
             return `max(${field})`
+        case 'custom':
+            return value.customExpression?.trim() || field
     }
 }
 
 function filterExpression(filter: BIFilter): string | null {
-    const field = escapeDottedHogQLIdentifier(filter.field.expression)
+    const field = fieldExpression(filter.field)
+
+    if (filter.operator === 'custom') {
+        return filter.customExpression?.trim() || null
+    }
 
     if (filter.operator === 'is_set') {
         return `${field} IS NOT NULL`
@@ -183,7 +203,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
     }
 
     const dimensions = [...config.rows, ...config.columns]
-    const dimensionExpressions = dimensions.map((field) => escapeDottedHogQLIdentifier(field.expression))
+    const dimensionExpressions = dimensions.map(fieldExpression)
     const valueExpressions =
         config.values.length > 0
             ? config.values.map((value, index) => {
