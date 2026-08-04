@@ -30,7 +30,7 @@ import {
   useFolderInstructionsVersions,
 } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import {
-  useBackendChannel,
+  useTaskChannels,
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
@@ -60,7 +60,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
 
-// Initial markdown shown when a folder has no instructions yet — gives both
+// Initial markdown shown when a channel has no instructions yet — gives both
 // humans and agents a structural starting point instead of a blank screen.
 const CHANNEL_EMPTY_TEMPLATE =
   "# Channel context\n\nDescribe what lives here.\n";
@@ -80,7 +80,8 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
     (spacesLayout ? "Space" : "Channel");
-  const { channel: backendChannel } = useBackendChannel(channelName);
+  const { channels: taskChannels } = useTaskChannels();
+  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
 
   const {
     data: latest,
@@ -143,19 +144,20 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const isConflict = publishError instanceof FolderInstructionsConflictError;
 
   // Allow inspecting an older version read-only. When `null`, we're showing
-  // either the latest (rendered/edit) or the empty state.
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
-    null,
-  );
+  // either the latest (rendered/edit) or the empty state. Versions are keyed
+  // by their number — the version's identity on the channel.
+  const [selectedVersionNumber, setSelectedVersionNumber] = useState<
+    number | null
+  >(null);
 
   // Picking a past version forces rendered mode and shows that version's
   // metadata; we don't currently fetch the historical content body, so the
   // viewer falls back to "Open latest in editor" when there is no body.
   // (Backend exposes content only via the `latest` endpoint today.)
   const selectedVersion = useMemo(() => {
-    if (!selectedVersionId) return null;
-    return versions.find((v) => v.id === selectedVersionId) ?? null;
-  }, [selectedVersionId, versions]);
+    if (selectedVersionNumber == null) return null;
+    return versions.find((v) => v.version === selectedVersionNumber) ?? null;
+  }, [selectedVersionNumber, versions]);
 
   if (isLoadingLatest) {
     return (
@@ -170,7 +172,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
       <Flex direction="column" gap="3" p="4">
         <Callout.Root color="red" size="1">
           <Callout.Text>
-            Failed to load folder instructions: {latestError.message}
+            Failed to load channel instructions: {latestError.message}
           </Callout.Text>
         </Callout.Root>
       </Flex>
@@ -192,6 +194,11 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           <PageHeaderHeading>
             <PageHeaderTitleRow>
               <PageHeaderTitle>Context</PageHeaderTitle>
+              {latest?.version != null && (
+                <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
+                  v{latest.version}
+                </PageHeaderChip>
+              )}
             </PageHeaderTitleRow>
             <PageHeaderDescription>
               Background every agent working in this{" "}
@@ -201,109 +208,109 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-4 px-6 py-4">
-        {spacesLayout && backendChannel ? (
-          <>
-            <SpaceRepositories channel={backendChannel} />
-            <div className="border-gray-5 border-t" />
-          </>
-        ) : null}
+      {spacesLayout && taskChannel ? (
+        <SpaceRepositories channel={taskChannel} />
+      ) : null}
+      <Flex
+        align="center"
+        justify="between"
+        gap="3"
+        px="4"
+        py="2"
+        className="shrink-0 border-b border-b-(--gray-5)"
+      >
+        <Flex align="center" gap="3">
+          <SegmentedControl.Root
+            value={mode}
+            onValueChange={(value) => setMode(value as Mode)}
+            size="1"
+          >
+            <SegmentedControl.Item value="rendered">
+              Rendered
+            </SegmentedControl.Item>
+            <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
+          </SegmentedControl.Root>
 
-        <Flex align="center" justify="between" gap="3" wrap="wrap">
-          <Flex align="center" gap="2">
-            <FileTextIcon size={15} className="text-gray-11" />
-            <Text size="2" weight="medium">
-              CONTEXT.md
-            </Text>
-            {latest?.version != null && (
-              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
-                v{latest.version}
-              </PageHeaderChip>
-            )}
-            {/* Background-refetch indicator: the initial load uses the
-                full-screen spinner; this only fires on revalidations so the
-                user knows the view is live, not stale cache. */}
-            {isFetchingLatest && !isLoadingLatest ? (
-              <Flex align="center" gap="1">
-                <Spinner size="1" />
-                <Text className="text-[12px] text-gray-10">Refreshing…</Text>
-              </Flex>
-            ) : null}
-          </Flex>
-          <Flex align="center" gap="2">
-            {versions.length > 0 ? (
-              <Select.Root
-                size="1"
-                value={selectedVersionId ?? "latest"}
-                onValueChange={(value) => {
-                  if (value === "latest") {
-                    setSelectedVersionId(null);
-                  } else {
-                    setSelectedVersionId(value);
-                    setMode("rendered");
-                  }
-                }}
-                disabled={isLoadingVersions}
-              >
-                <Select.Trigger />
-                <Select.Content>
-                  <Select.Item value="latest">
-                    Latest (v{latest?.version ?? "—"})
-                  </Select.Item>
-                  {versions
-                    .filter((v) => !v.is_latest)
-                    .map((v) => (
-                      <Select.Item key={v.id} value={v.id}>
-                        v{v.version} · {formatTimestamp(v.created_at)}
-                      </Select.Item>
-                    ))}
-                </Select.Content>
-              </Select.Root>
-            ) : null}
-            <SegmentedControl.Root
-              value={mode}
-              onValueChange={(value) => setMode(value as Mode)}
+          {/* Background-refetch indicator: the initial load uses the full-screen
+              spinner below; this only fires on revalidations (every mount, plus
+              after publish/delete invalidations) so the user knows the view is
+              live and not just stale cache. */}
+          {isFetchingLatest && !isLoadingLatest ? (
+            <Flex align="center" gap="1">
+              <Spinner size="1" />
+              <Text className="text-[12px] text-gray-10">Refreshing…</Text>
+            </Flex>
+          ) : null}
+
+          {versions.length > 0 ? (
+            <Select.Root
               size="1"
+              value={
+                selectedVersionNumber != null
+                  ? String(selectedVersionNumber)
+                  : "latest"
+              }
+              onValueChange={(value) => {
+                if (value === "latest") {
+                  setSelectedVersionNumber(null);
+                } else {
+                  setSelectedVersionNumber(Number(value));
+                  setMode("rendered");
+                }
+              }}
+              disabled={isLoadingVersions}
             >
-              <SegmentedControl.Item value="rendered">
-                Rendered
-              </SegmentedControl.Item>
-              <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
-            </SegmentedControl.Root>
-            {mode === "edit" ? (
-              <>
-                {hasDraft ? (
-                  <Button
-                    size="1"
-                    variant="soft"
-                    color="gray"
-                    onClick={() => {
-                      setDraft(latest?.content ?? "");
-                      setHasDraft(false);
-                    }}
-                    disabled={isPublishing}
-                  >
-                    Discard
-                  </Button>
-                ) : null}
-                <Button
-                  size="1"
-                  variant="solid"
-                  onClick={onSave}
-                  disabled={
-                    isPublishing ||
-                    (hasInstructions ? !hasDraft : draft.trim().length === 0)
-                  }
-                >
-                  {isPublishing ? <Spinner size="1" /> : null}
-                  Save new version
-                </Button>
-              </>
-            ) : null}
-          </Flex>
+              <Select.Trigger />
+              <Select.Content>
+                <Select.Item value="latest">
+                  Latest (v{latest?.version ?? "—"})
+                </Select.Item>
+                {versions
+                  .filter((v) => v.version !== latest?.version)
+                  .map((v) => (
+                    <Select.Item key={v.version} value={String(v.version)}>
+                      v{v.version} · {formatTimestamp(v.created_at)}
+                    </Select.Item>
+                  ))}
+              </Select.Content>
+            </Select.Root>
+          ) : null}
         </Flex>
 
-        {publishError ? (
+        {mode === "edit" ? (
+          <Flex align="center" gap="2">
+            {hasDraft ? (
+              <Button
+                size="1"
+                variant="soft"
+                color="gray"
+                onClick={() => {
+                  setDraft(latest?.content ?? "");
+                  setHasDraft(false);
+                }}
+                disabled={isPublishing}
+              >
+                Discard
+              </Button>
+            ) : null}
+            <Button
+              size="1"
+              variant="solid"
+              onClick={onSave}
+              disabled={
+                isPublishing ||
+                (hasInstructions ? !hasDraft : draft.trim().length === 0)
+              }
+            >
+              {isPublishing ? <Spinner size="1" /> : null}
+              Save new version
+            </Button>
+          </Flex>
+        ) : null}
+      </Flex>
+
+      {publishError ? (
+        <Box px="4" pt="3">
           <Callout.Root color={isConflict ? "amber" : "red"} size="1">
             <Callout.Text>
               {isConflict
@@ -311,29 +318,29 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                 : `Save failed: ${publishError.message}`}
             </Callout.Text>
           </Callout.Root>
-        ) : null}
+        </Box>
+      ) : null}
 
-        {selectedVersion ? (
-          <Callout.Root color="gray" size="1">
-            <Callout.Text>
-              Viewing v{selectedVersion.version} metadata. Past content is not
-              fetched today — switch to "Latest" to read or edit current
-              content.
-            </Callout.Text>
-          </Callout.Root>
-        ) : mode === "rendered" ? (
-          hasInstructions ? (
-            <ScrollArea
-              type="auto"
-              scrollbars="vertical"
-              className="scroll-area-constrain-width min-h-0 flex-1"
-            >
-              <Box className="rounded-lg border border-gray-5 bg-gray-2 px-6 py-5 text-[13px]">
+      <ScrollArea
+        type="auto"
+        scrollbars="vertical"
+        className="scroll-area-constrain-width min-h-0 flex-1"
+      >
+        <Box p="4">
+          {selectedVersion ? (
+            <Callout.Root color="gray" size="1">
+              <Callout.Text>
+                Viewing v{selectedVersion.version} metadata. Past content is not
+                fetched today — switch to "Latest" to read or edit current
+                content.
+              </Callout.Text>
+            </Callout.Root>
+          ) : mode === "rendered" ? (
+            hasInstructions ? (
+              <Box className="text-[13px]">
                 <MarkdownRenderer content={renderedContent} />
               </Box>
-            </ScrollArea>
-          ) : (
-            <Flex align="center" justify="center" className="min-h-0 flex-1">
+            ) : (
               <EmptyState
                 channelId={channelId}
                 channelName={channelName}
@@ -343,25 +350,26 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   setMode("edit");
                 }}
               />
-            </Flex>
-          )
-        ) : (
-          <TextArea
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              setHasDraft(true);
-            }}
-            size="2"
-            placeholder={
-              spacesLayout
-                ? "# Space context\n\nWrite markdown describing this space…"
-                : "# Channel context\n\nWrite markdown describing this channel…"
-            }
-            className="min-h-0 flex-1 font-[var(--code-font-family)]"
-          />
-        )}
-      </div>
+            )
+          ) : (
+            <TextArea
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setHasDraft(true);
+              }}
+              size="2"
+              rows={24}
+              placeholder={
+                spacesLayout
+                  ? "# Space context\n\nWrite markdown describing this space…"
+                  : "# Channel context\n\nWrite markdown describing this channel…"
+              }
+              className="font-[var(--code-font-family)]"
+            />
+          )}
+        </Box>
+      </ScrollArea>
     </Flex>
   );
 }
@@ -373,21 +381,18 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const canEdit = currentUser?.id === channel.created_by?.id;
 
   return (
-    <Flex direction="column" gap="2">
-      <Flex align="center" gap="2">
-        <GitBranchIcon size={15} className="text-gray-11" />
-        <Text size="2" weight="medium">
-          Repositories
-        </Text>
+    <div className="flex shrink-0 flex-col gap-2 border-b border-b-(--gray-5) px-4 py-3">
+      <div className="flex items-center gap-2">
+        <GitBranchIcon size={15} className="text-muted-foreground" />
+        <span className="font-medium text-[13px]">Repositories</span>
         {update.isPending ? (
           <Spinner size="1" />
         ) : update.error ? (
-          <Text size="1" color="red">
-            Couldn't save
-          </Text>
+          <span className="text-[12px] text-red-11">
+            Couldn't save. Try again.
+          </span>
         ) : null}
-      </Flex>
-
+      </div>
       <RepositoriesField
         selected={channel.repositories ?? []}
         integrationId={channel.github_integration ?? null}
@@ -400,7 +405,7 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
           })
         }
       />
-    </Flex>
+    </div>
   );
 }
 

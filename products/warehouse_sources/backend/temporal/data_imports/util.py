@@ -59,7 +59,7 @@ S3_DELETE_TIME_BUFFER = 600
 
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
-# fragmented table in delta_table_helper.py - which can outlive a single retry. Bound the retries
+# fragmented table in core/delta/maintenance.py - which can outlive a single retry. Bound the retries
 # with backoff instead, mirroring _purge_s3_prefix's approach to the same class of race.
 _COPY_FILES_MAX_ATTEMPTS = 4
 

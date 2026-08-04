@@ -33,6 +33,7 @@ from posthog.models.user import User
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
+from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
@@ -495,12 +496,22 @@ class VisionActionSerializer(serializers.ModelSerializer):
         name = attrs.get("name")
         if name is None:
             return
+        # A brand-new digest whose name is exactly the auto-derived one came from the one-click
+        # "Turn on daily digest" button, so create() makes it collision-safe instead of 400-ing.
+        # A user-typed name (even on a digest) still gets the explicit duplicate error below.
+        if self.instance is None and attrs.get("is_scanner_digest") and self._has_derived_digest_name(attrs):
+            return
         team = self.context["get_team"]()
         duplicates = VisionAction.objects.for_team(team.id).filter(name=name)
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
+
+    @staticmethod
+    def _has_derived_digest_name(attrs: dict[str, Any]) -> bool:
+        scanner = attrs.get("scanner")
+        return scanner is not None and attrs.get("name") == digest_name_for_scanner(scanner)
 
     def _validate_digest(self, attrs: dict[str, Any]) -> None:
         # The overview card renders the featured digest as a synthesized summary, so an alert can't
@@ -551,6 +562,10 @@ class VisionActionSerializer(serializers.ModelSerializer):
         user = cast(User, self.context["request"].user)
         if validated_data.get("is_scanner_digest"):
             self._demote_existing_digest(validated_data["scanner"])
+            if self._has_derived_digest_name(validated_data):
+                # Another action may already hold the derived name (a user-named action, or a digest
+                # demoted earlier), so dedupe to keep the (team, name) constraint from rejecting it.
+                validated_data["name"] = unique_digest_name(team.id, validated_data["name"])
         try:
             # for_team()'s filter doesn't propagate into create(), so team is still passed explicitly.
             return VisionAction.objects.for_team(team.id).create(team=team, created_by=user, **validated_data)
