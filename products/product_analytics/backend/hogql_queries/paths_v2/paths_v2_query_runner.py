@@ -10,6 +10,8 @@ from posthog.schema import (
     PathsV2Anchor,
     PathsV2AnchorType,
     PathsV2Edge,
+    PathsV2ElementSelector,
+    PathsV2ElementType,
     PathsV2Filter,
     PathsV2Item,
     PathsV2Prefix,
@@ -557,6 +559,244 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             },
         )
 
+    def _item_expr(self, item: PathsV2Item) -> ast.Expr:
+        return item_tuple_expr(item, step_source_for_event(self.step_sources, item.event))
+
+    def _top_node_items_at_step_query(self, internal_step_index: int) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The items of a step's named node rows: exactly the items `to_query` keeps out of the
+        other bucket, so an other-row actor set is their complement by construction."""
+        return parse_select(
+            """
+            SELECT item
+            FROM {ranked_query}
+            WHERE kind = {node_kind} AND row_rank <= {max_rows_per_step} AND step_index = {step_index}
+            """,
+            placeholders={
+                "ranked_query": self._ranked_query(),
+                "node_kind": ast.Constant(value=ELEMENT_KIND_NODE),
+                "max_rows_per_step": ast.Constant(value=self.max_rows_per_step),
+                "step_index": ast.Constant(value=internal_step_index),
+            },
+        )
+
+    def _element_actors_query(self, condition: ast.Expr) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT actor_id
+            FROM {elements_per_actor_query}
+            ARRAY JOIN elements AS element
+            WHERE {condition}
+            GROUP BY actor_id
+            """,
+            placeholders={
+                "elements_per_actor_query": self._elements_per_actor_query(),
+                "condition": condition,
+            },
+        )
+
+    def _element_condition(self, kind: str, internal_step_index: int) -> list[ast.Expr]:
+        return [
+            parse_expr("element.1 = {kind}", {"kind": ast.Constant(value=kind)}),
+            parse_expr("element.2 = {step_index}", {"step_index": ast.Constant(value=internal_step_index)}),
+        ]
+
+    def _required_step_index(self, element: PathsV2ElementSelector) -> int:
+        """The selector's stepIndex mapped to the runner's 1-based journey position."""
+        if element.stepIndex is None:
+            raise ValidationError(
+                f"A {element.elementType.value} element needs a stepIndex.", code="paths_v2_element_invalid"
+            )
+        return int(element.stepIndex) + 1
+
+    def _node_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        if element.item is None:
+            raise ValidationError("A node element needs an item.", code="paths_v2_element_invalid")
+        conditions = self._element_condition(ELEMENT_KIND_NODE, self._required_step_index(element))
+        conditions.append(parse_expr("element.3 = {item}", {"item": self._item_expr(element.item)}))
+        return self._element_actors_query(ast.And(exprs=conditions))
+
+    def _other_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        internal_step_index = self._required_step_index(element)
+        conditions = self._element_condition(ELEMENT_KIND_NODE, internal_step_index)
+        conditions.append(
+            parse_expr(
+                "element.3 NOT IN {top_items}", {"top_items": self._top_node_items_at_step_query(internal_step_index)}
+            )
+        )
+        return self._element_actors_query(ast.And(exprs=conditions))
+
+    def _drop_off_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        conditions = self._element_condition(ELEMENT_KIND_DROP_OFF, self._required_step_index(element))
+        return self._element_actors_query(ast.And(exprs=conditions))
+
+    def _edge_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The positional edge set: actors transitioning source → target at exactly this step pair,
+        matching the displayed ribbon count. A missing endpoint means that column's other row, i.e.
+        any item outside the column's named node rows."""
+        internal_step_index = self._required_step_index(element)
+        conditions = self._element_condition(ELEMENT_KIND_EDGE, internal_step_index)
+        if element.source is not None:
+            conditions.append(parse_expr("element.3 = {item}", {"item": self._item_expr(element.source)}))
+        else:
+            conditions.append(
+                parse_expr(
+                    "element.3 NOT IN {top_items}",
+                    {"top_items": self._top_node_items_at_step_query(internal_step_index)},
+                )
+            )
+        if element.target is not None:
+            conditions.append(parse_expr("element.4 = {item}", {"item": self._item_expr(element.target)}))
+        else:
+            conditions.append(
+                parse_expr(
+                    "element.4 NOT IN {top_items}",
+                    {"top_items": self._top_node_items_at_step_query(internal_step_index + 1)},
+                )
+            )
+        return self._element_actors_query(ast.And(exprs=conditions))
+
+    def _any_step_edge_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The position-free edge set: actors with a source → target transition anywhere in any of
+        their whole journeys. Whole journeys, not the trimmed ones, since this set must equal the
+        converted two-step funnel's, and the funnel has no notion of the display trim."""
+        if element.source is None or element.target is None:
+            raise ValidationError(
+                "An any-step edge element needs a named source and target item.", code="paths_v2_element_invalid"
+            )
+        if element.stepIndex is not None:
+            raise ValidationError(
+                "An any-step edge element cannot also pin a stepIndex.", code="paths_v2_element_invalid"
+            )
+        if self.is_anchored:
+            raise ValidationError(
+                "Any-step edge elements only exist in open mode; anchored segments convert as chains.",
+                code="paths_v2_element_invalid",
+            )
+        return parse_select(
+            """
+            SELECT actor_id
+            FROM {elements_per_actor_query}
+            WHERE arrayExists(
+                journey -> arrayExists(
+                    (source_item, target_item) -> source_item = {source} AND target_item = {target},
+                    arrayPopBack(journey),
+                    arrayPopFront(journey)
+                ),
+                collapsed_journeys
+            )
+            GROUP BY actor_id
+            """,
+            placeholders={
+                "elements_per_actor_query": self._elements_per_actor_query(),
+                "source": self._item_expr(element.source),
+                "target": self._item_expr(element.target),
+            },
+        )
+
+    def _chain_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The chain set: actors whose anchored sequence begins with exactly the chain's items, the
+        same grouping `_anchored_prefix_counts_query` counts, so a chain modal equals its hover
+        preview count by construction."""
+        if not self.is_anchored:
+            raise ValidationError("Chain elements only exist in anchored mode.", code="paths_v2_element_invalid")
+        if not element.chain:
+            raise ValidationError("A chain element needs at least one path item.", code="paths_v2_element_invalid")
+        return parse_select(
+            """
+            SELECT actor_id
+            FROM {elements_per_actor_query}
+            WHERE arraySlice(arrayElement(trimmed_journeys, 1), 1, {chain_length}) = {chain_items}
+            GROUP BY actor_id
+            """,
+            placeholders={
+                "elements_per_actor_query": self._elements_per_actor_query(),
+                "chain_length": ast.Constant(value=len(element.chain)),
+                "chain_items": ast.Array(exprs=[self._item_expr(item) for item in element.chain]),
+            },
+        )
+
+    def to_actors_query(self, element: PathsV2ElementSelector) -> ast.SelectQuery | ast.SelectSetQuery:
+        """One actor query for every journey grid element. It rebuilds the same per-actor journeys
+        the grid was aggregated from and returns the unique actors behind the selected element, so
+        each persons modal equals its displayed number by construction."""
+        if element.elementType == PathsV2ElementType.NODE:
+            return self._node_actors_query(element)
+        if element.elementType == PathsV2ElementType.OTHER:
+            return self._other_actors_query(element)
+        if element.elementType == PathsV2ElementType.DROP_OFF:
+            return self._drop_off_actors_query(element)
+        if element.elementType == PathsV2ElementType.EDGE:
+            if element.anyStep:
+                return self._any_step_edge_actors_query(element)
+            return self._edge_actors_query(element)
+        if element.elementType == PathsV2ElementType.CHAIN:
+            return self._chain_actors_query(element)
+        raise ValidationError(  # pragma: no cover - the schema enum is exhaustive
+            f"Unknown element type {element.elementType!r}.", code="paths_v2_element_invalid"
+        )
+
+    def _any_step_edge_counts_query(
+        self, pairs: list[tuple[PathsV2Item, PathsV2Item]]
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Position-free unique-actor counts for the displayed named edges, over whole journeys:
+        the modal's "went source → target at any step" number, which the edge contract promises
+        equals the converted two-step funnel's count."""
+        pair_exprs = [
+            ast.Tuple(exprs=[self._item_expr(source), self._item_expr(target)]) for source, target in pairs
+        ]
+        return parse_select(
+            """
+            SELECT pair.1 AS source_item, pair.2 AS target_item, uniqExact(actor_id) AS actor_count
+            FROM {elements_per_actor_query}
+            ARRAY JOIN arrayFilter(
+                pair -> pair IN {pairs},
+                arrayDistinct(arrayFlatten(arrayMap(
+                    journey -> arrayZip(arrayPopBack(journey), arrayPopFront(journey)),
+                    collapsed_journeys
+                )))
+            ) AS pair
+            GROUP BY pair
+            """,
+            placeholders={
+                "elements_per_actor_query": self._elements_per_actor_query(),
+                "pairs": ast.Tuple(exprs=pair_exprs),
+            },
+        )
+
+    @staticmethod
+    def _pair_key(source: PathsV2Item, target: PathsV2Item) -> tuple[tuple[str, str | None], tuple[str, str | None]]:
+        return ((source.event, source.label), (target.event, target.label))
+
+    def _attach_any_step_counts(self, results: PathsV2Results) -> None:
+        """Open-mode edges between two named items carry the position-free count shown next to the
+        edge modal's positional set. One follow-up aggregation over the same journeys, restricted
+        to the pairs actually displayed."""
+        unique_pairs: list[tuple[PathsV2Item, PathsV2Item]] = []
+        seen: set[tuple[tuple[str, str | None], tuple[str, str | None]]] = set()
+        for edge in results.edges:
+            if edge.source is None or edge.target is None:
+                continue
+            key = self._pair_key(edge.source, edge.target)
+            if key not in seen:
+                seen.add(key)
+                unique_pairs.append((edge.source, edge.target))
+        if not unique_pairs:
+            return
+
+        count_response = self._execute(self._any_step_edge_counts_query(unique_pairs))
+        assert count_response.results is not None
+        counts: dict[tuple[tuple[str, str | None], tuple[str, str | None]], float] = {}
+        for source_tuple, target_tuple, actor_count in count_response.results:
+            source_item = self._to_path_item(source_tuple)
+            target_item = self._to_path_item(target_tuple)
+            # Displayed pairs always name real path items, never the other bucket.
+            assert source_item is not None and target_item is not None
+            counts[self._pair_key(source_item, target_item)] = actor_count
+
+        for edge in results.edges:
+            if edge.source is not None and edge.target is not None:
+                edge.anyStepCount = counts.get(self._pair_key(edge.source, edge.target))
+
     def _to_path_item(self, item: tuple[str, str]) -> PathsV2Item | None:
         event, label = item
         if event == PATHS_V2_OTHER:
@@ -652,8 +892,12 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             assert prefix_response.results is not None
             prefixes = self._to_prefixes(prefix_response.results)
 
+        results = self._to_results(response.results, prefixes)
+        if not self.is_anchored:
+            self._attach_any_step_counts(results)
+
         return PathsV2QueryResponse(
-            results=self._to_results(response.results, prefixes),
+            results=results,
             timings=response.timings,
             hogql=hogql,
             modifiers=self.modifiers,
