@@ -1,4 +1,4 @@
-use std::{collections::HashMap, future::ready, sync::Arc, time::Instant};
+use std::{future::ready, sync::Arc, time::Instant};
 
 use axum::{
     extract::{Json, State},
@@ -60,8 +60,6 @@ async fn ad_hoc_handler(
     }
 }
 
-/// Lookup request for the recently-seen store. `team_id` is the one shared dimension;
-/// every other dimension varies per document, so each entry carries its full key.
 #[derive(Deserialize)]
 struct RecentlySeenRequest {
     team_id: i32,
@@ -70,44 +68,19 @@ struct RecentlySeenRequest {
 
 #[derive(Serialize)]
 struct RecentlySeenResult {
-    product: String,
-    document_type: String,
-    rendering: String,
-    document_id: String,
-    // RFC3339 emit time, or null if the document was never emitted (or has expired).
+    #[serde(flatten)]
+    document: DocumentKey,
     emitted_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Serialize)]
-struct RecentlySeenResponse {
-    results: Vec<RecentlySeenResult>,
-}
-
-fn recently_seen_results(
-    documents: Vec<DocumentKey>,
-    lookup: &HashMap<DocumentKey, Option<DateTime<Utc>>>,
-) -> Vec<RecentlySeenResult> {
-    documents
-        .into_iter()
-        .map(|key| RecentlySeenResult {
-            emitted_at: lookup.get(&key).cloned().flatten(),
-            product: key.product,
-            document_type: key.document_type,
-            rendering: key.rendering,
-            document_id: key.document_id,
-        })
-        .collect()
 }
 
 async fn recently_seen_handler(
     State(context): State<Arc<AppContext>>,
     Json(request): Json<RecentlySeenRequest>,
-) -> Json<RecentlySeenResponse> {
-    let documents = request.documents;
+) -> Json<Vec<RecentlySeenResult>> {
     let started_at = Instant::now();
     let lookup = context
         .recently_seen
-        .lookup(request.team_id, documents.clone())
+        .lookup(request.team_id, request.documents)
         .await;
     histogram!(RECENTLY_SEEN_OPERATION_TIME, "operation" => "read")
         .record(started_at.elapsed().as_secs_f64());
@@ -121,9 +94,15 @@ async fn recently_seen_handler(
     counter!(RECENTLY_SEEN_DOCUMENTS, "operation" => "read", "result" => "miss")
         .increment((lookup.len() - hit_count) as u64);
 
-    Json(RecentlySeenResponse {
-        results: recently_seen_results(documents, &lookup),
-    })
+    Json(
+        lookup
+            .into_iter()
+            .map(|(document, emitted_at)| RecentlySeenResult {
+                document,
+                emitted_at,
+            })
+            .collect(),
+    )
 }
 
 fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
@@ -247,8 +226,7 @@ async fn main() {
             .flat_map(Vec::<EmbeddingRecord>::from)
             .collect();
 
-        // Capture before Kafka assigns the output record's timestamp, which becomes
-        // ClickHouse inserted_at and lets callers distinguish a later re-emission.
+        // Capture immediately before Kafka assigns ClickHouse inserted_at.
         let emitted_at = Utc::now();
         let emit_results = txn
             .send_keyed_iter_to_kafka(
@@ -285,10 +263,7 @@ async fn main() {
             }
         }
 
-        // Record the documents we just emitted in the recently-seen store, so callers can
-        // cheaply check processing status. Best effort - better to write the same document
-        // twice to CH (where it'll be de-duped anyway) than falsely advertise that we
-        // processed it
+        // Store only after commit so a hit never advertises uncommitted output.
         let seen = dedup_seen(records.iter().map(|record| {
             let key = DocumentKey {
                 product: record.product.clone(),
@@ -311,38 +286,5 @@ async fn main() {
             counter!(RECENTLY_SEEN_DOCUMENTS, "operation" => "write", "result" => "attempted")
                 .increment(seen.len() as u64);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn document(document_id: &str) -> DocumentKey {
-        DocumentKey {
-            product: "signals".to_string(),
-            document_type: "signal".to_string(),
-            rendering: "plain".to_string(),
-            document_id: document_id.to_string(),
-        }
-    }
-
-    #[test]
-    fn recently_seen_results_preserve_request_order_and_duplicates() {
-        let first = document("first");
-        let second = document("second");
-        let emitted_at = Utc::now();
-        let lookup = HashMap::from([(first.clone(), Some(emitted_at)), (second.clone(), None)]);
-
-        let results =
-            recently_seen_results(vec![first.clone(), second.clone(), first.clone()], &lookup);
-
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0].document_id, first.document_id);
-        assert_eq!(results[0].emitted_at, Some(emitted_at));
-        assert_eq!(results[1].document_id, second.document_id);
-        assert_eq!(results[1].emitted_at, None);
-        assert_eq!(results[2].document_id, first.document_id);
-        assert_eq!(results[2].emitted_at, Some(emitted_at));
     }
 }

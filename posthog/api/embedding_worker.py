@@ -36,9 +36,7 @@ class EmbeddingResponse:
 
 @dataclass(frozen=True)
 class DocumentKey:
-    """Identity of an emitted document. `document_id` is not unique on its own — the
-    same id recurs across products, document types and renderings — so the full tuple
-    is the key. Frozen so it can be used as a dict key in lookup results."""
+    """The full embedding identity; document_id alone is not unique."""
 
     product: str
     document_type: str
@@ -191,11 +189,9 @@ def _build_recently_seen_payload(documents: list[DocumentKey], team_id: int) -> 
     }
 
 
-def _parse_recently_seen_response(data: dict, documents: list[DocumentKey]) -> dict[DocumentKey, Optional[datetime]]:
-    # Default every requested document to None so callers can index their full input,
-    # then overlay whatever the worker reported.
-    results: dict[DocumentKey, Optional[datetime]] = dict.fromkeys(documents)
-    for item in data.get("results", []):
+def _parse_recently_seen_response(data: list[dict]) -> dict[DocumentKey, Optional[datetime]]:
+    results: dict[DocumentKey, Optional[datetime]] = {}
+    for item in data:
         key = DocumentKey(
             product=item["product"],
             document_type=item["document_type"],
@@ -213,20 +209,13 @@ def get_recently_seen_documents(
     team_id: int,
     timeout: float | None = 30.0,
 ) -> dict[DocumentKey, Optional[datetime]]:
-    """Check whether documents were recently emitted to ClickHouse by the embedding worker.
-
-    Returns a dict mapping each requested document to the timestamp it was emitted, or
-    None if it was never emitted (or its record has expired — records have a ~1 week TTL).
-    Backed by the worker's recently-seen store, this answers "has this been processed?"
-    without a slow ClickHouse query.
-    """
+    """Return each document's worker emission time, or None when it is not cached."""
     if not documents:
         return {}
     payload = _build_recently_seen_payload(documents, team_id)
-    # `internal_requests` is a bare Session with no default timeout — pass one so callers can't hang on a stuck worker.
     response = internal_requests.post(_RECENTLY_SEEN_URL, json=payload, timeout=timeout)
     response.raise_for_status()
-    return _parse_recently_seen_response(response.json(), documents)
+    return _parse_recently_seen_response(response.json())
 
 
 async def async_get_recently_seen_documents(
@@ -234,11 +223,10 @@ async def async_get_recently_seen_documents(
     *,
     team_id: int,
 ) -> dict[DocumentKey, Optional[datetime]]:
-    """Async equivalent of get_recently_seen_documents — uses httpx to avoid blocking a thread."""
     if not documents:
         return {}
     payload = _build_recently_seen_payload(documents, team_id)
     async with internal_httpx_async_client(timeout=30.0) as client:
         response = await client.post(_RECENTLY_SEEN_URL, json=payload)
         response.raise_for_status()
-        return _parse_recently_seen_response(response.json(), documents)
+        return _parse_recently_seen_response(response.json())

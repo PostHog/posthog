@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration as StdDuration};
+use std::collections::HashMap;
 
 use axum::async_trait;
 use chrono::{DateTime, Duration, Utc};
@@ -6,18 +6,22 @@ use moka::sync::Cache;
 
 use crate::recently_seen::{DocumentKey, RecentlySeenStore, SeenRecord};
 
-type Entries = Cache<(i32, DocumentKey), DateTime<Utc>>;
+const MAX_CAPACITY: u64 = 100_000;
 
 pub struct InMemoryStore {
-    entries: Entries,
+    entries: Cache<(i32, DocumentKey), DateTime<Utc>>,
 }
 
 impl InMemoryStore {
-    pub fn new(ttl: Duration, max_capacity: u64) -> Self {
+    pub fn new(ttl: Duration) -> Self {
+        Self::with_capacity(ttl, MAX_CAPACITY)
+    }
+
+    fn with_capacity(ttl: Duration, max_capacity: u64) -> Self {
         Self {
             entries: Cache::builder()
                 .max_capacity(max_capacity)
-                .time_to_live(ttl.to_std().unwrap_or(StdDuration::ZERO))
+                .time_to_live(ttl.to_std().unwrap_or_default())
                 .build(),
         }
     }
@@ -65,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn evicts_entries_when_capacity_is_reached() {
-        let store = InMemoryStore::new(Duration::hours(1), 1);
+        let store = InMemoryStore::with_capacity(Duration::hours(1), 1);
         let first = record("first");
         let second = record("second");
 

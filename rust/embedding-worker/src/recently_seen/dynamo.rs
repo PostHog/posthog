@@ -14,8 +14,6 @@ use crate::{
     metrics_utils::{RECENTLY_SEEN_READ_ERRORS, RECENTLY_SEEN_RETRIES, RECENTLY_SEEN_WRITE_ERRORS},
     recently_seen::{DocumentKey, RecentlySeenStore, SeenRecord},
 };
-use anyhow::Result;
-
 const PK: &str = "pk";
 const SK: &str = "sk";
 const EMITTED_AT: &str = "emitted_at";
@@ -34,8 +32,6 @@ async fn backoff_before_retry(operation: &'static str, attempt: usize) {
     sleep(StdDuration::from_millis(delay_ms)).await;
 }
 
-/// Partition key encodes the dimensions a lookup shares; the document id is the sort
-/// key. This lets a single lookup fan out efficiently within a team's partitions.
 fn partition_key(team_id: i32, key: &DocumentKey) -> String {
     format!(
         "{}#{}#{}#{}",
@@ -49,7 +45,7 @@ pub struct DynamoDbStore {
     ttl: Duration,
 }
 
-pub async fn build_dynamodb_store(config: &Config) -> Result<DynamoDbStore> {
+pub async fn build_dynamodb_store(config: &Config) -> DynamoDbStore {
     let ttl = Duration::seconds(config.recent_ids_ttl_seconds);
     let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .retry_config(RetryConfig::standard().with_max_attempts(AWS_MAX_ATTEMPTS));
@@ -59,11 +55,11 @@ pub async fn build_dynamodb_store(config: &Config) -> Result<DynamoDbStore> {
     let shared = loader.load().await;
     let client = aws_sdk_dynamodb::Client::new(&shared);
 
-    Ok(DynamoDbStore {
+    DynamoDbStore {
         client,
         table: config.recent_ids_dynamodb_table.clone(),
         ttl,
-    })
+    }
 }
 
 #[async_trait]
@@ -91,16 +87,11 @@ impl RecentlySeenStore for DynamoDbStore {
                         AttributeValue::N(expires_at.to_string()),
                     ),
                 ]);
-                match PutRequest::builder().set_item(Some(item)).build() {
-                    Ok(put) => {
-                        write_requests.push(WriteRequest::builder().put_request(put).build())
-                    }
-                    Err(e) => warn!("Failed to build recently-seen put request: {e:?}"),
-                }
-            }
-
-            if write_requests.is_empty() {
-                continue;
+                let put = PutRequest::builder()
+                    .set_item(Some(item))
+                    .build()
+                    .expect("item is set");
+                write_requests.push(WriteRequest::builder().put_request(put).build());
             }
 
             let mut pending = write_requests;
@@ -148,13 +139,11 @@ impl RecentlySeenStore for DynamoDbStore {
         team_id: i32,
         keys: Vec<DocumentKey>,
     ) -> HashMap<DocumentKey, Option<DateTime<Utc>>> {
-        // Start every requested key at None so unseen documents are represented.
         let mut results: HashMap<DocumentKey, Option<DateTime<Utc>>> =
             keys.iter().cloned().map(|k| (k, None)).collect();
 
         for chunk in keys.chunks(BATCH_GET_CHUNK) {
-            // Reverse index from the encoded (pk, sk) back to the DocumentKey, and dedup
-            // identical keys — BatchGetItem rejects duplicate keys in one request.
+            // BatchGetItem rejects duplicate keys, so the reverse index also deduplicates.
             let mut index: HashMap<(String, String), DocumentKey> = HashMap::new();
             let mut request_keys = Vec::with_capacity(chunk.len());
             for key in chunk {
@@ -172,21 +161,11 @@ impl RecentlySeenStore for DynamoDbStore {
                 ]));
             }
 
-            if request_keys.is_empty() {
-                continue;
-            }
-
-            let mut pending = match KeysAndAttributes::builder()
+            let mut pending = KeysAndAttributes::builder()
                 .set_keys(Some(request_keys))
                 .projection_expression(format!("{PK}, {SK}, {EMITTED_AT}"))
                 .build()
-            {
-                Ok(k) => k,
-                Err(e) => {
-                    warn!("Failed to build recently-seen get request: {e:?}");
-                    continue;
-                }
-            };
+                .expect("keys are set");
 
             for attempt in 1..=UNPROCESSED_MAX_ATTEMPTS {
                 let pending_count = pending.keys().len();

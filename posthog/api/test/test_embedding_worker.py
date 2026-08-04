@@ -19,35 +19,32 @@ class TestRecentlySeenLookup:
     def test_maps_each_document_to_its_emit_time_keyed_by_full_identity(self, mock_requests):
         seen = _doc("abc")
         unseen = _doc("def")
-        # Same document_id as `seen`, different product — must resolve independently.
         other_product = _doc("abc", product="error_tracking")
 
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "product": "signals",
-                    "document_type": "signal",
-                    "rendering": "plain",
-                    "document_id": "abc",
-                    "emitted_at": "2026-06-26T12:00:00+00:00",
-                },
-                {
-                    "product": "signals",
-                    "document_type": "signal",
-                    "rendering": "plain",
-                    "document_id": "def",
-                    "emitted_at": None,
-                },
-                {
-                    "product": "error_tracking",
-                    "document_type": "signal",
-                    "rendering": "plain",
-                    "document_id": "abc",
-                    "emitted_at": None,
-                },
-            ]
-        }
+        mock_response.json.return_value = [
+            {
+                "product": "signals",
+                "document_type": "signal",
+                "rendering": "plain",
+                "document_id": "abc",
+                "emitted_at": "2026-06-26T12:00:00+00:00",
+            },
+            {
+                "product": "signals",
+                "document_type": "signal",
+                "rendering": "plain",
+                "document_id": "def",
+                "emitted_at": None,
+            },
+            {
+                "product": "error_tracking",
+                "document_type": "signal",
+                "rendering": "plain",
+                "document_id": "abc",
+                "emitted_at": None,
+            },
+        ]
         mock_requests.post.return_value = mock_response
 
         results = get_recently_seen_documents([seen, unseen, other_product], team_id=7)
