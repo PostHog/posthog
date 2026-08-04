@@ -87,8 +87,8 @@ class TestCountPendingCandidates(_EnrichmentDagTestCase):
 
 class TestAiEnrichmentJob(_EnrichmentDagTestCase):
     def test_calls_batch_command_once_per_active_label_with_the_configured_limit_and_workers(self):
-        self._config(name="label_a")
-        self._config(name="label_b")
+        config_a = self._config(name="label_a")
+        config_b = self._config(name="label_b")
         # No pending fetches for either label, so the absence-of-output check can't fire and
         # mask what this test is actually asserting.
 
@@ -104,6 +104,60 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
             assert call.args == ("enrichment_label_batch",)
             assert call.kwargs["limit"] == 42
             assert call.kwargs["workers"] == 3
+        # expected_version is each label's own currently-resolved version, passed through so the
+        # command can abort if it disagrees - see test_a_version_bump_between_labels below.
+        assert calls_by_label["label_a"].kwargs["expected_version"] == config_a.version
+        assert calls_by_label["label_b"].kwargs["expected_version"] == config_b.version
+
+    def test_a_version_bump_between_labels_does_not_false_alert(self):
+        # Regression: resolving every label's version once at op start (rather than fresh,
+        # immediately before that label's own turn in the sequential loop) let a bump for a
+        # label further down the list detach the candidate count (still keyed to the old
+        # version) from what the command actually wrote under - a real run read as
+        # "candidates > 0, created == 0" and false-alerted. Order-independent: whichever label
+        # is processed first bumps the *other*, not-yet-processed, label's version.
+        self._config(name="label_a", version="v1")
+        fetch_a = self._fetch()
+        self._config(name="label_b", version="v1")
+        org_b = Organization.objects.create(name="org-b")
+        fetch_b = self._fetch(organization=org_b)
+        fetches = {"label_a": fetch_a, "label_b": fetch_b}
+        processed_order: list[str] = []
+
+        def _fake_batch_run(_name: str, **kwargs: Any) -> None:
+            label = kwargs["label"]
+            processed_order.append(label)
+            if len(processed_order) == 1:
+                other = "label_b" if label == "label_a" else "label_a"
+                EnrichmentPromptConfig.objects.filter(name=other, version="v1").update(is_active=False)
+                EnrichmentPromptConfig.objects.create(
+                    name=other,
+                    version="v2",
+                    prompt_text="p",
+                    model="gpt-5-mini",
+                    input_fields=["name"],
+                    output_fields=_OUTPUT_FIELDS,
+                    is_active=True,
+                )
+                expected_version = "v1"
+            else:
+                expected_version = "v2"
+            assert kwargs["expected_version"] == expected_version
+            fetch = fetches[label]
+            EnrichmentLabelResult.objects.create(
+                organization=fetch.organization,
+                fetch=fetch,
+                label_name=label,
+                prompt_version=expected_version,
+                prompt_hash="h",
+                model="gpt-5-mini",
+            )
+
+        with patch(f"{_MODULE}.call_command", side_effect=_fake_batch_run):
+            result = ai_enrichment_job.execute_in_process()
+
+        assert result.success
+        assert EnrichmentLabelResult.objects.count() == 2
 
     def test_default_limit_matches_the_module_constant(self):
         self._config()
@@ -209,6 +263,11 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
 
         # working_label still ran to completion despite silent_label's problem.
         assert EnrichmentLabelResult.objects.filter(label_name="working_label").count() == 1
+
+    def test_job_has_owner_and_runtime_tags(self):
+        tags = ai_enrichment_job.tags
+        assert tags["owner"] == "team-growth"
+        assert "dagster/max_runtime" in tags
 
 
 @pytest.mark.parametrize(

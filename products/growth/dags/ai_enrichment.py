@@ -24,6 +24,16 @@ zero-output pass through a working gateway looks identical to one where every ca
 silently swallowed. `check_enrichment_run_op` re-counts candidates and verdicts itself and
 raises if that happened, so the failure reaches #alerts-growth instead of going unnoticed.
 
+Version pinning: a label's active version is resolved fresh inside `_run_one_label`, right
+before counting and calling the command — never once for every label at op start. The op runs
+labels sequentially and can take hours; resolving all versions up front and carrying them
+across the whole loop would let a version bump for a label further down the list silently
+detach the candidate count (still keyed to the old version) from what the command actually
+writes (under whatever version is live when its turn comes up) — a real run reads as
+`candidates > 0, created == 0` and false-alerts. `--expected-version` closes the remaining gap
+between resolving here and the command resolving again for itself: if the two disagree, the
+command aborts loudly as a command failure instead of a confusing silent one.
+
 Environment: sends organization signup data to an external LLM gateway, so — like
 `identity_matching.py` — it is not registered on Cloud EU.
 """
@@ -39,7 +49,7 @@ import pydantic
 from posthog.dags.common import JobOwners, skip_if_already_running
 from posthog.exceptions_capture import capture_exception
 
-from products.growth.backend.enrichment.labels import latest_fetches_qs
+from products.growth.backend.enrichment.labels import get_active_config, latest_fetches_qs
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
 
 # Roughly a day of signups plus headroom. This is the run's spend cap: see the PR description
@@ -74,7 +84,10 @@ class AiEnrichmentConfig(dagster.Config):
 @dataclass(frozen=True, kw_only=True)
 class LabelRunResult:
     label: str
-    prompt_version: str
+    # None only when the label was active when listed but had no active config left by the time
+    # _run_one_label got to it (deactivated, not merely bumped) — candidates/created are 0 in
+    # that case and the command's own CommandError carries the failure.
+    prompt_version: str | None
     candidates: int
     created: int
     error: str | None
@@ -103,21 +116,36 @@ def count_pending_candidates(label: str, prompt_version: str) -> int:
     )
 
 
-def _run_one_label(
-    context: dagster.OpExecutionContext, *, label: str, prompt_version: str, limit: int, workers: int
-) -> LabelRunResult:
-    candidates = count_pending_candidates(label, prompt_version)
-    before = EnrichmentLabelResult.objects.filter(label_name=label, prompt_version=prompt_version).count()
+def _run_one_label(context: dagster.OpExecutionContext, *, label: str, limit: int, workers: int) -> LabelRunResult:
+    """Resolves the label's active version itself, right here — not from a snapshot taken once
+    for every label at op start. See the module docstring for why that distinction matters."""
+    config = get_active_config(label)
+    prompt_version = config.version if config is not None else None
+
+    candidates = count_pending_candidates(label, prompt_version) if prompt_version is not None else 0
+    before = (
+        EnrichmentLabelResult.objects.filter(label_name=label, prompt_version=prompt_version).count()
+        if prompt_version is not None
+        else 0
+    )
 
     error: str | None = None
     try:
-        call_command("enrichment_label_batch", label=label, limit=limit, workers=workers)
+        # expected_version=None when we couldn't resolve one either — the command's own
+        # "No active EnrichmentPromptConfig" error already covers that case.
+        call_command(
+            "enrichment_label_batch", label=label, limit=limit, workers=workers, expected_version=prompt_version
+        )
     except Exception as e:
         error = str(e)
         context.log.warning(f"enrichment_label_batch failed for label {label!r}: {e}")
         capture_exception(e, {"label": label, "prompt_version": prompt_version})
 
-    created = EnrichmentLabelResult.objects.filter(label_name=label, prompt_version=prompt_version).count() - before
+    created = (
+        EnrichmentLabelResult.objects.filter(label_name=label, prompt_version=prompt_version).count() - before
+        if prompt_version is not None
+        else 0
+    )
     context.log.info(f"label {label!r} ({prompt_version}): {candidates} candidates, {created} verdicts created")
     return LabelRunResult(
         label=label, prompt_version=prompt_version, candidates=candidates, created=created, error=error
@@ -130,14 +158,13 @@ def classify_pending_organizations_op(
 ) -> list[LabelRunResult]:
     """Run enrichment_label_batch once per active label, sequentially. See the module
     docstring for why this stays a plain loop instead of a DynamicOutput fan-out."""
-    active_labels = list(EnrichmentPromptConfig.objects.filter(is_active=True).values_list("name", "version"))
-    if not active_labels:
+    active_label_names = list(EnrichmentPromptConfig.objects.filter(is_active=True).values_list("name", flat=True))
+    if not active_label_names:
         context.log.info("No active EnrichmentPromptConfig rows; nothing to classify")
         return []
 
     results = [
-        _run_one_label(context, label=label, prompt_version=prompt_version, limit=config.limit, workers=config.workers)
-        for label, prompt_version in active_labels
+        _run_one_label(context, label=label, limit=config.limit, workers=config.workers) for label in active_label_names
     ]
 
     context.add_output_metadata(

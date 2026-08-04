@@ -69,6 +69,15 @@ class Command(BaseCommand):
             default=0.5,
             help="Fail the run if succeeded/attempted drops below this fraction",
         )
+        parser.add_argument(
+            "--expected-version",
+            default=None,
+            help=(
+                "If set, abort before spending if the label's current active version doesn't match. "
+                "Guards a caller that resolved the active version separately (e.g. a scheduler deciding "
+                "what to count as pending) against a version bump racing its own call."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         label: str = options["label"]
@@ -76,6 +85,7 @@ class Command(BaseCommand):
         workers: int = options["workers"]
         max_failures: int = options["max_failures"]
         min_success_rate: float = options["min_success_rate"]
+        expected_version: str | None = options["expected_version"]
         if workers < 1:
             raise CommandError("--workers must be at least 1")
         if limit is not None and limit < 1:
@@ -86,6 +96,11 @@ class Command(BaseCommand):
         config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
+        if expected_version is not None and config.version != expected_version:
+            raise CommandError(
+                f"label {label!r} active version is {config.version!r}, expected {expected_version!r}; "
+                "the active version changed after the caller resolved it, aborting"
+            )
         try:
             validate_input_fields(config)
             validate_output_fields(config)

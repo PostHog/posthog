@@ -351,6 +351,43 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
             call_command("enrichment_label_batch", label="test_label", limit=limit)
 
 
+class TestExpectedVersionGuard(_BatchCommandTestCase):
+    """--expected-version lets a caller that resolved the active version itself (the ai_enrichment
+    dag) assert nothing changed it before spending - see ai_enrichment.py's module docstring."""
+
+    def test_a_mismatched_expected_version_aborts_before_any_spend(self):
+        self._config(version="v2")
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            with self.assertRaises(CommandError):
+                call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v1")
+
+        client.chat.completions.create.assert_not_called()
+        assert EnrichmentLabelResult.objects.count() == 0
+
+    def test_a_matching_expected_version_runs_normally(self):
+        self._config(version="v2")
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v2")
+
+        assert EnrichmentLabelResult.objects.count() == 1
+
+    def test_omitting_expected_version_is_unchanged_manual_cli_behavior(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        assert EnrichmentLabelResult.objects.count() == 1
+
+
 class TestWorkerConnectionErrors(NonAtomicBaseTest):
     """Non-atomic: worker threads get their own DB connections, matching the pattern in
     TestEnrichmentLabelBatchConcurrency (test_enrichment_labels.py) for the same reason."""
