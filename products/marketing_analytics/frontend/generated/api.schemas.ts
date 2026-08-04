@@ -87,6 +87,42 @@ export interface ConversionGoalsListResponseApi {
     has_misconfigured: boolean
 }
 
+export interface CostPrecomputeInvalidateApi {
+    /** First day to invalidate, inclusive (UTC). */
+    date_from: string
+    /** Last day to invalidate, inclusive (UTC). */
+    date_to: string
+    /** Schedule a background rebuild of the range. Leave on unless you want the next read to pay for materialization itself. */
+    rebuild?: boolean
+    /** Report what would be invalidated without deleting anything. */
+    dry_run?: boolean
+}
+
+export interface CostPrecomputeRangeApi {
+    date_from: string
+    date_to: string
+}
+
+export interface CostPrecomputeRebuildApi {
+    /** Whether a background rebuild was queued. */
+    scheduled: boolean
+    /** Range the rebuild will cover, clamped to the warmed window. */
+    window: CostPrecomputeRangeApi | null
+}
+
+export interface CostPrecomputeInvalidateResponseApi {
+    requested_range: CostPrecomputeRangeApi
+    /** Range actually invalidated, which can be WIDER than requested: coverage needs a job to fully span a day and a job's range can't be split, so clearing one day inside a wide job clears the whole job. Null when nothing matched. */
+    effective_range: CostPrecomputeRangeApi | null
+    /** Marketing sources that can currently materialize costs. */
+    sources_resolved: number
+    /** Precompute jobs identified, one per (source, grain). Zero means nothing was invalidated — no source could be resolved, so there was nothing to match against. */
+    query_hashes_resolved: number
+    jobs_invalidated: number
+    rebuild: CostPrecomputeRebuildApi
+    notes: string[]
+}
+
 export interface RequiredTableStatusApi {
     /** Name of the required source table (e.g. 'campaign', 'campaign_stats') */
     table_name: string

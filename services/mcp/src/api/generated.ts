@@ -15840,6 +15840,42 @@ export namespace Schemas {
       cost_per_merge_usd: number | null;
     }
 
+    export interface CostPrecomputeInvalidate {
+      /** First day to invalidate, inclusive (UTC). */
+      date_from: string;
+      /** Last day to invalidate, inclusive (UTC). */
+      date_to: string;
+      /** Schedule a background rebuild of the range. Leave on unless you want the next read to pay for materialization itself. */
+      rebuild?: boolean;
+      /** Report what would be invalidated without deleting anything. */
+      dry_run?: boolean;
+    }
+
+    export interface CostPrecomputeRange {
+      date_from: string;
+      date_to: string;
+    }
+
+    export interface CostPrecomputeRebuild {
+      /** Whether a background rebuild was queued. */
+      scheduled: boolean;
+      /** Range the rebuild will cover, clamped to the warmed window. */
+      window: CostPrecomputeRange | null;
+    }
+
+    export interface CostPrecomputeInvalidateResponse {
+      requested_range: CostPrecomputeRange;
+      /** Range actually invalidated, which can be WIDER than requested: coverage needs a job to fully span a day and a job's range can't be split, so clearing one day inside a wide job clears the whole job. Null when nothing matched. */
+      effective_range: CostPrecomputeRange | null;
+      /** Marketing sources that can currently materialize costs. */
+      sources_resolved: number;
+      /** Precompute jobs identified, one per (source, grain). Zero means nothing was invalidated — no source could be resolved, so there was nothing to match against. */
+      query_hashes_resolved: number;
+      jobs_invalidated: number;
+      rebuild: CostPrecomputeRebuild;
+      notes: string[];
+    }
+
     export interface CoverageStats {
       /** Distinct sessions observed within the last `recent_days` days. */
       recent_sessions: number;

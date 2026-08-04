@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ConversionGoalsListResponseApi,
+    CostPrecomputeInvalidateApi,
+    CostPrecomputeInvalidateResponseApi,
     DataSourceHealthResponseApi,
     EventSuggestionsResponseApi,
     GoalExplanationApi,
@@ -40,6 +42,32 @@ export const marketingAnalyticsConversionGoalsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getMarketingAnalyticsCostPrecomputeInvalidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/cost_precompute/invalidate/`
+}
+
+/**
+ * Drop the preaggregated marketing cost data for a date range so it is recomputed from the warehouse tables, and optionally queue that rebuild in the background. Use this when the cost figures for a range are wrong or missing — for example after a warehouse sync was paused and backfilled, which can leave a window cached as zero.
+ *
+ * Idempotent and safe to retry. Read `effective_range` and `notes` on the response: the invalidated range can be wider than the one you asked for.
+ * @summary Invalidate cost precompute for a date range
+ */
+export const marketingAnalyticsCostPrecomputeInvalidateCreate = async (
+    projectId: string,
+    costPrecomputeInvalidateApi: CostPrecomputeInvalidateApi,
+    options?: RequestInit
+): Promise<CostPrecomputeInvalidateResponseApi> => {
+    return apiMutator<CostPrecomputeInvalidateResponseApi>(
+        getMarketingAnalyticsCostPrecomputeInvalidateCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(costPrecomputeInvalidateApi),
+        }
+    )
 }
 
 export const getMarketingAnalyticsDataSourcesRetrieveUrl = (

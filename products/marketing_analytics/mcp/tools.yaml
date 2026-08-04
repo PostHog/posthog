@@ -26,6 +26,9 @@ tools:
             events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count
             may differ from the dashboard's attribution-windowed number.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-cost-precompute-invalidate-create:
+        operation: marketing_analytics_cost_precompute_invalidate_create
+        enabled: false
     marketing-analytics-data-sources:
         operation: marketing_analytics_data_sources_retrieve
         enabled: true
