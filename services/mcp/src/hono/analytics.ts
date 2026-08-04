@@ -11,7 +11,12 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
+import {
+    MAX_CAPTURED_DESCRIPTION_LENGTH,
+    capturesTracePayload,
+    getToolCategory,
+    getToolDescription,
+} from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -213,9 +218,7 @@ export async function trackExecuteSqlGeneration(
     }
 }
 
-const DATA_CATALOG_TOOL_CATEGORY = 'Data catalog'
-const CATALOG_TRUST_SURFACE_PATTERN =
-    /information_schema\.(metrics|certifications|relationships|relationship_proposals|tables)/i
+const METADATA_QUERY_MARKER = 'information_schema'
 const MAX_SPAN_STATE_LENGTH = 30_000
 
 export interface ToolSpanMeta {
@@ -227,14 +230,19 @@ export interface ToolSpanMeta {
 }
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
-    if (getToolCategory(toolName) === DATA_CATALOG_TOOL_CATEGORY) {
+    if (capturesTracePayload(toolName)) {
         return true
     }
+    // execute-sql can't opt in wholesale: its payload is the query result, which
+    // is the bulk of MCP response volume. Metadata queries are the exception,
+    // because their results are small and describe what the agent learned about
+    // the workspace before writing its next query, which is the context an
+    // evaluation needs to judge that query.
     if (toolName !== EXECUTE_SQL_TOOL_NAME) {
         return false
     }
     const query = (input as { query?: unknown } | null | undefined)?.query
-    return typeof query === 'string' && CATALOG_TRUST_SURFACE_PATTERN.test(query)
+    return typeof query === 'string' && query.toLowerCase().includes(METADATA_QUERY_MARKER)
 }
 
 function serializeSpanState(value: unknown): string | undefined {
@@ -250,13 +258,15 @@ function serializeSpanState(value: unknown): string | undefined {
 }
 
 /**
- * Captures an `$ai_span` per data-catalog-relevant tool call, joining the same
- * MCP-session trace as the execute-sql `$ai_generation` events. Trace-target
- * online evaluations then see catalog reads and writes with their args AND
- * results (e.g. which metrics a lookup returned), which the `$mcp_tool_call`
- * event never carries. Scoped to Data catalog tools plus execute-sql calls that
- * reference a catalog trust surface: capturing every tool's results would
- * balloon ai_events for traffic the catalog evals never judge.
+ * Captures an `$ai_span` for tool calls that opted into trace-payload capture,
+ * joining the same MCP-session trace as the execute-sql `$ai_generation` events.
+ * Trace-target online evaluations then see a call's args AND result, neither of
+ * which `$mcp_tool_call` carries.
+ *
+ * Which tools opt in is declared per product via `capture_trace_payload` in
+ * `tools.yaml`, not decided here: results are the bulk of MCP payload volume, so
+ * the team that knows an evaluation reads a tool's payload is the one that turns
+ * it on.
  */
 export async function trackToolSpan(toolName: string, state: ResolvedState, meta: ToolSpanMeta): Promise<void> {
     try {

@@ -43,6 +43,14 @@ export const ToolConfigSchema = z
          * tools' own descriptions.
          */
         agent_note: z.string().optional(),
+        /**
+         * Capture this tool's arguments and result into the AI trace as an
+         * `$ai_span`, so trace-target online evaluations can judge what the tool
+         * was asked and what it returned. Off by default: tool results are the
+         * bulk of MCP payload volume, so only opt in where an evaluation reads
+         * the payload rather than just the call.
+         */
+        capture_trace_payload: z.boolean().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         /**
@@ -577,6 +585,11 @@ export const CategoryConfigSchema = z
         feature_entitlement: z.string().optional(),
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         feature_flag_variant: z.string().optional(),
+        /**
+         * Category-level default for trace-payload capture, inherited by every
+         * tool that doesn't set its own. See ToolConfigSchema.capture_trace_payload.
+         */
+        capture_trace_payload: z.boolean().optional(),
         tools: z.record(
             z
                 .string()

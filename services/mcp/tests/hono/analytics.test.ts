@@ -203,15 +203,15 @@ describe('Hono MCP analytics contexts', () => {
 
     describe('trackToolSpan', () => {
         it.each([
-            ['a Data catalog tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
+            ['a tool declaring capture_trace_payload', 'data-catalog-metric-run', { name: 'mrr' }, true],
             [
-                'execute-sql referencing a trust surface',
+                'execute-sql querying metadata',
                 'execute-sql',
                 { query: 'SELECT name FROM system.information_schema.metrics' },
                 true,
             ],
             ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
-            ['a non-catalog tool', 'query-logs', { query: 'SELECT 1' }, false],
+            ['a tool that did not opt in', 'query-logs', { query: 'SELECT 1' }, false],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

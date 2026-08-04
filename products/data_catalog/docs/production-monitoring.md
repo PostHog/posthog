@@ -31,7 +31,8 @@ Evaluation definitions are per-team database rows, not repo code; this document 
 
 - Every MCP analytics event is stamped with `$mcp_data_catalog_enabled` (the evaluated `product-data-catalog` flag) for cohort splits.
 - `trackExecuteSqlGeneration` captures one `$ai_generation` per `execute-sql` call with the intent and SQL text; `$ai_trace_id` is the MCP session uuid, so a session is one trace.
-- `trackToolSpan` captures an `$ai_span` (args + truncated results) for Data catalog category tools and for `execute-sql` calls referencing a catalog trust surface. Capture is deliberately scoped so `ai_events` volume grows with catalog adoption, not total MCP traffic; widen the gate only with a volume estimate.
+- `trackToolSpan` captures an `$ai_span` (args + truncated results) for tools that opt in. Opting in is declarative: this product sets `capture_trace_payload: true` at the category level in `products/data_catalog/mcp/tools.yaml`, which the generator folds into every catalog tool's definition. The shared analytics path reads that flag and knows nothing about the data catalog, so another product can enable payload capture for its own evaluations with one line of YAML.
+- `execute-sql` is the exception the flag can't express, because its payload is the query result and it serves all traffic. Spans are captured for its metadata queries only (SQL referencing `information_schema`, ~4.5% of calls): those results are small and describe what the agent knew about the workspace before writing its next query. That covers catalog lookups of `metrics`, `certifications`, and `relationships` without the telemetry layer naming them.
 
 ## Known limits
 

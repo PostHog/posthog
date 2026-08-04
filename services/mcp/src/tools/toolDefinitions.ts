@@ -39,6 +39,12 @@ export const ToolDefinitionSchema = z
         /** One-line selection hint surfaced in the system prompt's query tool catalog. */
         system_prompt_hint: z.string().optional(),
         /**
+         * Capture this tool's arguments and result into the AI trace as an
+         * `$ai_span`, so trace-target online evaluations can judge what the tool
+         * was asked and what it returned. Declared per product in `tools.yaml`.
+         */
+        capture_trace_payload: z.boolean().optional(),
+        /**
          * When true, the tool is exposed even when the client passes a `features`
          * or `tools` allowlist that wouldn't otherwise match. Reserved for
          * cross-cutting utility tools (e.g. feedback) that should remain
@@ -149,6 +155,16 @@ export const MAX_CAPTURED_DESCRIPTION_LENGTH = 512
  */
 export function getToolDescription(toolName: string): string | undefined {
     return getToolDefinitions()[toolName]?.description?.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+}
+
+/**
+ * Whether a tool asked for its arguments and result to be captured into the AI
+ * trace, via `capture_trace_payload` in its product's `tools.yaml`. Like
+ * {@link getToolCategory} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function capturesTracePayload(toolName: string): boolean {
+    return getToolDefinitions()[toolName]?.capture_trace_payload === true
 }
 
 export interface ToolFilterOptions {
