@@ -5342,7 +5342,7 @@ export const PathsV2ElementTypeApi = {
 export interface PathsV2ElementSelectorApi {
     /** Match the source → target transition at any step of any whole journey instead of at one step pair: the position-free set behind an edge's anyStepCount. Requires a named source and target and open mode. Edge elements only. */
     anyStep?: boolean | null
-    /** The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. */
+    /** The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. Bounded by the step maximum: a longer chain can never match a displayed card. */
     chain?: PathsV2ItemApi[] | null
     elementType: PathsV2ElementTypeApi
     /** The node card's path item. Node elements only. */
