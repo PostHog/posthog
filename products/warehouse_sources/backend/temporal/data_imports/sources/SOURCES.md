@@ -391,7 +391,7 @@ the row lists both.
 | mailerlite                       | HTTP                        | requests                                                        | ✅                          |
 | mailersend                       | HTTP                        | requests                                                        | ✅                          |
 | mailgun                          | HTTP                        | requests                                                        | ✅                          |
-| mailjet                          | HTTP                        | requests                                                        | ✅                          |
+| mailjet                          | HTTP + Webhook              | `rest_source.RESTClient` + requests + `WebhookSourceManager`     | ✅ (pull) / ➖ (webhook)    |
 | mailosaur                        | HTTP                        | requests                                                        | ✅                          |
 | mailtrap                         | HTTP                        | requests                                                        | ✅                          |
 | marketstack                      | HTTP                        | requests                                                        | ✅                          |
