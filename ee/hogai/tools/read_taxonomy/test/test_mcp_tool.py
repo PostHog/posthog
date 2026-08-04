@@ -1,5 +1,9 @@
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
+from django.db import OperationalError
+
+from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadEvents, ReadTaxonomyToolArgs
 from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
 
@@ -51,3 +55,11 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
         assert isinstance(validated.query, ReadEvents)
         self.assertEqual(validated.query.limit, 500)
         self.assertEqual(validated.query.offset, 0)
+
+    async def test_postgres_connect_timeout_is_retryable(self):
+        with patch(
+            "ee.hogai.tools.read_taxonomy.mcp_tool.execute_taxonomy_query",
+            side_effect=OperationalError("connection timeout expired"),
+        ):
+            with self.assertRaises(MaxToolTransientError):
+                await self.tool.execute(ReadTaxonomyToolArgs(query={"kind": "events"}))
