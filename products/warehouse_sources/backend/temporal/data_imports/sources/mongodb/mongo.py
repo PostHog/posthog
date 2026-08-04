@@ -565,10 +565,13 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
 # code 8000 ("noTimeout cursors are disallowed in this atlas tier"). A collection that's actually
 # a view hits the same limitation from a different angle: MongoDB rewrites a find() against a
 # view into an aggregate(), and noCursorTimeout isn't a valid aggregation option, so the read
-# fails immediately with "Option noCursorTimeout not supported in aggregation" instead. Both are
+# fails immediately with "Option noCursorTimeout not supported in aggregation" instead. AWS
+# DocumentDB doesn't implement the option at all and rejects any find() that sets it with
+# OperationFailure code 303 ("Field 'noCursorTimeout' is currently not supported"). All are
 # matched as substrings since the full errors also carry volatile clusterTime/signature payloads.
 _NO_TIMEOUT_CURSORS_DISALLOWED = "noTimeout cursors are disallowed"
 _NO_TIMEOUT_NOT_SUPPORTED_IN_AGGREGATION = "noCursorTimeout not supported in aggregation"
+_NO_TIMEOUT_FIELD_NOT_SUPPORTED = "Field 'noCursorTimeout' is currently not supported"
 
 
 def mongo_source(
@@ -644,6 +647,7 @@ def mongo_source(
                     if (
                         _NO_TIMEOUT_CURSORS_DISALLOWED not in error_message
                         and _NO_TIMEOUT_NOT_SUPPORTED_IN_AGGREGATION not in error_message
+                        and _NO_TIMEOUT_FIELD_NOT_SUPPORTED not in error_message
                     ):
                         raise
                     # Fails on the very first read before any document is yielded, so it's safe to
