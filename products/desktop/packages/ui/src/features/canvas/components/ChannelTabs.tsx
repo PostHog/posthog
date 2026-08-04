@@ -94,10 +94,9 @@ export function ChannelPageTabs({
           });
         }}
       >
-        <TabsList
-          variant="line"
-          className="h-auto gap-0.5 [&_.quill-tabs__indicator]:transition-[transform,width]! [&_.quill-tabs__indicator]:duration-100! [&_.quill-tabs__indicator]:ease-out!"
-        >
+        {/* The canonical line-tabs recipe (LoopsListView, SkillsView) verbatim
+            — quill draws the strip, nothing custom on top. */}
+        <TabsList variant="line" className="h-auto gap-0.5">
           {tabs.map((key) => (
             <TabsTrigger key={key} value={key} className="gap-1.5 px-2.5 py-2">
               {channelPageIcon(key, { size: 14 })}
