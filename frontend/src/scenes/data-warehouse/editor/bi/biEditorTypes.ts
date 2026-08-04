@@ -127,6 +127,11 @@ export function isBIFieldCompatible(source: BIDataSource | null, field: BIField)
 }
 
 export function defaultAggregationForField(field: BIField): BIAggregation {
+    const baseTableName = field.source.table.replaceAll('`', '').split('.').pop() ?? field.source.table
+    if (['id', 'uuid', `${baseTableName}_id`].includes(field.name)) {
+        return 'count'
+    }
+
     return isNumericBIField(field) ? 'sum' : 'count_distinct'
 }
 

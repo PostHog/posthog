@@ -1,7 +1,14 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { BIConfig, BIField, buildBIQuery, createDefaultDateFilter, isBIFieldCompatible } from './biEditorTypes'
+import {
+    BIConfig,
+    BIField,
+    buildBIQuery,
+    createDefaultDateFilter,
+    defaultAggregationForField,
+    isBIFieldCompatible,
+} from './biEditorTypes'
 
 const eventField: BIField = {
     id: 'warehouse:events:event',
@@ -172,6 +179,24 @@ describe('BI editor query generation', () => {
         })
 
         expect(result?.query).toContain('timestamp >= now() - INTERVAL 7 DAY')
+    })
+
+    test.each([
+        ['id', 'integer', 'count'],
+        ['uuid', 'string', 'count'],
+        ['events_id', 'integer', 'count'],
+        ['revenue', 'float', 'sum'],
+        ['event', 'string', 'count_distinct'],
+    ] as const)('uses %s fields with type %s as a %s value', (name, type, aggregation) => {
+        expect(
+            defaultAggregationForField({
+                id: `warehouse:events:${name}`,
+                name,
+                expression: name,
+                type,
+                source: { table: 'events' },
+            })
+        ).toBe(aggregation)
     })
 
     test.each([
