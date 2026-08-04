@@ -40,7 +40,6 @@ import {
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
-import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
@@ -391,18 +390,6 @@ function usePiRetry(
   }, [controller, taskId]);
 }
 
-function usePiThreadClick(
-  draftActions: DraftActions,
-  taskId: string,
-): (event: React.MouseEvent) => void {
-  return useCallback(
-    (event: React.MouseEvent) => {
-      focusComposerOnPaneClick(event, () => draftActions.requestFocus(taskId));
-    },
-    [draftActions, taskId],
-  );
-}
-
 function usePiRestart(
   controller: PiSessionController,
   taskId: string,
@@ -550,7 +537,6 @@ export function PiSessionView({
   const runBashCommand = usePiBash(piSessionController, taskId);
   const cancelPrompt = usePiCancel(piSessionController, taskId, isBashRunning);
   const retry = usePiRetry(piSessionController, taskId);
-  const handleThreadClick = usePiThreadClick(draftActions, taskId);
   const restart = usePiRestart(piSessionController, taskId);
   const { change: changeProjectTrust, pending: projectTrustPending } =
     usePiProjectTrustChange(piSessionController, taskId);
@@ -676,7 +662,7 @@ export function PiSessionView({
           onRestart={restart}
         />
       )}
-      <Box className="min-h-0 flex-1" onClick={handleThreadClick}>
+      <Box className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
           isPromptPending={isStreaming}
