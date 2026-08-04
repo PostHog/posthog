@@ -171,6 +171,10 @@ FROM (
             h = 'openai-mcp chatgpt', 'ChatGPT',
             h = 'openai-mcp agent builder', 'OpenAI Agent Builder',
             h = 'openai-mcp responses api', 'OpenAI Responses API',
+            -- Codex has two spellings: the `codex-mcp-client` clientInfo.name caught by
+            -- the prefix below, and this User-Agent surface. This branch must precede the
+            -- generic `openai-mcp` prefix, which would otherwise report it as "OpenAI".
+            h = 'openai-mcp codex', 'OpenAI Codex',
             startsWith(h, 'openai-mcp'), 'OpenAI',
             startsWith(h, 'codex'), 'OpenAI Codex',
             startsWith(h, 'grok'), 'Grok',
@@ -190,6 +194,10 @@ FROM (
             h = 'opencode', 'opencode',
             startsWith(h, 'kiro'), 'Kiro',
             startsWith(h, 'desktop-commander'), 'Desktop Commander',
+            h = 'posthog-cli', 'PostHog CLI',
+            -- Ranked top-N lists name an unrecognized client verbatim instead
+            -- (`harness_label_or_token_sql`); "Other" is for callers that need the label
+            -- confined to the bounded set, e.g. one aggregated into a per-row array.
             'Other'
         ) AS harness
     FROM (
