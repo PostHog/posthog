@@ -107,7 +107,6 @@ async def run_eval(
     experiment_name: str,
     run_fn: RunFn,
     max_concurrency: int = 2,
-    timeout_s: float = 4 * 60 * 60,
 ) -> EvalResultWithSummary[dict[str, Any], dict[str, Any]]:
     """Run the eval: one row per (task, trial), scores from grade_result.
 
@@ -143,7 +142,6 @@ async def run_eval(
         scores=[_make_scorer(name) for name in SCORER_NAMES],
         metadata={"task_ids": list(task_ids), "trials": trials, "workspace": str(workspace)},
         max_concurrency=max_concurrency,
-        timeout=timeout_s,
     )
 
 

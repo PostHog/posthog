@@ -17,7 +17,13 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
-from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
+from products.tasks.backend.logic.services.sandbox import (
+    REPO_READY_FILE,
+    Sandbox,
+    SandboxBase,
+    is_sandbox_repo_bind_mounted,
+    sandbox_repo_path,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms, record_boot_total_ms
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
@@ -74,6 +80,8 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     """
     branch = ctx.branch
     if not branch or not ctx.repository or not ctx.has_github_credentials:
+        return branch
+    if is_sandbox_repo_bind_mounted(ctx.repository):
         return branch
 
     try:

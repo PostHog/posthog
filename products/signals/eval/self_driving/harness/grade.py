@@ -19,15 +19,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-import anthropic
+from openai import APIError
+
+from posthog.llm.gateway_client import get_llm_client
 
 TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 
 JUDGE_MODEL = "claude-sonnet-4-5"
 VERIFY_TIMEOUT_S = 120
-NPM_INSTALL_TIMEOUT_S = 180
-# Shared across runs so express & co. are only downloaded once per machine.
-_NPM_CACHE_DIR = Path(tempfile.gettempdir()) / "signals-selfdriving-npm-cache"
 
 _JUDGE_SYSTEM = (
     "You are a strict evaluator grading one aspect of an autonomous engineering pipeline. "
@@ -86,44 +85,12 @@ def run_verify_suite(task_id: str, repo_dir: Path, patched: bool) -> dict[str, A
             if shutil.which("node") is None:
                 result["raw"] = "node not found on PATH"
                 return result
-            _npm_install(work, raw_parts)
             result["fix"] = _run_node_group(work, fix_files, raw_parts)
             result["regression"] = _run_node_group(work, regression_files, raw_parts)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     result["raw"] = "\n".join(raw_parts)[-8000:]
     return result
-
-
-def _npm_install(work: Path, raw_parts: list[str]) -> None:
-    package_json = work / "package.json"
-    if not package_json.is_file():
-        return
-    try:
-        dependencies = json.loads(package_json.read_text()).get("dependencies") or {}
-    except json.JSONDecodeError:
-        dependencies = {}
-    if not dependencies:
-        return
-    npm = shutil.which("npm")
-    if npm is None:
-        raw_parts.append("npm not found on PATH; skipping dependency install")
-        return
-    _NPM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "npm_config_cache": str(_NPM_CACHE_DIR)}
-    try:
-        proc = subprocess.run(
-            [npm, "install", "--no-package-lock", "--omit=dev", "--no-audit", "--no-fund"],
-            cwd=work,
-            capture_output=True,
-            text=True,
-            timeout=NPM_INSTALL_TIMEOUT_S,
-            env=env,
-        )
-        if proc.returncode != 0:
-            raw_parts.append(f"npm install failed:\n{(proc.stdout + proc.stderr)[-2000:]}")
-    except subprocess.TimeoutExpired:
-        raw_parts.append("npm install timed out")
 
 
 def _run_node_group(work: Path, files: list[Path], raw_parts: list[str]) -> dict[str, int]:
@@ -215,21 +182,22 @@ def _pass_fraction(counts: dict[str, int]) -> float:
 # ---------------------------------------------------------------------------
 
 
-def llm_judge(prompt: str, max_tokens: int = 1200) -> dict[str, Any]:
+def llm_judge(prompt: str, team_id: int | None, max_tokens: int = 1200) -> dict[str, Any]:
     """One strict-JSON judge call. Returns {"score": float 0..1, "reasoning": str}."""
-    client = anthropic.Anthropic()
     try:
-        response = client.messages.create(
-            model=JUDGE_MODEL,
-            max_tokens=max_tokens,
-            temperature=0,
-            system=_JUDGE_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except anthropic.APIError as e:
+        with get_llm_client(product="signals", team_id=team_id) as client:
+            response = client.chat.completions.create(
+                model=JUDGE_MODEL,
+                max_tokens=max_tokens,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": _JUDGE_SYSTEM},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+    except APIError as e:
         return {"score": 0.0, "reasoning": f"judge call failed: {e}"}
-    text = "".join(block.text for block in response.content if block.type == "text")
-    return _parse_judge_output(text)
+    return _parse_judge_output(response.choices[0].message.content or "")
 
 
 def _parse_judge_output(text: str) -> dict[str, Any]:
@@ -311,7 +279,7 @@ Scoring rubric:
 - 0.5: right file/surface but wrong mechanism, or right mechanism but wrong/unspecified file.
 - 0.0: wrong diagnosis, or only restates the symptom without a cause.
 Intermediate values are allowed for partial matches. Judge the mechanism, not the wording."""
-    return {"name": name, **llm_judge(prompt)}
+    return {"name": name, **llm_judge(prompt, team_id=result.get("team_id"))}
 
 
 def judge_evidence_grounding(task_spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -342,7 +310,7 @@ Scoring rubric:
 - Partial credit: surfaces some of the expected evidence, or cites evidence loosely without numbers.
 - Penalize heavily (toward 0.0): invented numbers, fabricated query results, or evidence that
   contradicts the seeded data. Not citing a specific count is fine; making one up is not."""
-    return {"name": name, **llm_judge(prompt)}
+    return {"name": name, **llm_judge(prompt, team_id=result.get("team_id"))}
 
 
 def judge_distractor_avoidance(task_spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -370,7 +338,7 @@ Scoring rubric:
   ruling it out is good and still scores 1.0.
 - 0.5: a distractor is presented as a plausible contributing cause alongside the real one.
 - 0.0: a distractor is blamed as the primary cause."""
-    return {"name": name, **llm_judge(prompt)}
+    return {"name": name, **llm_judge(prompt, team_id=result.get("team_id"))}
 
 
 def judge_mergeability(task_spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -402,7 +370,7 @@ Rubric - would a senior reviewer merge this:
 - 0.75: merge with nits (minor style issues, slightly broad diff, weak commit messages).
 - 0.4: request changes (symptom-level fix, debug leftovers, unrelated edits, sloppy structure).
 - 0.0: reject (wrong fix, breaks things, unreviewable dump)."""
-    return {"name": name, **llm_judge(prompt)}
+    return {"name": name, **llm_judge(prompt, team_id=result.get("team_id"))}
 
 
 def judge_pr_narrative(task_spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -435,7 +403,7 @@ Scoring rubric (0..1):
 - References the evidence that motivated the change (errors, event data, customer reports).
 - Reads like a mergeable PR a reviewer could evaluate without asking questions.
 1.0 = all three clearly; scale down proportionally for what is missing."""
-    return {"name": name, **llm_judge(prompt)}
+    return {"name": name, **llm_judge(prompt, team_id=result.get("team_id"))}
 
 
 # ---------------------------------------------------------------------------

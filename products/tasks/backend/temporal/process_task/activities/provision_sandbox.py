@@ -28,7 +28,14 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    ExecutionResult,
+    Sandbox,
+    SandboxConfig,
+    SandboxTemplate,
+    is_sandbox_repo_bind_mounted,
+    local_sandbox_repository_environment,
+)
 from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -217,6 +224,9 @@ def _resolve_sandbox_github_token(
         )
         return github_token
 
+    if has_repo and is_sandbox_repo_bind_mounted(repository):
+        return ""
+
     should_inject_github_token = ctx.has_github_credentials and (
         has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
     )
@@ -372,6 +382,7 @@ def _build_environment_variables(
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
 
     environment_variables.update(get_git_identity_env_vars(task, ctx.state))
+    environment_variables.update(local_sandbox_repository_environment(ctx.repository))
 
     run_state = parse_run_state(ctx.state)
     if run_state.resume_from_run_id:

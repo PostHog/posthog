@@ -92,6 +92,20 @@ def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     get.assert_not_called()
 
 
+def test_resolve_protected_base_skips_lookup_for_a_local_repository(mocker) -> None:
+    get = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.is_sandbox_repo_bind_mounted",
+        return_value=True,
+    )
+    context = _context(github_integration_id=42, repository="acme/fixture", branch="main")
+
+    assert _resolve_protected_base_branch(context) == "main"
+    get.assert_not_called()
+
+
 def test_resolve_protected_base_falls_back_to_branch_on_error(mocker) -> None:
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",

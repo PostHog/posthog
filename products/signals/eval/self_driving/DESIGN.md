@@ -24,7 +24,7 @@ tasks/<task_id>/
 ```
 
 - **Planted root cause** lives in the repo (a real defect: logic bug, missing handling, perf trap, misconfiguration).
-- **Evidence** lives in two layers: the signal text (what a customer would say — deliberately partial/misleading at higher difficulties)
+- **Evidence** lives in two layers: the signal text (what a customer would say, deliberately partial or misleading at higher difficulties)
   and seeded ClickHouse data for the task's team ($exception events, funnel drop-offs, custom events) that corroborates or disambiguates.
 - **Ground truth** (`task.json`) records the root cause, the fix contract (observable behavior, not implementation),
   expected evidence the researcher should surface, and distractors that should NOT be blamed.
@@ -32,15 +32,15 @@ tasks/<task_id>/
 ## Isolation & realism mechanics
 
 - One **Postgres team per task** (`provision.py`) inside a dedicated eval org: isolates embeddings, reports, seeded events.
-- A **synthetic GitHub Integration** per team whose cached installation token never expires locally —
-  repo selection and sandbox provisioning run their real code paths, but no call ever reaches GitHub.
+- A **synthetic GitHub Integration** per team whose cached installation token never expires locally.
+  Repo selection and sandbox provisioning run their real code paths, but no call ever reaches GitHub.
 - The fixture repo is **bind-mounted** into the sandbox via `SANDBOX_REPO_MOUNT_MAP` (a first-class mechanism in
-  `docker_sandbox.py`) — the agent's commits land directly in the task's working copy for patch extraction.
+  `docker_sandbox.py`), so the agent's commits land directly in the task's working copy for patch extraction.
 - ClickHouse seeding writes events for the task team only; cleanup uses `cleanup_signals` + team-scoped deletes.
 
 ## Stages & scorers
 
-### Stage R — research (signal → report)
+### Stage R: research (signal → report)
 
 Graded from the `SignalReport` + artefacts (findings, actionability, priority, presentation):
 
@@ -53,7 +53,7 @@ Graded from the `SignalReport` + artefacts (findings, actionability, priority, p
 | `priority_calibration`      | distance                  | Priority within ±1 grade of ground truth                                                         |
 | `pipeline_progression`      | binary                    | Did the pipeline even produce a researched report (grouping, safety, repo selection all passed)? |
 
-### Stage I — implementation (report → PR)
+### Stage I: implementation (report → PR)
 
 Graded from the extracted patch (fixture repo diff) + hidden behavioral tests, DeepSWE-style:
 
@@ -67,21 +67,20 @@ Graded from the extracted patch (fixture repo diff) + hidden behavioral tests, D
 
 ### End-to-end
 
-`e2e_resolution` = gated score (FrontierSWE-style): behavioral_correctness gated on root_cause_identified —
-a lucky patch without correct diagnosis scores ≤ 0.5; full credit needs both stages sound.
+`e2e_resolution` = gated score (FrontierSWE-style): behavioral_correctness gated on root_cause_identified.
+A lucky patch without correct diagnosis scores ≤ 0.5; full credit needs both stages sound.
 
 ## Platform
 
-Braintrust project **`signals-self-driving`**: one experiment per run, one row per task-trial;
-stage scores as Braintrust scores, full report/patch/logs as span data. Runner is plain Python (asyncio),
-driving the pipeline via management commands + Temporal REST, following `ee/hogai/eval` conventions
-(`Eval()` from the `braintrust` SDK, `autoevals`-style scorers).
+Braintrust project **`signals-self-driving`**: one experiment per run, one row per task and trial, stage scores as Braintrust scores, and the full report, patch, and logs as span data.
+
+The asyncio runner drives the pipeline through management commands and Temporal workflows. Braintrust records cases, metadata, and scores in the same shape as the shared eval harness. This suite remains separate because it evaluates a multi-stage product workflow rather than a direct agent invocation.
 
 ## Difficulty tiers
 
-- **T1 — direct**: signal names the failing surface; single-file fix; evidence confirms.
-- **T2 — indirect**: symptom ≠ cause (wrong layer blamed by the customer); data disambiguates; small multi-file fix.
-- **T3 — adversarial**: misleading signal + distractor in data or code (recent innocent commit, red-herring error);
+- **T1: direct**: signal names the failing surface; single-file fix; evidence confirms.
+- **T2: indirect**: symptom ≠ cause (wrong layer blamed by the customer); data disambiguates; small multi-file fix.
+- **T3: adversarial**: misleading signal + distractor in data or code (recent innocent commit, red-herring error);
   correct fix requires the data, not just the ticket.
 
 Task families: checkout/billing logic, API contract regressions, frontend state bugs, perf (N+1 / hot loop),

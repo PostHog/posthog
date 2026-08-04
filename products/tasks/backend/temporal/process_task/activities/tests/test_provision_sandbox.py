@@ -6,9 +6,41 @@ from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandb
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CloneRepositoryInSandboxInput,
+    _resolve_sandbox_github_token,
     _sandbox_image_kind,
     clone_repository_in_sandbox,
 )
+
+
+def test_local_repository_does_not_resolve_a_github_token(mocker) -> None:
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="acme/fixture",
+        distinct_id="distinct-id",
+    )
+    get_token = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.is_sandbox_repo_bind_mounted",
+        return_value=True,
+    )
+
+    token = _resolve_sandbox_github_token(
+        context,
+        task=mocker.Mock(),
+        actor_user=mocker.Mock(),
+        repository="acme/fixture",
+        has_repo=True,
+    )
+
+    assert token == ""
+    get_token.assert_not_called()
 
 
 @pytest.mark.parametrize(

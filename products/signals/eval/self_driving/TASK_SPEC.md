@@ -56,25 +56,24 @@ Each task lives in `products/signals/eval/self_driving/tasks/<task_id>/` and is 
 
 Records in the exact wire format of the chosen `signal_type` fixture
 (for zendesk: `id, subject, description, url, type, tags (JSON string), created_at, priority, status`).
-1-3 records per task; they should read like real customers/CX agents wrote them —
-partial knowledge, symptoms not causes, occasionally wrong hypotheses (required for T2/T3).
+Use 1-3 records per task. They should read like real customers or CX agents wrote them: partial knowledge, symptoms rather than causes, and occasionally wrong hypotheses for T2 and T3 tasks.
 
 ## `repo/`
 
-A complete runnable product repo (committed files only, no `.git` — the harness inits git and
+A complete runnable product repo (committed files only, no `.git`; the harness initializes git and
 commits as `dana-acme <dana@acme.test>` with a plausible history: the defect must NOT be the HEAD commit
 for T2/T3; add 2-4 innocent commits after it).
 Rules:
 
 - Must be plausible: package.json/pyproject, README, a few modules beyond the defective one.
 - Must be instrumented with posthog client calls matching the seeded event names (the researcher cross-references code ↔ data).
-- Defect must be findable from evidence, not from comments — never comment the bug itself. A misleading
+- Defect must be findable from evidence, not from comments. Never comment the bug itself. A misleading
   or stale comment near the defect is allowed (and encouraged at T3).
 - Keep it small: 5-15 source files, no lockfiles, deps limited to express/posthog-node or stdlib.
 
 ## `verify/`
 
-Hidden behavioral tests, DeepSWE-style — behavior, not symbols:
+Hidden behavioral tests, DeepSWE-style. Test behavior, not symbols:
 
 - `verify/test_fix.mjs` (or `.py`): node:test / pytest exercising the **fix contract** through the public
   surface (HTTP endpoint, exported function). Must FAIL on the unpatched repo and PASS on a correct fix.
@@ -85,7 +84,6 @@ Hidden behavioral tests, DeepSWE-style — behavior, not symbols:
 ## Authoring checklist
 
 1. `node --test verify/` on the pristine repo: fix tests fail, regression tests pass.
-2. Apply the reference fix mentally (or actually) — all tests pass.
-3. Signal text mentions the _symptom_ in customer language; grep the repo for the exact signal phrases —
-   they must not trivially locate the culprit line at T2+.
+2. Apply the reference fix mentally or locally; all tests pass.
+3. Signal text mentions the _symptom_ in customer language. Grep the repo for the exact signal phrases; they must not trivially locate the culprit line at T2+.
 4. Seed spec events match the repo's instrumentation names exactly.

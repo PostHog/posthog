@@ -14,9 +14,11 @@ import os
 import json
 import time
 import asyncio
+import urllib.request
 from pathlib import Path
 from typing import Any
 
+from products.signals.eval.self_driving.eval_selfdriving import run_eval
 from products.signals.eval.self_driving.harness import runner as runner_mod
 
 DEFAULT_WORKSPACE = Path(
@@ -38,9 +40,7 @@ def print_mount_map(task_ids: list[str] | None = None, workspace: Path = DEFAULT
     return mm
 
 
-def _check_prereqs(task_ids: list[str]) -> None:
-    import urllib.request
-
+def _check_prereqs() -> None:
     for url, name in [("http://localhost:8787/mcp", "mcp dev server"), ("http://localhost:8000/_health", "django")]:
         try:
             urllib.request.urlopen(url, timeout=5)
@@ -59,11 +59,9 @@ def drive(
     implementation_timeout_s: float = 2700,
     experiment_name: str | None = None,
 ) -> Any:
-    from products.signals.eval.self_driving.eval_selfdriving import run_eval
-
     ws = Path(workspace)
     ids = task_ids or all_task_ids()
-    _check_prereqs(ids)
+    _check_prereqs()
     (ws / "results").mkdir(parents=True, exist_ok=True)
     exp_name = experiment_name or f"selfdriving-{time.strftime('%Y%m%d-%H%M')}"
 

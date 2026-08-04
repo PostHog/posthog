@@ -534,6 +534,18 @@ def parse_sandbox_repo_mount_map() -> dict[str, str]:
     return result
 
 
+def is_sandbox_repo_bind_mounted(repository: str | None) -> bool:
+    if not repository or not settings.DEBUG or str(settings.SANDBOX_PROVIDER).lower() != "docker":
+        return False
+    return repository.lower() in parse_sandbox_repo_mount_map()
+
+
+def local_sandbox_repository_environment(repository: str | None) -> dict[str, str]:
+    if not is_sandbox_repo_bind_mounted(repository):
+        return {}
+    return {"POSTHOG_ALLOW_UNSIGNED_GIT": "1"}
+
+
 def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,

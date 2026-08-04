@@ -16,6 +16,8 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxStatus,
     SandboxTemplate,
     get_sandbox_class,
+    is_sandbox_repo_bind_mounted,
+    local_sandbox_repository_environment,
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
 )
@@ -481,6 +483,18 @@ class TestDockerSandboxUnit:
         with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"Org/repoA:{dir_a}, Org/repoB:{dir_b}"}):
             result = parse_sandbox_repo_mount_map()
             assert result == {"org/repoa": str(dir_a), "org/repob": str(dir_b)}
+
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_local_repository_is_enabled_only_for_debug_docker(self, mock_settings, tmp_path):
+        mock_settings.DEBUG = True
+        mock_settings.SANDBOX_PROVIDER = "docker"
+
+        with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"PostHog/posthog:{tmp_path}"}):
+            assert is_sandbox_repo_bind_mounted("posthog/POSTHOG") is True
+            assert local_sandbox_repository_environment("posthog/posthog") == {"POSTHOG_ALLOW_UNSIGNED_GIT": "1"}
+
+        mock_settings.DEBUG = False
+        assert is_sandbox_repo_bind_mounted("posthog/posthog") is False
 
     def test_parse_repo_mount_map_skips_nonexistent(self):
         with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": "Org/repo:/nonexistent/path"}):
