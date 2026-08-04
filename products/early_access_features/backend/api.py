@@ -433,10 +433,17 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 )
         elif data.get("name"):
             # No flag was chosen, so create() derives one from the name below. Checking the derived
-            # key for collisions here attaches the error to "name", the field this form actually
-            # has, instead of letting the nested FeatureFlagSerializer raise it on "key", which the
-            # form never shows.
+            # key here attaches the error to "name", the field this form actually has, instead of
+            # letting the nested FeatureFlagSerializer raise it on "key", which the form never shows.
             feature_flag_key = derive_feature_flag_key(data["name"])
+            if not feature_flag_key:
+                # slugify() strips a name with no ASCII alphanumerics down to "", which the flag
+                # serializer's key regex then rejects.
+                raise serializers.ValidationError(
+                    {
+                        "name": "A feature flag key can't be built from this name. Rename this feature using letters (a-z) or numbers, or link an existing flag instead."
+                    }
+                )
             existing_flag = FeatureFlag.objects.filter(
                 key=feature_flag_key, team__project_id=self.context["get_team"]().project_id
             ).first()

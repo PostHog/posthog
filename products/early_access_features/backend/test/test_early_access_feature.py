@@ -385,6 +385,33 @@ class TestEarlyAccessFeature(APIBaseTest):
             f"A feature flag with the key 'hick-bondoogling' already exists. {remedy}",
         )
 
+    @parameterized.expand(
+        [
+            ("non_latin_script", "功能名称"),
+            ("emoji_only", "🎉🎉🎉"),
+            ("punctuation_only", "!!!"),
+        ]
+    )
+    def test_cant_create_early_access_feature_whose_name_yields_no_flag_key(self, _name, feature_name):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": feature_name,
+                "description": "A feature whose name slugifies to nothing.",
+                "stage": "beta",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+
+        self.assertEqual(response_data["attr"], "name")
+        self.assertEqual(
+            response_data["detail"],
+            "A feature flag key can't be built from this name. Rename this feature using letters (a-z) or numbers, or link an existing flag instead.",
+        )
+
     def test_can_create_new_early_access_feature_with_soft_deleted_flag(self):
         FeatureFlag.objects.create(
             team=self.team,
