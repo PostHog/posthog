@@ -947,6 +947,7 @@ doesn't conflict with concurrent PRs.
 - formbricks
 - fortnox
 - fourthwall
+- fred
 - freeagent
 - freightview
 - freshbooks
