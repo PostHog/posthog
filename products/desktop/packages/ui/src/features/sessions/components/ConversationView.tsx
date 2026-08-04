@@ -506,10 +506,6 @@ export function ConversationView({
         className="group/thread relative flex-1"
         onPointerDownCapture={clearKeyboardFocus}
       >
-        <div
-          id="fullscreen-portal"
-          className="pointer-events-none absolute inset-0 z-20"
-        />
         {search.open && (
           <ConversationSearchBar
             ref={search.searchBarRef}

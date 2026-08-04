@@ -9502,13 +9502,13 @@ export namespace Schemas {
     }
 
     export interface AuditCounts {
-      /** Every audited tool call. */
+      /** Every audited tool call visible to the requesting user. */
       all: number;
-      /** Calls made by service accounts. */
+      /** Visible calls made by service accounts. */
       agents: number;
-      /** Calls that were approved or are awaiting approval. */
+      /** Visible calls that were approved or are awaiting approval. */
       approvals: number;
-      /** Calls the gateway blocked. */
+      /** Visible calls the gateway blocked. */
       blocked: number;
     }
 
@@ -46620,6 +46620,8 @@ export namespace Schemas {
       description: string;
       /** JSON Schema describing the tool's input arguments. */
       input_schema: ResolvedToolPolicyInputSchema;
+      /** Whether the canonical gateway heuristic treats this tool as destructive. */
+      is_destructive: boolean;
       /** Effective state for the scope.
        *
        * * `approved` - Approved
@@ -65995,6 +65997,8 @@ export namespace Schemas {
       credited_credits: number;
       /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
       period_billable_credits: number;
+      /** Whether autonomous PR generation is currently paused for this project because the organization is over its self-driving credits quota. Read from the quota limiter, so it reflects the same state the pipeline gates enforce. */
+      quota_limited: boolean;
     }
 
     export interface SignalReportStateRequest {
@@ -73628,6 +73632,8 @@ export namespace Schemas {
        * * `ask` - Ask for destructive
        * * `block` - Block destructive */
       agent_default_preset?: typeof TeamMCPGatewayConfigAgentDefaultPreset[keyof typeof TeamMCPGatewayConfigAgentDefaultPreset];
+      /** Catalog template ids that already have a gateway registration, including registrations hidden from the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new. */
+      readonly registered_template_ids: readonly string[];
       /** Whether the requesting user can administer the gateway (org admin or explicit project admin). */
       readonly is_admin: boolean;
     }
@@ -83398,6 +83404,13 @@ export namespace Schemas {
       Approvals: 'approvals',
       Blocked: 'blocked',
     } as const;
+
+    export type McpGatewayAuditCountsRetrieveParams = {
+    /**
+     * Only count calls made by this service account.
+     */
+    actor_service_account_id?: string;
+    };
 
     export type McpGatewayMembersListParams = {
     /**

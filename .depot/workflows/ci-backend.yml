@@ -1258,6 +1258,8 @@ jobs:
               run: |
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+            # Shadow trial: canonical threads a setup-action app token into
+            # pnpm-install; mint stripped here (secret not available on Depot).
             - name: Install package.json dependencies with pnpm
               uses: ./.depot/actions/pnpm-install
               with:
@@ -1675,6 +1677,10 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            # Shadow trial: canonical precedes this with a setup-node step (.nvmrc,
+            # threading a setup-action app token). The shadow has never mirrored that
+            # step and runs npm on the runner's ambient Node, so the token threading
+            # has nothing to mirror here.
             - name: Install canvas builder dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               shell: bash
