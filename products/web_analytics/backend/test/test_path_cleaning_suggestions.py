@@ -175,8 +175,10 @@ class TestGenerateSuggestionsForTeam(BaseTest):
         self.assertEqual(len(payload["rules"]), 1)
         self.assertEqual(payload["distinct_path_count"], 500)
         # Health-issue payloads are readable with just health_issue:read — real sampled paths
-        # (the examples) must never be stored in them.
+        # (the examples, and the model's free-text reason which can quote them) must never be
+        # stored in them.
         self.assertNotIn("examples", payload["rules"][0])
+        self.assertNotIn("reason", payload["rules"][0])
 
     def test_error_is_captured_not_raised(self) -> None:
         self.team.path_cleaning_filters = []

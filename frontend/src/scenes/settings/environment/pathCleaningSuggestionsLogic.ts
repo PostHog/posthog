@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -113,6 +114,27 @@ export interface pathCleaningSuggestionsLogicActions {
     openPreview: (id: string) => {
         id: string
     }
+    resetForTeamChange: () => {
+        value: true
+    }
+    resetForTeamChangeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    resetForTeamChangeSuccess: (
+        preview: null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        preview: null
+        payload?: {
+            value: true
+        }
+    }
     unhandleSuggestion: (id: string) => {
         id: string
     }
@@ -147,6 +169,7 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
         unhandleSuggestion: (id: string) => ({ id }),
         openPreview: (id: string) => ({ id }),
         closePreview: true,
+        resetForTeamChange: true,
     }),
     loaders(({ values }) => ({
         preview: [
@@ -159,6 +182,7 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
                     return await webAnalyticsPathCleaningSuggestionsPreview(String(values.currentTeamId), id)
                 },
                 closePreview: () => null,
+                resetForTeamChange: () => null,
             },
         ],
         suggestions: [
@@ -175,6 +199,7 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
                     )
                     return response.results.map(toSuggestion)
                 },
+                resetForTeamChange: () => [],
             },
         ],
     })),
@@ -186,6 +211,7 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
                 applySuggestion: (state, { id }) => [...state, id],
                 dismissSuggestion: (state, { id }) => [...state, id],
                 unhandleSuggestion: (state, { id }) => state.filter((handledId) => handledId !== id),
+                resetForTeamChange: () => [],
             },
         ],
         previewOpen: [
@@ -196,6 +222,7 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
                 // Applying or dismissing from the modal is a terminal action for the suggestion.
                 applySuggestion: () => false,
                 dismissSuggestion: () => false,
+                resetForTeamChange: () => false,
             },
         ],
     }),
@@ -241,6 +268,18 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
             } catch {
                 actions.unhandleSuggestion(id)
                 lemonToast.error('Could not dismiss the suggestion. Please try again.')
+            }
+        },
+    })),
+    subscriptions(({ actions }) => ({
+        // The logic outlives project switches; a team change must drop the previous
+        // project's suggestion state so preview/apply can't target a stale issue id.
+        currentTeamId: (teamId: number | null, oldTeamId: number | null | undefined) => {
+            if (oldTeamId !== undefined && teamId !== oldTeamId) {
+                actions.resetForTeamChange()
+                if (teamId) {
+                    actions.loadSuggestions()
+                }
             }
         },
     })),

@@ -706,8 +706,6 @@ export interface SuggestedRuleApi {
     alias: string
     /** Apply order; rules run sequentially, output feeds the next. */
     order: number
-    /** Short rationale for the rule from the model. */
-    reason?: string
     /** How many of the sampled paths this rule rewrites — evidence the rule was validated on real traffic. */
     match_count: number
 }

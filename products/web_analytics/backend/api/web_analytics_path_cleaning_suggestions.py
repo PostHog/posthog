@@ -31,9 +31,6 @@ class SuggestedRuleSerializer(serializers.Serializer):
     regex = serializers.CharField(help_text="re2 pattern matching the dynamic path segment.")
     alias = serializers.CharField(help_text="Replacement with angle-bracket placeholders, e.g. /users/<id>.")
     order = serializers.IntegerField(help_text="Apply order; rules run sequentially, output feeds the next.")
-    reason = serializers.CharField(
-        required=False, allow_blank=True, help_text="Short rationale for the rule from the model."
-    )
     match_count = serializers.IntegerField(
         help_text="How many of the sampled paths this rule rewrites — evidence the rule was validated on real traffic."
     )
@@ -101,9 +98,11 @@ class WebAnalyticsPathCleaningSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets
     scope_object = "web_analytics"
 
     def get_throttles(self):
-        if self.action == "generate":
-            # generation runs a ClickHouse path sample plus an LLM call — cap it for
-            # session-authenticated users the same way token-based AI callers are capped
+        if self.action in {"generate", "preview"}:
+            # generation runs a ClickHouse path sample plus an LLM call, and preview runs a
+            # fresh ClickHouse sample per request — cap both for session-authenticated users
+            # the same way token-based AI callers are capped (the default throttles exempt
+            # session requests entirely)
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
 

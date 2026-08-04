@@ -12,13 +12,13 @@ from posthog.models.utils import generate_random_token_personal
 from products.web_analytics.backend.path_cleaning_suggestions import service
 from products.web_analytics.backend.path_cleaning_suggestions.prompts import SuggestedRule, SuggestedRulesResponse
 
-# Mirrors the stored payload shape: no `examples` — real paths never land in health-issue payloads.
+# Mirrors the stored payload shape: no `examples` and no `reason` — real paths (and model
+# free-text that can quote them) never land in health-issue payloads.
 RULES = [
     {
         "regex": r"/users/\d+/profile",
         "alias": "/users/<id>/profile",
         "order": 0,
-        "reason": "user id",
         "match_count": 3,
     }
 ]

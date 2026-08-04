@@ -3,6 +3,7 @@ import dataclasses
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 
 import re2
 import structlog
@@ -33,10 +34,11 @@ class AnnotatedRule:
     regex: str
     alias: str
     order: int
-    reason: str
     match_count: int
-    # Real sampled paths; kept in memory for the management command's printout but never
-    # stored in the health-issue payload (see build_suggestion_payload).
+    # `reason` and `examples` can echo real sampled paths (the model quotes them freely), so both
+    # are kept in memory for the management command's printout but never stored in the
+    # health-issue payload (see build_suggestion_payload).
+    reason: str = ""
     examples: list[dict[str, str]] = dataclasses.field(default_factory=list)
 
 
@@ -248,15 +250,15 @@ def build_suggestion_payload(result: TeamSuggestionResult) -> dict[str, Any]:
     """The `HealthIssue.payload` shape for a generated suggestion. One place, so the health
     check, the on-demand API, and the frontend banner all agree on the field names.
 
-    `examples` (real sampled paths) are deliberately excluded: health-issue payloads are
-    readable with just `health_issue:read`, which must not leak a team's event data."""
+    `examples` (real sampled paths) and the model's free-text `reason` (which can quote them)
+    are deliberately excluded: health-issue payloads are readable with just `health_issue:read`,
+    which must not leak a team's event data."""
     return {
         "rules": [
             {
                 "regex": rule.regex,
                 "alias": rule.alias,
                 "order": rule.order,
-                "reason": rule.reason,
                 "match_count": rule.match_count,
             }
             for rule in result.rules
@@ -317,6 +319,14 @@ def apply_suggestions_to_team(team: Team, rules: list[AnnotatedRule]) -> int:
     """Merge suggested rules into the team's existing `path_cleaning_filters`. Never overwrites: rules
     whose regex already exists are skipped, new ones are appended after the current max order. Returns
     the number of rules actually added."""
+    with transaction.atomic():
+        # Lock the row so an overlapping apply or settings save can't read the same base list
+        # and clobber the other writer's rules on save.
+        team = Team.objects.select_for_update().get(pk=team.pk)
+        return _merge_rules_into_team(team, rules)
+
+
+def _merge_rules_into_team(team: Team, rules: list[AnnotatedRule]) -> int:
     existing = list(team.path_cleaning_filters or [])
     existing_regexes = {f.get("regex") for f in existing}
     next_order = max((int(f.get("order", 0)) for f in existing), default=-1) + 1
