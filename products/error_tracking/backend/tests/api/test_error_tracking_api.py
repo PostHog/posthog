@@ -1298,19 +1298,6 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Metadata is too large" in response.json()["detail"]
 
-    @parameterized.expand(["version", "project"])
-    def test_release_rejects_overlong_text_fields(self, field: str) -> None:
-        # Version and project are embedded into every matching exception event, so they carry
-        # the same amplification risk as metadata if left uncapped.
-        data = {"version": "1.0.0", "project": "proj", field: "x" * 256}
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/releases",
-            data=data,
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "too long" in response.json()["detail"]
-
     def test_release_accepts_small_metadata(self) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/releases",

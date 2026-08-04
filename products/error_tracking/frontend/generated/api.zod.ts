@@ -881,21 +881,11 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .describe('Search stack-frame source\/file path text.'),
 })
 
-export const errorTrackingReleasesCreateBodyVersionMax = 255
-
-export const errorTrackingReleasesCreateBodyProjectMax = 255
-
 export const errorTrackingReleasesCreateBodyHashIdMax = 128
 
 export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
-    version: zod
-        .string()
-        .max(errorTrackingReleasesCreateBodyVersionMax)
-        .describe('Human-readable release version, e.g. a semver string or build number.'),
-    project: zod
-        .string()
-        .max(errorTrackingReleasesCreateBodyProjectMax)
-        .describe('Identifier of the project this release belongs to.'),
+    version: zod.string().describe('Human-readable release version, e.g. a semver string or build number.'),
+    project: zod.string().describe('Identifier of the project this release belongs to.'),
     hash_id: zod
         .string()
         .max(errorTrackingReleasesCreateBodyHashIdMax)
@@ -909,23 +899,11 @@ export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const errorTrackingReleasesUpdateBodyVersionMax = 255
-
-export const errorTrackingReleasesUpdateBodyProjectMax = 255
-
 export const errorTrackingReleasesUpdateBodyHashIdMax = 128
 
 export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
-    version: zod
-        .string()
-        .max(errorTrackingReleasesUpdateBodyVersionMax)
-        .nullish()
-        .describe('Human-readable release version. Omit to preserve the current value.'),
-    project: zod
-        .string()
-        .max(errorTrackingReleasesUpdateBodyProjectMax)
-        .nullish()
-        .describe('Project identifier. Omit to preserve the current value.'),
+    version: zod.string().nullish().describe('Human-readable release version. Omit to preserve the current value.'),
+    project: zod.string().nullish().describe('Project identifier. Omit to preserve the current value.'),
     hash_id: zod
         .string()
         .max(errorTrackingReleasesUpdateBodyHashIdMax)
@@ -937,23 +915,11 @@ export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Free-form metadata object. Omit to preserve the current value. Limited to 8 KB of serialized JSON.'),
 })
 
-export const errorTrackingReleasesPartialUpdateBodyVersionMax = 255
-
-export const errorTrackingReleasesPartialUpdateBodyProjectMax = 255
-
 export const errorTrackingReleasesPartialUpdateBodyHashIdMax = 128
 
 export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    version: zod
-        .string()
-        .max(errorTrackingReleasesPartialUpdateBodyVersionMax)
-        .nullish()
-        .describe('Human-readable release version. Omit to preserve the current value.'),
-    project: zod
-        .string()
-        .max(errorTrackingReleasesPartialUpdateBodyProjectMax)
-        .nullish()
-        .describe('Project identifier. Omit to preserve the current value.'),
+    version: zod.string().nullish().describe('Human-readable release version. Omit to preserve the current value.'),
+    project: zod.string().nullish().describe('Project identifier. Omit to preserve the current value.'),
     hash_id: zod
         .string()
         .max(errorTrackingReleasesPartialUpdateBodyHashIdMax)

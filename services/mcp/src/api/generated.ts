@@ -26580,15 +26580,9 @@ export namespace Schemas {
     export type ErrorTrackingReleaseCreateRequestMetadata = { [key: string]: unknown } | null;
 
     export interface ErrorTrackingReleaseCreateRequest {
-      /**
-         * Human-readable release version, e.g. a semver string or build number.
-         * @maxLength 255
-         */
+      /** Human-readable release version, e.g. a semver string or build number. */
       version: string;
-      /**
-         * Identifier of the project this release belongs to.
-         * @maxLength 255
-         */
+      /** Identifier of the project this release belongs to. */
       project: string;
       /**
          * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
@@ -26612,13 +26606,11 @@ export namespace Schemas {
     export interface ErrorTrackingReleaseUpdateRequest {
       /**
          * Human-readable release version. Omit to preserve the current value.
-         * @maxLength 255
          * @nullable
          */
       version?: string | null;
       /**
          * Project identifier. Omit to preserve the current value.
-         * @maxLength 255
          * @nullable
          */
       project?: string | null;
@@ -51670,13 +51662,11 @@ export namespace Schemas {
     export interface PatchedErrorTrackingReleaseUpdateRequest {
       /**
          * Human-readable release version. Omit to preserve the current value.
-         * @maxLength 255
          * @nullable
          */
       version?: string | null;
       /**
          * Project identifier. Omit to preserve the current value.
-         * @maxLength 255
          * @nullable
          */
       project?: string | null;
