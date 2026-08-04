@@ -346,6 +346,160 @@ export const AnchoredOpenMidTurnDebug: Story = {
 }
 
 /**
+ * Anchored open, mid-turn with a long tail — reopening a thread the agent is still working on, with more
+ * than a viewport of response already under the anchor. This is a reading position: the anchor must land at
+ * the top of the viewport and stay there — streaming below must not steal the view. Static and
+ * deterministic, so the visual-regression run captures it.
+ */
+export const AnchoredOpenMidTurnLongTail: Story = {
+    render: () => {
+        const items = makeItems(30).map((item, i) => (i >= 21 ? { ...item, text: `#${i} — ${LOREM} ${LOREM}` } : item))
+        return (
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
+                <VirtualizedThread.Root
+                    items={items}
+                    getItemKey={getKey}
+                    estimateItemHeight={() => 46}
+                    anchorItemKey="item-21"
+                    stickToBottom
+                    turnActive
+                >
+                    {(item) => (
+                        <VirtualizedThread.Row>
+                            <FakeMessage role={item.role} text={item.text} />
+                        </VirtualizedThread.Row>
+                    )}
+                </VirtualizedThread.Root>
+            </div>
+        )
+    },
+}
+
+/**
+ * Deferred open — simulates the history replay: the thread mounts with a few rows and `itemsLoading`,
+ * more rows fold in over two ticks, then loading clears with the full thread. The once-only opening
+ * scroll must wait for the final commit and land on the anchor ("user" #21 at the top) — spending it on a
+ * partial commit is the bug that opened every debug-logs-on thread at the bottom. Debugging only: the
+ * phase timers make it non-deterministic for capture (`test-skip`).
+ */
+export const DeferredOpenDebug: Story = {
+    tags: ['test-skip'],
+    render: () => {
+        // The tail after the anchor is all-assistant (a long response), so the dynamically derived
+        // anchor — the last "user" item, like the real consumer — stays #21 across every phase.
+        const full = makeItems(30).map((item, i) =>
+            i >= 21
+                ? {
+                      ...item,
+                      role: i === 21 ? ('user' as const) : ('assistant' as const),
+                      text: `#${i} — ${LOREM} ${LOREM}`,
+                  }
+                : item
+        )
+        const [phase, setPhase] = useState(0)
+        useEffect(() => {
+            if (inStorybookTestRunner()) {
+                return
+            }
+            const t1 = setTimeout(() => setPhase(1), 400)
+            const t2 = setTimeout(() => setPhase(2), 900)
+            return () => {
+                clearTimeout(t1)
+                clearTimeout(t2)
+            }
+        }, [])
+        const items = phase === 0 ? full.slice(0, 3) : phase === 1 ? full.slice(0, 12) : full
+        const lastUser = items.findLast((item) => item.role === 'user')
+        return (
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
+                <VirtualizedThread.Root
+                    items={items}
+                    getItemKey={getKey}
+                    estimateItemHeight={() => 46}
+                    anchorItemKey={lastUser?.id ?? null}
+                    itemsLoading={phase < 2}
+                    stickToBottom
+                >
+                    {(item) => (
+                        <VirtualizedThread.Row>
+                            <FakeMessage role={item.role} text={item.text} />
+                        </VirtualizedThread.Row>
+                    )}
+                </VirtualizedThread.Root>
+            </div>
+        )
+    },
+}
+
+/**
+ * Send and anchor-jump — interactive harness for the two anchor-change behaviors. "Send" appends a new
+ * "user" message and points `anchorItemKey` at it (a *novel* key = a fresh send): the thread must pin to
+ * the bottom and follow the streamed response, with the sent message riding up naturally. "Jump to first
+ * user message" re-points the anchor at an *existing* key (a replayed turn): the thread must scroll that
+ * row to the top without pinning. Debugging only (`test-skip`): both are transitions, not landings.
+ */
+export const SendAndJumpDebug: Story = {
+    tags: ['test-skip'],
+    render: () => {
+        const [items, setItems] = useState<FakeItem[]>(() => makeItems(30))
+        const [anchorKey, setAnchorKey] = useState<string>('item-29')
+        const [turnActive, setTurnActive] = useState(false)
+        const seqRef = useRef(0)
+
+        useEffect(() => {
+            if (!turnActive || inStorybookTestRunner()) {
+                return
+            }
+            const interval = setInterval(() => {
+                setItems((prev) => [
+                    ...prev,
+                    { id: `stream-${prev.length}`, role: 'assistant', text: `#${prev.length} — streamed response` },
+                ])
+            }, 700)
+            return () => clearInterval(interval)
+        }, [turnActive])
+
+        const send = (): void => {
+            const id = `sent-${seqRef.current++}`
+            setItems((prev) => [...prev, { id, role: 'user', text: `sent message ${id}` }])
+            setAnchorKey(id)
+            setTurnActive(true)
+        }
+
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                    <button className="border rounded px-2 py-1" onClick={send}>
+                        Send
+                    </button>
+                    <button className="border rounded px-2 py-1" onClick={() => setAnchorKey('item-1')}>
+                        Jump to first user message
+                    </button>
+                    <button className="border rounded px-2 py-1" onClick={() => setTurnActive(false)}>
+                        End turn
+                    </button>
+                </div>
+                <div className="h-[600px] w-180 border rounded overflow-hidden">
+                    <VirtualizedThread.Root
+                        items={items}
+                        getItemKey={getKey}
+                        anchorItemKey={anchorKey}
+                        stickToBottom
+                        turnActive={turnActive}
+                    >
+                        {(item) => (
+                            <VirtualizedThread.Row>
+                                <FakeMessage role={item.role} text={item.text} />
+                            </VirtualizedThread.Row>
+                        )}
+                    </VirtualizedThread.Root>
+                </div>
+            </div>
+        )
+    },
+}
+
+/**
  * Flow mode (`virtualized={false}`) — rows render into document flow with no chrome, no scroll container, no
  * measurement. An ancestor owns scroll (here, a plain bounded div). This is the Max live-column path.
  */

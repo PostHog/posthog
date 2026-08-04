@@ -234,14 +234,15 @@ function Root<T>({
     // Until when bottom arrivals may not re-pin (see `BOTTOM_REPIN_BLOCK_MS`). Armed by programmatic
     // anchor landings; cleared early by an explicit downward gesture.
     const bottomRepinBlockedUntilRef = useRef(0)
-    // The last scroll write software performed — ours (follow, landings) or the virtualizer core's
-    // (`scrollToFn` routes through here). The scroll listener uses it to tell content-driven movement
+    // Recent scroll writes software performed — ours (follow, landings) or the virtualizer core's
+    // (`scrollToFn` routes through here). The scroll listener uses them to tell content-driven movement
     // from the reader's: during a fast stream the core writes `scrollTop` many times a frame from its
     // own bookkeeping (measurement compensations, end anchoring), and any of those can move the offset
     // *up* — a lagging internal offset, a row measuring smaller than its estimate — which is byte-for-
-    // byte what an upward gesture looks like. Matching events against the last write is what keeps a
-    // burst of streamed rows from unpinning the thread out from under the reader.
-    const programmaticScrollRef = useRef<{ value: number; at: number } | null>(null)
+    // byte what an upward gesture looks like. The values recorded are the *applied* offsets (read back
+    // after the write), so a write the browser clamped still matches its event; a short ring rather
+    // than one entry, because a measurement storm can land several writes before their events flush.
+    const programmaticScrollsRef = useRef<{ value: number; at: number }[]>([])
     // Item keys of the previous populated commit — how the anchor-change effect tells a fresh send (the
     // key did not exist before) from a replayed anchor (it did). See that effect for why position can't.
     const prevItemKeysRef = useRef<Set<string> | null>(null)
@@ -349,10 +350,17 @@ function Root<T>({
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
         // The default `elementScroll`, wrapped so every scroll write the core performs is recorded for
-        // the scroll listener's programmatic-vs-reader test (see `programmaticScrollRef`).
+        // the scroll listener's programmatic-vs-reader test (see `programmaticScrollsRef`). Recorded
+        // *after* the write, from the element — `scrollTo` applies synchronously, so this is the value
+        // the write actually produced, clamping included.
         scrollToFn: (offset, options, instance) => {
-            programmaticScrollRef.current = { value: offset + (options.adjustments ?? 0), at: performance.now() }
             elementScroll(offset, options, instance)
+            const applied = instance.scrollElement?.scrollTop ?? offset + (options.adjustments ?? 0)
+            const writes = programmaticScrollsRef.current
+            writes.push({ value: applied, at: performance.now() })
+            if (writes.length > 12) {
+                writes.splice(0, writes.length - 12)
+            }
         },
         // No `gap` — inter-row spacing is baked into the measured row height via `paddingBottom` (see `Row`).
         ...(stickToBottom
@@ -437,7 +445,11 @@ function Root<T>({
     const noteProgrammaticScroll = useCallback((): void => {
         const top = scrollRef.current?.scrollTop ?? 0
         peakTopRef.current = top
-        programmaticScrollRef.current = { value: top, at: performance.now() }
+        const writes = programmaticScrollsRef.current
+        writes.push({ value: top, at: performance.now() })
+        if (writes.length > 12) {
+            writes.splice(0, writes.length - 12)
+        }
     }, [])
 
     // Hold an unpinned anchor landing steady while the thread's measurements settle (see the settle
@@ -711,19 +723,18 @@ function Root<T>({
             // maximum is the line between "the content moved" and "the reader moved". Growth needs no
             // such correction: it moves `scrollHeight`, never `scrollTop`.
             peakTopRef.current = Math.min(peakTopRef.current, maxTop)
-            // An event that lands where software just wrote is that write echoing back, not the reader
-            // (see `programmaticScrollRef`) — adopt the position and decide nothing from it. Matched
-            // against the write's clamped value: the write may have targeted past the range. A reader
+            // An event that lands where software recently wrote is a write echoing back, not the reader
+            // (see `programmaticScrollsRef`) — adopt the position and decide nothing from it. A reader
             // gesture racing this window still lands on a different offset (or came in as a wheel/touch
             // event, which unpins before any scroll event fires).
-            const write = programmaticScrollRef.current
+            const now = performance.now()
+            const writes = programmaticScrollsRef.current
+            while (writes.length > 0 && now - writes[0].at >= PROGRAMMATIC_SCROLL_MATCH_MS) {
+                writes.shift()
+            }
             const prevEventTop = lastScrollEventTopRef.current
             lastScrollEventTopRef.current = top
-            if (
-                write !== null &&
-                performance.now() - write.at < PROGRAMMATIC_SCROLL_MATCH_MS &&
-                Math.abs(top - Math.min(Math.max(0, write.value), maxTop)) <= UNPIN_SLACK
-            ) {
+            if (writes.some((write) => Math.abs(top - Math.min(Math.max(0, write.value), maxTop)) <= UNPIN_SLACK)) {
                 peakTopRef.current = top
                 return
             }
