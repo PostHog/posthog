@@ -111,60 +111,62 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             Locate
                         </LemonButton>
                     </div>
-                    <LemonSelect
-                        value={config.source?.table}
-                        options={availableDataSources.map((source) => ({
-                            value: source.table,
-                            label: source.table,
-                        }))}
-                        onSelect={(table) => setDataSource({ table, connectionId: databaseConnectionId ?? undefined })}
-                        icon={<IconDatabase />}
-                        loading={databaseLoading}
-                        disabledReason={
-                            !databaseLoading && availableDataSources.length === 0
-                                ? 'No tables available for this connection'
-                                : undefined
-                        }
-                        placeholder="Select a table"
-                        size="small"
-                        className="min-w-64 max-w-120"
-                        truncateText={{ maxWidthClass: 'max-w-96' }}
-                        dropdownMaxContentWidth
-                        data-attr="bi-editor-data-source"
-                    />
+                    <div className="flex items-center gap-2">
+                        <LemonSelect
+                            value={config.source?.table}
+                            options={availableDataSources.map((source) => ({
+                                value: source.table,
+                                label: source.table,
+                            }))}
+                            onSelect={(table) =>
+                                setDataSource({ table, connectionId: databaseConnectionId ?? undefined })
+                            }
+                            icon={<IconDatabase />}
+                            loading={databaseLoading}
+                            disabledReason={
+                                !databaseLoading && availableDataSources.length === 0
+                                    ? 'No tables available for this connection'
+                                    : undefined
+                            }
+                            placeholder="Select a table"
+                            size="small"
+                            className="min-w-64 max-w-120"
+                            truncateText={{ maxWidthClass: 'max-w-96' }}
+                            dropdownMaxContentWidth
+                            data-attr="bi-editor-data-source"
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={resetConfig}
+                            disabledReason={!config.source ? 'No BI setup to clear' : undefined}
+                        >
+                            Clear
+                        </LemonButton>
+                    </div>
                     {config.source ? (
                         <span className="text-xs text-secondary">
                             Fields are limited to this table and its related folders.
                         </span>
                     ) : null}
                 </div>
-                <div className="flex items-end gap-2">
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>Chart type</LemonLabel>
-                        <div className="flex flex-wrap gap-1" role="group" aria-label="Chart type">
-                            {CHART_TYPE_OPTIONS.map((option) => (
-                                <LemonButton
-                                    key={option.value}
-                                    type={config.chartType === option.value ? 'primary' : 'secondary'}
-                                    active={config.chartType === option.value}
-                                    icon={option.icon}
-                                    size="small"
-                                    tooltip={option.label}
-                                    aria-label={option.label}
-                                    data-attr={`bi-editor-chart-type-${option.value}`}
-                                    onClick={() => setChartType(option.value)}
-                                />
-                            ))}
-                        </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Chart type</LemonLabel>
+                    <div className="flex flex-wrap gap-1" role="group" aria-label="Chart type">
+                        {CHART_TYPE_OPTIONS.map((option) => (
+                            <LemonButton
+                                key={option.value}
+                                type={config.chartType === option.value ? 'primary' : 'secondary'}
+                                active={config.chartType === option.value}
+                                icon={option.icon}
+                                size="small"
+                                tooltip={option.label}
+                                aria-label={option.label}
+                                data-attr={`bi-editor-chart-type-${option.value}`}
+                                onClick={() => setChartType(option.value)}
+                            />
+                        ))}
                     </div>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={resetConfig}
-                        disabledReason={!config.source ? 'No BI setup to clear' : undefined}
-                    >
-                        Clear
-                    </LemonButton>
                 </div>
             </div>
 
