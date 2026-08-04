@@ -1358,6 +1358,29 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
 
+    def test_refresh_of_an_empty_grant_succeeds_instead_of_looping(self):
+        # A request that clamps to nothing mints a scope-less token. Rejecting its
+        # refresh would send the client back to /authorize, which now clamps rather
+        # than failing and returns another empty grant, so the client would refresh,
+        # be rejected, and re-authorize forever. It refreshes to an empty grant.
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json().get("scope", ""), "")
+
     def test_refresh_rejected_when_token_scopes_outside_ceiling(self):
         self.confidential_application.scopes = ["experiment:read"]
         self.confidential_application.save()
@@ -2608,28 +2631,21 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    def test_invalid_scope_validation_with_and_without_trailing_slash(self):
-        """Test that invalid scope validation works with and without trailing slash."""
+    @parameterized.expand(
+        [("with_trailing_slash", "/oauth/authorize/"), ("without_trailing_slash", "/oauth/authorize")]
+    )
+    @patch("posthog.api.oauth.views.render_template")
+    def test_unknown_scope_renders_consent_instead_of_rejecting(self, _name: str, path: str, mock_render):
+        # Both paths reach the same validator, and neither errors: an unknown scope is
+        # dropped so the user still reaches consent rather than a redirect carrying
+        # error=invalid_scope. Regression guard for the retired-scope breakage.
+        mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
+        url = f"{path}?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&scope=invalid_scope_name"
 
-        # Test with trailing slash (this should work correctly - scope validation happens)
-        invalid_scope_url_with_slash = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&scope=invalid_scope_name"
+        response = self.client.get(url)
 
-        response = self.client.get(invalid_scope_url_with_slash)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        location = response.get("Location")
-        assert location
-        self.assertIn("error=invalid_scope", location)
-
-        # Test without trailing slash (should now also validate scopes after fix)
-        invalid_scope_url_without_slash = f"/oauth/authorize?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&scope=invalid_scope_name"
-
-        response = self.client.get(invalid_scope_url_without_slash)
-
-        # After the fix, both should behave the same - redirect with error
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        location = response.get("Location")
-        assert location
-        self.assertIn("error=invalid_scope", location)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_render.assert_called_once()
 
     # --- Per-application scope ceiling (OAuthApplication.scopes) ---
 
@@ -2641,15 +2657,46 @@ class TestOAuthAPI(APIBaseTest):
         body = {**self.base_authorization_post_body, "scope": scope}
         return self.client.post("/oauth/authorize/", body)
 
-    def test_authorize_rejects_scope_outside_app_ceiling(self):
-        # GET rejects with a redirect carrying error=invalid_scope; the
-        # validator short-circuits before any template render.
+    def test_authorize_drops_scope_outside_app_ceiling(self):
+        # The consent-screen path, which first-party apps skip. Asserts on the minted
+        # grant rather than the rendered ceiling: grantable_scopes is derived from the
+        # app alone, so asserting on it would pass even if clamping stopped working.
+        self._set_ceiling("experiment:read", "dashboard:read")
+        self.confidential_application.optional_scopes = ["dashboard:read"]
+        self.confidential_application.save()
+
+        response = self._authorize_post("experiment:read dashboard:read insight:write")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+        granted = set(OAuthGrant.objects.get(code=code).scope.split())
+        self.assertNotIn("insight:write", granted)
+        self.assertEqual(granted, {"experiment:read", "dashboard:read"})
+
+    def test_token_response_reports_the_clamped_scope(self):
+        # RFC 6749 section 3.3: when the granted scope differs from the request the token
+        # response MUST report what was actually granted. Silent clamping is only safe
+        # because a client can read the real set back here.
         self._set_ceiling("experiment:read")
-        response = self.client.get(f"{self.base_authorization_url}&scope=experiment:write")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        location = response.get("Location")
-        assert location
-        self.assertIn("error=invalid_scope", location)
+
+        response = self._authorize_post("experiment:read insight:write")
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_confidential_client_id",
+                "client_secret": "test_confidential_client_secret",
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("insight:write", token_response.json()["scope"].split())
+        self.assertIn("experiment:read", token_response.json()["scope"].split())
 
     def test_authorize_accepts_full_grant_of_app_ceiling(self):
         # Without optional_scopes every ceiling scope is required, so a grant that
@@ -2732,6 +2779,79 @@ class TestOAuthAPI(APIBaseTest):
         granted = set(grant.scope.split())
         self.assertNotIn("*", granted)
         self.assertEqual(granted, {"experiment:read"})
+
+    @parameterized.expand(
+        [
+            # A scope retired from APIScopeObject stops being grantable under every ceiling
+            # at once. Failing the whole request locked out clients that still send the old
+            # list, which have no way to discover the narrower per-app set before asking.
+            ("retired_scope_under_empty_ceiling", [], "experiment:read agents:read", {"experiment:read"}),
+            (
+                "scope_outside_seeded_ceiling",
+                ["experiment:read", "dashboard:read"],
+                "experiment:read insight:write",
+                {"experiment:read"},
+            ),
+            ("hidden_scope_under_empty_ceiling", [], "experiment:read wizard_session:read", {"experiment:read"}),
+        ]
+    )
+    def test_authorize_clamps_ungrantable_scopes(self, _name, ceiling, requested, expected):
+        app = self._create_first_party_app_with_ceiling(*ceiling)
+        grant = self._first_party_authorize_grant(app, requested)
+        self.assertEqual(set(grant.scope.split()), expected)
+
+    def test_authorize_clamping_captures_event_on_the_consent_grant(self):
+        # The event fires where the grant is minted, so the consent path is covered.
+        # Capturing on the GET instead would both miss a direct POST and count
+        # authorizations the user went on to abandon.
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self._authorize_post("experiment:read insight:write")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        clamped = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_scopes_clamped"]
+        self.assertEqual(len(clamped), 1)
+        props = clamped[0].kwargs["properties"]
+        self.assertEqual(props["dropped_scopes"], ["insight:write"])
+        self.assertEqual(props["granted_scope_count"], 1)
+        self.assertEqual(props["app_id"], str(self.confidential_application.pk))
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
+
+    def test_authorize_rendering_consent_captures_no_clamping_event(self):
+        # Rendering the consent screen grants nothing, so an authorization the user
+        # never completes must not inflate the clamping numbers.
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):
+            with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+                response = self.client.get(f"{self.base_authorization_url}&scope=experiment:read insight:write")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        clamped = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_scopes_clamped"]
+        self.assertEqual(clamped, [])
+
+    def test_authorize_within_ceiling_captures_no_clamping_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self._authorize_post("experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        clamped = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_scopes_clamped"]
+        self.assertEqual(clamped, [])
+
+    def test_read_only_consent_under_a_write_ceiling_grants_read(self):
+        # The consent screen's read-only toggle downgrades `insight:write` to
+        # `insight:read`. A ceiling naming only the write half must still admit it,
+        # or the user is told they granted read access and the token carries nothing.
+        # `insight:write` is optional here because a required scope cannot be
+        # deselected at consent, so the toggle is only reachable for optional ones.
+        self._set_ceiling("experiment:read")
+        self.confidential_application.optional_scopes = ["insight:write"]
+        self.confidential_application.save()
+
+        response = self._authorize_post("experiment:read insight:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+        self.assertEqual(set(OAuthGrant.objects.get(code=code).scope.split()), {"experiment:read", "insight:read"})
 
     def test_authorize_wildcard_narrowing_captures_event(self):
         self._set_ceiling("experiment:read")
@@ -2853,50 +2973,14 @@ class TestOAuthAPI(APIBaseTest):
         refresh_token = self._create_refreshable_token_pair("experiment:read dashboard:read")
         self.assertEqual(self._refresh_and_get_scopes(refresh_token), {"experiment:read", "dashboard:read"})
 
-    @parameterized.expand(
-        [
-            (
-                "ceiling_excludes_requested",
-                ["experiment:read"],
-                "experiment:write",
-                "experiment:write",
-                ["experiment:write"],
-            ),
-            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read", "llm_gateway:read", ["llm_gateway:read"]),
-            # mixed grantable + out-of-ceiling scope: requested records the full set, rejected pins to just the offender
-            (
-                "mixed_scope_isolates_offender",
-                ["experiment:read"],
-                "experiment:read%20experiment:write",
-                "experiment:read experiment:write",
-                ["experiment:write"],
-            ),
-        ]
-    )
-    def test_authorize_rejection_captures_invalid_scope_event(
-        self, _name, ceiling, requested_scope, expected_requested_scopes, expected_rejected_scopes
-    ):
-        self._set_ceiling(*ceiling)
-        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
-            response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("error=invalid_scope", response.get("Location") or "")
-        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
-        self.assertEqual(len(rejected), 1)
-        props = rejected[0].kwargs["properties"]
-        self.assertEqual(props["reason"], "invalid_scope")
-        self.assertEqual(props["app_id"], str(self.confidential_application.pk))
-        self.assertEqual(props["client_name"], self.confidential_application.name)
-        self.assertEqual(props["registration_type"], "manual")
-        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
-        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
-        self.assertEqual(props["requested_scopes"], expected_requested_scopes)
-        self.assertEqual(props["rejected_scopes"], expected_rejected_scopes)
-
-    def test_authorize_success_does_not_capture_invalid_scope_event(self):
+    def test_authorize_never_rejects_on_scope_grounds(self):
+        # `/authorize` no longer emits invalid_scope: the out-of-ceiling scope is dropped
+        # and the grant proceeds with what survived, instead of failing the whole request.
         self._set_ceiling("experiment:read")
         with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
-            self._authorize_post("experiment:read")
+            response = self._authorize_post("experiment:read insight:write")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("error=invalid_scope", response.json()["redirect_to"])
         rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
         self.assertEqual(rejected, [])
 
@@ -3767,14 +3851,15 @@ class TestOAuthAPI(APIBaseTest):
             algorithm="RS256",
         )
 
-        # Request with an invalid scope to trigger an error redirect
+        # An unsupported response_type triggers the error redirect. Scope is no longer
+        # usable as the trigger: /authorize drops ungrantable scopes instead of failing.
         url = (
             f"/oauth/authorize/?client_id={custom_scheme_app.client_id}"
             f"&redirect_uri={scheme}://posthog/callback"
-            f"&response_type=code"
+            f"&response_type=unsupported"
             f"&code_challenge={self.code_challenge}"
             f"&code_challenge_method=S256"
-            f"&scope=nonexistent_scope"
+            f"&scope=query:read"
         )
 
         response = self.client.get(url)
@@ -3782,7 +3867,7 @@ class TestOAuthAPI(APIBaseTest):
         # Should redirect back to the client with the error, not 500
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertTrue(response["Location"].startswith(f"{scheme}://posthog/callback"))
-        self.assertIn("error=invalid_scope", response["Location"])
+        self.assertIn("error=unsupported_response_type", response["Location"])
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")

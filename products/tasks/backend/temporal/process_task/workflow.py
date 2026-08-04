@@ -35,6 +35,12 @@ from .activities.cleanup_sandbox import (
 )
 from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
 from .activities.emit_progress_activity import EmitProgressInput, emit_progress_activity
+from .activities.enforce_self_driving_quota import (
+    SELF_DRIVING_QUOTA_CANCELLED,
+    SELF_DRIVING_QUOTA_STOP_CHECKING,
+    EnforceSelfDrivingRunQuotaInput,
+    enforce_self_driving_run_quota,
+)
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
 from .activities.feature_flags import (
     IsSlackAppAgentDesignEnabledForTaskActivityInput,
@@ -185,6 +191,7 @@ class TaskEvent(StrEnum):
     TIMEOUT_REACHED = "timeout_reached"
     CI_FOLLOW_UP = "ci_follow_up"
     SANDBOX_GONE = "sandbox_gone"
+    QUOTA_RECHECK = "quota_recheck"
 
 
 class CIFollowUpDecision(StrEnum):
@@ -246,6 +253,17 @@ _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-concurrent-followup-steering"
 # post-rollout executions skip the call, replays of older histories still
 # schedule it. Same two-step cleanup lifecycle as the patches above.
 _PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING = "tasks-drop-slack-post-after-provisioning"
+
+# Self-driving-origin implementation runs periodically re-check the org's self-driving credits quota and
+# cancel themselves before opening the billable PR when the org crossed its limit mid-run. Gates
+# the recheck timer + activity commands so pre-rollout histories replay without them.
+_PATCH_ID_SELF_DRIVING_QUOTA_KILL = "tasks-self-driving-quota-kill"
+
+# How often a PR-less self-driving run re-checks the quota while waiting on agent activity. Frequent
+# enough to catch a limit crossed by a parallel run's PR; each check is one Redis read.
+SELF_DRIVING_QUOTA_RECHECK_INTERVAL = timedelta(minutes=5)
+
+_ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 
 # Gates the new agent-design flag-eval execute_activity site.
 # Two-step deprecate-then-delete cleanup lifecycle as above.
@@ -318,6 +336,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pr_progress_emitted: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
+        # Deadline-based so heartbeats waking the event loop don't keep resetting the timer.
+        self._self_driving_quota_next_check_at: Optional[datetime] = None
+        self._self_driving_quota_checks_active: bool = True
         self._current_slack_relay_workflow_id: Optional[str] = None
 
     @property
@@ -484,6 +505,26 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(CI_FOLLOW_UP_DELAY.total_seconds())
         return TaskEvent.CI_FOLLOW_UP
 
+    def _self_driving_quota_recheck_scheduled(self) -> bool:
+        return (
+            self._self_driving_quota_checks_active
+            and self._context is not None
+            and self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            # Research / repo-selection / custom-agent sessions run with create_pr=False and can
+            # never open the billable PR; rechecking them would let the quota gate cancel
+            # in-flight research.
+            and self.context.create_pr
+            and workflow.patched(_PATCH_ID_SELF_DRIVING_QUOTA_KILL)
+        )
+
+    async def _wait_for_quota_recheck(self):
+        if self._self_driving_quota_next_check_at is None:
+            self._self_driving_quota_next_check_at = workflow.now() + SELF_DRIVING_QUOTA_RECHECK_INTERVAL
+        remaining = self._self_driving_quota_next_check_at - workflow.now()
+        if remaining.total_seconds() > 0:
+            await workflow.sleep(remaining.total_seconds())
+        return TaskEvent.QUOTA_RECHECK
+
     def _describe_wait(self, *, warm_idle: bool, ci_follow_up_scheduled: bool, inactivity_timeout: timedelta) -> str:
         """Human-readable summary of what the loop is blocked on, for the Temporal UI.
 
@@ -548,6 +589,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         ]
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
+        if not warm_idle and self._self_driving_quota_recheck_scheduled():
+            possible_events.append(asyncio.create_task(self._wait_for_quota_recheck()))
         done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
@@ -796,6 +839,40 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 self._last_active_time = workflow.now()
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
+                    case TaskEvent.QUOTA_RECHECK:
+                        self._self_driving_quota_next_check_at = workflow.now() + SELF_DRIVING_QUOTA_RECHECK_INTERVAL
+                        try:
+                            quota_outcome = await workflow.execute_activity(
+                                enforce_self_driving_run_quota,
+                                EnforceSelfDrivingRunQuotaInput(
+                                    run_id=self.context.run_id,
+                                    task_id=self.context.task_id,
+                                    team_id=self.context.team_id,
+                                ),
+                                start_to_close_timeout=timedelta(minutes=2),
+                                retry_policy=RetryPolicy(maximum_attempts=2),
+                            )
+                        except Exception:
+                            # A failed quota check must never kill a healthy run; the next
+                            # recheck (or the quota cron) is the backstop.
+                            workflow.logger.warning(
+                                "Self-driving quota recheck activity failed, continuing",
+                                extra={"run_id": self.context.run_id},
+                            )
+                            continue
+                        if quota_outcome == SELF_DRIVING_QUOTA_STOP_CHECKING:
+                            self._self_driving_quota_checks_active = False
+                        elif quota_outcome == SELF_DRIVING_QUOTA_CANCELLED:
+                            self._self_driving_quota_checks_active = False
+                            # The cancel path already signalled complete_task; set the fields
+                            # here as well so loop exit doesn't depend on signal delivery order.
+                            if not self._task_completed:
+                                self._completion_status = "cancelled"
+                                self._completion_error = (
+                                    "Stopped automatically: the organization reached its "
+                                    "self-driving pull request limit."
+                                )
+                                self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
                         self._mark_sandbox_gone()
                     case TaskEvent.SIGNAL_RECEIVED:

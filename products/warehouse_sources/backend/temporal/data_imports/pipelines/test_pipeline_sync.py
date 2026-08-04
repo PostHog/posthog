@@ -58,15 +58,15 @@ class TestResolveTableAndFolderNames:
     def test_resolve(
         self, _name: str, schema_name: str, resolved_folder: str | None, exp_table: str, exp_folder: str
     ) -> None:
-        table_storage_name, folder_name = resolve_table_and_folder_names(schema_name, resolved_folder)
-        assert table_storage_name == exp_table
-        assert folder_name == exp_folder
+        names = resolve_table_and_folder_names(schema_name, resolved_folder)
+        assert names.table_storage_name == exp_table
+        assert names.folder_name == exp_folder
 
     def test_table_name_unchanged_for_camelcase_source(self) -> None:
         # The regression guard: a populated (snake_cased) folder must NOT rename the HogQL table.
         source = ExternalDataSource(source_type="Stripe", prefix="")
-        table_storage_name, _ = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
-        assert build_table_name(source, table_storage_name) == "stripe_balancetransaction"
+        names = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
+        assert build_table_name(source, names.table_storage_name) == "stripe_balancetransaction"
 
     @parameterized.expand(
         [
@@ -83,8 +83,8 @@ class TestResolveTableAndFolderNames:
         self, _name: str, source_type: str, schema_name: str, expected: str
     ) -> None:
         source = ExternalDataSource(source_type=source_type, prefix="")
-        table_storage_name, _ = resolve_table_and_folder_names(schema_name, None)
-        assert build_table_name(source, table_storage_name) == expected
+        names = resolve_table_and_folder_names(schema_name, None)
+        assert build_table_name(source, names.table_storage_name) == expected
 
 
 def _register_companion_sync(

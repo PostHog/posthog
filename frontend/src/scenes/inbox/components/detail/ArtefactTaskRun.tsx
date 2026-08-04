@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
-import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
+import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
+import { ActivityDisclosure } from './ActivityDisclosure'
 import { isCustomAgentTaskRun, taskRunTypeLabel, TaskRunArtefactContent } from './artefactTypes'
+import { RunLogContainer } from './RunLogContainer'
 
 /**
  * A `task_run` artefact: the linked task badged from its `(product, type)` (signals-pipeline runs
@@ -74,39 +75,45 @@ export function ArtefactTaskRun({
     const replayOnly = isHistoricalRun || isTerminalRunStatus(task?.latest_run?.status)
     const isCustom = isCustomAgentTaskRun(content)
 
-    if (error) {
-        return <span className="text-[11px] text-danger">Couldn't load this task.</span>
-    }
-
     return (
-        <div>
-            <button
-                type="button"
-                disabled={!task}
-                onClick={() => setExpanded((v) => !v)}
-                className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs transition-colors enabled:hover:bg-fill-highlight-50 disabled:cursor-default"
-            >
-                {expanded ? (
-                    <IconChevronDown className="shrink-0 text-tertiary" />
-                ) : (
-                    <IconChevronRight className="shrink-0 text-tertiary" />
-                )}
-                <TaskRunStatusDot status={status} />
-                <LemonTag size="small" type="muted">
-                    {taskRunTypeLabel(content)}
-                </LemonTag>
-                {isCustom ? (
-                    <LemonTag size="small" type="completion">
-                        {identifierToHuman(content.product)}
+        <ActivityDisclosure
+            expanded={expanded}
+            onChange={setExpanded}
+            disabledReason={
+                !task ? (error ? 'Refresh the page to retry loading this task' : 'Task details are loading') : undefined
+            }
+            fullWidth
+            label={
+                <span className="flex min-w-0 items-center gap-2">
+                    <RunStatusIndicator variant={resolveRunVariant(status)} showLabel={false} />
+                    <LemonTag size="small" type="muted">
+                        {taskRunTypeLabel(content)}
                     </LemonTag>
-                ) : null}
-                <span className="truncate text-secondary">
-                    {loading ? 'Loading task…' : (task?.title ?? content.task_id)}
+                    {isCustom ? (
+                        <LemonTag size="small" type="completion">
+                            {identifierToHuman(content.product)}
+                        </LemonTag>
+                    ) : null}
+                    {loading ? (
+                        <LemonSkeleton className="h-3 w-32" />
+                    ) : (
+                        <span className={error ? 'truncate text-danger' : 'truncate text-secondary'}>
+                            {error
+                                ? "Couldn't load this task. Refresh the page to try again."
+                                : (task?.title ?? content.task_id)}
+                        </span>
+                    )}
                 </span>
-            </button>
-
-            {expanded && task && runId ? (
-                <div className="mt-2 h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
+            }
+            expandedLabel={
+                <span className="flex min-w-0 items-center gap-2">
+                    <RunStatusIndicator variant={resolveRunVariant(status)} showLabel={false} />
+                    <span className="truncate text-secondary">Hide task run</span>
+                </span>
+            }
+        >
+            {task && runId ? (
+                <RunLogContainer>
                     <ReadonlyRunSurface
                         taskId={task.id}
                         runId={runId}
@@ -114,8 +121,8 @@ export function ArtefactTaskRun({
                         threadRowClassName="px-3"
                         threadListClassName="py-3"
                     />
-                </div>
+                </RunLogContainer>
             ) : null}
-        </div>
+        </ActivityDisclosure>
     )
 }

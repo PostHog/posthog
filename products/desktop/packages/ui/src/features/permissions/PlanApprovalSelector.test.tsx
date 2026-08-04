@@ -1,7 +1,13 @@
 import type { PermissionOption } from "@agentclientprotocol/sdk";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Theme } from "@radix-ui/themes";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanApprovalSelector } from "./PlanApprovalSelector";
@@ -207,6 +213,16 @@ describe("PlanApprovalSelector", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("cancels on Escape from the feedback input", async () => {
+    const user = userEvent.setup();
+    const { onCancel } = renderSelector([DEFAULT_MODE, REJECT]);
+
+    await user.click(screen.getByText("2."));
+    await user.keyboard("{Escape}");
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels on Escape", async () => {
     const user = userEvent.setup();
     const { onCancel } = renderSelector([DEFAULT_MODE, REJECT]);
@@ -214,5 +230,84 @@ describe("PlanApprovalSelector", () => {
     await user.keyboard("{Escape}");
 
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the mode menu before cancelling on Escape", async () => {
+    const user = userEvent.setup();
+    const { onCancel } = renderSelector([AUTO, DEFAULT_MODE, REJECT]);
+
+    await user.click(screen.getByRole("button", { name: "Mode" }));
+    expect(
+      await screen.findByText("Manually approve edits"),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(onCancel).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Manually approve edits"),
+      ).not.toBeInTheDocument(),
+    );
+
+    await user.keyboard("{Escape}");
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cancel while composing input", () => {
+    const { onCancel } = renderSelector([DEFAULT_MODE, REJECT]);
+    const selector = screen
+      .getByText("Implementation Plan")
+      .closest("[tabindex='0']") as HTMLElement;
+
+    fireEvent.keyDown(selector, { key: "Escape", keyCode: 229 });
+
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("only cancels the approval in the focused grid cell", () => {
+    const firstOnCancel = vi.fn();
+    const secondOnCancel = vi.fn();
+    render(
+      <Theme>
+        <div data-grid-cell>
+          <PlanApprovalSelector
+            toolCall={toolCall}
+            options={[DEFAULT_MODE, REJECT]}
+            onSelect={vi.fn()}
+            onCancel={firstOnCancel}
+          />
+        </div>
+        <div data-grid-cell>
+          <PlanApprovalSelector
+            toolCall={{ ...toolCall, toolCallId: "plan-2" }}
+            options={[DEFAULT_MODE, REJECT]}
+            onSelect={vi.fn()}
+            onCancel={secondOnCancel}
+          />
+        </div>
+      </Theme>,
+    );
+    const firstSelector = screen
+      .getAllByText("Implementation Plan")[0]
+      .closest("[tabindex='0']") as HTMLElement;
+    firstSelector.focus();
+
+    fireEvent.keyDown(firstSelector, { key: "Escape" });
+
+    expect(firstOnCancel).toHaveBeenCalledTimes(1);
+    expect(secondOnCancel).not.toHaveBeenCalled();
+  });
+
+  it("does not steal focus from an external input", () => {
+    const externalInput = document.createElement("input");
+    document.body.appendChild(externalInput);
+    externalInput.focus();
+
+    renderSelector([DEFAULT_MODE, REJECT]);
+
+    expect(document.activeElement).toBe(externalInput);
+    externalInput.remove();
   });
 });

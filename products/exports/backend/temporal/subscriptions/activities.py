@@ -381,6 +381,17 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
 @temporalio.activity.defn
 async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    # TODO(2026-07-31): After workflows started before 2026-07-31 have drained, remove this v1 activity,
+    # rename deliver_subscription_v2 to deliver_subscription, and remove the workflow patch.
+    return await _deliver_subscription(inputs)
+
+
+@temporalio.activity.defn(name="deliver-subscription-v2")
+async def deliver_subscription_v2(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    return await _deliver_subscription(inputs)
+
+
+async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = []
 
     subscription = await database_sync_to_async(
@@ -484,6 +495,7 @@ async def _deliver_insight_dashboard_subscription(
                 send_async=False,
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+                delivery_id=inputs.delivery_id,
             )
 
         result = await deliver_email(subscription, inputs, recipient_results, _send_email)
