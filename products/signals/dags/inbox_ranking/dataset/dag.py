@@ -30,8 +30,6 @@ import datetime
 from collections.abc import Iterator
 from typing import Any, cast
 
-from django.db.models import Q
-
 import dagster
 import pyarrow as pa
 
@@ -256,19 +254,16 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
     the artefact content JSON.
 
     Artefacts are appended in normal operation but the API permits editing one in place
-    (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so
-    created_at alone would let a post-cutoff edit leak a future classification into the partition.
-    Bounding updated_at too means no value here was mutated after the cutoff — an edited row is
-    passed over rather than read, so the column goes null (or falls back to an older untouched
-    judgment) instead of going wrong. The genuinely immutable classification is
+    (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so a row's
+    current content is not necessarily what it held at the cutoff. The latest pre-cutoff row is
+    therefore chosen first and then nulled if it was edited afterwards: skipping edited rows during
+    selection instead would hand back the judgment they superseded, which was already stale at the
+    cutoff — silently wrong where null is merely unknown. The genuinely immutable classification is
     status_event_priority/actionability, snapshotted onto each transition in the label stream."""
     judgments: dict[str, dict[str, str | None]] = {}
     for chunk in _chunked(report_ids):
         artefacts = (
             SignalReportArtefact.objects.filter(
-                # updated_at is nullable, and a null one is a row predating the field, never an
-                # edit — excluding those would drop every legacy judgment from the dataset.
-                Q(updated_at__lt=snapshot_end) | Q(updated_at__isnull=True),
                 report_id__in=chunk,
                 type__in=[
                     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
@@ -278,9 +273,12 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
             )
             .order_by("report_id", "type", "-created_at")
             .distinct("report_id", "type")
-            .values_list("report_id", "type", "content")
+            .values_list("report_id", "type", "content", "updated_at")
         )
-        for report_id, artefact_type, content in artefacts.iterator(chunk_size=2000):
+        for report_id, artefact_type, content, updated_at in artefacts.iterator(chunk_size=2000):
+            # A null updated_at is a row predating the field, never an edit.
+            if updated_at is not None and updated_at >= snapshot_end:
+                continue
             try:
                 parsed = json.loads(content)
             except ValueError:
