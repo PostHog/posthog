@@ -1321,6 +1321,45 @@ describe('dashboardLogic', () => {
             expect(logic.values.error404).toBe(true)
         })
 
+        it('makes a definitive 404 authoritative over an earlier stream failure and stale dashboard', async () => {
+            logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.dashboard).not.toBeNull()
+
+            logic.actions.setDashboardStreamFailed()
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+
+            expect(logic.values.error404).toBe(true)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+            expect(logic.values.dashboard).toBeNull()
+        })
+
+        it('fails a completed stream without metadata and disposes it on unmount', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.dashboardNotFound()
+
+            const disposeStream = jest.fn()
+            jest.spyOn(api.dashboards, 'streamTiles').mockImplementation(
+                async (_id, _params, _onMessage, onComplete) => {
+                    onComplete()
+                    return disposeStream
+                }
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+
+            logic.unmount()
+            expect(disposeStream).toHaveBeenCalledTimes(1)
+        })
+
         it('clears NotFound when a streaming retry starts or delivers metadata', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -1384,7 +1423,7 @@ describe('dashboardLogic', () => {
                 logic.actions.tileStreamingFailure({ message: 'HTTP 500: something broke', status: 500 })
             }).toFinishAllListeners()
             expect(lemonToastErrorSpy).toHaveBeenCalledWith(expect.stringContaining('something broke'))
-            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
         })
 
         it('marks the load failed (not NotFound) when a transient error leaves no dashboard', async () => {

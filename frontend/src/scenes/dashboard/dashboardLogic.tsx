@@ -1390,9 +1390,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadingDashboardItemsStarted(action)
                     await breakpoint(200)
                     actions.resetIntermittentFilters()
+                    let metadataReceived = false
 
-                    // Start unified streaming - metadata followed by tiles
-                    api.dashboards.streamTiles(
+                    const disposeStream = await api.dashboards.streamTiles(
                         props.id,
                         {
                             layoutSize: values.currentLayoutSize,
@@ -1402,6 +1402,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
                             if (data.type === 'metadata') {
+                                metadataReceived = true
                                 actions.loadDashboardMetadataSuccess(
                                     getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
                                 )
@@ -1411,7 +1412,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onComplete callback
                         () => {
-                            actions.tileStreamingComplete()
+                            if (metadataReceived) {
+                                actions.tileStreamingComplete()
+                            } else {
+                                actions.tileStreamingFailure(
+                                    new Error('Dashboard stream completed without dashboard metadata.')
+                                )
+                            }
                         },
                         // onError callback
                         (error) => {
@@ -1419,6 +1426,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             actions.tileStreamingFailure(error)
                         }
                     )
+                    cache.disposables.add(() => disposeStream, 'dashboardStream', { pauseOnPageHidden: false })
 
                     // Return null - metadata will update the dashboard
                     return null
@@ -1774,6 +1782,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setAccessDeniedToDashboard: () => true,
+                dashboardNotFound: () => false,
                 loadDashboard: () => false,
                 loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
@@ -1789,6 +1798,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // The stream auto-retries after transient errors; delivered metadata means it recovered,
                 // so clear the load-error state instead of leaving it latched over a loaded dashboard.
                 loadDashboardMetadataSuccess: () => false,
+                dashboardNotFound: () => false,
+                setAccessDeniedToDashboard: () => false,
                 loadDashboardFailure: () => true,
                 setDashboardStreamFailed: () => true,
             },
@@ -1846,6 +1857,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
+                dashboardNotFound: () => null,
+                setAccessDeniedToDashboard: () => null,
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
@@ -2221,6 +2234,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 dashboardNotFound: () => true,
+                setAccessDeniedToDashboard: () => false,
                 loadDashboard: () => false,
                 loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,

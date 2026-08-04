@@ -5574,10 +5574,6 @@ snapshots:
         hash: v1.k794b7964.7b105d74e4bd6c48e6ffee982e294557b0230d3c43769a252c753745f0d8ec0a.j2wHTrpAU0iVskR8PYJPk9KNhWUYrGDbwyxM0h9015M
     scenes-app-customer-analytics-journeys-nodes-profileflownode--optional-not-completed--light:
         hash: v1.k794b7964.165b884e9e737c00707811f9efa7d348927a432402c544b41495eac9722a1fca.wqLWQTzb1O7RBTeeyTR5l_hUeX0IpJXkgexpAQbuNWs
-    scenes-app-dashboards--erroring--dark:
-        hash: v1.k794b7964.f1569b95b37fd696ca93e1a429e100488d36b5283e843ba53e94a1dd0237a2c2.89VlumysxOVYUehHA-D-pwFe8LVtLhMbrjf13VAskKY
-    scenes-app-dashboards--erroring--light:
-        hash: v1.k794b7964.1679f49acc091fc932acd5aee0d19e379c6f5158aefea7edb399f9b0d5a6fc71.F46jqKuhhvYhXv4E9pFTt13CpvLyaNv5AJy0pqSt81Y
     scenes-app-dashboards--list--dark:
         hash: v1.k794b7964.00d0fa213e763d116afb415f4a3fea1e98d5d6e81ca29d30e842cd74cf50d7ac.e1Co2_8OmCVBy1IWy67r9-Uo-nt8tATEi1TPcyiV25Y
     scenes-app-dashboards--list--light:
