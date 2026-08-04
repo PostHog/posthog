@@ -1183,3 +1183,34 @@ tools:
     taggers-update:
         operation: taggers_update
         enabled: false
+wrappers:
+    query-llm-traces-list:
+        schema_ref: AssistantTracesQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List LLM traces
+        description_file: ./prompts/query-llm-traces-list.md
+        system_prompt_hint: LLM/AI trace listing and inspection
+        exclude_properties:
+            - response
+            - modifiers
+    query-llm-trace:
+        schema_ref: AssistantTraceQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get LLM trace
+        description_file: ./prompts/query-llm-trace.md
+        system_prompt_hint: Single LLM/AI trace deep-dive
+        exclude_properties:
+            - response
+            - modifiers
