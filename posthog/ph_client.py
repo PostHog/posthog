@@ -1,3 +1,4 @@
+import atexit
 import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -127,14 +128,20 @@ def ph_background_capture() -> ScopedCapture:
 
     For long-lived processes (e.g. Temporal workers) where `ph_scoped_capture`'s
     per-call dedicated client and synchronous flush would sit on the hot path.
-    Events enqueued right before process exit can be lost, so don't use this where
-    delivery must be confirmed before checkpointing durable state.
+    Delivery is best-effort: a bounded flush runs at interpreter exit, so don't use
+    this where delivery must be confirmed before checkpointing durable state.
     """
     global _background_client
     if _background_client is None:
         with _background_client_lock:
             if _background_client is None:
                 _background_client = get_client()
+                # The SDK's own atexit hook only joins the consumer mid-batch without
+                # draining the queue. atexit is LIFO, so this flush (registered after
+                # the client's hook) runs first and drains what a graceful shutdown
+                # enqueued last. Bounded (SDK default 10s) so a dead network can't
+                # stall process exit.
+                atexit.register(_background_client.flush)
     return ScopedCapture(_background_client)
 
 
