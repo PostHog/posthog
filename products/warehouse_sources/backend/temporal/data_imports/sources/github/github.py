@@ -1,5 +1,6 @@
 import re
 import random
+import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -22,8 +23,7 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
     GITHUB_ENDPOINTS,
@@ -70,9 +71,19 @@ class GithubEmptyRepositoryError(Exception):
 class GithubOrgNotFoundError(Exception):
     """GitHub returns 404 on the org-scoped endpoints (``/orgs/{org}/teams`` and the members
     fan-out) when the repository owner is a personal account rather than an organization, or the
-    token has no org access. There is nothing to sync in that case, so ``_fetch_page`` raises this on
-    org-scoped endpoints and the caller syncs zero rows — a benign skip, not a "repository not found"
-    that should fail the schema."""
+    token has no org access, and on the ``tolerate_not_found`` endpoints (issue types, repository
+    teams) whose resource simply does not exist for the repository. There is nothing to sync in
+    either case, so ``_fetch_page`` raises this for those endpoints and the caller syncs zero rows —
+    a benign skip, not a "repository not found" that should fail the schema."""
+
+    pass
+
+
+class GithubRepositoryTooLargeError(Exception):
+    """GitHub's /stats/code_frequency permanently 422s once a repository passes 10,000 commits — a
+    documented limit of that specific endpoint (other stats endpoints keep working, just with
+    zeroed addition/deletion counts for large repos). Retrying can never succeed, so `_fetch_page`
+    raises this and the caller syncs zero rows instead of failing the schema forever."""
 
     pass
 
@@ -104,6 +115,12 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+# Endpoints whose list API ignores state/sort/direction and always returns newest-first by
+# created_at. They take a minimal paged read (below) and must report sort_mode=desc on every sync,
+# including the first (see _resolve_sort_mode) — the two must stay in lockstep, hence one set.
+_ALWAYS_NEWEST_FIRST_ENDPOINTS = ("workflow_runs", "deployments")
+
+
 def _build_initial_params(
     config: GithubEndpointConfig,
     endpoint: str,
@@ -111,24 +128,27 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    # workflow_runs has a different param surface: it accepts neither
-    # state/sort/direction nor `since`, and always returns newest-first by
-    # created_at. We intentionally send no time filter either — its `created`
-    # filter would cap the result set to GitHub's 1,000-result search limit and
-    # silently drop rows on busy repos. Incremental sync is handled instead by
-    # paginating newest-first and stopping at the cursor (see get_rows), so the
-    # request stays a plain paged read regardless of incremental state.
-    if endpoint == "workflow_runs":
+    # These endpoints accept neither state/sort/direction nor `since`. We intentionally send no
+    # time filter either — a `created` filter would cap the result set to GitHub's 1,000-result
+    # search limit and silently drop rows on busy repos. Incremental sync is handled instead by
+    # paginating newest-first and stopping at the cursor (see get_rows), so the request stays a
+    # plain paged read regardless of incremental state.
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS:
         return {"per_page": config.page_size}
 
-    params: dict[str, Any] = {
-        "per_page": config.page_size,
-        "state": "all",
-        # Default to created asc — created is immutable, so new items append
-        # to the end and don't shift already-fetched pages.
-        "sort": "created",
-        "direction": "asc",
-    }
+    # Endpoints that take no sort at all (or a sort enum of their own, like milestones'
+    # due_on/completeness) get a bare paged read plus whatever static params they declare.
+    if config.param_style == "plain":
+        return {"per_page": config.page_size, **(config.extra_params or {})}
+
+    params: dict[str, Any] = {"per_page": config.page_size, **(config.extra_params or {})}
+    if config.param_style == "issue_list":
+        # The alert endpoints ("sorted") define their own state enum and reject `all`.
+        params["state"] = "all"
+    # Default to created asc — created is immutable, so new items append
+    # to the end and don't shift already-fetched pages.
+    params["sort"] = "created"
+    params["direction"] = "asc"
 
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
@@ -143,7 +163,7 @@ def _build_initial_params(
             )
         params["sort"] = sort_field_mapping[incremental]
         params["direction"] = config.sort_mode
-        if endpoint in ("issues", "commits"):
+        if endpoint in ("issues", "commits") or config.supports_since_param:
             params["since"] = formatted_value
 
     return params
@@ -175,15 +195,18 @@ def _resolve_sort_mode(
 
     Most endpoints emit asc on the first sync / full refresh (stable offset
     pagination via sort=created&direction=asc) and only flip to their
-    configured sort once a cutoff exists. workflow_runs is different: it ignores
-    sort/direction and always returns newest-first, so it emits desc on every
-    sync, including the first. Fan-out children inherit the parent walk's order
-    on every sync too, first incremental sync included: the initial_lookback_days
-    floor gives that sync a cutoff, which makes the parent walk descend. Reporting
-    asc for it would let the pipeline persist the cursor per batch and, on an
-    interrupted backfill, strand every row older than the batches that flushed.
+    configured sort once a cutoff exists. The _ALWAYS_NEWEST_FIRST_ENDPOINTS
+    (workflow_runs, deployments) are different: they ignore sort/direction and
+    always return newest-first, so they emit desc on every sync, including the
+    first; the ``always_desc`` config flag says the same for the plain-read
+    endpoints added since (issue_events, forks). Fan-out children inherit the
+    parent walk's order on every sync too, first incremental sync included: the
+    initial_lookback_days floor gives that sync a cutoff, which makes the parent
+    walk descend. Reporting asc for any of these would let the pipeline persist
+    the cursor per batch and, on an interrupted backfill, strand every row older
+    than the batches that flushed.
     """
-    if endpoint == "workflow_runs" or config.fan_out_parent is not None:
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS or config.always_desc or config.fan_out_parent is not None:
         return config.sort_mode
     if should_use_incremental_field and db_incremental_field_last_value:
         return config.sort_mode
@@ -232,6 +255,20 @@ def _is_empty_repository_response(response: requests.Response) -> bool:
     return isinstance(message, str) and "repository is empty" in message.lower()
 
 
+def _is_repository_too_large_for_code_frequency(response: requests.Response) -> bool:
+    """GitHub returns 422 on /stats/code_frequency with a stable "must have fewer than 10000
+    commits" message once a repository crosses that commit count — a hard, permanent limit of this
+    one endpoint, not a transient or credential problem."""
+    if response.status_code != 422:
+        return False
+    try:
+        body = response.json()
+        message = body.get("message", "") if isinstance(body, dict) else ""
+    except (ValueError, TypeError):
+        message = response.text or ""
+    return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
@@ -276,6 +313,17 @@ def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
+    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
+    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
+    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
+    # before the request so the message names the fix.
+    repo = repository.strip()
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        return (
+            False,
+            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+        )
+
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 
@@ -430,11 +478,61 @@ def _make_parent_field_injector(
     return inject
 
 
+def _flatten_contributor_stats(item: dict[str, Any]) -> dict[str, Any]:
+    """Lift the contributor's id and login out of the nested author object so the row has a usable
+    primary key and joins against `contributors` without unpacking JSON."""
+    author = item.get("author")
+    if isinstance(author, dict):
+        item["author_id"] = author.get("id")
+        item["author_login"] = author.get("login")
+    return item
+
+
+def _redact_secret_scanning_alert(item: dict[str, Any]) -> dict[str, Any]:
+    """Never land the leaked credential itself in a customer's warehouse — only the metadata about
+    it. The request already asks GitHub for `hide_secret=true`, but strip the field here too so the
+    guarantee doesn't depend on the pinned API version honoring that parameter."""
+    item.pop("secret", None)
+    return item
+
+
+# Repository objects that GitHub nests inside a repository object: a fork's parent and source, and a
+# template-created repo's template_repository. Each is a full repository object, so it can carry the
+# same clone credential and has to be sanitized too.
+_NESTED_REPOSITORY_KEYS = ("parent", "source", "template_repository")
+
+
+def _redact_repository_secrets(item: dict[str, Any]) -> dict[str, Any]:
+    """A repository object can carry `temp_clone_token`, a short-lived credential that clones the
+    private repo. It must never reach the warehouse, where a user without GitHub access could read it
+    and use it before it expires. Strip it here (the `repository` and `forks` tables are default-on)
+    and recurse into the nested repository objects GitHub embeds."""
+    item.pop("temp_clone_token", None)
+    for key in _NESTED_REPOSITORY_KEYS:
+        nested = item.get(key)
+        if isinstance(nested, dict):
+            _redact_repository_secrets(nested)
+    return item
+
+
+def _has_contributor_author(item: dict[str, Any]) -> bool:
+    """Drop anonymous contributor rows: the stats endpoint returns a null author for commits it
+    can't attribute to an account, and author_id is this table's primary key."""
+    author = item.get("author")
+    return isinstance(author, dict) and author.get("id") is not None
+
+
 def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
     if endpoint == "commits":
         return _flatten_commit
     if endpoint == "stargazers":
         return _flatten_stargazer
+    if endpoint == "contributor_stats":
+        return _flatten_contributor_stats
+    if endpoint == "secret_scanning_alerts":
+        return _redact_secret_scanning_alert
+    if endpoint == "forks":
+        return _redact_repository_secrets
     return None
 
 
@@ -443,7 +541,98 @@ def _get_item_filter(endpoint: str) -> Callable[[dict[str, Any]], bool] | None:
         return _is_issue_not_pr
     if endpoint == "reviews":
         return _is_submitted_review
+    if endpoint == "contributor_stats":
+        return _has_contributor_author
     return None
+
+
+def _rows_from_repository(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/repos/{repo} answers with the repository object itself, not a list."""
+    return [_redact_repository_secrets(body)] if isinstance(body, dict) and body else []
+
+
+def _rows_from_topics(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/topics answers {"names": [...]}; one row per topic keeps the table joinable."""
+    names = body.get("names") if isinstance(body, dict) else None
+    return [{"repository": repository, "name": name} for name in (names or []) if isinstance(name, str)]
+
+
+def _rows_from_languages(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/languages answers a {language: bytes} map, which has no fixed column set — one row per
+    language instead, so a new language doesn't change the schema."""
+    if not isinstance(body, dict):
+        return []
+    return [{"repository": repository, "language": language, "bytes": size} for language, size in body.items()]
+
+
+def _rows_from_community_profile(body: Any, repository: str) -> list[dict[str, Any]]:
+    return [{"repository": repository, **body}] if isinstance(body, dict) and body else []
+
+
+def _rows_from_participation_stats(body: Any, repository: str) -> list[dict[str, Any]]:
+    if not isinstance(body, dict) or not body:
+        return []
+    return [{"repository": repository, "all": body.get("all"), "owner": body.get("owner")}]
+
+
+def _rows_from_code_frequency(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/stats/code_frequency answers positional arrays ([week, additions, deletions]) rather than
+    objects, so the columns are named here."""
+    if not isinstance(body, list):
+        return []
+    return [
+        {"week": entry[0], "additions": entry[1], "deletions": entry[2]}
+        for entry in body
+        if isinstance(entry, list | tuple) and len(entry) >= 3
+    ]
+
+
+def _rows_from_punch_card(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/stats/punch_card answers positional arrays ([day, hour, commits]) rather than objects, so
+    the columns are named here. day is 0-6 (Sunday to Saturday) and hour is 0-23."""
+    if not isinstance(body, list):
+        return []
+    return [
+        {"day": entry[0], "hour": entry[1], "commits": entry[2]}
+        for entry in body
+        if isinstance(entry, list | tuple) and len(entry) >= 3
+    ]
+
+
+def _rows_from_dependency_sbom(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/dependency-graph/sbom answers one SPDX document; its packages are the grain a dependency
+    inventory is queried at. SPDXID is renamed so the column follows the rest of the source."""
+    sbom = body.get("sbom") if isinstance(body, dict) else None
+    if not isinstance(sbom, dict):
+        return []
+    return [
+        {
+            "repository": repository,
+            "document_name": sbom.get("name"),
+            "spdx_id": package.get("SPDXID"),
+            **{key: value for key, value in package.items() if key != "SPDXID"},
+        }
+        for package in (sbom.get("packages") or [])
+        if isinstance(package, dict)
+    ]
+
+
+# Endpoints whose response body is not a list of rows. The transform runs on the raw body and
+# returns the rows for that page, replacing the `response_data_path` unwrap.
+_BODY_TRANSFORMS: dict[str, Callable[[Any, str], list[dict[str, Any]]]] = {
+    "repository": _rows_from_repository,
+    "topics": _rows_from_topics,
+    "languages": _rows_from_languages,
+    "community_profile": _rows_from_community_profile,
+    "participation_stats": _rows_from_participation_stats,
+    "code_frequency_stats": _rows_from_code_frequency,
+    "punch_card_stats": _rows_from_punch_card,
+    "dependency_sbom": _rows_from_dependency_sbom,
+}
+
+
+def _get_body_transform(endpoint: str) -> Callable[[Any, str], list[dict[str, Any]]] | None:
+    return _BODY_TRANSFORMS.get(endpoint)
 
 
 # Upper bound on how long we'll honor GitHub's rate-limit reset before retrying,
@@ -535,6 +724,9 @@ def _fetch_page(
     if _is_empty_repository_response(response):
         raise GithubEmptyRepositoryError()
 
+    if _is_repository_too_large_for_code_frequency(response):
+        raise GithubRepositoryTooLargeError()
+
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
     # like an empty repository, not a real "repository not found".
@@ -568,6 +760,11 @@ def _iter_pages(
             response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=skip_on_not_found)
         except GithubOrgNotFoundError:
             logger.debug(f"Github: org-scoped endpoint not found, syncing zero rows: url={url}")
+            return
+        except GithubEmptyRepositoryError:
+            # `commits` is a fan_out_parent (check_runs, commit_statuses), so this walk can hit the
+            # same empty-repo 409 that get_rows handles directly for the non-fan-out `commits` read.
+            logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
             return
         data = response.json()
         if response_data_path and isinstance(data, dict):
@@ -639,6 +836,7 @@ def _fan_out_get_rows(
     db_incremental_field_last_value: Any,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    parent_cutoff_override: datetime | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -680,11 +878,16 @@ def _fan_out_get_rows(
         db_incremental_field_last_value if (should_use_incremental_field and parent_is_incremental) else None
     )
 
+    # A reconciliation pass re-walks a fixed recent window regardless of the watermark (which is
+    # newer and would stop the walk too early), so an explicit override beats both the watermark
+    # and the first-sync floor below.
+    if parent_cutoff_override is not None:
+        parent_cutoff = parent_cutoff_override
     # First incremental sync (watermark set up, but nothing synced yet): floor the
     # backfill at a recent window instead of fanning out over the parent's entire
     # history. Scoped to the incremental first run on purpose — an explicit full
     # refresh still pulls everything, and later syncs advance from their watermark.
-    if (
+    elif (
         parent_is_incremental
         and should_use_incremental_field
         and db_incremental_field_last_value is None
@@ -692,6 +895,19 @@ def _fan_out_get_rows(
     ):
         parent_cutoff = _now_utc() - timedelta(days=child_config.initial_lookback_days)
         logger.debug(f"Github: flooring {endpoint} first-sync fan-out at {parent_cutoff.isoformat()}")
+
+    # Parents whose recency field (bumped by any new child) predates the child watermark hold no
+    # unseen children, so their child fetch is skipped. The watermark is pulled back one second
+    # because _is_older_than_cutoff is inclusive and GitHub timestamps are second-coarse: a parent
+    # whose recency equals the watermark may hold a child from that same second, so it re-fans.
+    parent_recency_field = child_config.fan_out_parent_recency_field
+    parent_recency_cutoff: datetime | None = None
+    if (
+        parent_recency_field is not None
+        and should_use_incremental_field
+        and isinstance(db_incremental_field_last_value, datetime)
+    ):
+        parent_recency_cutoff = db_incremental_field_last_value - timedelta(seconds=1)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
@@ -717,7 +933,13 @@ def _fan_out_get_rows(
         # _build_initial_params belong to list endpoints that define those params.
         parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
 
-    for parents, page_url in _iter_pages(
+    # The parent walk bounds on the parent's own cursor column, which for commits only exists after
+    # the mapper flattens commit.author.date onto the row — without it every sync would re-crawl the
+    # repo's whole history. A no-op for the parents that have no mapper (pull_requests, teams,
+    # workflow_runs).
+    parent_mapper = _get_item_mapper(parent_config.name)
+
+    for raw_parents, page_url in _iter_pages(
         parent_url,
         headers,
         parent_config.response_data_path,
@@ -725,6 +947,7 @@ def _fan_out_get_rows(
         egress_identity=egress_identity,
         skip_on_not_found=parent_org_scoped,
     ):
+        parents = [parent_mapper(parent) for parent in raw_parents] if parent_mapper else raw_parents
         stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
 
         for parent in parents:
@@ -733,6 +956,12 @@ def _fan_out_get_rows(
             parent_value = parent[child_config.fan_out_parent_field]
             # Only fan out parents at/above the watermark; older ones were synced before.
             if parent_cutoff is not None and _is_older_than_cutoff(parent.get(parent_cursor_field), parent_cutoff):
+                continue
+            if (
+                parent_recency_field is not None
+                and parent_recency_cutoff is not None
+                and _is_older_than_cutoff(parent.get(parent_recency_field), parent_recency_cutoff)
+            ):
                 continue
             inject = (
                 _make_parent_field_injector(parent, child_config.fan_out_include_parent_fields)
@@ -767,6 +996,7 @@ def get_rows(
     incremental_field: str | None = None,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    parent_cutoff_override: datetime | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -780,6 +1010,7 @@ def get_rows(
             db_incremental_field_last_value=db_incremental_field_last_value,
             egress_identity=egress_identity,
             api_version=api_version,
+            parent_cutoff_override=parent_cutoff_override,
         )
         return
 
@@ -798,6 +1029,7 @@ def get_rows(
 
     item_filter = _get_item_filter(endpoint)
     item_mapper = _get_item_mapper(endpoint)
+    body_transform = _get_body_transform(endpoint)
 
     initial_params = _build_initial_params(
         config, endpoint, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -810,21 +1042,43 @@ def get_rows(
     else:
         url = _build_initial_url(config, repository, initial_params)
 
-    org_scoped = endpoint in ORG_SCOPED_ENDPOINTS
+    # A 404 is normally fatal (wrong repository, revoked access), but for the org-scoped tables and
+    # the endpoints flagged tolerate_not_found it just means the resource does not exist for this
+    # repository, so those sync zero rows instead of failing the schema.
+    skip_on_not_found = endpoint in ORG_SCOPED_ENDPOINTS or config.tolerate_not_found
     while True:
         try:
-            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=org_scoped)
+            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=skip_on_not_found)
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
             break
         except GithubOrgNotFoundError:
-            logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
+            logger.debug(f"Github: {endpoint} not available for this repository, syncing zero rows: url={url}")
+            break
+        except GithubRepositoryTooLargeError:
+            logger.debug(f"Github: repository too large for code frequency stats, syncing zero rows: url={url}")
+            break
+
+        # The /stats/* aggregates are computed asynchronously: GitHub answers 202 with no body
+        # while a fresh computation runs. Nothing to sync this time; the next sync picks it up.
+        if response.status_code == 202:
+            logger.debug(f"Github: statistics not ready yet, syncing zero rows: url={url}")
+            break
+
+        # A 204 No Content has an empty body, which GitHub returns on the /stats/* endpoints for a
+        # repository with no commit activity. There is nothing to parse, so sync zero rows rather
+        # than crashing on response.json(), because an empty body raises a JSONDecodeError.
+        if response.status_code == 204:
+            logger.debug(f"Github: 204 no content, syncing zero rows: url={url}")
             break
 
         data = response.json()
         # Most GitHub list endpoints return a JSON array at the top level,
-        # but some (e.g. /actions/runs) wrap results in {"<resource>": [...]}.
-        if config.response_data_path and isinstance(data, dict):
+        # but some (e.g. /actions/runs) wrap results in {"<resource>": [...]}, and a few
+        # (/languages, /topics, the single-object reads) aren't row-shaped at all.
+        if body_transform is not None:
+            data = body_transform(data, repository)
+        elif config.response_data_path and isinstance(data, dict):
             data = data.get(config.response_data_path, [])
         if not isinstance(data, list) or not data:
             break
@@ -911,6 +1165,28 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
     return transform
 
 
+async def _chain_webhook_items_with_reconciliation(
+    webhook_items: AsyncIterator[pa.Table],
+    make_reconcile_rows: Callable[[], Iterator[Any]],
+) -> AsyncIterator[Any]:
+    """Drain the webhook files, then run the bounded reconciliation poll. The poll is a blocking
+    requests-based generator, so each step runs in a worker thread to keep the event loop (and
+    the async S3 client the drain used) responsive."""
+    async for table in webhook_items:
+        yield table
+    reconcile_rows = make_reconcile_rows()
+    done = object()
+
+    def next_or_done() -> Any:
+        return next(reconcile_rows, done)
+
+    while True:
+        table = await asyncio.to_thread(next_or_done)
+        if table is done:
+            return
+        yield table
+
+
 def github_source(
     personal_access_token: str,
     repository: str,
@@ -991,7 +1267,32 @@ def github_source(
                 if endpoint_config.version_keys
                 else None
             )
-            return webhook_source_manager.get_items(table_transformer=transformer)
+            webhook_items = webhook_source_manager.get_items(table_transformer=transformer)
+            reconcile_days = endpoint_config.webhook_reconcile_lookback_days
+            if reconcile_days is None:
+                return webhook_items
+            # GitHub never fires a deployment_status webhook for the inactive state, so a pure
+            # webhook drain would miss rollback/auto_inactive transitions; chase the drain with a
+            # bounded fan-out over recent parents so those rows still arrive from the list API.
+            # should_use_incremental_field is forced on so the fan-out applies the parent recency
+            # skip against the real child watermark; the window override below, not the watermark,
+            # bounds the parent walk either way.
+            return _chain_webhook_items_with_reconciliation(
+                webhook_items,
+                lambda: get_rows(
+                    personal_access_token=personal_access_token,
+                    repository=repository,
+                    endpoint=endpoint,
+                    logger=logger,
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    incremental_field=incremental_field,
+                    egress_identity=egress_identity,
+                    api_version=api_version,
+                    parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
+                ),
+            )
 
         if webhook_only_poll_noop:
             return iter([])

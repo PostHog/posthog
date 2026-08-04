@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import clsx from 'clsx'
+import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
 
@@ -16,6 +17,9 @@ type NotebookDataframeTableProps = {
     hasMore?: boolean
     /** Disables all pagination controls, e.g. while a page fetch is already in flight. */
     paginationDisabledReason?: string
+    /** Clamp long cell values to a single line (ellipsis); hover shows the full value, double-click
+     * expands it inline. Keeps a wide text column from blowing up row height. */
+    truncateCells?: boolean
     onNextPage: () => void
     onPreviousPage: () => void
     onPageSizeChange: (pageSize: number) => void
@@ -40,6 +44,26 @@ const formatCellValue = (value: unknown): string => {
     }
 }
 
+// A cell that stays on one line (ellipsis) until the user opens it. Hover surfaces the full value
+// as a native tooltip; double-click toggles the full value wrapped inline, so a long string doesn't
+// force the whole row tall by default.
+const TruncatableCell = ({ value }: { value: unknown }): JSX.Element => {
+    const [expanded, setExpanded] = useState(false)
+    const text = formatCellValue(value)
+    return (
+        <span
+            className={clsx(
+                'font-mono text-xs',
+                expanded ? 'whitespace-pre-wrap break-words select-text' : 'inline-block max-w-xs truncate align-bottom'
+            )}
+            title={!expanded && text ? text : undefined}
+            onDoubleClick={() => setExpanded((prev) => !prev)}
+        >
+            {text}
+        </span>
+    )
+}
+
 export const NotebookDataframeTable = ({
     result,
     loading,
@@ -47,6 +71,7 @@ export const NotebookDataframeTable = ({
     pageSize,
     hasMore,
     paginationDisabledReason,
+    truncateCells,
     onNextPage,
     onPreviousPage,
     onPageSizeChange,
@@ -57,10 +82,15 @@ export const NotebookDataframeTable = ({
                 title: column,
                 key: `${column}-${index}`,
                 dataIndex: column,
-                render: (value) => <span className="font-mono text-xs">{formatCellValue(value)}</span>,
+                render: (value) =>
+                    truncateCells ? (
+                        <TruncatableCell value={value} />
+                    ) : (
+                        <span className="font-mono text-xs">{formatCellValue(value)}</span>
+                    ),
             })) ?? []
         )
-    }, [result?.columns])
+    }, [result?.columns, truncateCells])
 
     const rowsWithIndex = useMemo(() => {
         const baseIndex = (page - 1) * pageSize

@@ -24,10 +24,6 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -37,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
@@ -47,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
@@ -252,8 +250,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         placeholder="db.example.com",
                         caption=(
                             "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
-                            "firewall allowlist (see the docs above) and use a public host — `localhost` and private "
-                            "IPs (10.x, 172.16–31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
                             "exposed publicly, enable the SSH tunnel below."
                         ),
                         secret=False,
@@ -406,6 +404,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "This table is set to sync incrementally but has no incremental field configured, so "
                 "PostHog can't build its sync query. Choose an incremental field for the table in its "
                 "sync settings, or switch it to full table replication, then re-enable the sync."
+            ),
+            # `xmin` was picked as a plain incremental/append field instead of through the dedicated
+            # xmin replication sync type — `_build_query`/`_build_count_query` raise this before
+            # emitting SQL Postgres would reject (`xid >= integer` has no operator). The stored config
+            # is fixed until the customer changes it, so every retry re-hits the same wall.
+            XMIN_AS_INCREMENTAL_FIELD_ERROR: (
+                "This table's incremental field is set to Postgres's internal 'xmin' system column, "
+                "which only works with the dedicated xmin replication sync type. Switch this schema to "
+                "xmin replication, or choose a different incremental field, then re-enable the sync."
             ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
@@ -645,15 +652,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
-            # Raised by the source Postgres when the incremental query compares an integer column
-            # against a non-integer cursor value, e.g. `WHERE "id" > '1.5'`. `_build_query` renders
-            # the stored `incremental_field_last_value` as a SQL literal, so a fractional/non-integer
-            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer`.
-            # This is deterministic — every retry re-runs the identical failing query — and signals a
-            # type mismatch between the incremental field and its data. The volatile offending value
-            # (`: "1.5"`) is excluded from the match. Coercing the cursor here would change sync
-            # semantics (risk of skipped/duplicated rows), so stop and ask the user to reset.
+            # Raised by the source Postgres when the incremental query compares an integer/bigint
+            # column against a non-integer cursor value, e.g. `WHERE "id" > '1.5'` or
+            # `WHERE "id" > '2026-04-26T20:58:57.557000'`. `_build_query` renders the stored
+            # `incremental_field_last_value` as a SQL literal, so a fractional/timestamp-shaped
+            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer` (or
+            # `bigint`, depending on the column's declared width). This is deterministic — every retry
+            # re-runs the identical failing query — and signals a type mismatch between the
+            # incremental field and its data. The volatile offending value is excluded from the match.
+            # Coercing the cursor here would change sync semantics (risk of skipped/duplicated rows),
+            # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
@@ -671,6 +681,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation's own definition calls date_trunc()/extract() with a unit
+            # PostgreSQL doesn't support for the interval type (SQLSTATE 0A000) — e.g.
+            # `date_trunc('week', some_interval_column)`, since week truncation is only defined
+            # for timestamp/timestamptz, not interval. We only ever run `SELECT ... FROM
+            # <relation>`; the expression lives in the customer's own generated column or view
+            # definition, so it's deterministic against the schema and retrying re-evaluates the
+            # same relation into the same wall.
+            "not supported for type interval": (
+                "A table or view you're syncing has a computed column or definition that calls "
+                "date_trunc() or extract() with a unit PostgreSQL doesn't support for interval "
+                'values (PostgreSQL reported "not supported for type interval") — for example '
+                "truncating to a week on an interval column, which is only supported on "
+                "timestamps. Update that column's definition to use a supported unit, or remove "
+                "it from the sync, then re-enable the sync."
+            ),
             # A selected relation's own definition writes to the database while we read it — a view or
             # trigger that calls a function which runs REFRESH MATERIALIZED VIEW (or INSERT/UPDATE/DELETE).
             # We read inside a read-only transaction and never write to the source, so Postgres rejects
@@ -700,7 +725,33 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
                 "foreign table from the sync, then re-enable the sync."
             ),
+            # A selected relation is a postgres_fdw foreign table whose locally-declared enum column
+            # doesn't match the data actually stored on the remote server — the remote row holds a
+            # label the local enum type doesn't define (SQLSTATE 22P02, "invalid input value for enum
+            # <type>: <value>"). Postgres enforces enum labels at write time on ordinary tables, so
+            # this can only surface when reading through a foreign table's separately-declared type.
+            # The schema drift lives on the customer's side and is deterministic, so retrying re-reads
+            # into the same row every time. Match the stable message and exclude the volatile enum
+            # type name and offending value.
+            "invalid input value for enum": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw) whose "
+                "locally-declared enum column doesn't match the data on the remote server "
+                '(PostgreSQL reported "invalid input value for enum"). Update the local enum type to '
+                "include the value used on the remote server, or remove the foreign table from the "
+                "sync, then re-enable the sync."
+            ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
+        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
+        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # Temporal then retries the whole activity and the failure is transient and
+        # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
+        # `exception` on every occurrence, flooding error tracking with a self-recovering failure
+        # (e.g. a cloud provider terminating a backend for maintenance or failover).
+        return {"terminating connection due to"}
 
     def reconcile_schema_metadata(
         self,

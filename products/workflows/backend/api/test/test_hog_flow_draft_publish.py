@@ -53,9 +53,19 @@ class TestHogFlowDraftPublish(APIBaseTest):
         return flow_id
 
     def _patch_actions_via_mcp(self, flow_id: str, url: str = "https://changed.example.com"):
+        # Graph content edits over MCP go through the surgical graph endpoint (a plain update
+        # rejects actions/edges outright), so drafts are staged the way real agents stage them.
         return self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"actions": [_trigger_action(), _webhook_action(url=url)]},
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"url": {"value": url}}}},
+                    }
+                ]
+            },
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
@@ -143,9 +153,15 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
         stale = "2020-01-01T00:00:00Z"
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
             {
-                "actions": [_trigger_action(), _webhook_action(url="https://other.example.com")],
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"url": {"value": "https://other.example.com"}}}},
+                    }
+                ],
                 "base_updated_at": stale,
             },
             HTTP_X_POSTHOG_CLIENT="mcp",
@@ -291,8 +307,8 @@ class TestHogFlowDraftPublish(APIBaseTest):
         )
         flow_id = self._create_active_three_step_flow()
         stage = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            self._DELETE_ACTION_1_PAYLOAD,
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert stage.status_code == 200, stage.json()
@@ -496,8 +512,8 @@ class TestHogFlowDraftPublish(APIBaseTest):
     def test_publish_deleting_a_step_persists_its_redirect(self, _flag):
         flow_id = self._create_active_three_step_flow()
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            self._DELETE_ACTION_1_PAYLOAD,
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 200, response.json()

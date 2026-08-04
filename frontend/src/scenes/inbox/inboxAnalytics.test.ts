@@ -1,9 +1,12 @@
 import posthog from 'posthog-js'
 
 import {
+    captureInboxQueryChanged,
     captureInboxReportAction,
     captureInboxReportsImpressed,
+    captureInboxSettingsChanged,
     captureInboxViewed,
+    captureScoutConfigChanged,
     captureSignalSourceConnected,
     INBOX_EVENTS,
 } from './inboxAnalytics'
@@ -152,6 +155,68 @@ describe('inboxAnalytics', () => {
             bulk_size: 4,
             dismissal_reason: 'wontfix_irrelevant',
         })
+    })
+
+    it('records how the query moved without shipping what was typed into the search box', () => {
+        captureInboxQueryChanged({
+            change: 'search',
+            tab: 'reports',
+            scope: 'entire-project',
+            sortField: 'created_at',
+            sortDirection: 'desc',
+            sourceProductFilter: ['error_tracking'],
+            scoutFilter: [],
+            priorityFilter: ['P0'],
+            searchQuery: '  acme checkout crash  ',
+            hasActiveFilters: true,
+        })
+        const props = lastCapture(INBOX_EVENTS.QUERY_CHANGED)
+        expect(props).toMatchObject({
+            change: 'search',
+            tab: 'reports',
+            scope: 'entire-project',
+            sort_field: 'created_at',
+            source_product_filter: ['error_tracking'],
+            has_search: true,
+            search_length: 'acme checkout crash'.length,
+        })
+        expect(JSON.stringify(props)).not.toContain('acme')
+    })
+
+    // A settings value can be a collection of the customer's own names — the base-branch overrides
+    // map their repositories, a Slack destination names their channel. Only its size may leave.
+    it.each<[string, unknown, unknown, number | null]>([
+        ['a scalar', false, false, null],
+        ['a repo map', { 'acme/web': 'release', 'acme/api': 'main' }, null, 2],
+        ['an empty map', {}, null, 0],
+    ])('sends %s as a settings value', (_name, newValue, expectedValue, expectedSize) => {
+        captureInboxSettingsChanged({ setting: 'autostart_base_branches', newValue, success: true, scope: 'team' })
+        const props = lastCapture(INBOX_EVENTS.SETTINGS_CHANGED)
+        expect(props).toMatchObject({ new_value: expectedValue, new_value_size: expectedSize })
+        expect(JSON.stringify(props)).not.toContain('acme')
+    })
+
+    it('reduces a structured scout setting to its size on both sides of the change', () => {
+        captureScoutConfigChanged({
+            skillName: 'signals-scout-general',
+            scoutOrigin: 'canonical',
+            setting: 'output_destinations',
+            oldValue: {},
+            newValue: { slack: { integration_id: 3, channel: 'acme-alerts' } },
+            success: true,
+        })
+        const props = lastCapture(INBOX_EVENTS.SCOUT_CONFIG_CHANGED)
+        expect(props).toMatchObject({
+            skill_name: 'signals-scout-general',
+            scout_origin: 'canonical',
+            setting: 'output_destinations',
+            old_value: null,
+            old_value_size: 0,
+            new_value: null,
+            new_value_size: 1,
+            success: true,
+        })
+        expect(JSON.stringify(props)).not.toContain('acme-alerts')
     })
 
     it('records a connected source with first-connection and wizard flags', () => {

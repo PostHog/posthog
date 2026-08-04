@@ -23,6 +23,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
     PRCostSummary,
@@ -243,6 +245,7 @@ def query_workflow_window_costs(
     date_to: datetime | None,
     branch: str | None,
     run_scope: WorkflowHealthRunScope,
+    workload: Workload = Workload.DEFAULT,
 ) -> dict[str, PRCostAggregate]:
     """Per-workflow billable cost over [date_from, date_to] (optional branch/run_scope), keyed by workflow_name.
 
@@ -267,7 +270,9 @@ def query_workflow_window_costs(
         .replace("__BRANCH__", branch_clause)
         .replace("__RUN_SCOPE__", run_scope_clause)
     )
-    response = curated.run(sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders)
+    response = curated.run(
+        sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders, workload=workload
+    )
     return {(workflow or ""): _aggregate(*agg) for workflow, *agg in response.results or []}
 
 

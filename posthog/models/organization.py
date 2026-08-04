@@ -235,6 +235,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
+    enforce_verified_domains = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.",
+    )
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_create_projects = models.BooleanField(
         default=False,
@@ -749,6 +754,21 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
     if deleted_count > 0:
         logger.info(
             "Removed alert subscriptions for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_event_streams_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from products.customer_analytics.backend.facade.api import delete_event_streams_for_user
+
+    deleted_count = delete_event_streams_for_user(user_id=instance.user_id, organization_id=instance.organization_id)
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed customer analytics event streams for user removed from organization",
             user_id=instance.user_id,
             organization_id=str(instance.organization_id),
             deleted_count=deleted_count,

@@ -2,6 +2,7 @@ import '~/styles'
 
 import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
+import { configure as configureTestingLibrary } from '@testing-library/dom'
 
 import { apiHostOrigin } from 'lib/utils/apiHost'
 
@@ -16,6 +17,12 @@ import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 import { withPageUrl } from './decorators/withPageUrl'
 import { withTheme } from './decorators/withTheme'
+
+// Play functions start as soon as React commits the first render, but scene-based stories keep
+// loading data for several seconds after that — longer on a busy CI runner. testing-library's
+// default 1s findBy*/waitFor timeout loses that race and fails plays spuriously, so give every
+// story a load-tolerant default budget instead of making each play pass its own timeout.
+configureTestingLibrary({ asyncUtilTimeout: 15000 })
 
 const setupMsw = (): void => {
     // Make sure the msw worker is started

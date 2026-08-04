@@ -91,6 +91,14 @@ impl PhaseTimings {
         self.last_op.set(op);
     }
 
+    /// Fold in blur work measured elsewhere (the parallel image workers time their own jobs).
+    pub fn add_blur(&self, elapsed_ns: u64, count: u32) {
+        self.blur_total_ns
+            .set(self.blur_total_ns.get().saturating_add(elapsed_ns));
+        self.blur_count
+            .set(self.blur_count.get().saturating_add(count));
+    }
+
     /// Times one in-scrub op into the `cv` or `blur` totals. Restores the `"scrub"` marker only on
     /// clean exit, so after a panic `last_op` names the op that died.
     pub(crate) fn time_op<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {

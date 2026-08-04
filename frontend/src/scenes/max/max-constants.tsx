@@ -851,18 +851,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Fixing SQL...'
         },
     },
-    filter_revenue_analytics: {
-        name: 'Filter revenue analytics',
-        description: 'Filter revenue analytics to find the most impactful revenue insights',
-        product: Scene.RevenueAnalytics,
-        icon: iconForType('revenue_analytics'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Filtered revenue analytics'
-            }
-            return 'Filtering revenue analytics...'
-        },
-    },
     filter_web_analytics: {
         name: 'Filter web analytics',
         description: 'Filter web analytics to analyze traffic patterns and user behavior',

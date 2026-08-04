@@ -186,6 +186,44 @@ def _resolve_groups_from_person_properties(team: Team, person: Person) -> dict |
     return {"instance": SITE_URL, "project": str(team.uuid), "organization": org_id}
 
 
+def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_ids: list[str]) -> dict | None:
+    """Resolve org ``$groups`` for an already-resolved person: membership, then analytics
+    events, then the person's own profile.
+
+    Each lookup hits a different subsystem (Postgres, ClickHouse, personhog), so failures
+    are isolated per step: the created event is emitted exactly once, and a transient error
+    in one source must degrade to the next fallback rather than permanently losing the
+    ticket's attribution (which downstream SLA/tagging workflows key off).
+    """
+    if distinct_ids:
+        try:
+            membership = (
+                OrganizationMembership.objects.select_related("organization")
+                .filter(user__distinct_id__in=distinct_ids)
+                .first()
+            )
+            if membership:
+                return build_groups(membership.organization, team)
+        except Exception:
+            logger.exception("ticket_org_membership_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+        # Membership rows are region-local: accounts registered in another region
+        # never appear in this Postgres. Fall back to the $groups their sessions
+        # stamped onto this project's analytics events.
+        try:
+            groups = _resolve_groups_from_analytics(team, distinct_ids)
+            if groups:
+                return groups
+        except Exception:
+            logger.exception("ticket_org_analytics_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+    # Their events may have aged out of the analytics window; the profile they
+    # identified with is still the same person's own claim about their org.
+    try:
+        return _resolve_groups_from_person_properties(team, person)
+    except Exception:
+        logger.exception("ticket_org_person_properties_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+        return None
+
+
 def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     """Resolve the customer organization's ``$groups`` from the requester's identity.
 
@@ -204,29 +242,19 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
     # have no org membership, don't guess via email (a shared email could resolve to a
     # different person's org), so return early instead of falling through.
     if ticket.distinct_id:
-        # Only is_identified and properties are read, and the membership lookup below keys off
-        # the ticket's own distinct_id — so skip fetching the person's distinct_ids.
-        with personhog_caller_tag("conversations/ticket-event-person"):
-            persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
+        persons: list[Person] = []
+        try:
+            # Only is_identified and properties are read, and the membership lookup keys off
+            # the ticket's own distinct_id — so skip fetching the person's distinct_ids.
+            with personhog_caller_tag("conversations/ticket-event-person"):
+                persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
+        except Exception:
+            # A failed lookup is not "no identified person": fall through to the email
+            # path instead of losing attribution to a transient personhog error.
+            logger.exception("ticket_org_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         identified_person = next((p for p in persons if p.is_identified), None)
         if identified_person is not None:
-            membership = (
-                OrganizationMembership.objects.select_related("organization")
-                .filter(user__distinct_id=ticket.distinct_id)
-                .first()
-            )
-            if membership:
-                return True, build_groups(membership.organization, team)
-            # Membership rows are region-local: accounts registered in another region
-            # never appear in this Postgres. Fall back to the $groups their sessions
-            # stamped onto this project's analytics events (same distinct_id, so the
-            # shared-email caveat above still holds).
-            groups = _resolve_groups_from_analytics(team, [ticket.distinct_id])
-            if groups:
-                return True, groups
-            # Their events may have aged out of the analytics window; the profile they
-            # identified with is still the same person's own claim about their org.
-            groups = _resolve_groups_from_person_properties(team, identified_person)
+            groups = _org_groups_for_person(ticket, team, identified_person, [ticket.distinct_id])
             if groups:
                 return True, groups
             return False, None
@@ -242,22 +270,15 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
         # via the conversations signal wiring, so import it lazily.
         from products.conversations.backend.person_lookup import _get_persons_by_email  # noqa: PLC0415
 
-        person = _get_persons_by_email(team, [email]).get(email.lower())
+        person: Person | None = None
+        try:
+            person = _get_persons_by_email(team, [email]).get(email.lower())
+        except Exception:
+            # Same isolation as above: a failed email lookup still leaves the
+            # Slack-channel fallback in _resolve_org_groups a chance to attribute.
+            logger.exception("ticket_org_email_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         if person is not None:
-            if person.distinct_ids:
-                membership = (
-                    OrganizationMembership.objects.select_related("organization")
-                    .filter(user__distinct_id__in=person.distinct_ids)
-                    .first()
-                )
-                if membership:
-                    return True, build_groups(membership.organization, team)
-                # Same cross-region fallback as above, keyed by the person's distinct_ids.
-                groups = _resolve_groups_from_analytics(team, person.distinct_ids)
-                if groups:
-                    return True, groups
-            # Same last resort as above: the org id the person's own profile carries.
-            groups = _resolve_groups_from_person_properties(team, person)
+            groups = _org_groups_for_person(ticket, team, person, person.distinct_ids or [])
             if groups:
                 return True, groups
 
@@ -311,6 +332,12 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, 
     if groups is not None:
         return process_person, groups, OrganizationIdSource.PERSON
 
+    # Deliberately no analytics fallback keyed on the bare ticket distinct_id here: for
+    # email/Slack/Teams that value is the raw customer email, and events under it are
+    # captured with the public project token, so anyone who knows the email can plant a
+    # $groups value. identity_verified only attests the ticket's sender, not who captured
+    # historical events under that key. Event-derived attribution is only trusted when
+    # anchored to a resolved person (see _org_groups_for_person).
     if ticket.channel_source == Channel.SLACK.value and ticket.slack_channel_id:
         groups = _resolve_groups_from_slack_channel(team, ticket.slack_channel_id)
         if groups is not None:
@@ -536,9 +563,11 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     try:
         if ticket.organization_id:
             properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
-            # A channel-inferred org says nothing about the sender, so don't create a
-            # person profile for it (legacy rows without a source were person-resolved).
-            process_person = ticket.organization_id_source != OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
+            # Only a person-resolved org attests the sender (legacy rows without a source
+            # were person-resolved); a channel-inferred org says nothing about them, so
+            # don't create a person profile for it. Allowlist rather than blocklist so a
+            # future non-person source defaults to no person processing.
+            process_person = ticket.organization_id_source in (OrganizationIdSource.PERSON, None, "")
         else:
             process_person, groups, groups_source = _resolve_org_groups(ticket, team)
             if groups is not None:

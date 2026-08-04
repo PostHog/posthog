@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db.models import F, Q, Sum
+from django.db.utils import OperationalError
 
 from dateutil import parser
+from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.cloud_utils import get_cached_instance_license
@@ -233,6 +235,19 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         )
 
         return result
+    except redis_exceptions.RedisError as e:
+        # The billing check already fails open, so a Redis connectivity blip (e.g. a
+        # DNS resolution failure reaching the quota-limiting cache) shouldn't be reported
+        # as an error-tracking issue.
+        await logger.awarning(f"BillingLimits: Redis error while checking billing limits, failing open: {e}")
+
+        return False
+    except OperationalError as e:
+        # Same rationale as above: a dropped Postgres connection while fetching billing
+        # data is a transient infra blip, and the check already fails open.
+        await logger.awarning(f"BillingLimits: Database error while checking billing limits, failing open: {e}")
+
+        return False
     except Exception as e:
         await logger.adebug(f"BillingLimits: Failed with exception {e}")
         capture_exception(e)

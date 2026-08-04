@@ -58,9 +58,6 @@ tools:
     persons-emails-list:
         operation: persons_emails_list
         enabled: false
-    persons-lifecycle-retrieve:
-        operation: persons_lifecycle_retrieve
-        enabled: false
     persons-list:
         operation: persons_list
         enabled: true
@@ -136,6 +133,9 @@ tools:
             Returns 202 Accepted.
         exclude_params:
             - format
+    persons-push-notifications-list:
+        operation: persons_push_notifications_list
+        enabled: false
     persons-reset-person-distinct-id-create:
         operation: persons_reset_person_distinct_id_create
         enabled: false

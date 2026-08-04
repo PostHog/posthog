@@ -15,6 +15,13 @@ from products.signals.backend.scout_harness.tools.emit import (
     emit_finding,
     normalize_tags,
 )
+from products.signals.backend.scout_harness.tools.notes import (
+    InvalidNoteError,
+    ScoutNote,
+    delete_note,
+    leave_note,
+    list_notes,
+)
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
     ProjectProfile,
@@ -53,6 +60,7 @@ __all__ = [
     "EmitResult",
     "EvidenceEntry",
     "InvalidEmitError",
+    "InvalidNoteError",
     "InvalidScratchpadError",
     "MAX_EVIDENCE_ENTRIES",
     "MAX_RUN_SEARCH_LIMIT",
@@ -61,10 +69,12 @@ __all__ = [
     "PROFILE_TTL",
     "ProjectProfile",
     "ReportEvidence",
+    "ScoutNote",
     "ScratchpadEntry",
     "RunDetail",
     "RunSummary",
     "compute_project_profile",
+    "delete_note",
     "edit_report",
     "edit_report_sync",
     "emit_finding",
@@ -73,6 +83,8 @@ __all__ = [
     "forget",
     "get_project_profile",
     "get_run",
+    "leave_note",
+    "list_notes",
     "normalize_tags",
     "remember",
     "search_scratchpad",

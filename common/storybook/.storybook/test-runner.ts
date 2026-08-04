@@ -126,7 +126,28 @@ const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
+// Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
+// cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
+// save it: `jest.retryTimes` is registered from setupFilesAfterEnv, which runs *after* the environment
+// setup this navigation happens in, so the throw kills the suite file outright. Hence retrying here.
+const NAVIGATION_TIMEOUT_MS = 45000
+const NAVIGATION_ATTEMPTS = 3
+const NAVIGATION_LIVENESS_TIMEOUT_MS = 10000
+
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+
+// Storybook channel events that mean a forced remount's play function failed. Shared between the
+// in-page listener (which also waits for the success event, `storyRendered`) and the outer check
+// that decides whether to fail the retry, so the two can't drift apart.
+const REMOUNT_FAILURE_EVENTS = [
+    'storyErrored',
+    'storyThrewException',
+    'playFunctionThrewException',
+    // Storybook can still emit `storyRendered` after this one (an unhandled error doesn't stop the
+    // story from finishing), so it must be listened for directly instead of relying on the later
+    // `storyRendered` to end the wait.
+    'unhandledErrorsWhilePlaying',
+]
 
 // Sharing/embed stories render a preview iframe pointing at the shared/embedded URL, which Storybook
 // can't serve, so it 404s to a browser error page whose rendering is browser-version-dependent (and so
@@ -137,6 +158,33 @@ const EMBED_STUB_HTML =
     '<!doctype html><meta charset="utf-8"><title>mock iframe</title><body style="color-scheme:light;background:#ffeb3b;margin:0">mock iframe</body>'
 
 export default {
+    // Overrides the runner's default prepare: identical navigation, plus a UA patch that must
+    // run BEFORE any page script. The runner itself only appends "StorybookTestRunner" to the
+    // user agent via addScriptTag AFTER the iframe's load event — app modules that evaluate
+    // during preview boot (chunk-graph dependent) read the unpatched UA, so a module-scope
+    // `inStorybookTestRunner()` caches `false` for the whole session. That intermittently
+    // disabled storybook-only rendering paths (e.g. InsightCard viz below the fold) and flipped
+    // visual regression snapshots. An init script re-runs before every document's first script,
+    // making the marker visible from the very first module evaluation.
+    async prepare({ page, browserContext, testRunnerConfig }) {
+        await page.addInitScript(() => {
+            const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
+            Object.defineProperty(navigator, 'userAgent', {
+                get: () => patchedUserAgent,
+                configurable: true,
+            })
+        })
+
+        // The rest replicates @storybook/test-runner's defaultPrepare (not exported).
+        const targetURL = process.env.TARGET_URL
+        const iframeURL = new URL('iframe.html', targetURL).toString()
+        if (testRunnerConfig?.getHttpHeaders) {
+            const headers = await testRunnerConfig.getHttpHeaders(iframeURL)
+            await browserContext.setExtraHTTPHeaders(headers)
+        }
+        await gotoStorybookIframe(page, iframeURL, targetURL)
+    },
+
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
@@ -147,6 +195,83 @@ export default {
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
+        // On jest retries the preview answers setCurrentStory with `storyUnchanged`, which
+        // does NOT re-run loaders or the play function — the retry would just re-snapshot the
+        // page the failed attempt left behind. Force a full remount so retries start fresh,
+        // and surface the replayed play function's error if it throws again.
+        if (ATTEMPT_COUNT_PER_ID[context.id]) {
+            const remountResult = await page
+                .evaluate(
+                    ({ storyId, failureEvents }) => {
+                        return new Promise<{ event: string; message?: string }>((resolve) => {
+                            const channel = (
+                                window as unknown as {
+                                    __STORYBOOK_ADDONS_CHANNEL__: {
+                                        on: (event: string, listener: (data?: unknown) => void) => void
+                                        off: (event: string, listener: (data?: unknown) => void) => void
+                                        emit: (event: string, data?: unknown) => void
+                                    }
+                                }
+                            ).__STORYBOOK_ADDONS_CHANNEL__
+                            const doneEvents = [...failureEvents, 'storyRendered']
+                            const listeners: Record<string, (data?: unknown) => void> = {}
+                            // Purely diagnostic: when the remount wait times out, the phase it was stuck
+                            // in ("loading" vs "playing") points at the story rather than the machinery.
+                            let lastPhase: string | undefined
+                            const phaseListener = (data?: unknown): void => {
+                                lastPhase = (data as { newPhase?: string } | undefined)?.newPhase
+                            }
+                            const finish = (event: string, data?: unknown): void => {
+                                clearTimeout(timeoutId)
+                                channel.off('storyRenderPhaseChanged', phaseListener)
+                                doneEvents.forEach((e) => channel.off(e, listeners[e]))
+                                // unhandledErrorsWhilePlaying's payload is an array of serialized errors;
+                                // every other done event passes the error object directly.
+                                const error = (Array.isArray(data) ? data[0] : data) as
+                                    | { message?: string; description?: string }
+                                    | undefined
+                                resolve({ event, message: error?.message ?? error?.description })
+                            }
+                            doneEvents.forEach((e) => {
+                                listeners[e] = (data?: unknown) => finish(e, data)
+                                channel.on(e, listeners[e])
+                            })
+                            channel.on('storyRenderPhaseChanged', phaseListener)
+                            // If the remount never settles, stop waiting so postVisit can proceed — but
+                            // treat it as a failed retry below rather than silently falling through as if
+                            // the remount had finished cleanly.
+                            const timeoutId = setTimeout(
+                                () =>
+                                    finish('timeout', {
+                                        message: `remount did not settle within 30s (last render phase: ${
+                                            lastPhase ?? 'unknown'
+                                        })`,
+                                    }),
+                                30000
+                            )
+                            channel.emit('forceRemount', { storyId })
+                        })
+                    },
+                    { storyId: context.id, failureEvents: REMOUNT_FAILURE_EVENTS }
+                )
+                // page.evaluate() itself can reject (e.g. the page navigated or its execution context
+                // was destroyed mid-remount) — treat that as a failure too instead of letting `undefined`
+                // pass the check below as if the remount had finished cleanly.
+                .catch((error) => ({ event: 'evaluationFailed', message: (error as Error).message }))
+            if (
+                [
+                    ...REMOUNT_FAILURE_EVENTS,
+                    'evaluationFailed',
+                    // A remount that's still running when the wait times out must not be treated as
+                    // a clean success — the snapshot flow below would then race unfinished play logic.
+                    'timeout',
+                ].includes(remountResult.event)
+            ) {
+                throw new Error(
+                    `Story remount on retry failed (${remountResult.event}): ${remountResult.message ?? 'unknown error'}`
+                )
+            }
+        }
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
         applyStoryTimeouts(page, viewportWidths, jestTimeout)
@@ -158,6 +283,13 @@ export default {
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        // The generated test also calls postVisit when the story or its play function already
+        // failed (so configs can do failure handling — our jest environment takes the failure
+        // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest
+        // timeout, which would bury the real error under an opaque "Exceeded timeout of 60000 ms".
+        if (context.hasFailure) {
+            return
+        }
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
         const effectiveViewport = viewportWidths?.length
@@ -200,6 +332,44 @@ export default {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
+
+async function gotoStorybookIframe(page: Page, iframeURL: string, targetURL: string | undefined): Promise<void> {
+    const unreachable = (detail: string): Error =>
+        new Error(`Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${detail}`)
+
+    for (let attempt = 1; attempt <= NAVIGATION_ATTEMPTS; attempt++) {
+        try {
+            await page.goto(iframeURL, { waitUntil: 'load', timeout: NAVIGATION_TIMEOUT_MS })
+            return
+        } catch (error) {
+            const detail = (error as Error).message ?? String(error)
+            if (detail.includes('ERR_CONNECTION_REFUSED')) {
+                throw unreachable(detail)
+            }
+            if (attempt === NAVIGATION_ATTEMPTS) {
+                throw new Error(
+                    `Loading ${iframeURL} timed out on all ${NAVIGATION_ATTEMPTS} attempts of ${NAVIGATION_TIMEOUT_MS}ms.\n\n${detail}`
+                )
+            }
+            // Only a slow bundle load earns another attempt. A server that can't serve its index within
+            // seconds has wedged, and retrying every story file would burn the shard's whole timeout
+            // budget before reporting anything useful.
+            const serverResponds = await page.request
+                .get(targetURL ?? iframeURL, { timeout: NAVIGATION_LIVENESS_TIMEOUT_MS })
+                .then((response) => response.ok())
+                .catch(() => false)
+            if (!serverResponds) {
+                throw unreachable(detail)
+            }
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[test-runner] Navigating to ${iframeURL} timed out after ${NAVIGATION_TIMEOUT_MS}ms, retrying (${
+                    attempt + 1
+                }/${NAVIGATION_ATTEMPTS})`
+            )
+        }
+    }
+}
 
 async function expectStoryToMatchSnapshot(
     page: Page,
@@ -283,8 +453,11 @@ async function expectStoryToMatchSnapshot(
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
     await page.waitForTimeout(300)
 
-    const { waitForLoadersToDisappear = true, waitForSelector, waitForSelectorTimeout } =
-        storyContext.parameters?.testOptions ?? {}
+    const {
+        waitForLoadersToDisappear = true,
+        waitForSelector,
+        waitForSelectorTimeout,
+    } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong

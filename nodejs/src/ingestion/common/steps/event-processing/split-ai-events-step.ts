@@ -1,19 +1,11 @@
 import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '~/common/outputs'
 import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
+import { LARGE_AI_PROPERTIES } from '~/ingestion/common/subpipelines/large-ai-properties'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ProcessedEvent } from '~/types'
 
 import { EventToEmit } from './emit-event-step'
-
-const LARGE_AI_PROPERTIES = new Set([
-    '$ai_input',
-    '$ai_output',
-    '$ai_output_choices',
-    '$ai_input_state',
-    '$ai_output_state',
-    '$ai_tools',
-])
 
 export interface SplitAiEventsStepInput {
     eventsToEmit: EventToEmit<EventOutput>[]

@@ -12,12 +12,12 @@ import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreS
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
-import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -47,15 +47,21 @@ import { AISection } from 'products/conversations/frontend/scenes/settings/AISec
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
+import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
-import { WarehousePersonPropertiesSetting } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
+import {
+    WarehouseGroupPropertiesSetting,
+    WarehousePersonPropertiesSetting,
+} from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
+import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
@@ -102,7 +108,7 @@ import {
     LogsPiiScrubSettings,
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
-import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
+import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -150,6 +156,7 @@ import { OrganizationSecuritySettings } from './organization/OrganizationSecurit
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -168,6 +175,7 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
+import { HomepageSetting, SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -355,7 +363,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'mcp-servers-manage',
                 title: 'MCP servers',
-                description: 'Install and manage MCP servers for your PostHog AI and PostHog Code agents.',
+                description: 'Install and manage MCP servers for your PostHog AI and PostHog Desktop agents.',
                 component: <McpStoreSettings />,
                 keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
@@ -442,13 +450,31 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['accounts', 'group', 'b2b'],
             },
             {
+                id: 'customer-analytics-event-stream',
+                title: 'Event stream',
+                description:
+                    "Stream selected customers' events to a Slack channel of your choice in real time. Each team member configures their own stream: pick your events and channel here, then add customers from their account profiles.",
+                component: <CustomerAnalyticsEventStream />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
+            },
+            {
                 id: 'customer-analytics-person-properties',
-                title: 'Person properties from the warehouse',
+                title: 'Person properties',
                 description:
                     'Sync warehouse table columns onto matching people as person properties, and manage their schedule, backfills, and run history.',
                 component: <WarehousePersonPropertiesSetting />,
                 flag: 'WAREHOUSE_PERSON_PROPERTIES',
                 keywords: ['warehouse', 'person', 'properties', 'sync', 'backfill'],
+            },
+            {
+                id: 'customer-analytics-group-properties',
+                title: 'Group properties',
+                description:
+                    'Sync warehouse table columns onto matching groups as group properties, and manage their schedule, backfills, and run history.',
+                component: <WarehouseGroupPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'group', 'properties', 'sync', 'backfill'],
             },
         ],
     },
@@ -787,15 +813,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Link to person',
                 description: (
                     <>
-                        The log attribute PostHog reads to identify which person a log belongs to. Matched against the
-                        person&apos;s distinct IDs to surface logs on their profile. Defaults to{' '}
-                        <code>posthogDistinctId</code> — the key the JavaScript and React Native SDKs auto-attach.
-                        Override only if your backend pipeline emits the person identifier under a different key.
+                        The log attributes PostHog reads to identify which person a log belongs to. A log is linked when
+                        any of these attributes matches one of the person&apos;s distinct IDs. Defaults to{' '}
+                        <code>posthogDistinctId</code>, the key the JavaScript and React Native SDKs auto-attach. Add
+                        keys only if your backend pipeline emits the person identifier under different attributes.
                     </>
                 ),
                 searchDescription:
-                    "The log attribute PostHog reads to identify which person a log belongs to. Matched against the person's distinct IDs to surface logs on their profile. Defaults to posthogDistinctId — the key the JavaScript and React Native SDKs auto-attach. Override only if your backend pipeline emits the person identifier under a different key.",
-                component: <LogsDistinctIdAttributeKey />,
+                    "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
+                component: <LogsDistinctIdAttributeKeys />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
@@ -847,6 +873,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsMetricRulesSection />,
                 flag: LogsFeatureFlagKeys.metricRules,
                 keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
+            },
+            {
+                id: 'logs-retention-rules',
+                title: 'Retention rules',
+                description:
+                    "Keep matching logs longer or shorter than the environment default using ordered rules. The first matching rule sets a log's retention; retention is applied at ingest.",
+                component: <LogsRetentionSection />,
+                flag: LogsFeatureFlagKeys.retentionRules,
+                keywords: ['retention', 'storage', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
             {
                 id: 'logs-alerting',
@@ -996,14 +1031,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Exclude test accounts from revenue calculations and reports.',
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
-            },
-            {
-                // FIXME: should not be in settings
-                id: 'revenue-analytics-goals',
-                title: 'Revenue goals',
-                description: 'Set revenue targets to track performance against your business objectives.',
-                component: <GoalsConfiguration />,
-                keywords: ['target', 'mrr', 'arr', 'goal'],
             },
             {
                 // FIXME: should not be in settings
@@ -1343,7 +1370,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-engagement-events',
                 title: 'Engagement events',
                 description:
-                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event.',
+                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
                 docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
                 component: <WorkflowsEngagementEventsSettings />,
                 keywords: [
@@ -1360,6 +1387,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'bounced',
                     'blocked',
                     'failed',
+                ],
+            },
+            {
+                id: 'workflows-email-tracking-consent',
+                title: 'Email tracking consent',
+                description:
+                    'Controls whether open and click tracking on marketing workflow emails requires recipient consent. Untracked emails contain no tracking pixel and no rewritten links, and never record opens or clicks. Transactional emails are exempt. Delivery, bounce, and unsubscribe events are always recorded.',
+                component: <WorkflowsEmailTrackingConsentSettings />,
+                keywords: [
+                    'workflows',
+                    'email',
+                    'tracking',
+                    'consent',
+                    'pixel',
+                    'cnil',
+                    'gdpr',
+                    'privacy',
+                    'opt-in',
+                    'opt-out',
                 ],
             },
         ],
@@ -1569,6 +1615,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
         flag: 'PROJECT_SECRET_API_KEYS',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'environment-secret-api-keys',
@@ -1688,6 +1735,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/settings/sso',
                 component: <VerifiedDomains />,
                 keywords: ['sso', 'saml', 'single sign-on', 'domain verification', 'enforce'],
+            },
+            {
+                id: 'enforce-verified-domains',
+                title: 'Domain enforcement',
+                component: <EnforceVerifiedDomains />,
+                keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
             },
         ],
     },
@@ -1989,6 +2042,38 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-navigation',
+        title: 'Navigation',
+        flag: 'UI_CUSTOMIZATION',
+        settings: [
+            {
+                id: 'homepage',
+                title: 'Homepage',
+                description:
+                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
+                component: <HomepageSetting />,
+                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
+            },
+            {
+                id: 'sidebar-items',
+                title: 'Navigation items',
+                description:
+                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
+                component: <SidebarItemsSetting />,
+                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
+            },
+            {
+                id: 'sidebar-my-tools',
+                title: 'My Tools',
+                description:
+                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
+                component: <SidebarMyToolsSetting />,
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-feature-previews',
         title: 'Feature previews',
         settings: [
@@ -2068,6 +2153,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
                 flag: 'SLACK_APP_OAUTH',
+            },
+            {
+                id: 'personal-integrations-posthog',
+                title: 'PostHog project',
+                description:
+                    'Connect another PostHog project (in another region or your own) to act in it through its API, for example to dispatch tasks that must run there.',
+                component: <PersonalPosthogConnections />,
+                keywords: ['posthog', 'integration', 'connect', 'region', 'cross-region', 'task', 'personal'],
+                flag: 'POSTHOG_CONNECT',
             },
         ],
     },

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
+import { IconCopy, IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -13,9 +13,9 @@ import { DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
+import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
-import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -99,6 +99,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         scanner,
         triggeringOnDemandObservation,
         retryingObservationIds,
+        copyingAllObservations,
     } = useValues(logic)
     const {
         refreshObservations,
@@ -112,6 +113,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationSubjectFilter,
         setObservationDateRange,
         clearObservationFilters,
+        copyAllObservations,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
     const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
@@ -151,18 +153,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             render: (_, obs) => (
                 <div className="flex items-center gap-1">
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
-                    {obs.status === 'failed' && (
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            onClick={() => retryObservation(obs.id)}
-                            loading={retryingObservationIds.includes(obs.id)}
-                            disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
-                            tooltip="Retry scan"
-                            data-attr="vision-observation-retry"
-                        />
-                    )}
+                    <ObservationRetryButton
+                        status={obs.status}
+                        errorReason={obs.error_reason}
+                        onRetry={() => retryObservation(obs.id)}
+                        loading={retryingObservationIds.includes(obs.id)}
+                        userAccessLevel={scanner?.user_access_level}
+                        iconOnly
+                        dataAttr="vision-observation-retry"
+                    />
                 </div>
             ),
         },
@@ -298,6 +297,19 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     Clear filters
                                 </LemonButton>
                             </>
+                        )}
+                        {scannerType === 'summarizer' && observationStats.total > 0 && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconCopy />}
+                                onClick={() => copyAllObservations()}
+                                loading={copyingAllObservations}
+                                tooltip="Copies the filtered summaries as plain text, ready to paste into a doc or an LLM"
+                                data-attr="vision-observations-copy-all"
+                            >
+                                Copy all
+                            </LemonButton>
                         )}
                         <Tooltip
                             title={

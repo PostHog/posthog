@@ -22,7 +22,7 @@ import { DataModelingNodeType } from '~/types'
 
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
-import { dataModelingLogic, parseSearchTerm } from '../dataModelingLogic'
+import { dataModelingLogic } from '../dataModelingLogic'
 import { REACT_FLOW_NODE_TYPES } from './Node'
 import { CreateModelNodeType, Edge, ElkDirection, Node } from './types'
 
@@ -157,8 +157,7 @@ export function NodeTypePanel(): JSX.Element {
 function GraphViewContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { enrichedNodes, enrichedEdges, highlightedNodeIds, debouncedSearchTerm, savedViewport } =
-        useValues(dataModelingLogic)
+    const { enrichedNodes, enrichedEdges, debouncedSearchTerm, savedViewport } = useValues(dataModelingLogic)
     const { onEdgesChange, onNodesChange, setReactFlowInstance, setReactFlowWrapper } = useActions(dataModelingLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -173,26 +172,15 @@ function GraphViewContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     useEffect(() => {
+        // enrichedNodes is already filtered down to the search matches, so fit to whatever remains
         if (debouncedSearchTerm.length > 0 && enrichedNodes.length > 0) {
-            const { baseName, mode } = parseSearchTerm(debouncedSearchTerm)
-            let matchingNodes: Node[]
-            if (mode !== 'search') {
-                const highlightedIds = highlightedNodeIds(baseName, mode)
-                matchingNodes = enrichedNodes.filter((n: Node) => highlightedIds.has(n.id))
-            } else {
-                matchingNodes = enrichedNodes.filter((n: Node) =>
-                    n.data.name.toLowerCase().includes(baseName.toLowerCase())
-                )
-            }
-            if (matchingNodes.length > 0) {
-                reactFlowInstance.fitView({
-                    nodes: matchingNodes,
-                    duration: 400,
-                    maxZoom: 1,
-                })
-            }
+            reactFlowInstance.fitView({
+                nodes: enrichedNodes,
+                duration: 400,
+                maxZoom: 1,
+            })
         }
-    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance, highlightedNodeIds])
+    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance])
 
     return (
         <div ref={reactFlowWrapper} className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-17rem)]">

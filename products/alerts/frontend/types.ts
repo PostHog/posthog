@@ -8,6 +8,7 @@ import {
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
+    InsightsThresholdBounds,
     MetricsAlertConfig,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
@@ -99,10 +100,14 @@ export interface AnomalyPoint {
 
 export type InvestigationInconclusiveAction = 'notify' | 'suppress'
 
+export type AlertThreshold = Omit<InsightThreshold, 'bounds'> & {
+    bounds?: InsightsThresholdBounds | null
+}
+
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
-    threshold: { configuration: InsightThreshold }
+    threshold: { configuration: AlertThreshold }
     enabled: boolean
     insight: QueryBasedInsightModel
     config: AlertConfig
@@ -154,7 +159,7 @@ export interface AlertType extends AlertTypeBase {
     last_checked_at: string
     next_check_at?: string | null
     checks_total?: number
-    checks: AlertCheck[]
+    checks?: AlertCheck[]
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

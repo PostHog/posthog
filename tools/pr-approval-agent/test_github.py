@@ -203,12 +203,12 @@ def test_is_bot_author(user: dict, expected: bool) -> None:
     [
         pytest.param(
             "fix: resolve login redirect loop\n\n"
-            "Generated-By: PostHog Code\n"
+            "Generated-By: PostHog Desktop\n"
             "Task-Id: a95947d1-6e11-4565-9922-1f857cc6f6fe\n\x1e\n",
             CommitProvenance(
                 commit_count=1,
                 agent_commit_count=1,
-                generated_by=("PostHog Code",),
+                generated_by=("PostHog Desktop",),
                 task_ids=("a95947d1-6e11-4565-9922-1f857cc6f6fe",),
             ),
             id="single-agent-commit",
@@ -219,13 +219,13 @@ def test_is_bot_author(user: dict, expected: bool) -> None:
             id="human-only-commits",
         ),
         pytest.param(
-            "feat: add export\n\nGenerated-By: PostHog Code\nTask-Id: task-1\n\x1e\n"
+            "feat: add export\n\nGenerated-By: PostHog Desktop\nTask-Id: task-1\n\x1e\n"
             "fix: review feedback\n\x1e\n"
-            "fix: more feedback\n\nGenerated-By: PostHog Code\nTask-Id: task-2\n\x1e\n",
+            "fix: more feedback\n\nGenerated-By: PostHog Desktop\nTask-Id: task-2\n\x1e\n",
             CommitProvenance(
                 commit_count=3,
                 agent_commit_count=2,
-                generated_by=("PostHog Code",),
+                generated_by=("PostHog Desktop",),
                 task_ids=("task-1", "task-2"),
             ),
             id="mixed-commits-dedupe-generator-collect-task-ids",
@@ -233,11 +233,11 @@ def test_is_bot_author(user: dict, expected: bool) -> None:
         pytest.param(
             "feat(insights): retention export (#71452)\n\n"
             "* feat: first pass\n\n"
-            "Generated-By: PostHog Code\n"
+            "Generated-By: PostHog Desktop\n"
             "Task-Id: task-1\n\n"
             "* fix: address review\n\x1e\n",
             CommitProvenance(
-                commit_count=1, agent_commit_count=1, generated_by=("PostHog Code",), task_ids=("task-1",)
+                commit_count=1, agent_commit_count=1, generated_by=("PostHog Desktop",), task_ids=("task-1",)
             ),
             id="squash-style-message-with-embedded-trailers",
         ),

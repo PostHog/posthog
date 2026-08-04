@@ -37,7 +37,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.ph_client import get_client
-from posthog.settings.ingestion import DedicatedAIEndpointRollout
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
@@ -206,7 +205,6 @@ class BaseAgentRunner(ABC):
                     region,
                     flush_at=1,
                     before_send=ai_event_truncator,
-                    dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
                 )
 
             # Local deployment or hobby

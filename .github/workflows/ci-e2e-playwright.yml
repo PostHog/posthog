@@ -14,7 +14,7 @@ on:
     workflow_dispatch:
         inputs:
             playwright_retries:
-                description: 'Override Playwright retries (leave empty for default of 0 on CI so raw per-test signal reaches Trunk). Set to 1+ to add a retry net for a one-off run.'
+                description: 'Override Playwright retries (leave empty for the normal CI default of 1; use 0 to expose raw failures).'
                 required: false
                 type: string
                 default: ''
@@ -83,7 +83,8 @@ jobs:
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             github.event.pull_request.draft != true)
+             (github.event.pull_request.draft != true ||
+              startsWith(github.head_ref, 'trunk-merge/')))
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -152,6 +153,21 @@ jobs:
                         # boot the whole stack.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Same for Django's pytest modules: the suite drives the app through a
+                        # browser and never loads them. Narrow on purpose:
+                        #  - modules, not whole test/ dirs: posthog/test/ also holds live
+                        #    server code, notably playwright_setup_functions.py, which
+                        #    posthog/urls.py serves at api/setup_test/.
+                        #  - no '*_test.py': under posthog/ that suffix names production code
+                        #    (ClickHouse migrations, ClickHouse UDF scripts), not tests.
+                        #  - per-tree prefixes, because an exclude is tested against every file
+                        #    the filter sees, not just the include it sits next to: a bare
+                        #    '!**/test_*.py' would also veto the include above for
+                        #    tools/test_playwright_spec_selection.py.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/conftest.py'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
@@ -355,7 +371,13 @@ jobs:
                   # Fetch the current tip of the base branch (scoped, blobless, no tags),
                   # then diff origin/$BASE_REF...HEAD (3-dot = merge-base) so master
                   # commits merged into the branch aren't counted as changes.
-                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  # This runs before Python, so tag a fetch failure with its own detail —
+                  # otherwise classify sees only a failed step and reports an empty detail.
+                  if ! git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                      echo "::warning::git fetch of base ref failed — full run"
+                      echo "reason_detail=git_fetch_failed" >> "$GITHUB_OUTPUT"
+                      exit 1
+                  fi
                   if [ ! -f tools/playwright_spec_selection.py ] || [ ! -f tools/playwright_area_map.json ]; then
                       echo "::notice::spec selector/map absent on this checkout (unrebased branch) — full run"
                       exit 1
@@ -369,6 +391,7 @@ jobs:
               id: classify
               env:
                   SELECT_OUTCOME: ${{ steps.select.outcome }}
+                  SELECT_REASON_DETAIL: ${{ steps.select.outputs.reason_detail }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -385,7 +408,16 @@ jobs:
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/spec-selection.json ]]; then
                       echo "::warning::spec selector produced no output — running the FULL suite"
                       MODE=full
-                      REASON_CATEGORY=selector_error
+                      # Distinguish an unrebased branch (script/map not present yet — expected,
+                      # self-resolves on rebase) from a genuine selector failure worth investigating.
+                      if [[ ! -f tools/playwright_spec_selection.py ]] || [[ ! -f tools/playwright_area_map.json ]]; then
+                          REASON_CATEGORY=selector_unavailable
+                      else
+                          REASON_CATEGORY=selector_error
+                          # A bash-stage fetch failure exits before Python and tags itself here;
+                          # the Python paths carry their own detail in the JSON below.
+                          REASON_DETAIL="${SELECT_REASON_DETAIL:-}"
+                      fi
                   else
                       MODE=$(jq -r '.mode' /tmp/spec-selection.json)
                       SELECTED_COUNT=$(jq -r '.selected_count' /tmp/spec-selection.json)
@@ -510,11 +542,21 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -549,7 +591,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
@@ -823,10 +865,9 @@ jobs:
               continue-on-error: true
               shell: bash
               env:
-                  # Retries default to 0 so raw per-test signal reaches Trunk — retries mask
-                  # the flake signal quarantining relies on; the quarantine gate below is the
-                  # flake net instead. workflow_dispatch can override for a one-off run.
-                  PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries || '0' }}
+                  # Normal CI gets one retry as a temporary flake safety net. The nightly
+                  # audit overrides this to 0 so raw first-attempt failures remain visible.
+                  PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries || '1' }}
                   # Empty when select-specs was skipped (full-run events) or chose a full run.
                   SELECT_MODE: ${{ needs.select-specs.outputs.mode }}
                   SELECT_SPECS: ${{ needs.select-specs.outputs.spec_files }}
@@ -1015,7 +1056,9 @@ jobs:
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
             - name: Post Playwright section to CI report comment
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               continue-on-error: true
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
@@ -1028,16 +1071,17 @@ jobs:
                       echo "Skipping Playwright section — script not present on this checkout"
                   fi
 
+    # hogli-lint: not-a-required-gate - records telemetry and emits no required check.
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, select-specs, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-            always() && github.actor != 'dependabot[bot]' &&
+            ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
@@ -1108,7 +1152,16 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [playwright]
-        if: needs.playwright.outputs.vr_run_id != '' && needs.playwright.result == 'success'
+        # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to
+        # master, PR opened/reopened/ready_for_review), and GitHub propagates a skip down the whole
+        # needs chain — only a status-check function breaks the inheritance. The playwright job has
+        # its own !cancelled() so it runs, but this job inherited the skip anyway, leaving the VR run
+        # it created stuck pending and its commit status pending forever. The explicit result check
+        # restores the implicit success() that !cancelled() drops. Mirrors ci-storybook.yml.
+        if: |
+            !cancelled()
+            && needs.playwright.result == 'success'
+            && needs.playwright.outputs.vr_run_id != ''
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -1121,16 +1174,30 @@ jobs:
                       playwright/snapshots.yml
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
+              # On master pushes the run was created with --purpose observe (tracking-only), but
+              # `vr run complete` still exits 1 whenever visual changes are detected. Treat that as
+              # informational on push; PRs still gate. Mirrors ci-storybook.yml.
+              continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |

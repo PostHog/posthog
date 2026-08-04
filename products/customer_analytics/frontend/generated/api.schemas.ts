@@ -66,6 +66,7 @@ export interface ErrorResponseApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -78,6 +79,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -195,25 +197,23 @@ export interface PatchedAccountRelationshipDefinitionApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * * `daily` - daily
+ * * `weekly` - weekly
+ * * `monthly` - monthly
+ */
+export type SlackSummaryCadenceEnumApi = (typeof SlackSummaryCadenceEnumApi)[keyof typeof SlackSummaryCadenceEnumApi]
+
+export const SlackSummaryCadenceEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+} as const
+
+/**
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type AccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -228,6 +228,8 @@ export type AccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
 } | null
 
 /**
@@ -247,7 +249,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -255,6 +257,12 @@ export interface AccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks: readonly string[]
+    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -370,25 +378,10 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -403,6 +396,8 @@ export type PatchedAccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
 } | null
 
 /**
@@ -422,7 +417,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -430,11 +425,90 @@ export interface PatchedAccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks?: readonly string[]
+    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * Metadata for one message a channel summary covered — never the message text.
+ */
+export interface ChannelSummaryMessageApi {
+    /** Display name of the message author. */
+    readonly author: string
+    /** When the message was sent. */
+    readonly sent_at: string
+    /** Slack permalink to the message. */
+    readonly permalink: string
+}
+
+/**
+ * An AI summary of one closed period of the account's bound Slack channel (read-only).
+ */
+export interface AccountChannelSummaryApi {
+    /** UUID of the summary. */
+    readonly id: string
+    /** Slack channel the summary covered — kept even if the account is later rebound. */
+    readonly slack_channel_id: string
+    /** Cadence the summarized period belongs to (daily, weekly, or monthly).
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    readonly cadence: SlackSummaryCadenceEnumApi
+    /** Start of the summarized period (inclusive). */
+    readonly period_start: string
+    /** End of the summarized period (exclusive). */
+    readonly period_end: string
+    /** Markdown summary citing the original Slack messages with permalinks. */
+    readonly content: string
+    /** Number of channel messages the summary covered. */
+    readonly message_count: number
+    /** The messages the summary covered, in transcript order — metadata only, no message text. */
+    readonly messages: readonly ChannelSummaryMessageApi[]
+    /** When the summary was generated. */
+    readonly generated_at: string
+}
+
+export interface PaginatedAccountChannelSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountChannelSummaryApi[]
+}
+
+/**
+ * A support ticket linked to an account, sourced from the conversations product (read-only).
+ */
+export interface SupportTicketApi {
+    /** UUID of the support ticket. */
+    readonly id: string
+    /** Human-readable ticket number. */
+    readonly ticket_number: number
+    /** Current status of the ticket (e.g. 'new', 'open'). */
+    readonly status: string
+    /**
+     * When the most recent message was sent on this ticket.
+     * @nullable
+     */
+    readonly last_message_at: string | null
+    /**
+     * Truncated preview of the most recent message.
+     * @nullable
+     */
+    readonly last_message_text: string | null
+    /** Absolute URL to open this ticket in the app. */
+    readonly deep_link: string
 }
 
 /**
@@ -575,13 +649,15 @@ export const CustomPropertyDisplayTypeEnumApi = {
 /**
  * * `account` - account
  * * `person` - person
+ * * `group` - group
  */
-export type CustomPropertyDefinitionTargetTypeApi =
-    (typeof CustomPropertyDefinitionTargetTypeApi)[keyof typeof CustomPropertyDefinitionTargetTypeApi]
+export type CustomPropertyDefinitionTargetTypeEnumApi =
+    (typeof CustomPropertyDefinitionTargetTypeEnumApi)[keyof typeof CustomPropertyDefinitionTargetTypeEnumApi]
 
-export const CustomPropertyDefinitionTargetTypeApi = {
+export const CustomPropertyDefinitionTargetTypeEnumApi = {
     Account: 'account',
     Person: 'person',
+    Group: 'group',
 } as const
 
 /**
@@ -642,8 +718,8 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
- * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
- * pipeline, never through the API.
+ * One person- or group-property sync or backfill run. Read-only: runs are created by the
+ * sync/backfill pipeline, never through the API.
  */
 export interface CustomPropertySyncRunApi {
     readonly id: string
@@ -665,11 +741,11 @@ export interface CustomPropertySyncRunApi {
     readonly rows_read: number
     /** Rows whose mapped values changed since the last run. */
     readonly changed: number
-    /** Person profiles updated (changed rows that matched an existing person). */
+    /** Person or group profiles updated (changed rows that matched an existing person/group). */
     readonly existing: number
     /** Property-update intents produced to the ingestion pipeline. */
     readonly produced: number
-    /** Changed rows dropped because no existing person matched the distinct id. */
+    /** Changed rows dropped because no existing person/group matched the key column value. */
     readonly skipped_missing_person: number
     /**
      * Error summary if the run failed, else null.
@@ -681,8 +757,9 @@ export interface CustomPropertySyncRunApi {
 }
 
 /**
- * Binds a materialized data-warehouse view column to a custom property definition; the view's
- * values are synced onto matching accounts on each materialization.
+ * Binds a data-warehouse source to a custom property definition. Account sources read a
+ * materialized view column and sync onto matching accounts; person and group sources read a
+ * warehouse schema and sync onto matching persons or groups on each warehouse sync.
  */
 export interface CustomPropertySourceApi {
     readonly id: string
@@ -694,7 +771,7 @@ export interface CustomPropertySourceApi {
      */
     saved_query?: string | null
     /**
-     * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+     * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
      * @nullable
      */
     external_data_schema?: string | null
@@ -704,10 +781,12 @@ export interface CustomPropertySourceApi {
      * @nullable
      */
     source_column?: string | null
-    /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
+    /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    column_descriptions?: unknown
     /**
-     * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
+     * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
      * @maxLength 400
      */
     key_column: string
@@ -731,16 +810,16 @@ export interface CustomPropertySourceApi {
     /** @nullable */
     readonly updated_at: string | null
     /**
-     * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+     * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
      * @nullable
      */
     readonly sync_frequency_interval_seconds: number | null
     /**
-     * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+     * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
      * @nullable
      */
     readonly next_sync_at: string | null
-    /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+    /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
     readonly latest_run: CustomPropertySyncRunApi | null
 }
 
@@ -787,13 +866,23 @@ export interface CustomPropertyDefinitionApi {
      * * `boolean` - boolean
      * * `select` - select */
     display_type: CustomPropertyDisplayTypeEnumApi
-    /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+    /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
      *
      * * `account` - account
-     * * `person` - person */
-    target_type?: CustomPropertyDefinitionTargetTypeApi
+     * * `person` - person
+     * * `group` - group */
+    target_type?: CustomPropertyDefinitionTargetTypeEnumApi
+    /**
+     * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable
@@ -848,13 +937,23 @@ export interface PatchedCustomPropertyDefinitionApi {
      * * `boolean` - boolean
      * * `select` - select */
     display_type?: CustomPropertyDisplayTypeEnumApi
-    /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+    /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
      *
      * * `account` - account
-     * * `person` - person */
-    target_type?: CustomPropertyDefinitionTargetTypeApi
+     * * `person` - person
+     * * `group` - group */
+    target_type?: CustomPropertyDefinitionTargetTypeEnumApi
+    /**
+     * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical?: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable
@@ -954,7 +1053,7 @@ export const CustomPropertySyncTriggerResponseStatusEnumApi = {
 } as const
 
 /**
- * Response of the person-property sync/backfill trigger actions.
+ * Response of the person/group-property sync/backfill trigger actions.
  */
 export interface CustomPropertySyncTriggerResponseApi {
     /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
@@ -1060,6 +1159,96 @@ export interface PatchedCustomerProfileConfigApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * The caller's event stream — a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. One stream per user per project.
+ */
+export interface EventStreamApi {
+    readonly id: string
+    /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+    enabled?: boolean
+    /**
+     * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+     * @items.maxLength 400
+     */
+    event_names?: string[]
+    /**
+     * ID of the team's Slack workspace integration to deliver through.
+     * @nullable
+     */
+    slack_integration?: number | null
+    /**
+     * Slack channel ID to post to (e.g. C0123ABC).
+     * @maxLength 200
+     */
+    slack_channel_id?: string
+    /**
+     * Display name of the Slack channel (e.g. #customer-events). Informational only.
+     * @maxLength 200
+     */
+    slack_channel_name?: string
+    /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+    readonly account_ids: readonly string[]
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+/**
+ * The caller's event stream — a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. One stream per user per project.
+ */
+export interface PatchedEventStreamApi {
+    readonly id?: string
+    /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+    enabled?: boolean
+    /**
+     * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+     * @items.maxLength 400
+     */
+    event_names?: string[]
+    /**
+     * ID of the team's Slack workspace integration to deliver through.
+     * @nullable
+     */
+    slack_integration?: number | null
+    /**
+     * Slack channel ID to post to (e.g. C0123ABC).
+     * @maxLength 200
+     */
+    slack_channel_id?: string
+    /**
+     * Display name of the Slack channel (e.g. #customer-events). Informational only.
+     * @maxLength 200
+     */
+    slack_channel_name?: string
+    /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+    readonly account_ids?: readonly string[]
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * Request body for adding or removing an event-stream member account.
+ */
+export interface EventStreamMemberWriteApi {
+    /** UUID of the account to add to or remove from the stream. */
+    account_id: string
+}
+
+/**
+ * Result of posting an event-stream test message to Slack.
+ */
+export interface EventStreamTestMessageApi {
+    /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+    readonly channel_id: string
 }
 
 /**
@@ -1255,21 +1444,9 @@ export type AccountRelationshipDefinitionsListParams = {
 
 export type AccountsListParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean
-    /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
-     */
-    csm?: string
     /**
      * Number of results to return per page.
      */
@@ -1316,6 +1493,17 @@ export type AccountsRelationshipsListParams = {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean
+}
+
+export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type AnnouncementsListParams = {

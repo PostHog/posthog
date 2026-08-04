@@ -91,11 +91,19 @@ describe('notebookNodeSQLV2Logic', () => {
         it('collects python cells as local refs under their kernel variable name', () => {
             // Journey 5: a SQL node referencing new_events must reroute to DuckDB, which only
             // happens if the python cell's returnVariable reaches the backend as a local ref.
-            const document = doc(sqlNode('a', 'df1'), pythonNode('py', 'new_events'), pythonNode('py2'))
+            // A blank name binds nothing in the kernel, so it exports no ref — otherwise every
+            // unnamed cell would claim the same name and shadow the others. Only a cell with no
+            // attribute at all predates the optional name and keeps the legacy 'df'.
+            const document = doc(
+                sqlNode('a', 'df1'),
+                pythonNode('py', 'new_events'),
+                pythonNode('py2', ''),
+                pythonNode('py3')
+            )
             expect(collectSqlV2Refs(document, 'self')).toEqual({
                 df1: hogql('a'),
                 new_events: local('py'),
-                df: local('py2'), // returnVariable defaults to 'df', matching the python cell UI
+                df: local('py3'),
             })
         })
 
@@ -170,14 +178,12 @@ describe('notebookNodeSQLV2Logic', () => {
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('direct')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
             expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('kernel')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
             expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
@@ -200,7 +206,7 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
-        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
     })
 
     it('dispatches a python run with its node type and output name', async () => {
@@ -239,6 +245,7 @@ describe('notebookNodeSQLV2Logic', () => {
                 stderr: '',
                 media: [],
             },
+            runStatus: 'done',
         })
         expect(logic.values.isRunning).toBe(false)
     })
@@ -261,8 +268,11 @@ describe('notebookNodeSQLV2Logic', () => {
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
+        // The outcome is persisted with the partial result: without it a reload can't tell this
+        // apart from a completed run, since both leave a result behind.
         expect(updateAttributes).toHaveBeenCalledWith({
             result: expect.objectContaining({ stdout: 'partial output' }),
+            runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')
         expect(logic.values.isRunning).toBe(false)

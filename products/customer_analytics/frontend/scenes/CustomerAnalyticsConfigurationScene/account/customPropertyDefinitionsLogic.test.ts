@@ -133,12 +133,13 @@ describe('customPropertyDefinitionsLogic', () => {
             isBigNumber: true,
             options: [],
             targetType: 'account',
+            groupTypeIndex: null,
             sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
             keyColumn: 'org_id',
             warehouseTable: null,
-            columnMappings: [{ column: '', property: '' }],
+            columnMappings: [{ column: '', property: '', description: '' }],
             isEnabled: true,
         })
     })
@@ -319,9 +320,9 @@ describe('customPropertyDefinitionsLogic', () => {
             warehouseTable: 'table-1',
             keyColumn: 'distinct_id',
             columnMappings: [
-                { column: 'plan', property: 'plan_tier' },
+                { column: 'plan', property: 'plan_tier', description: 'The plan tier' },
                 // A half-filled row is dropped rather than sent.
-                { column: '', property: '' },
+                { column: '', property: '', description: '' },
             ],
             isEnabled: true,
         })
@@ -331,11 +332,13 @@ describe('customPropertyDefinitionsLogic', () => {
             'submitCustomPropertyFormSuccess',
         ])
         expect(definitionBody).toMatchObject({ name: 'Plan tier', target_type: 'person' })
-        // The person source binds to the table's schema id, not the table id, with the mapped columns.
+        // The person source binds to the table's schema id, not the table id, with the mapped columns
+        // and each mapping's description keyed by warehouse column.
         expect(sourceBody).toEqual({
             definition: 'def-2',
             external_data_schema: 'schema-1',
             column_property_map: { plan: 'plan_tier' },
+            column_descriptions: { plan: 'The plan tier' },
             key_column: 'distinct_id',
             is_enabled: true,
         })
@@ -351,13 +354,98 @@ describe('customPropertyDefinitionsLogic', () => {
             targetType: 'person',
             warehouseTable: 'table-1',
             columnMappings: [
-                { column: ' plan ', property: ' plan_tier ' },
-                { column: 'seats', property: '' },
+                { column: ' plan ', property: ' plan_tier ', description: ' The plan tier ' },
+                { column: 'seats', property: '', description: 'ignored — no property' },
             ],
         })
         expect(logic.values.selectedWarehouseSchemaId).toBe('schema-1')
         // Trims and drops incomplete pairs.
         expect(logic.values.serializedColumnPropertyMap).toEqual({ plan: 'plan_tier' })
+        // Descriptions trim and drop alongside their pair; a description without a complete pair is dropped.
+        expect(logic.values.serializedColumnDescriptions).toEqual({ plan: 'The plan tier' })
+    })
+
+    it('follows pagination so warehouse tables past the first page are reachable', async () => {
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    if (offset === 0) {
+                        // A full page (100) plus a next pointer — the loader must fetch the next page too.
+                        return [
+                            200,
+                            {
+                                count: 101,
+                                next: 'http://localhost/api/environments/1/warehouse_tables/?offset=100',
+                                results: Array.from({ length: 100 }, (_, i) =>
+                                    buildTable({ id: `t${i}`, name: `t${i}` })
+                                ),
+                            },
+                        ]
+                    }
+                    return [200, { count: 101, next: null, results: [buildTable({ id: 't100', name: 't100' })] }]
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseTables).toHaveLength(101)
+    })
+
+    it('passes the search term to the backend when the picker searches', async () => {
+        let searchedFor: string | null = null
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: ({ request }) => {
+                    searchedFor = new URL(request.url).searchParams.get('search')
+                    return [200, { count: 1, next: null, results: [buildTable()] }]
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.loadWarehouseTables({ search: 'user' })).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(searchedFor).toBe('user')
+    })
+
+    it('locks the target type when the modal is opened from a profile settings page', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        logic.actions.openCreateModal('group', true)
+        expect(logic.values.customPropertyForm.targetType).toBe('group')
+        expect(logic.values.targetTypeLocked).toBe(true)
+        // Opening the generic "New custom property" flow leaves the switch available again.
+        logic.actions.openCreateModal()
+        expect(logic.values.targetTypeLocked).toBe(false)
+    })
+
+    it('hydrates per-mapping descriptions when editing a person source', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        logic.actions.openEditModal(
+            buildDefinition({
+                target_type: 'person',
+                source: buildSource({
+                    saved_query: null,
+                    source_column: null,
+                    key_column: 'distinct_id',
+                    column_property_map: { plan: 'plan_tier', seats: 'seat_count' },
+                    column_descriptions: { plan: 'The plan tier' },
+                } as Partial<CustomPropertySourceApi>),
+            })
+        )
+        // Descriptions fold back in per column; a column without one gets an empty description.
+        expect(logic.values.customPropertyForm.columnMappings).toEqual([
+            { column: 'plan', property: 'plan_tier', description: 'The plan tier' },
+            { column: 'seats', property: 'seat_count', description: '' },
+        ])
     })
 
     it('warns when a person mapping targets an identity or already-existing property', async () => {
@@ -367,10 +455,10 @@ describe('customPropertyDefinitionsLogic', () => {
             'loadPersonPropertyDefinitionsSuccess',
         ])
         logic.actions.setCustomPropertyFormValue('columnMappings', [
-            { column: 'a', property: 'plan_tier' }, // fine
-            { column: 'b', property: 'email' }, // identity property
-            { column: 'c', property: '$browser' }, // $-prefixed
-            { column: 'd', property: 'existing_prop' }, // already defined on persons
+            { column: 'a', property: 'plan_tier', description: '' }, // fine
+            { column: 'b', property: 'email', description: '' }, // identity property
+            { column: 'c', property: '$browser', description: '' }, // $-prefixed
+            { column: 'd', property: 'existing_prop', description: '' }, // already defined on persons
         ])
         const warnings = logic.values.columnMappingWarnings
         expect(warnings[0]).toBeNull()

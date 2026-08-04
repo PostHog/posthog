@@ -21,11 +21,12 @@ import { dayjs } from 'lib/dayjs'
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { chartStyleCurve } from 'products/product_analytics/frontend/insights/shared/chartStyleAdapter'
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { type SqlChartProps } from './SqlChart'
 
 export const MAX_SERIES = 200
 
@@ -63,10 +64,7 @@ export function seriesDisplayType(
 
 /** True when the series resolve to a mix of bar and line/area — the case neither the line-only nor
  *  the bar-only quill path can render, so it routes to {@link SqlComboGraph}. */
-export function hasMixedSeriesTypes(
-    yData: NonNullable<LineGraphProps['yData']>,
-    visualizationType: ChartDisplayType
-): boolean {
+export function hasMixedSeriesTypes(yData: SqlLineYSeries[], visualizationType: ChartDisplayType): boolean {
     let hasBar = false
     let hasLineLike = false
     for (const series of yData) {
@@ -103,75 +101,56 @@ export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | und
     }, [])
 }
 
-/**
- * Plain line/area charts — including goal lines, trend lines, and right y-axis series — render here.
- * Series that mix a bar with a line/area route to {@link canRenderSqlComboGraph}; other mixes fall
- * back to the legacy chart.js path.
- */
-export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
-    const { visualizationType, yData } = props
+export type SqlChartKind = 'line' | 'bar' | 'combo'
 
-    if (
-        visualizationType !== ChartDisplayType.ActionsLineGraph &&
-        visualizationType !== ChartDisplayType.ActionsAreaGraph
-    ) {
-        return false
-    }
-    if (yData?.some((series) => series.settings?.display?.displayType === 'bar')) {
-        return false
-    }
-    return true
-}
-
-export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
-    const { visualizationType, yData } = props
-
-    if (visualizationType !== ChartDisplayType.ActionsBar && visualizationType !== ChartDisplayType.ActionsStackedBar) {
-        return false
-    }
-    if (
-        yData?.some((series) => {
-            const displayType = series.settings?.display?.displayType
-            return displayType === 'line' || displayType === 'area'
-        })
-    ) {
-        return false
-    }
-    return true
-}
+/** The slice of chart props renderer dispatch reads — `SqlChartProps` and Customer analytics'
+ *  `BillingChartProps` both satisfy it. */
+export type SqlChartKindProps = Pick<SqlChartProps, 'visualizationType' | 'yData' | 'chartSettings'>
 
 /**
- * Mixed bar + line/area series render on quill's {@link TimeSeriesComboChart}. Percent-stacked
- * bars are supported as long as every line/area series is routed to the right axis — one sharing
- * the bars' axis can't be reconciled with the bars' [0, 1] percent scale, so that case falls back.
+ * The single source of truth for which quill renderer draws a SQL insight. Resolves the per-series
+ * display types once (`auto` inherits the chart-level type) and picks from there, so the answer
+ * follows the series rather than the chart-level type alone: a line chart whose every column is set
+ * to Bar draws bars.
  */
-export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
-    const { visualizationType, yData, chartSettings } = props
+export function sqlChartKind({ visualizationType, yData, chartSettings }: SqlChartKindProps): SqlChartKind {
+    const isBarBase =
+        visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
+    const isLineBase =
+        visualizationType === ChartDisplayType.ActionsLineGraph ||
+        visualizationType === ChartDisplayType.ActionsAreaGraph
 
-    if (
-        visualizationType !== ChartDisplayType.ActionsLineGraph &&
-        visualizationType !== ChartDisplayType.ActionsAreaGraph &&
-        visualizationType !== ChartDisplayType.ActionsBar &&
-        visualizationType !== ChartDisplayType.ActionsStackedBar
-    ) {
-        return false
+    // Pie and friends never reach dispatch — PieChart wraps them separately.
+    if (!isBarBase && !isLineBase) {
+        return 'line'
     }
-    if (!yData || !hasMixedSeriesTypes(yData, visualizationType)) {
-        return false
+    if (!yData?.length) {
+        return isBarBase ? 'bar' : 'line'
     }
-    // Percent-stacked bars clamp their axis to [0, 1] — a line/area series sharing that same axis
-    // would plot its raw values off-scale with no way to reconcile the two domains. Only allow a
-    // percent-stack combo when every non-bar series is routed to the right axis instead.
-    if (
-        visualizationType === ChartDisplayType.ActionsStackedBar &&
-        chartSettings.stackBars100 &&
-        yData.some(
+
+    if (hasMixedSeriesTypes(yData, visualizationType)) {
+        // Percent-stacked bars clamp their axis to [0, 1] — a line/area series sharing that same
+        // axis would plot its raw values off-scale with no way to reconcile the two domains. Keep
+        // the percent stack and draw those series as bars — but only when every non-bar series is on
+        // the left axis: `TimeSeriesBarChart` has no notion of `series.type` and percent-stacks every
+        // series it's given, so a right-axis non-bar series would still get force-stacked into a
+        // constant 100% bar. A right-axis non-bar series has its own scale and is safe to combo.
+        const hasNonBarOnLeftAxis = yData.some(
             (series) => seriesDisplayType(visualizationType, series.settings) !== 'bar' && !isRightAxisSeries(series)
         )
-    ) {
-        return false
+        const hasNonBarOnRightAxis = yData.some(
+            (series) => seriesDisplayType(visualizationType, series.settings) !== 'bar' && isRightAxisSeries(series)
+        )
+        const sharesPercentAxis =
+            visualizationType === ChartDisplayType.ActionsStackedBar &&
+            chartSettings.stackBars100 &&
+            hasNonBarOnLeftAxis &&
+            !hasNonBarOnRightAxis
+        return sharesPercentAxis ? 'bar' : 'combo'
     }
-    return true
+
+    // Not mixed, so every series resolved the same way — the first one speaks for all of them.
+    return seriesDisplayType(visualizationType, yData[0].settings) === 'bar' ? 'bar' : 'line'
 }
 
 export function barLayoutForDisplay(
@@ -196,7 +175,7 @@ export function comboBarLayoutForDisplay(
 }
 
 /** Returns true when {@link MAX_SERIES} is exceeded and the user should be warned (not on dashboards). */
-export function exceedsMaxSeries(yData: LineGraphProps['yData'], dashboardId: LineGraphProps['dashboardId']): boolean {
+export function exceedsMaxSeries(yData: SqlChartProps['yData'], dashboardId: SqlChartProps['dashboardId']): boolean {
     return !!yData && yData.length > MAX_SERIES && !dashboardId
 }
 
@@ -207,7 +186,7 @@ export function warnTooManySeries(count: number): void {
 }
 
 /** Pure cap to {@link MAX_SERIES}; warn separately via {@link exceedsMaxSeries}/{@link warnTooManySeries}. */
-export function capYSeriesData(yData: LineGraphProps['yData']): SqlLineYSeries[] | null {
+export function capYSeriesData(yData: SqlChartProps['yData']): SqlLineYSeries[] | null {
     if (!yData) {
         return null
     }
@@ -447,6 +426,7 @@ export function buildLineChartConfig({
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
+        curve: chartStyleCurve(chartSettings.chartStyle),
         tooltip: {
             ...buildSqlTooltipConfig(chartSettings, ySeriesData),
             ...(labelFormatter ? { labelFormatter } : {}),
@@ -547,6 +527,7 @@ export function buildComboChartConfig({
         // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
         // render off-scale and invisible.
         trendLines: isPercent ? [] : buildTrendLineConfigs(ySeriesData),
+        curve: chartStyleCurve(chartSettings.chartStyle),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {

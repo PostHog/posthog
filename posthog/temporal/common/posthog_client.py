@@ -16,11 +16,17 @@ from temporalio.worker import (
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 logger = get_write_only_logger()
+
+# ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
+# probes, retryable transient-infra re-raises), not defects — same reasoning as the
+# EgressBudgetExhausted exemption below.
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled", "TransientRepartitionError"})
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -70,11 +76,19 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         except Exception as e:
             # Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative
             # worker shutdown (raised mid-activity during a deploy, always retried on a fresh
-            # worker), and our own egress-budget backpressure (a deliberate "defer and retry later"
-            # signal that our rate limiter already records via record_outbound_decision) are expected
-            # control flow, not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(
-                e, EgressBudgetExhausted | WorkerShuttingDownError
+            # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
+            # signal that our rate limiter already records via record_outbound_decision), errors
+            # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
+            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
+            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
+            # error tracking.
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
+                or (
+                    isinstance(e, temporalio.exceptions.ApplicationError)
+                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+                )
             ):
                 raise
             activity_info = activity.info()

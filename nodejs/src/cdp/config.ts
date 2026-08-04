@@ -18,7 +18,6 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
-import { DEFAULT_THRESHOLDS } from './services/email-reputation/classifier'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -132,9 +131,19 @@ export type CdpConfig = ClickhouseConfig & {
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    // Configuration set with ESP-level open/click tracking enabled, used for sends with engagement tracking on.
+    SES_TRACKED_CONFIGURATION_SET: string
+    // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
+    // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
+    SES_UNTRACKED_CONFIGURATION_SET: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
+    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
+    // and its Standard reputation policy can pause a single tenant instead of the shared account.
+    // Off by default: a send naming a tenant whose identity association is missing fails, so this
+    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
+    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
@@ -179,17 +188,6 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
-    EMAIL_REPUTATION_EVALUATION_HOUR_UTC: number
-    EMAIL_REPUTATION_TARGET_VOLUME: number
-    EMAIL_REPUTATION_MIN_WINDOW_HOURS: number
-    EMAIL_REPUTATION_LOOKBACK_DAYS: number
-    EMAIL_REPUTATION_MIN_SENDS: number
-    EMAIL_REPUTATION_BOUNCE_WARNING_RATE: number
-    EMAIL_REPUTATION_BOUNCE_CRITICAL_RATE: number
-    EMAIL_REPUTATION_COMPLAINT_WARNING_RATE: number
-    EMAIL_REPUTATION_COMPLAINT_CRITICAL_RATE: number
-    EMAIL_REPUTATION_BATCH_SIZE: number
-    EMAIL_REPUTATION_BATCH_DELAY_SECONDS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -309,7 +307,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+        SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
+        SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing
@@ -345,21 +346,5 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
-
-        // Thresholds sit ahead of AWS SES's review lines (5% bounce / 0.1% complaint at ~0.5%
-        // escalation). Rates are computed SES-style over a window spanning at least
-        // MIN_WINDOW_HOURS and at least TARGET_VOLUME sends — whichever reaches further back
-        // (capped at LOOKBACK_DAYS). Calculation only for now — enforcement ships separately.
-        EMAIL_REPUTATION_EVALUATION_HOUR_UTC: 6,
-        EMAIL_REPUTATION_TARGET_VOLUME: 1000,
-        EMAIL_REPUTATION_MIN_WINDOW_HOURS: 24,
-        EMAIL_REPUTATION_LOOKBACK_DAYS: 30,
-        EMAIL_REPUTATION_MIN_SENDS: DEFAULT_THRESHOLDS.minSends,
-        EMAIL_REPUTATION_BOUNCE_WARNING_RATE: DEFAULT_THRESHOLDS.bounceWarning,
-        EMAIL_REPUTATION_BOUNCE_CRITICAL_RATE: DEFAULT_THRESHOLDS.bounceCritical,
-        EMAIL_REPUTATION_COMPLAINT_WARNING_RATE: DEFAULT_THRESHOLDS.complaintWarning,
-        EMAIL_REPUTATION_COMPLAINT_CRITICAL_RATE: DEFAULT_THRESHOLDS.complaintCritical,
-        EMAIL_REPUTATION_BATCH_SIZE: 50,
-        EMAIL_REPUTATION_BATCH_DELAY_SECONDS: 30,
     }
 }

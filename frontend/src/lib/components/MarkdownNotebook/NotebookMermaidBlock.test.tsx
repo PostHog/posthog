@@ -22,6 +22,10 @@ jest.mock('mermaid', () => ({
     },
 }))
 
+// NotebookMermaidBlock lazy-loads MermaidDiagram; import it eagerly so Jest caches the chunk before
+// the test runs, keeping the cold transform out of findByTestId's 1000ms window (flaky under CI load).
+import 'lib/lemon-ui/LemonMarkdown/MermaidDiagram'
+
 import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
 
 function codeNode(text: string, language: string | undefined): NotebookCodeBlockNode {

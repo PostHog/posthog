@@ -79,7 +79,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - Airbyte: <https://airbyte.com/connectors> (connector pages often link to source code — useful reference)
    - Fivetran: <https://www.fivetran.com/connectors>
    - Stitch: <https://www.stitchdata.com/docs/integrations/>
-     Find the official API docs or OpenAPI spec. Make sure it's the current version, not a deprecated one.
+     Find the official API docs or OpenAPI spec, and **work out the vendor's latest generally-available API version before you write any request code** — that is the version the source must be built against. Check the vendor's changelog, versioning, or deprecation page, not just whichever page ranked first; docs sites routinely default to an older version, and Airbyte/Fivetran connectors are often years behind. See "Vendor API version metadata" for what counts as latest and what to do when the newest channel isn't GA.
 2. **Bootstrap the source.** Copy the template and wire up the enum/type references:
 
    ```sh
@@ -262,6 +262,29 @@ enum. Adding a **new** category means editing that array and rebuilding — don'
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
 
+## Self-driving Inbox candidacy (issues / tickets / conversations)
+
+Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
+table of _actionable records_ and emits findings into the PostHog Code Inbox. Shipped today: GitHub,
+Linear, Zendesk, pganalyze, and Jira.
+
+The signal is the **table you sync**, not the vendor: a source is an inbox candidate when one of its
+tables is a stream of records a human (or agent) triages one by one — an `issues`, `tickets`, or
+`conversations` table. These live under the support/helpdesk (`CUSTOMER_SUPPORT`), issue-tracker and
+monitoring (`ENGINEERING___MONITORING`), and some project-tool (`PRODUCTIVITY`) categories. Analytics,
+billing, ad-platform, CRM, and raw database sources are **not** inbox candidates — they sync facts to
+query, not a work queue to act on. If the source you're building has no such table, there's nothing to
+do here.
+
+Wiring a source into the inbox is a **separate, additive piece of work** with its own skill —
+`/adding-inbox-sources` — and it changes nothing in this skill's deliverable. It only becomes possible
+once the data-warehouse source exists (which is exactly what this skill produces), so build and ship the
+source first. That skill touches three surfaces: a server-side "signals scout" emitter plus a registry
+entry and `SignalSourceProduct` enum in this repo (`products/signals/backend/`), the inbox UI in the
+separate `posthog/code` repo, and the `npx @posthog/wizard self-driving` onboarding flow in
+`PostHog/context-mill`. Read `/adding-inbox-sources` before starting — none of that plumbing belongs in
+the source's own `products/warehouse_sources/` code.
+
 ## Vendor API version metadata
 
 Every source declares three class attributes (on the source class body, alongside `lists_tables_without_credentials`)
@@ -283,9 +306,24 @@ Two cases:
       api_docs_url = "https://vendor.example/docs/api"   # API reference or changelog page (https, not the marketing site)
   ```
 
-  Pin **the version the source's own code actually calls** (the base URL path, a version header, or a version
-  constant in `settings.py` / `{source}.py`) — not the vendor's newest version. Examples already in the tree:
-  GitHub `("2022-11-28",)` (dated header), HubSpot `("v3",)` (path), Klaviyo `("2024-10-15",)` (dated revision).
+  **Build the source against the vendor's latest generally-available version, and pin that.** A new source starts
+  on one version and every customer who connects it lands there, so shipping on an older version means shipping a
+  migration someone has to run later. Two rules, and they must agree:
+
+  1. Write the request code against the newest GA version the vendor offers.
+  2. Declare **the version that code actually calls** (the base URL path, a version header, or a version constant
+     in `settings.py` / `{source}.py`). Never declare a version the code doesn't send — that pin is a lie the
+     framework can't detect, and it makes the deprecation warnings and the upgrade path wrong for every customer.
+
+  If you can't reach the newest version — it's preview/beta/unstable/RC, it's gated behind an application or a
+  paid tier, or its response shapes aren't implemented yet — build against the newest GA version you can actually
+  call, pin that, and say why in a comment on the class. "Latest" means latest stable: don't pin Shopify's
+  `unstable`, a vendor's `-rc` channel, or a version whose docs are still marked preview.
+
+  Examples already in the tree: Anthropic `("2023-06-01",)` (dated `anthropic-version` header),
+  ActiveCampaign `("v3",)` (`/api/3` path segment), Alguna `("2026-04-01",)` (dated version header).
+  A source that later gains a second version declares them oldest→newest — GitHub `("2022-11-28", "2026-03-10")`,
+  HubSpot `("v3", "2026-03")` — but that's the `/warehouse-source-new-version` skill's job, not this one.
 
 - **The vendor has no meaningful API versioning** — set only `api_docs_url`; leave `supported_versions` /
   `default_version` at the framework default (`("v1",)`, the `UNVERSIONED_API_VERSION` sentinel). A bare `/v1/`
@@ -295,6 +333,11 @@ Rules:
 
 - `default_version` must equal the single entry in `supported_versions`, and `api_docs_url` must be `https://`.
 - Use the vendor's exact version string; never invent one.
+- **Never ship a new source on a version the vendor has already deprecated or given a sunset date.** A brand-new
+  source with a `deprecated_versions` entry covering its only version is a bug — it means the source was written
+  against the wrong version. `test_source_versions.py` fails the build if `default_version` is deprecated.
+- Prefer an `api_docs_url` that points at the vendor's versioning/changelog page over a generic API landing page —
+  it's where the next version gets announced, and it's what the next person checks before repinning.
 - Don't hardcode a fallback version in the transport/request layer — resolve it from the source class
   (`self.resolve_api_version(inputs.api_version)`), which already falls back to `default_version`.
 - Adding support for a **new** vendor version later, or **deprecating** an old one, is the
@@ -323,9 +366,9 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
-**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
+**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v2/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
 
-For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`.
+For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`.
 
 **URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
@@ -596,8 +639,17 @@ If new:
    - Add to `IntegrationKind` enum.
    - Add to `OauthIntegration.supported_kinds`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
-3. **Redirect URI**: `https://localhost:8010/integrations/your-kind/callback` in the external service.
-4. List any new env vars in the final handoff so they can be set in all environments.
+     Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
+     fail-closed message, so code and charts can ship before the secret values exist.
+   - If the provider's token response has **no account identifier** (e.g. Resend), decode the
+     access-token JWT and set `id_path` / `name_path` from a claim (`sub`), mirroring the reddit/bing
+     branches in `integration_from_oauth_response`.
+3. **Register the client + deploy the credentials.** Registering the OAuth client with the provider,
+   the redirect URIs (US/EU/dev/localhost), the **charts** PR (wiring the env vars into both
+   `posthog-django-shared-secrets` for the web app and the worker's `secret_env_app_specific` store),
+   and writing the values into AWS Secrets Manager via the `PostHog/secrets` CLI — plus which of these
+   an agent can vs. must not automate — are all in
+   [references/oauth-app-deployment.md](references/oauth-app-deployment.md).
 
 ## Non-retryable errors
 
@@ -745,6 +797,8 @@ Tests & handoff:
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff
+- [ ] (Only if the source syncs an issues/tickets/conversations table) Note it as a Self-driving Inbox
+      candidate — that's a separate follow-up via /adding-inbox-sources, not part of shipping the source
 ```
 
 ## Validation and generation workflow

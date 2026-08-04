@@ -45,7 +45,7 @@ import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import type { ResolvedAlertModalProps } from './EditAlertModal'
-import { AlertLeadingActions } from './EditAlertModalV2/AlertLeadingActions'
+import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModalV2/AlertLeadingActions'
 import { buildWizardSteps } from './EditAlertModalV2/buildWizardSteps'
 import { EditAlertTabs } from './EditAlertModalV2/EditAlertTabs'
 
@@ -115,6 +115,7 @@ export function EditAlertModalV2({
         isAlertFormSubmitting,
         alertFormChanged,
         alertFormHasErrors,
+        alertFormValidationErrors,
         alertFormSubmitAttempted,
         simulationResult,
         simulationResultLoading,
@@ -142,8 +143,13 @@ export function EditAlertModalV2({
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
-    const { existingHogFunctions, pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
+    const notificationLogic = alertNotificationLogic({ alertId })
+    const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
+    const { sendTestDelivery } = useActions(notificationLogic)
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
+    const hasTestDeliveryTargets =
+        (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
+        existingHogFunctions.some((hogFunction) => hogFunction.enabled)
 
     const handleClose = useCallback(() => {
         clearSimulation()
@@ -246,7 +252,7 @@ export function EditAlertModalV2({
             return undefined
         }
         const preview = deriveAlertCheckPreviewSeries(
-            alert.checks,
+            alert.checks ?? [],
             alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
             alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
         )
@@ -263,8 +269,17 @@ export function EditAlertModalV2({
             onDeleteAlert={deleteAlert}
             onSnoozeAlert={snoozeAlert}
             onClearSnooze={clearSnooze}
+            onSendTestDelivery={sendTestDelivery}
+            testDeliveryLoading={testDeliveryResultLoading}
+            testDeliveryDisabledReason={
+                alertFormChanged || hasPendingNotifications ? 'Save changes before testing.' : undefined
+            }
+            showTestDelivery={hasTestDeliveryTargets}
         />
     )
+
+    const thresholdValidationError =
+        typeof alertFormValidationErrors.threshold === 'string' ? alertFormValidationErrors.threshold : undefined
 
     const definitionNode = (
         <AlertDefinitionSection
@@ -384,7 +399,7 @@ export function EditAlertModalV2({
                                 notifyNode,
                                 advancedNode,
                                 summary,
-                                thresholdBoundsFormError,
+                                thresholdValidationError,
                                 scheduleRestrictionFormError,
                                 alertFormHasErrors,
                                 alertName: alertForm.name,
@@ -402,6 +417,7 @@ export function EditAlertModalV2({
                             hasPendingChanges={hasPendingNotifications}
                             onSubmitAttempted={setAlertFormSubmitAttempted}
                             leadingActions={leadingActions}
+                            trailingActions={<AlertEnabledAction alertForm={alertForm} />}
                         >
                             <div className="space-y-3">
                                 <EditAlertTabs
