@@ -167,6 +167,9 @@ services:
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
             # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
             CDP_REDIS_HOST: redis7
+            CDP_VALKEY_HOST: valkey-cluster
+            CDP_VALKEY_PORT: 6379
+            CDP_VALKEY_DUAL_ENABLED: 'true'
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
             # PersonHog is required for CDP — point at the local gRPC router
@@ -176,6 +179,8 @@ services:
             kafka:
                 condition: service_started
             redis7:
+                condition: service_healthy
+            valkey-cluster:
                 condition: service_healthy
             db:
                 condition: service_healthy
@@ -380,6 +385,31 @@ services:
             service: redis7
         ports:
             - '6379:6379'
+
+    valkey-cluster:
+        image: valkey/valkey:8.1-alpine
+        restart: on-failure
+        ports:
+            - '127.0.0.1:6390:6379'
+        command:
+            - /bin/sh
+            - -ec
+            - |
+                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
+                pid=$$!
+                until valkey-cli ping >/dev/null 2>&1; do sleep 0.1; done
+                valkey-cli cluster addslots $$(seq 0 16383)
+                wait $$pid
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'valkey-cli cluster info | grep -q cluster_state:ok && test "$$(valkey-cli cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
+                ]
+            interval: 2s
+            timeout: 3s
+            retries: 15
+            start_period: 5s
 
     redis-cluster:
         image: redis:7.2
