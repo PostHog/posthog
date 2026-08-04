@@ -35,6 +35,7 @@ from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.api.exports import RASTERIZE_RECORDING_WORKFLOW_EXECUTION_TIMEOUT
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
@@ -684,6 +685,44 @@ class TestExports(APIBaseTest):
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
+
+    def test_in_progress_video_export_not_marked_as_failed_past_hogql_threshold(self) -> None:
+        # Video exports render asynchronously via a Temporal workflow, not the synchronous HogQL
+        # path, so they shouldn't be marked stuck just because they cross HOGQL_INCREASED_MAX_EXECUTION_TIME.
+        created_at = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100)
+        in_progress_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "abc"},
+            created_by=self.user,
+            created_at=created_at,
+            content=None,
+            content_location=None,
+            exception=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{in_progress_export.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["exception"])
+
+    def test_stuck_video_export_marked_as_failed_past_rasterize_workflow_timeout(self) -> None:
+        created_at = now() - (RASTERIZE_RECORDING_WORKFLOW_EXECUTION_TIMEOUT + timedelta(seconds=100))
+        stuck_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "abc"},
+            created_by=self.user,
+            created_at=created_at,
+            content=None,
+            content_location=None,
+            exception=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{stuck_export.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()
+        self.assertIsNotNone(result["exception"])
+        self.assertIn("Export failed without throwing an exception", result["exception"])
 
     @parameterized.expand(
         [

@@ -43,6 +43,18 @@ FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], in
     "enterprise": 25,
 }
 
+# Video exports render asynchronously via RasterizeRecordingWorkflow instead of the synchronous
+# Celery path, so they need their own, much longer, stuck-export ceiling than HOGQL_INCREASED_MAX_EXECUTION_TIME.
+LONG_RUNNING_EXPORT_FORMATS = frozenset(
+    {
+        ExportedAsset.ExportFormat.MP4,
+        ExportedAsset.ExportFormat.WEBM,
+        ExportedAsset.ExportFormat.GIF,
+    }
+)
+# Must match the execution_timeout passed to the rasterize-recording workflow below.
+RASTERIZE_RECORDING_WORKFLOW_EXECUTION_TIMEOUT = timedelta(hours=1)
+
 
 def get_full_video_exports_limit_for_organization(organization: Organization | None) -> int:
     """Monthly full video export limit for the organization's plan tier."""
@@ -80,15 +92,15 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         """Override to show stuck exports as having an exception."""
         data = super().to_representation(instance)
 
-        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
-        # has no content, and has no recorded exception)
-        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
-        if (
-            timeout_threshold
-            and instance.created_at < timeout_threshold
-            and not instance.has_content
-            and not instance.exception
-        ):
+        # Video exports render asynchronously and can legitimately take close to an hour, so they
+        # need a much longer stuck-export ceiling than the synchronous (Celery-rendered) formats.
+        if instance.export_format in LONG_RUNNING_EXPORT_FORMATS:
+            stuck_after = RASTERIZE_RECORDING_WORKFLOW_EXECUTION_TIMEOUT + timedelta(seconds=30)
+        else:
+            stuck_after = timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
+
+        timeout_threshold = now() - stuck_after
+        if instance.created_at < timeout_threshold and not instance.has_content and not instance.exception:
             timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
             data["exception"] = timeout_message
 
@@ -249,7 +261,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        execution_timeout=timedelta(hours=1),
+                        execution_timeout=RASTERIZE_RECORDING_WORKFLOW_EXECUTION_TIMEOUT,
                         search_attributes=TypedSearchAttributes(
                             search_attributes=[
                                 SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id),
