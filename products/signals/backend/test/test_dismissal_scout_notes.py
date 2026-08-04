@@ -198,6 +198,10 @@ class TestDismissalScoutNotes(APIBaseTest):
         response = self._refund(report, reason="pr_incorrect", note="the PR edits a different endpoint")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+        # Exactly one: a refund suppresses the report through its own transition rather than the
+        # `state` action, so routing it back through that action would forward the same judgement
+        # twice and hand the scout a duplicate.
+        assert len(self._notes()) == 1
         note = self._notes()[0]
         assert note.skill_name == SCOUT_SKILL
         assert note.origin == SignalScoutNote.Origin.REPORT_DISMISSAL
@@ -205,6 +209,40 @@ class TestDismissalScoutNotes(APIBaseTest):
         # The refund's own reason rather than the flat `refunded` code the artefact carries, because
         # `pr_incorrect` is what tells the scout its report promised something the PR did not deliver.
         assert "pr_incorrect" in note.content
+
+    @freeze_time(_REFUND_NOW)
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_repeat_refund_does_not_forward_a_second_time(self, _flag) -> None:
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        _make_pr_run(self.team, report, created_at=_PR_RUN_AT)
+
+        first = self._refund(report, reason="pr_incorrect", note="the PR edits a different endpoint")
+        second = self._refund(report, reason="pr_incorrect", note="the PR edits a different endpoint")
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_200_OK, second.json()
+        assert second.json()["already_refunded"] is True
+        # The refund is idempotent by row lock, and forwarding has to inherit that: a double-clicked
+        # Refund button must not teach the scout the same verdict twice.
+        assert len(self._notes()) == 1
+
+    @freeze_time(_REFUND_NOW)
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_refund_without_a_note_forwards_nothing(self, _flag) -> None:
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        _make_pr_run(self.team, report, created_at=_PR_RUN_AT)
+
+        response = self._refund(report, reason="pr_not_useful")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # The note is what carries a reason into the steering channel, so a refund with no prose
+        # forwards nothing even though its reason code is structured. The artefact still records it.
+        assert self._notes() == []
+        assert self._dismissal_notes_on(report) == [None]
 
     @freeze_time(_REFUND_NOW)
     @patch("posthoganalytics.feature_enabled", return_value=True)
