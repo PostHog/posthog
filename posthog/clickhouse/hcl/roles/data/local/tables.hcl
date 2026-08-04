@@ -5809,15 +5809,6 @@ database "posthog" {
       ttl_only_drop_parts = "1"
     }
     extend = "_flag_evaluations_columns"
-    patch_column "timestamp" {
-      codec = "DoubleDelta, ZSTD(1)"
-    }
-    patch_column "inserted_at" {
-      codec = "DoubleDelta, ZSTD(1)"
-    }
-    patch_column "evaluated_at" {
-      codec = "DoubleDelta, ZSTD(1)"
-    }
     index "distinct_id_idx" {
       expr        = "distinct_id"
       type        = "bloom_filter(0.01)"

@@ -6124,13 +6124,11 @@ database "posthog" {
       type = "UUID"
     }
     column "timestamp" {
-      type  = "DateTime64(6, 'UTC')"
-      codec = "DoubleDelta, ZSTD(1)"
+      type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
-      codec   = "DoubleDelta, ZSTD(1)"
     }
     column "distinct_id" {
       type = "String"
@@ -6162,7 +6160,6 @@ database "posthog" {
     column "evaluated_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
-      codec   = "DoubleDelta, ZSTD(1)"
     }
     column "error" {
       type = "String"
