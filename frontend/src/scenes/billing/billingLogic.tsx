@@ -37,6 +37,7 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
+    getCustomLimitUsd,
     getMinimumBillingAccessLevel,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -1424,10 +1425,13 @@ export const billingLogic = kea<billingLogicType>([
                     productsOverLimit.map((product) => ({
                         name: product.name,
                         subscribed: product.subscribed,
-                        customLimitUsd: values.billing?.custom_limits_usd?.[product.type] ?? null,
+                        customLimitUsd: getCustomLimitUsd(values.billing, product),
                         currentAmountUsd: product.current_amount_usd,
                         usageLimit: product.usage_limit,
                         unit: product.unit,
+                        display_unit: product.display_unit,
+                        display_decimals: product.display_decimals,
+                        display_divisor: product.display_divisor,
                     })),
                     values.canAccessBilling,
                     values.minimumBillingAccessLevel

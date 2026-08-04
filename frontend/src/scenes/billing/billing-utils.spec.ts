@@ -16,6 +16,7 @@ import {
     formatDisplayUsage,
     formatProductNames,
     formatWithDecimals,
+    getCustomLimitUsd,
     getMinimumBillingAccessLevel,
     getProration,
     getUsageLimitConsequence,
@@ -452,6 +453,19 @@ describe('getUsageLimitConsequence', () => {
     })
 })
 
+describe('getCustomLimitUsd', () => {
+    it.each([
+        ['keyed by product type', { product_analytics: 500 }, 500],
+        ['keyed by usage_key as a fallback', { events: 500 }, 500],
+        ['keyed by both, type takes priority', { product_analytics: 100, events: 500 }, 100],
+        ['unset under either key', {}, null],
+        ['explicitly 0', { product_analytics: 0 }, 0],
+    ])('%s', (_name, customLimitsUsd, expected) => {
+        const billing = { custom_limits_usd: customLimitsUsd } as any
+        expect(getCustomLimitUsd(billing, { type: 'product_analytics', usage_key: 'events' })).toEqual(expected)
+    })
+})
+
 describe('buildUsageLimitExceededMessage', () => {
     it('should return empty strings for empty array', () => {
         expect(buildUsageLimitExceededMessage([])).toEqual({ title: '', message: '' })
@@ -575,6 +589,22 @@ describe('buildUsageLimitExceededMessage', () => {
         expect(result.message).toContain(
             'Product analytics has a $500 billing limit, an allowance of 2 M events, current spend of $206.42.'
         )
+    })
+
+    it('should apply the product display formatting to the usage allowance', () => {
+        const result = buildUsageLimitExceededMessage([
+            {
+                name: 'Data warehouse',
+                subscribed: true,
+                customLimitUsd: 500,
+                usageLimit: 27_648,
+                unit: 'MB',
+                display_unit: 'GB',
+                display_decimals: 2,
+                display_divisor: 1000,
+            },
+        ])
+        expect(result.message).toContain('Data warehouse has a $500 billing limit, an allowance of 27.65 GB.')
     })
 
     it('should not add limit details when no custom limit is set', () => {

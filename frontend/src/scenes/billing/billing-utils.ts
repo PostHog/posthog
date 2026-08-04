@@ -42,6 +42,22 @@ export const calculateFreeTier = (product: BillingProductV2Type | BillingProduct
     return product.free_allocation || 0
 }
 
+/**
+ * Resolves a product's custom USD billing limit. Billing stores the limit keyed by `type`,
+ * falling back to `usage_key` for products keyed that way (e.g. addons priced by usage).
+ */
+export const getCustomLimitUsd = (
+    billing: BillingType | null,
+    product: Pick<BillingProductV2Type | BillingProductV2AddonType, 'type' | 'usage_key'>
+): number | null => {
+    const customLimit = billing?.custom_limits_usd?.[product.type]
+    if (customLimit === 0 || customLimit) {
+        return Number(customLimit)
+    }
+    const usageKeyLimit = product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
+    return usageKeyLimit === 0 || usageKeyLimit ? Number(usageKeyLimit) : null
+}
+
 export const createGaugeItems = (
     product: BillingProductV2Type | BillingProductV2AddonType,
     options: {
@@ -97,10 +113,15 @@ export const summarizeUsage = (usage: number | null): string => {
     return compactNumber(usage)
 }
 
+export type DisplayFormattingFields = Pick<
+    BillingProductV2Type,
+    'unit' | 'display_unit' | 'display_decimals' | 'display_divisor'
+>
+
 /**
  * Check if a product has display formatting configured.
  */
-export const hasDisplayFormatting = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+export const hasDisplayFormatting = (product: DisplayFormattingFields): boolean => {
     return !!(product.display_divisor != null || product.display_decimals != null || product.display_unit)
 }
 
@@ -115,7 +136,7 @@ export const hasDisplayFormatting = (product: BillingProductV2Type | BillingProd
  */
 export const formatDisplayUsage = (
     value: number | null,
-    product: BillingProductV2Type | BillingProductV2AddonType,
+    product: DisplayFormattingFields,
     options?: { compactFallback?: boolean }
 ): string => {
     if (value === null) {
@@ -158,9 +179,7 @@ export const formatDisplayUsage = (
  * Create a value formatter function for a product.
  * Uses formatDisplayUsage with compactFallback for non-configured products.
  */
-export const createProductValueFormatter = (
-    product: BillingProductV2Type | BillingProductV2AddonType
-): ((value: number | null) => string) => {
+export const createProductValueFormatter = (product: DisplayFormattingFields): ((value: number | null) => string) => {
     return (value: number | null): string => formatDisplayUsage(value, product, { compactFallback: true })
 }
 
@@ -169,7 +188,7 @@ export const createProductValueFormatter = (
  * Returns empty string when display formatting is enabled, since the unit is already
  * included in the formatted value from formatDisplayUsage.
  */
-export const getProductUnitLabel = (product: BillingProductV2Type | BillingProductV2AddonType): string => {
+export const getProductUnitLabel = (product: DisplayFormattingFields): string => {
     // When display formatting is enabled, the unit is already in the formatted value
     if (hasDisplayFormatting(product)) {
         return ''
@@ -655,14 +674,15 @@ export function getUsageLimitConsequence(productName: string): string {
  * Build a consolidated message for products that have exceeded their usage limits
  */
 export function buildUsageLimitExceededMessage(
-    products: Array<{
-        name: string
-        subscribed: boolean | null
-        customLimitUsd?: number | null
-        currentAmountUsd?: string | null
-        usageLimit?: number | null
-        unit?: string | null
-    }>,
+    products: Array<
+        {
+            name: string
+            subscribed: boolean | null
+            customLimitUsd?: number | null
+            currentAmountUsd?: string | null
+            usageLimit?: number | null
+        } & Partial<DisplayFormattingFields>
+    >,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): {
@@ -700,8 +720,15 @@ export function buildUsageLimitExceededMessage(
         .map((p) => {
             const details = [`a $${p.customLimitUsd.toLocaleString()} billing limit`]
             if (p.usageLimit != null) {
-                const unitLabel = p.unit ? ` ${wordPluralize(p.unit)}` : ''
-                details.push(`an allowance of ${compactNumber(p.usageLimit)}${unitLabel}`)
+                const displayFields: DisplayFormattingFields = {
+                    unit: p.unit ?? null,
+                    display_unit: p.display_unit ?? null,
+                    display_decimals: p.display_decimals ?? null,
+                    display_divisor: p.display_divisor ?? null,
+                }
+                const allowanceText = formatDisplayUsage(p.usageLimit, displayFields, { compactFallback: true })
+                const unitLabel = getProductUnitLabel(displayFields)
+                details.push(`an allowance of ${allowanceText}${unitLabel ? ` ${unitLabel}` : ''}`)
             }
             if (p.currentAmountUsd != null) {
                 details.push(`current spend of ${currencyFormatter(Number(p.currentAmountUsd))}`)

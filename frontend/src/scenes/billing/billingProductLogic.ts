@@ -24,7 +24,13 @@ import {
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductKey } from '../../queries/schema/schema-general'
-import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
+import {
+    calculateFreeTier,
+    createGaugeItems,
+    getCustomLimitUsd,
+    isAddonVisible,
+    isProductVariantPrimary,
+} from './billing-utils'
 import { getBillingLimitConfig } from './billingLimitConfig'
 import type { BillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
@@ -837,14 +843,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
-            (billing: BillingType | null, product: BillingProductV2AddonType | BillingProductV2Type) => {
-                const customLimit = billing?.custom_limits_usd?.[product.type]
-                if (customLimit === 0 || customLimit) {
-                    return Number(customLimit)
-                }
-                const usageKeyLimit = product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
-                return usageKeyLimit === 0 || usageKeyLimit ? Number(usageKeyLimit) : null
-            },
+            (billing: BillingType | null, product: BillingProductV2AddonType | BillingProductV2Type) =>
+                getCustomLimitUsd(billing, product),
         ],
         visibleAddons: [
             (s, p) => [s.featureFlags, p.product],
