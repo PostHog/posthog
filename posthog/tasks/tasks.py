@@ -405,7 +405,10 @@ def process_query_task(
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
-    sharing_configuration_id: Optional[int] = None,
+    principal: Optional[dict[str, Any]] = None,
+    # Tasks queued by a newer deploy can carry kwargs this worker has never heard of. Binding would
+    # raise TypeError, which is not retryable, so accept and drop them instead.
+    **_newer_deploy_kwargs: Any,
 ) -> None:
     """
     Kick off query
@@ -428,7 +431,7 @@ def process_query_task(
         limit_context=limit_context,
         is_query_service=is_query_service,
         analytics_props=analytics_props,
-        sharing_configuration_id=sharing_configuration_id,
+        principal=principal,
     )
 
 

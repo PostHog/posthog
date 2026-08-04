@@ -388,7 +388,7 @@ class TestSQLV2Run(APIBaseTest):
     @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_direct_enqueue_threads_user_and_private_query_id(self, _mock_enabled, mock_enqueue):
-        # user_id drives HogQL/warehouse access control downstream (a userless run fails
+        # The principal drives HogQL/warehouse access control downstream (a userless run fails
         # closed). The query_id must be the private derived id, never the client-visible
         # run_id — using the run_id would expose a run's rows through the generic query
         # endpoint and let a colliding client_query_id poison them.
@@ -396,7 +396,7 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         run_id = response.json()["run_id"]
         kwargs = mock_enqueue.call_args.kwargs
-        self.assertEqual(kwargs["user_id"], self.user.id)
+        self.assertEqual(kwargs["user"], self.user)
         self.assertNotEqual(kwargs["query_id"], run_id)
         self.assertEqual(kwargs["query_id"], notebook_direct_query_id(run_id))
         self.assertTrue(kwargs["refresh_requested"])

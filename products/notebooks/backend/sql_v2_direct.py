@@ -139,7 +139,7 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
     with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
         enqueue_process_query_task(
             team=team,
-            user_id=user.id if user else None,
+            user=user,
             query_json={"kind": "HogQLQuery", "query": bounded},
             query_id=notebook_direct_query_id(str(run.id)),
             # A Run click always executes; never serve a stale cached result.

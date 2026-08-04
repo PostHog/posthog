@@ -179,7 +179,9 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
             status = enqueue_process_query_task(
                 team=team,
-                user_id=user.id if user else None,
+                # Always a real User or None: the data-plane token carries only a user_id claim, so
+                # a shared-link or secret-key principal is already gone by the time we get here.
+                user=user,
                 query_json={"kind": "HogQLQuery", "query": bounded},
                 # Dispatch normally rides transaction.on_commit, which never fires inside
                 # a test transaction — run inline there, like the manager's own tests do.

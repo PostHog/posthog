@@ -1494,7 +1494,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         *,
         cache_manager: QueryCache,
         refresh_requested: bool = False,
-        user: Optional[User] = None,
+        user: Optional[User | SyntheticUser | SharedLinkUser] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
         posthoganalytics.capture(
@@ -1511,16 +1511,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             groups=(groups(self.team.organization, self.team)),
         )
 
-        # user is typed Optional[User] but runtime also passes SharedLinkUser (shared renders).
-        # SharedLinkUser.id is None (it's an AnonymousUser), so carry the sharing configuration
-        # separately - otherwise the worker rebuilds a userless request and warehouse access
-        # control fails closed on every table/view, even though the share link authorizes it.
-        sharing_configuration_id = user.sharing_configuration.pk if isinstance(user, SharedLinkUser) else None
-
         return enqueue_process_query_task(
             team=self.team,
-            user_id=user.id if user else None,
-            sharing_configuration_id=sharing_configuration_id,
+            # Pass the principal, not its id: shared-link and synthetic principals have no id.
+            user=user,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
@@ -1862,8 +1856,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Abort early if the user doesn't have access to the query runner.
                     # We'll proceed as usual if there's no user connected to this request, or for an
                     # anonymous principal (SharedLinkUser) - the share link is its authorization.
+                    # A SyntheticUser is skipped too: UserAccessControl resolves an
+                    # OrganizationMembership by user FK, which a principal with no id cannot satisfy,
+                    # and secret-key principals are scope-gated at the endpoint instead.
                     # We're capturing the error for analytics purposes, but we reraise the same one
-                    if user is not None and not user.is_anonymous:
+                    if isinstance(user, User) and not user.is_anonymous:
                         try:
                             self.validate_query_runner_access(user)
                         except UserAccessControlError as error:

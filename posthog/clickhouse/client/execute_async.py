@@ -15,6 +15,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
+from posthog.clickhouse.client.async_principal import PrincipalRef, rebuild_principal, serialize_principal
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -24,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
 
 if TYPE_CHECKING:
+    from posthog.clickhouse.client.async_principal import Principal
     from posthog.event_usage import AnalyticsProps
     from posthog.models.team.team import Team
 
@@ -186,35 +188,30 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
-    sharing_configuration_id: Optional[int] = None,
+    principal: Optional[PrincipalRef] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
 
     from posthog.api.services.query import ExecutionMode, process_query_dict
     from posthog.models import Team
-    from posthog.models.sharing_configuration import SharingConfiguration
     from posthog.models.user import User
-    from posthog.shared_link_user import SharedLinkUser
 
     team = Team.objects.get(pk=team_id)
     is_staff_user = False
 
-    user: Optional[User | SharedLinkUser] = None
+    user: Optional[Principal] = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
-    elif sharing_configuration_id:
-        # The original request authenticated as a SharedLinkUser (an AnonymousUser with no id),
-        # so there was no user_id to carry across the Celery boundary - rebuild the same
-        # anonymous principal from the sharing configuration so warehouse access control sees
-        # the same bypass it would have on the synchronous path. Re-check `enabled` here since
-        # the link may have been revoked between enqueue and pickup.
-        sharing_configuration = SharingConfiguration.objects.filter(
-            pk=sharing_configuration_id, team_id=team_id, enabled=True
-        ).first()
-        if sharing_configuration is not None:
-            user = SharedLinkUser(sharing_configuration)
+    elif principal:
+        try:
+            user = rebuild_principal(principal, team)
+        except Exception as e:
+            # Raising here would escape ahead of the try block below that records query failures, so
+            # the caller would see the query hang until Celery exhausted its retries on the same
+            # payload. Fall back to the userless path, which denies rather than over-grants.
+            capture_exception(e, {"query_id": query_id})
 
     query_status = manager.get_query_status()
 
@@ -243,8 +240,7 @@ def execute_process_query(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
-            # process_query_dict is typed Optional[User], but the query pipeline duck-types
-            # SharedLinkUser (an AnonymousUser) as a principal throughout - see database.py.
+            # The query pipeline duck-types non-User principals throughout, see database.py.
             user=cast("Optional[User]", user),
             is_query_service=is_query_service,
             analytics_props=analytics_props,
@@ -305,7 +301,7 @@ def execute_process_query(
 
 def enqueue_process_query_task(
     team: "Team",
-    user_id: Optional[int],
+    user: Optional["Principal"],
     query_json: dict,
     *,
     insight_id: Optional[int] = None,
@@ -319,10 +315,12 @@ def enqueue_process_query_task(
     is_query_service: bool = False,
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
-    sharing_configuration_id: Optional[int] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
+
+    user_id = user.id if user else None
+    principal = serialize_principal(user)
 
     manager = QueryStatusManager(query_id, team.id)
 
@@ -381,6 +379,12 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
+    # Omitting the kwarg when there is no principal keeps the real-user path byte-identical on the
+    # wire, so a rolling deploy cannot fail those queries. It does not save principal-carrying
+    # queries: a worker running code without the `principal` parameter rejects them with a
+    # TypeError, which `autoretry_for` does not cover. Workers have to roll before web pods, or
+    # shared-link and service-token async queries error for the length of the deploy.
+    extra_kwargs = {"principal": principal} if principal is not None else {}
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -390,7 +394,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
-        sharing_configuration_id=sharing_configuration_id,
+        **extra_kwargs,
     )
 
     if _test_only_bypass_celery:
