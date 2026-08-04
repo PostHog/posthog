@@ -27,7 +27,7 @@ def _redis_client(exists_value: int | None) -> MagicMock | None:
 
 
 def _delta_helper(committed: bool | Exception | None) -> MagicMock | None:
-    """Build a `DeltaTableHelper`-shaped mock.
+    """Build a `DeltaTableRef`-shaped mock.
 
     - `True`  → `has_batch_been_committed` returns True
     - `False` → returns False
@@ -87,7 +87,7 @@ class TestIsBatchAlreadyProcessed:
                 schema_id="s",
                 run_uuid="r",
                 batch_index=0,
-                delta_table_helper=helper,
+                delta_table_ref=helper,
             )
 
         assert result is expected_result
@@ -107,7 +107,7 @@ class TestIsBatchAlreadyProcessed:
 
         with patch(REDIS_CLIENT_PATH) as mock_get_client:
             mock_get_client.return_value.__enter__.return_value = client
-            is_batch_already_processed(team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_helper=helper)
+            is_batch_already_processed(team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_ref=helper)
 
         assert helper is not None  # for mypy
         helper.has_batch_been_committed.assert_not_called()
@@ -123,7 +123,7 @@ class TestIsBatchAlreadyProcessed:
                 schema_id="s",
                 run_uuid="run-abc",
                 batch_index=3,
-                delta_table_helper=helper,
+                delta_table_ref=helper,
             )
 
         assert helper is not None
@@ -140,7 +140,7 @@ class TestIsBatchAlreadyProcessed:
             mock_get_client.return_value.__enter__.return_value = client
             with pytest.raises(RuntimeError, match="delta blew up"):
                 is_batch_already_processed(
-                    team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_helper=helper
+                    team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_ref=helper
                 )
 
 
