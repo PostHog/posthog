@@ -59,6 +59,11 @@ class ResolvedTeams:
     # bucket's org_id never changes, so withholding would freeze the ack forever.
     malformed_org_row_count: int = 0
     malformed_org_id_sample: tuple[str, ...] = ()
+    # Rows whose live team belongs to a DIFFERENT org (a duckgres/provisioning bug).
+    # Dropped and surfaced; the ack proceeds — the org is the billing authority so we
+    # never charge the wrong one, and withholding wouldn't fix a mis-stamped bucket.
+    foreign_team_row_count: int = 0
+    foreign_team_sample: tuple[int, ...] = ()
 
 
 def _compute_key(row: UsageRow) -> _ComputeKey:
@@ -74,7 +79,9 @@ def _storage_key(row: StorageRow) -> _StorageKey:
 
 
 def _compute_usage(row: UsageRow) -> tuple:
-    return (row.cpu_seconds, row.memory_seconds)
+    # Billable compute-seconds (cpu*8 + mem), NOT the raw (cpu_seconds, memory_seconds)
+    # tuple: a lexicographic compare would keep (100, 0) over the pricier (99, 1600).
+    return (row.cpu_seconds * 8 + row.memory_seconds,)
 
 
 def _storage_usage(row: StorageRow) -> tuple:
@@ -176,12 +183,33 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
 
     # "Dead" means *deleted* (absent from the Team table) — NOT merely non-billable. A
     # live demo/internal team is left alone below; only a genuinely deleted team's rows
-    # get remapped, so we never start billing intentionally-free usage.
-    live_team_ids = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+    # get remapped, so we never start billing intentionally-free usage. We also record
+    # which org each live team belongs to, to catch a team stamped on the wrong org.
+    team_to_org = {
+        tid: str(org) for tid, org in Team.objects.filter(id__in=team_ids).values_list("id", "organization_id")
+    }
+    live_team_ids = set(team_to_org)
+
+    # A live team belongs to exactly one org, and duckgres stamps the org's OWN team, so
+    # a row whose live team belongs to a *different* org is a duckgres/provisioning bug.
+    # Drop it and surface it rather than let the gather charge the wrong org — the org,
+    # not the stamped team, is the billing authority. The ack still proceeds: a
+    # mis-stamped bucket won't fix itself on a re-pull, and one bad row must not freeze
+    # billing for everyone else.
+    def _foreign(row: UsageRow | StorageRow) -> bool:
+        return row.team_id in team_to_org and team_to_org[row.team_id] != row.org_id
+
+    foreign = [r for r in compute_rows if _foreign(r)] + [r for r in storage_rows if _foreign(r)]
+    if foreign:
+        compute_rows = [r for r in compute_rows if not _foreign(r)]
+        storage_rows = [r for r in storage_rows if not _foreign(r)]
+    foreign_team_row_count = len(foreign)
+    foreign_team_sample = tuple(sorted({r.team_id for r in foreign})[:3])
+
     deleted_team_ids = team_ids - live_team_ids
     if not deleted_team_ids:
-        # Every row is under a live team (billable or intentionally non-billable) —
-        # nothing to remap; the gather handles billability from here.
+        # Every remaining row is under a live, same-org team (billable or intentionally
+        # non-billable) — nothing to remap; the gather handles billability from here.
         return ResolvedTeams(
             compute_rows,
             storage_rows,
@@ -190,6 +218,8 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             conflicting_row_count=conflicting_row_count,
             malformed_org_row_count=malformed_org_row_count,
             malformed_org_id_sample=malformed_org_id_sample,
+            foreign_team_row_count=foreign_team_row_count,
+            foreign_team_sample=foreign_team_sample,
         )
 
     orgs_to_reattribute = {row.org_id for row in compute_rows if row.team_id in deleted_team_ids} | {
@@ -229,6 +259,8 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
         conflicting_row_count,
         malformed_org_row_count=malformed_org_row_count,
         malformed_org_id_sample=malformed_org_id_sample,
+        foreign_team_row_count=foreign_team_row_count,
+        foreign_team_sample=foreign_team_sample,
     )
 
 

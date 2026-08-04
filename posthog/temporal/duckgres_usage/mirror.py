@@ -21,8 +21,9 @@ from django.db import transaction
 
 import structlog
 
-from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.temporal.duckgres_usage.client import UsageResponse
+
+from products.managed_warehouse.backend.facade.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 
 logger = structlog.get_logger(__name__)
 
@@ -83,9 +84,18 @@ def replace_window(response: UsageResponse) -> int:
     # BOTH families commit in this one transaction: duckgres's ack deletes
     # compute AND storage buckets atomically, so persisting one family and
     # acking would permanently destroy the other's un-persisted data.
+    #
+    # An empty family never deletes: a missing or empty usage array must not be
+    # read as "this window dropped to zero" and wipe good mirror rows. duckgres
+    # serves complete day-so-far totals and an acked day is immutable, so a day
+    # that once had usage never legitimately comes back empty — an empty family
+    # means "nothing to say about it this pull", so we leave what we already have.
+    # A populated family still fully replaces its window, which is the whole point.
     with transaction.atomic():
-        DuckgresDailyUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
-        DuckgresDailyStorageUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
+        if compute_rows:
+            DuckgresDailyUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
+        if storage_rows:
+            DuckgresDailyStorageUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
         created = DuckgresDailyUsage.objects.bulk_create(
             DuckgresDailyUsage(
                 date=row.date,

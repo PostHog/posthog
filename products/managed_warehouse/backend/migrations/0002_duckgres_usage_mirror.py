@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1281_migrate_managed_warehouse_models"),
+        ("managed_warehouse", "0001_migrate_managed_warehouse_models"),
     ]
 
     operations = [

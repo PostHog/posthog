@@ -43,7 +43,6 @@ from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.models import Organization, Project, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
@@ -85,6 +84,7 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.managed_warehouse.backend.facade.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,

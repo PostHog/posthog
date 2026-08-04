@@ -30,7 +30,6 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
-from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
@@ -54,6 +53,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.managed_warehouse.backend.facade.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
     get_replay_vision_observations_by_team,

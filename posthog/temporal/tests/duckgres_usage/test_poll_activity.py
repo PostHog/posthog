@@ -23,11 +23,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 
-from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage, DuckgresUsageCursor
 from posthog.models import Organization, Team
 from posthog.temporal.duckgres_usage.activities import ack_duckgres_usage, poll_duckgres_usage
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
 from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
+
+from products.managed_warehouse.backend.facade.models import (
+    DuckgresDailyStorageUsage,
+    DuckgresDailyUsage,
+    DuckgresUsageCursor,
+)
 
 ORG = "018f0000-0000-0000-0000-000000000000"
 TEAM_ID = 42
@@ -396,6 +401,83 @@ async def test_conflicting_rows_withhold_the_ack_and_alert(activity_environment)
     assert not await cursor_exists()  # nothing acked, nothing recorded
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
     assert "DuckgresConflictingRows" in captured
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_foreign_team_rows_dropped_alerts_and_still_acks(activity_environment) -> None:
+    # A row for ORG stamped with a live team that belongs to a DIFFERENT org (a
+    # provisioning bug): dropped so we never charge the wrong org, alerted — but the
+    # ack proceeds, since a mis-stamped bucket won't fix itself on a re-pull.
+    other_team_id = 7777
+
+    @sync_to_async
+    def make_other_org() -> None:
+        other = Organization.objects.create(id="018f0000-0000-0000-0000-0000000000aa", name="other org")
+        Team.objects.create(id=other_team_id, organization=other, name="other team")
+
+    await make_other_org()
+
+    is_conf, fetch, cap, log = _patched(_one_row_response(ORG, other_team_id))
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert await usage_count() == 0  # foreign row dropped, not billed to the wrong org
+    captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
+    assert "DuckgresForeignTeamRows" in captured
+    assert result.ack_watermark == DAY_6_END.isoformat()  # ack proceeds
+
+
+INVALID_VALUE_RESPONSE = UsageResponse(
+    # The client already dropped an impossible-measure row and counted it; a good row
+    # for the closed day survived alongside it.
+    watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+    watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+    rows=[_row(dt.date(2026, 7, 6))],
+    invalid_value_row_count=1,
+    invalid_value_row_sample={"cpu": "NaN"},
+)
+
+MISSING_USAGE_RESPONSE = UsageResponse(
+    watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+    watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+    rows=[],
+    usage_missing=True,
+)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_invalid_value_rows_dropped_alerts_and_still_acks(activity_environment) -> None:
+    # An impossible measure (NaN/negative) was already dropped by the client. The
+    # activity alerts but the ack PROCEEDS — the value is permanently bad, so
+    # withholding would only freeze the ack forever with no way to recover.
+    is_conf, fetch, cap, log = _patched(INVALID_VALUE_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.rows_written == 1  # the good row persisted
+    captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
+    assert "DuckgresInvalidValueRows" in captured
+    assert result.ack_watermark == DAY_6_END.isoformat()  # ack proceeds
+    assert await get_cursor_watermark() == DAY_6_END
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_missing_usage_withholds_ack_and_alerts(activity_environment) -> None:
+    # The response carried no usage array at all: we can't read it as "no usage", so
+    # persist nothing, alert, and WITHHOLD the ack until a well-formed response lands
+    # (duckgres keeps the source buckets meanwhile).
+    is_conf, fetch, cap, log = _patched(MISSING_USAGE_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert await usage_count() == 0
+    assert result.ack_watermark is None  # withheld
+    assert not await cursor_exists()
+    captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
+    assert "DuckgresMissingUsage" in captured
 
 
 @pytest.mark.django_db(transaction=True)

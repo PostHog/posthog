@@ -365,6 +365,89 @@ def test_election_query_count_is_constant_in_org_count(django_assert_num_queries
     assert {r.team_id for r in result.compute_rows} == {41000 + i for i in range(5)}
 
 
+# --- conflict tie-break uses billable value, not raw lexicographic ------------
+# A value conflict keeps the row that bills MORE. "More" is the billable
+# compute-seconds (cpu_seconds*8 + memory_seconds), NOT a lexicographic compare of
+# (cpu_seconds, memory_seconds) — the latter would keep a row with a larger
+# cpu_seconds even when the other row's memory makes it the pricier one.
+
+
+def test_conflict_keeps_the_pricier_row_by_billable_value() -> None:
+    org, (t0, _) = _org_with_teams()
+    # Same billing key, different measures. cheaper bills 100*8 + 0 = 800; pricier
+    # bills 99*8 + 1600 = 2392. A lexicographic (cpu_seconds, memory_seconds)
+    # compare would wrongly keep cheaper (100 > 99).
+    cheaper = _compute(t0.id, str(org.id), cpu_seconds=100, memory_seconds=0)
+    pricier = _compute(t0.id, str(org.id), cpu_seconds=99, memory_seconds=1600)
+
+    result = resolve_billing_teams([cheaper, pricier], [])
+
+    assert len(result.compute_rows) == 1
+    kept = result.compute_rows[0]
+    assert (kept.cpu_seconds, kept.memory_seconds) == (99, 1600)  # the pricier one, not the larger cpu_seconds
+    assert result.conflicting_row_count == 1
+
+
+def test_conflict_keeps_the_pricier_row_even_when_it_arrives_first() -> None:
+    # keep-pricier must not depend on order: the pricier row arriving first must not
+    # be overwritten by the cheaper one that follows.
+    org, (t0, _) = _org_with_teams()
+    pricier = _compute(t0.id, str(org.id), cpu_seconds=99, memory_seconds=1600)  # bills 2392
+    cheaper = _compute(t0.id, str(org.id), cpu_seconds=100, memory_seconds=0)  # bills 800
+
+    result = resolve_billing_teams([pricier, cheaper], [])
+
+    assert len(result.compute_rows) == 1
+    kept = result.compute_rows[0]
+    assert (kept.cpu_seconds, kept.memory_seconds) == (99, 1600)
+    assert result.conflicting_row_count == 1
+
+
+# --- a live team belonging to a DIFFERENT org is a foreign-team drop -----------
+# duckgres stamps the org's own team; a row whose live team belongs to another org
+# is a duckgres/provisioning bug. We drop it (never charge the wrong org — the org
+# is the billing authority) and surface it; the ack still proceeds.
+
+
+def test_row_with_live_team_from_a_different_org_is_dropped_and_flagged() -> None:
+    org_a, (a0, _) = _org_with_teams()
+    org_b, (b0,) = _org_with_teams(n=1)
+    good = _compute(a0.id, str(org_a.id))  # org A's own live team — kept
+    foreign = _compute(b0.id, str(org_a.id), date=dt.date(2026, 7, 7))  # org B's live team on org A — dropped
+
+    result = resolve_billing_teams([good, foreign], [])
+
+    assert result.compute_rows == [good]  # only the foreign row was dropped
+    assert result.foreign_team_row_count == 1
+    assert result.foreign_team_sample == (b0.id,)
+    assert result.orphaned_org_ids == set()  # a foreign-team drop, not an orphan org
+
+
+def test_foreign_team_storage_row_is_dropped_and_flagged() -> None:
+    org_a, _ = _org_with_teams()
+    org_b, (b0,) = _org_with_teams(n=1)
+
+    result = resolve_billing_teams([], [_storage(b0.id, str(org_a.id))])
+
+    assert result.storage_rows == []
+    assert result.foreign_team_row_count == 1
+    assert result.foreign_team_sample == (b0.id,)
+
+
+def test_foreign_row_dropped_but_dead_team_in_same_org_still_reattributed() -> None:
+    # A foreign row and a genuinely-dead-team row in the same org: the foreign row is
+    # dropped, the dead-team row is still remapped to the org's live surrogate.
+    org_a, (a0, a1) = _org_with_teams()
+    org_b, (b0,) = _org_with_teams(n=1)
+    foreign = _compute(b0.id, str(org_a.id))  # org B's team on A — dropped
+    dead = _compute(DEAD, str(org_a.id), date=dt.date(2026, 7, 7))  # dead in A — remapped to a0
+
+    result = resolve_billing_teams([foreign, dead], [])
+
+    assert {r.team_id for r in result.compute_rows} == {min(a0.id, a1.id)}  # foreign gone, dead remapped
+    assert result.foreign_team_row_count == 1
+
+
 def test_malformed_org_ids_are_dropped_counted_and_never_crash() -> None:
     # duckgres contract break: org keys must be PostHog org UUIDs (the dev
     # seed's org named 'local' is a live counter-example). Such rows can't

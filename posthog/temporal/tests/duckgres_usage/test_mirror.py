@@ -19,9 +19,10 @@ from decimal import Decimal
 
 import pytest
 
-from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
 from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
+
+from products.managed_warehouse.backend.facade.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 
 pytestmark = pytest.mark.django_db
 
@@ -265,16 +266,39 @@ class TestReplaceWindowStorage:
         assert DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 7)).cpu_seconds == 500
         assert DuckgresDailyStorageUsage.objects.get(date=dt.date(2026, 7, 7)).gib_seconds == Decimal("777")
 
-    def test_storage_only_window_still_replaces_compute(self) -> None:
-        # A day whose compute went silent but storage persists: compute rows for
-        # the window must still be dropped even when only storage rows arrive.
+    def test_empty_compute_does_not_wipe_existing_compute_when_only_storage_arrives(self) -> None:
+        # An empty compute array must NOT be read as "this day's compute dropped to
+        # zero" and wipe good rows: duckgres serves complete day-so-far totals and an
+        # acked day is immutable, so compute never legitimately returns empty for a
+        # day it already reported. Only storage (present) is replaced.
         _seed(dt.date(2026, 7, 7), cpu_seconds=999)
         response = _response([], self.LOW, self.HIGH, storage_rows=[_storage_row(dt.date(2026, 7, 7))])
 
         replace_window(response)
 
-        assert not DuckgresDailyUsage.objects.filter(date=dt.date(2026, 7, 7)).exists()
-        assert DuckgresDailyStorageUsage.objects.filter(date=dt.date(2026, 7, 7)).count() == 1
+        assert DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 7)).cpu_seconds == 999  # preserved
+        assert DuckgresDailyStorageUsage.objects.filter(date=dt.date(2026, 7, 7)).count() == 1  # storage replaced
+
+    def test_empty_storage_does_not_wipe_existing_storage_when_only_compute_arrives(self) -> None:
+        _seed_storage(dt.date(2026, 7, 7), gib_seconds="999")
+        response = _response([_row(dt.date(2026, 7, 7))], self.LOW, self.HIGH, storage_rows=[])
+
+        replace_window(response)
+
+        assert DuckgresDailyStorageUsage.objects.get(date=dt.date(2026, 7, 7)).gib_seconds == Decimal("999")
+        assert DuckgresDailyUsage.objects.filter(date=dt.date(2026, 7, 7)).count() == 1  # compute replaced
+
+    def test_fully_empty_response_in_a_real_window_preserves_both_families(self) -> None:
+        # A non-empty window that returns no rows at all (e.g. a missing usage array
+        # upstream) must leave the existing mirror untouched, not blank the day.
+        _seed(dt.date(2026, 7, 7), cpu_seconds=42)
+        _seed_storage(dt.date(2026, 7, 7), gib_seconds="7")
+        response = _response([], self.LOW, self.HIGH, storage_rows=[])
+
+        replace_window(response)
+
+        assert DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 7)).cpu_seconds == 42
+        assert DuckgresDailyStorageUsage.objects.get(date=dt.date(2026, 7, 7)).gib_seconds == Decimal("7")
 
     def test_preserves_acked_storage_days(self) -> None:
         DuckgresDailyStorageUsage.objects.create(

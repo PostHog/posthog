@@ -66,11 +66,23 @@ class UsageResponse:
     watermark_high: dt.datetime
     rows: list[UsageRow]
     storage_rows: list[StorageRow] = dataclasses.field(default_factory=list)
-    # Rows (either family) that failed to parse. The caller alerts on these and
-    # withholds the ack — a dropped row is dropped billable usage, so it must be
-    # loud and its source data preserved, not silently skipped.
+    # Rows (either family) that failed to parse at all — a bad date, a non-integer
+    # team_id, a non-numeric measure. The caller alerts AND withholds the ack: a
+    # dropped row is dropped billable usage, so it must be loud and its source data
+    # preserved, not silently skipped.
     unparsed_row_count: int = 0
     unparsed_row_sample: dict | None = None
+    # Rows that parsed but carry an impossible measure — NaN, infinity, or a
+    # negative amount. Dropped so they can't corrupt the mirror, and the caller
+    # alerts, but the ack PROCEEDS: the value is permanently bad, so withholding
+    # would only freeze the ack forever with no way to recover.
+    invalid_value_row_count: int = 0
+    invalid_value_row_sample: dict | None = None
+    # True when the response carried no usage array at all (the key was absent or
+    # not a list) — a shape violation, distinct from a present-but-empty array. The
+    # caller alerts AND withholds the ack: we can't read a missing array as "the
+    # window truly had no usage" and let duckgres delete the source buckets.
+    usage_missing: bool = False
 
 
 def is_configured() -> bool:
@@ -95,45 +107,58 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
     """Fetch usage aggregated per key per UTC day over the un-acked window."""
     body = _request("GET", "billing/usage", timeout=timeout)
 
-    # Un-parseable rows are collected, not logged-and-forgotten: the caller
-    # alerts on them and withholds the ack so duckgres keeps the source data
-    # until the upstream cause is fixed (dropping a row silently = silent
-    # under-billing).
+    # Dropped rows are collected by kind, never logged-and-forgotten. `unparsed`
+    # (couldn't be read) keeps the ack withheld so duckgres holds the source;
+    # `invalid` (read but impossible value) is dropped but lets the ack proceed.
+    # See the field docs on UsageResponse.
     unparsed: list[dict] = []
+    invalid: list[dict] = []
+
+    raw_usage = body.get("usage")
+    # A present-but-empty [] is a legitimate quiet window; a missing / null /
+    # non-list usage key is a shape violation we must not read as "no usage".
+    # (Storage may legitimately be absent — servers without the storage metric —
+    # so it is deliberately NOT subject to this check.)
+    usage_missing = not isinstance(raw_usage, list)
 
     rows: list[UsageRow] = []
-    for raw in body.get("usage") or []:
+    for raw in raw_usage if isinstance(raw_usage, list) else []:
         try:
-            rows.append(
-                UsageRow(
-                    date=dt.date.fromisoformat(raw["date"]),
-                    org_id=raw["org_id"],
-                    team_id=int(raw["team_id"]),
-                    query_source=raw["query_source"],
-                    cpu=Decimal(str(raw["cpu"])),
-                    mem_gib=Decimal(str(raw["mem_gib"])),
-                    cpu_seconds=int(raw["cpu_seconds"]),
-                    memory_seconds=int(raw["memory_seconds"]),
-                )
+            row = UsageRow(
+                date=dt.date.fromisoformat(raw["date"]),
+                org_id=raw["org_id"],
+                team_id=int(raw["team_id"]),
+                query_source=raw["query_source"],
+                cpu=Decimal(str(raw["cpu"])),
+                mem_gib=Decimal(str(raw["mem_gib"])),
+                cpu_seconds=int(raw["cpu_seconds"]),
+                memory_seconds=int(raw["memory_seconds"]),
             )
         except (KeyError, ValueError, TypeError, InvalidOperation):
             unparsed.append(raw)
+            continue
+        if not _compute_values_ok(row):
+            invalid.append(raw)
+            continue
+        rows.append(row)
 
     storage_rows: list[StorageRow] = []
-    # Absent on servers without the storage metric; present-but-unconsumed is NOT
-    # an option once this environment acks (the shared ack deletes both families).
-    for raw in body.get("storage") or []:
+    raw_storage = body.get("storage")
+    for raw in raw_storage if isinstance(raw_storage, list) else []:
         try:
-            storage_rows.append(
-                StorageRow(
-                    date=dt.date.fromisoformat(raw["date"]),
-                    org_id=raw["org_id"],
-                    team_id=int(raw["team_id"]),
-                    gib_seconds=Decimal(str(raw["gib_seconds"])),
-                )
+            storage_row = StorageRow(
+                date=dt.date.fromisoformat(raw["date"]),
+                org_id=raw["org_id"],
+                team_id=int(raw["team_id"]),
+                gib_seconds=Decimal(str(raw["gib_seconds"])),
             )
         except (KeyError, ValueError, TypeError, InvalidOperation):
             unparsed.append(raw)
+            continue
+        if not _storage_values_ok(storage_row):
+            invalid.append(raw)
+            continue
+        storage_rows.append(storage_row)
 
     return UsageResponse(
         watermark_low=_parse_rfc3339(body["watermark_low"]),
@@ -142,7 +167,28 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
         storage_rows=storage_rows,
         unparsed_row_count=len(unparsed),
         unparsed_row_sample=unparsed[0] if unparsed else None,
+        invalid_value_row_count=len(invalid),
+        invalid_value_row_sample=invalid[0] if invalid else None,
+        usage_missing=usage_missing,
     )
+
+
+def _finite_nonneg(value: Decimal) -> bool:
+    # is_finite() first, and rely on short-circuit: NaN and infinity fail it, and a
+    # `>= 0` comparison against NaN would itself raise — so the guard must run before
+    # the comparison is ever reached.
+    return value.is_finite() and value >= 0
+
+
+def _compute_values_ok(row: UsageRow) -> bool:
+    # Reject impossible measures (NaN / infinity / negative) before they reach the
+    # mirror and corrupt the org's bill. Deleted or 0-stamped teams are NOT rejected
+    # here — those are re-attributed downstream in team_resolution.
+    return _finite_nonneg(row.cpu) and _finite_nonneg(row.mem_gib) and row.cpu_seconds >= 0 and row.memory_seconds >= 0
+
+
+def _storage_values_ok(row: StorageRow) -> bool:
+    return _finite_nonneg(row.gib_seconds)
 
 
 def ack_usage(watermark_high: dt.datetime, timeout: int = 30) -> None:

@@ -185,6 +185,102 @@ class TestFetchUsage:
         assert result.watermark_low == result.watermark_high
 
     @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_negative_measure_is_dropped_as_invalid_not_unparsed(self, mock_requests: MagicMock) -> None:
+        # A row that parses fine but carries a negative measure is impossible usage.
+        # It's dropped and counted as `invalid_value` (ack proceeds), NOT `unparsed`
+        # (which would withhold the ack) — the two are deliberately distinct.
+        body = {
+            **USAGE_BODY,
+            "usage": [{**USAGE_BODY["usage"][0], "cpu_seconds": -5}, USAGE_BODY["usage"][1]],
+            "storage": [],
+        }
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert len(result.rows) == 1  # the good row survived
+        assert result.rows[0].query_source == "endpoints"
+        assert result.invalid_value_row_count == 1
+        assert result.invalid_value_row_sample is not None
+        assert result.invalid_value_row_sample["cpu_seconds"] == -5
+        assert result.unparsed_row_count == 0  # parseable-but-impossible is NOT an unparsed row
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_nan_measure_is_dropped_as_invalid(self, mock_requests: MagicMock) -> None:
+        # NaN survives Decimal() (it's a valid Decimal), so it must be caught by the
+        # finite check, not the parse. json.loads parses the NaN token to a float.
+        raw = (
+            '{"watermark_low": "2026-07-06T00:00:00Z", "watermark_high": "2026-07-07T00:00:00Z",'
+            ' "usage": [{"date": "2026-07-06", "org_id": "018f0000-0000-0000-0000-000000000000",'
+            ' "team_id": "42", "query_source": "standard", "cpu": NaN, "mem_gib": 16,'
+            ' "cpu_seconds": 3600, "memory_seconds": 7200}]}'
+        )
+        mock_requests.request.return_value = _response(200, raw_text=raw)
+
+        result = fetch_usage()
+
+        assert result.rows == []
+        assert result.invalid_value_row_count == 1
+        assert result.unparsed_row_count == 0
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_negative_storage_is_dropped_as_invalid(self, mock_requests: MagicMock) -> None:
+        body = {
+            "watermark_low": "2026-07-06T00:00:00Z",
+            "watermark_high": "2026-07-07T00:00:00Z",
+            "usage": [],
+            "storage": [
+                {
+                    "date": "2026-07-06",
+                    "org_id": "018f0000-0000-0000-0000-000000000000",
+                    "team_id": 42,
+                    "gib_seconds": -1,
+                }
+            ],
+        }
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.storage_rows == []
+        assert result.invalid_value_row_count == 1
+        assert result.unparsed_row_count == 0
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_missing_usage_key_is_flagged_not_read_as_empty(self, mock_requests: MagicMock) -> None:
+        # A response with no usage array at all is a shape violation, not a quiet
+        # window — flag it so the caller withholds the ack rather than reading it as
+        # "no usage" and letting duckgres delete the source buckets.
+        body = {"watermark_low": "2026-07-06T00:00:00Z", "watermark_high": "2026-07-07T00:00:00Z"}
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.rows == []
+        assert result.usage_missing is True
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_null_usage_key_is_flagged_as_missing(self, mock_requests: MagicMock) -> None:
+        raw = '{"watermark_low": "2026-07-06T00:00:00Z", "watermark_high": "2026-07-07T00:00:00Z", "usage": null}'
+        mock_requests.request.return_value = _response(200, raw_text=raw)
+
+        result = fetch_usage()
+
+        assert result.usage_missing is True
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_empty_usage_array_is_not_flagged_as_missing(self, mock_requests: MagicMock) -> None:
+        # A present-but-empty array is a legitimate quiet window — NOT a shape
+        # violation, so the ack is free to proceed.
+        body = {"watermark_low": "2026-07-07T00:00:00Z", "watermark_high": "2026-07-07T12:00:00Z", "usage": []}
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.rows == []
+        assert result.usage_missing is False
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
     def test_raises_on_http_error(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(500, {"error": "boom"})
 
