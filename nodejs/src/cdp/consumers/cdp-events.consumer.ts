@@ -6,7 +6,6 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { UUID } from '~/common/utils/utils'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
@@ -137,31 +136,21 @@ export class CdpEventsConsumer<
         if (!opens.length) {
             return
         }
-        // Resolve the workflows in a single batch lookup (mirrors EmailTrackingService.trackLogs) rather
-        // than awaiting getHogFlow per event, so a batch carrying many opens doesn't serialize N lookups.
-        // Only look up well-formed UUIDs: `$notification_workflow_id` is client-supplied, and a
-        // non-UUID value would make the `id = ANY(...)` lookup throw on Postgres's uuid cast. Dropping
-        // malformed ids here also keeps one spoofed value from suppressing the rest of the batch.
-        const workflowIds = Array.from(
-            new Set(
-                opens
-                    .map((g) => g.event.properties['$notification_workflow_id'])
-                    .filter((id): id is string => typeof id === 'string' && UUID.validateString(id, false))
-            )
-        )
-        if (!workflowIds.length) {
-            return
-        }
-        // Open tracking is best-effort: a flow-lookup failure must not abort the batch (that would stall
-        // Hog-function and workflow processing for every event and force a Kafka replay). Log and skip.
+        // Match each open's workflow id against the flows its own team owns, which the hog flow pipeline
+        // already loaded for this batch (warm by-team cache). Resolving against that bounded, team-owned
+        // set rather than looking up the client-supplied id directly keeps a spoofed id from hitting
+        // Postgres or polluting the shared by-id cache with negative entries. Best-effort: a lookup
+        // failure here must not abort the batch (that would stall all event processing and force a replay).
         try {
-            const hogFlows = await this.hogFlowManager.getHogFlows(workflowIds)
+            const teamIds = Array.from(new Set(opens.map((g) => g.project.id)))
+            const flowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
             for (const g of opens) {
                 const workflowId = g.event.properties['$notification_workflow_id']
                 if (typeof workflowId !== 'string') {
                     continue
                 }
-                const metric = buildPushOpenedMetric(g.event.properties, g.project.id, hogFlows[workflowId] ?? null)
+                const flow = (flowsByTeam[g.project.id] ?? []).find((f) => f.id === workflowId) ?? null
+                const metric = buildPushOpenedMetric(g.event.properties, g.project.id, flow)
                 if (metric) {
                     this.hogFunctionMonitoringService.queueAppMetric(metric, 'hog_flow')
                 }
