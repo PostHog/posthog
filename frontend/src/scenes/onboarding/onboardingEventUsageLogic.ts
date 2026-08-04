@@ -109,6 +109,12 @@ export interface onboardingEventUsageLogicActions {
         phase: string
         runKey: string
     }
+    reportWizardSyncGithubConnectClicked: () => {
+        value: true
+    }
+    reportWizardSyncGithubConnected: () => {
+        value: true
+    }
     reportWizardSyncHandoffDocOpened: (props: {
         mode: 'cloud' | 'local'
         runKey: string
@@ -192,6 +198,12 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         // Engagement with the shared wizard sync surface (FAB card / launcher / dialog), fired for
         // both variants and both run modes (GROW-121).
         reportWizardSyncExpanded: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
+        // The install step's "Connect GitHub" click, and the return leg once the integration exists
+        // (see wizardCloudRunLogic's persisted attempt flag) — the only pair that can tell a click
+        // apart from a completed GitHub install, since the OAuth handoff is a full-page redirect and
+        // autocapture can't see across it.
+        reportWizardSyncGithubConnectClicked: true,
+        reportWizardSyncGithubConnected: true,
         reportWizardSyncMinimized: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
         reportWizardSyncRestored: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
         reportWizardSyncRunDismissed: (props: {
@@ -286,6 +298,18 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 run_key: runKey,
                 mode,
                 phase,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncGithubConnectClicked: () => {
+            posthog.capture('wizard sync github connect clicked', {
+                mode: 'cloud',
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncGithubConnected: () => {
+            posthog.capture('wizard sync github connected', {
+                mode: 'cloud',
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },

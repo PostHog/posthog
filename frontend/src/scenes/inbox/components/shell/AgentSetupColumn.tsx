@@ -214,7 +214,7 @@ function CodeAccessWidget(): JSX.Element {
             tone={hasGithub ? 'done' : 'todo'}
             loading={integrationsLoading && !hasGithub}
             status={hasGithub ? 'GitHub connected' : 'Foundational – connect to start'}
-            to={urls.settings('environment-integrations', 'integration-github')}
+            to={urls.settings('project-integrations', 'integration-github')}
         />
     )
 }

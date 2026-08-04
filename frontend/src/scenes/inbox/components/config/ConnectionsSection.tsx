@@ -36,7 +36,7 @@ export function ConnectionsSection(): JSX.Element {
                 type="secondary"
                 size="small"
                 sideIcon={<IconChevronRight />}
-                to={urls.settings('environment-integrations', 'integration-github')}
+                to={urls.settings('project-integrations', 'integration-github')}
             >
                 {hasGithubIntegration ? 'Manage' : 'Connect'}
             </LemonButton>

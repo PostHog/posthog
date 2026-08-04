@@ -39,7 +39,7 @@ function SlackCardHeader({ title, description }: { title: string; description: R
 function ConnectSlackPrompt(): JSX.Element {
     return (
         <Link
-            to={urls.settings('environment-integrations', 'integration-slack')}
+            to={urls.settings('project-integrations', 'integration-slack')}
             className="group flex items-center justify-between gap-3 rounded border bg-bg-light px-3 py-2.5 no-underline transition-colors hover:border-primary-3000 hover:bg-bg-3000"
         >
             <SlackCardHeader

@@ -60,9 +60,7 @@ export function ScoutSlackDestination({
             {integrationsLoading && slackIntegrations === undefined ? (
                 <span className="text-xs text-muted">Loading Slack workspaces…</span>
             ) : integrations.length === 0 ? (
-                <Link to={urls.settings('environment-integrations', 'integration-slack')}>
-                    Connect a Slack workspace
-                </Link>
+                <Link to={urls.settings('project-integrations', 'integration-slack')}>Connect a Slack workspace</Link>
             ) : (
                 <div className="flex flex-col gap-2 max-w-md">
                     {integrations.length > 1 ? (

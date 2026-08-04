@@ -37,7 +37,7 @@ export function WizardCloudRunBlock({
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
+    const { setSelectedRepository, startCloudRun, githubConnectClicked } = useActions(wizardCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
 
     // Fire onQueued once per kickoff, the moment the run is handed off. It advances the install step
@@ -113,16 +113,24 @@ export function WizardCloudRunBlock({
             </p>
 
             {!githubIntegration ? (
-                <LemonButton
-                    type="secondary"
-                    icon={<IconGithub />}
-                    to={connectGitHubUrl}
-                    disableClientSideRouting
-                    data-attr="wizard-cloud-run-connect-github"
-                    className={hideHog ? 'self-center' : 'self-start'}
-                >
-                    Connect GitHub
-                </LemonButton>
+                <div className="flex w-full flex-col gap-3">
+                    <ul className="text-sm text-muted mb-0 pl-4 list-disc space-y-1">
+                        <li>You'll pick which repository to install into on the next screen</li>
+                        <li>GitHub will ask you to grant read and write access to that repository</li>
+                        <li>We push a branch and open a pull request. Nothing merges until you approve it</li>
+                    </ul>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconGithub />}
+                        to={connectGitHubUrl}
+                        disableClientSideRouting
+                        onClick={() => githubConnectClicked()}
+                        data-attr="wizard-cloud-run-connect-github"
+                        className={hideHog ? 'self-center' : 'self-start'}
+                    >
+                        Connect GitHub
+                    </LemonButton>
+                </div>
             ) : (
                 <div className="flex w-full flex-col gap-2">
                     <div className="flex items-center gap-2">
