@@ -36,6 +36,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.exports.backend.temporal.subscriptions.activities import (
+    _resolve_exportable_insights,
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
@@ -57,8 +58,10 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
     DeliveryStatus,
+    ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    NoExportableInsightsReason,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
@@ -86,6 +89,17 @@ _IS_OVER_BUDGET = (
     "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget"
 )
 _CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
+
+
+async def test_subscription_workflows_accept_legacy_previous_target_payload() -> None:
+    payload = '{"subscription_id": 1, "previous_value": "old@example.com"}'
+
+    process_inputs = ProcessSubscriptionWorkflow.parse_inputs([payload])
+    update_inputs = HandleSubscriptionValueChangeWorkflow.parse_inputs([payload])
+
+    assert process_inputs.previous_target_value == "old@example.com"
+    assert update_inputs.previous_target_value == "old@example.com"
+
 
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
@@ -283,6 +297,13 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
+@pytest.mark.parametrize(
+    ("previous_target_value", "expected_recipients"),
+    [
+        ("test_existing@posthog.com", ["test_new@posthog.com"]),
+        ("test_existing@posthog.com,test_new@posthog.com", ["test_existing@posthog.com", "test_new@posthog.com"]),
+    ],
+)
 @pytest.mark.asyncio
 async def test_handle_subscription_value_change_email(
     mock_send_email: MagicMock,
@@ -293,6 +314,8 @@ async def test_handle_subscription_value_change_email(
     subscriptions_worker,
     team,
     user,
+    previous_target_value: str,
+    expected_recipients: list[str],
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="xyz789", name="Insight")
 
@@ -326,16 +349,14 @@ async def test_handle_subscription_value_change_email(
                     subscription_id=subscription.id,
                     team_id=subscription.team_id,
                     distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    previous_value="test_existing@posthog.com",
+                    previous_target_value=previous_target_value,
                     invite_message="My invite message",
                 ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
-    # Only new address should be emailed
-    assert mock_send_email.call_count == 1
-    assert mock_send_email.call_args_list[0][0][0] == "test_new@posthog.com"
+    assert [call.args[0] for call in mock_send_email.call_args_list] == expected_recipients
 
     # SLO events emitted exactly once (child only, not parent)
     started_calls = [
@@ -1202,6 +1223,86 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
 
+@patch("posthog.slo.events.posthoganalytics")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_stale_dashboard_selection_fails_without_retrying(
+    mock_capture_delivery_failed: MagicMock,
+    mock_send_email: MagicMock,
+    mock_slo_analytics: MagicMock,
+    team,
+    user,
+):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Stale selection", created_by=user)
+    active_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="active01", name="Active")
+    stale_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="stale01", name="Removed")
+    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=active_insight)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+    await sync_to_async(subscription.dashboard_export_insights.add)(stale_insight)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    ),
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription=subscription)
+    assert delivery.status == SubscriptionDelivery.Status.FAILED
+    assert delivery.error is not None
+    assert delivery.error["type"] == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert delivery.error["reason"] == NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
+    assert delivery.error["resource_type"] == "dashboard"
+    assert delivery.error["available_insight_count"] == 1
+    assert delivery.error["selected_insight_count"] == 1
+    mock_send_email.assert_not_called()
+    mock_capture_delivery_failed.assert_called_once()
+    assert mock_capture_delivery_failed.call_args.args[2] == {
+        "reason": NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE,
+        "resource_type": "dashboard",
+        "available_insight_count": 1,
+        "selected_insight_count": 1,
+    }
+
+    completed_calls = [
+        call
+        for call in mock_slo_analytics.capture.call_args_list
+        if call.kwargs.get("event") == "slo_operation_completed"
+        and call.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert len(completed_calls) == 1
+    properties = completed_calls[0].kwargs["properties"]
+    assert properties["outcome"] == SloOutcome.SUCCESS
+    assert properties["error_type"] == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert properties["failure_type"] == "configuration"
+    assert properties["reason"] == NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
+
+
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_create_export_assets_excludes_deleted_insights(team, user):
@@ -1226,15 +1327,51 @@ async def test_create_export_assets_excludes_deleted_insights(team, user):
 
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_create_export_assets_raises_on_missing_resource(team, user):
+async def test_create_export_assets_classifies_missing_resource(team, user):
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
 
-    env = ActivityEnvironment()
-    with pytest.raises(Exception, match="There are no insights to be sent"):
-        await env.run(
-            create_export_assets,
-            CreateExportAssetsInputs(subscription_id=subscription.id),
+    with patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"):
+        result = await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id)
         )
+
+    assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context == {
+        "reason": NoExportableInsightsReason.MISSING_RESOURCE,
+        "resource_type": "unknown",
+        "available_insight_count": 0,
+        "selected_insight_count": 0,
+    }
+
+
+async def test_resolve_exportable_insights_classifies_deleted_dashboard(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Deleted", created_by=user, deleted=True)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    result = await _resolve_exportable_insights(subscription)
+
+    assert result.tile_insight_pairs == []
+    assert result.available_insight_count == 0
+    assert result.selected_insight_count == 0
+    assert result.no_exportable_reason == NoExportableInsightsReason.DASHBOARD_DELETED
+
+
+async def test_resolve_exportable_insights_filters_explicit_dashboard_selection(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Selected", created_by=user)
+    selected_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="selected01", name="Selected")
+    other_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="other01", name="Other")
+    stale_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="stale02", name="Stale")
+    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=selected_insight)
+    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=other_insight)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+    await sync_to_async(subscription.dashboard_export_insights.add)(selected_insight, stale_insight)
+
+    result = await _resolve_exportable_insights(subscription)
+
+    assert [insight.id for _, insight in result.tile_insight_pairs] == [selected_insight.id]
+    assert result.available_insight_count == 2
+    assert result.selected_insight_count == 2
+    assert result.no_exportable_reason is None
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1257,27 +1394,52 @@ async def test_create_export_assets_respects_max_asset_count(team, user):
     assert result.total_insight_count == 10
 
 
+async def test_create_export_assets_rejects_non_positive_max_asset_count():
+    with pytest.raises(ApplicationError, match="Dashboard insight export limit must be at least 1, received 0"):
+        await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=1, max_asset_count=0)
+        )
+
+
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_create_export_assets_empty_dashboard(team, user):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Empty", created_by=user)
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
-    env = ActivityEnvironment()
-    result = await env.run(
-        create_export_assets,
-        CreateExportAssetsInputs(subscription_id=subscription.id),
-    )
+    with patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"):
+        result = await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id)
+        )
 
     assert result.exported_asset_ids == []
     assert result.total_insight_count == 0
+    assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context is not None
+    assert result.failure_context["reason"] == NoExportableInsightsReason.EMPTY_DASHBOARD
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_excludes_deleted_standalone_insight(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="deleted01", deleted=True)
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    with patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"):
+        result = await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id)
+        )
+
+    assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context is not None
+    assert result.failure_context["reason"] == NoExportableInsightsReason.MISSING_RESOURCE
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_deliver_subscription_sends_email(
+async def test_deliver_subscription_legacy_false_sends_all_recipients(
     mock_send_email: MagicMock,
     mock_metric_meter: MagicMock,
     temporal_client: Client,
@@ -1301,6 +1463,8 @@ async def test_deliver_subscription_sends_email(
             subscription_id=subscription.id,
             exported_asset_ids=[asset.id],
             total_insight_count=1,
+            previous_value="test1@posthog.com",
+            is_new_subscription_target=False,
         ),
     )
 
@@ -1429,7 +1593,7 @@ async def test_new_subscription_sends_invite_email(
                     subscription_id=subscription.id,
                     team_id=subscription.team_id,
                     distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    previous_value="",
+                    previous_target_value="",
                     invite_message="Welcome!",
                 ),
                 id=str(uuid.uuid4()),
@@ -1488,7 +1652,7 @@ async def test_manual_send_uses_regular_template_not_invite(
                     subscription_id=subscription.id,
                     team_id=subscription.team_id,
                     distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    previous_value=None,
+                    previous_target_value=None,
                     invite_message=None,
                     trigger_type=SubscriptionTriggerType.MANUAL,
                 ),

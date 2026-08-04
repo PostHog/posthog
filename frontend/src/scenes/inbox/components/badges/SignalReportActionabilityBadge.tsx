@@ -13,7 +13,7 @@ const ACTIONABILITY_STYLE: Record<
         type: 'success',
         label: 'Actionable',
         tooltip:
-            "The issue can be solved with code. If there isn't a pull request yet, it fell below your auto-PR priority threshold – you can still start one from this report.",
+            "The report can be solved with code. If there isn't a pull request yet, it fell below your auto-PR priority threshold – you can still start one from this report.",
         textColor: 'var(--success)',
     },
     requires_human_input: {

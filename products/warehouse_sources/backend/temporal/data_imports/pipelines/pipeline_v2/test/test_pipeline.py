@@ -25,9 +25,9 @@ async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_impor
     pipeline._resumable_source_manager = None
     pipeline._cdp_producer = cast(CDPProducer, object())  # unused: the patched clear-chunks ignores it
     pipeline._resource = cast(SourceResponse, object())
-    delta_table_helper = AsyncMock()
-    delta_table_helper.get_delta_table.cache_pop.return_value = None
-    pipeline._delta_table_helper = delta_table_helper
+    delta_table_ref = AsyncMock()
+    delta_table_ref.get_delta_table.cache_pop.return_value = None
+    pipeline._delta_table_ref = delta_table_ref
 
     class ImportError_(Exception):
         pass
@@ -43,10 +43,10 @@ async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_impor
     with pytest.raises(ImportError_, match="Can't connect to MySQL server on"):
         await pipeline.run()
 
-    # run()'s finally `del self._delta_table_helper`s afterward, so assert on the captured
+    # run()'s finally `del self._delta_table_ref`s afterward, so assert on the captured
     # reference rather than re-reading it off `pipeline`.
-    delta_table_helper.get_delta_table.assert_not_called()
-    delta_table_helper.get_delta_table.cache_pop.assert_called_once_with(delta_table_helper)
+    delta_table_ref.get_delta_table.assert_not_called()
+    delta_table_ref.get_delta_table.cache_pop.assert_called_once_with(delta_table_ref)
 
 
 @pytest.mark.asyncio
@@ -57,7 +57,7 @@ async def test_post_run_operations_routes_through_shared_post_load():
     # (desc-sort cursor finalization silently skips).
     pipeline = PipelineNonDLT.__new__(PipelineNonDLT)
     pipeline._logger = AsyncMock()
-    pipeline._delta_table_helper = AsyncMock()
+    pipeline._delta_table_ref = AsyncMock()
     pipeline._job = MagicMock(id=uuid.uuid4(), team_id=1)
     pipeline._resource_name = "orders"
     pipeline._schema = MagicMock()

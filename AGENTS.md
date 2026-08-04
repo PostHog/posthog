@@ -97,6 +97,10 @@ Guarding it inside the workflow is worse: skipping the gate job cascades to the 
 
 #### Stacked PRs
 
+GitHub's native stacked PRs are enabled on this repo — use the `gh stack` CLI and the `/stacking-prs` skill instead of hand-managing branch chains.
+A stack lands bottom-first: merge the layer based on `master` the usual way (see "Merging PRs" below), then `gh stack sync --prune` and repeat.
+Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside that path.
+
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
 Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
 Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
@@ -173,11 +177,12 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 
 - Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. When a change is type-risky, run mypy the way CI does — `uv run mypy --cache-fine-grained .`, repo-wide, never a file subset (it follows imports, so a subset misses reverse-dependency breakage); `hogli ci:preflight` reminds you, and CI blocks on the same command. The config isn't fully strict yet, but new code should be
 - Python imports: keep imports at module level — not inside functions, methods, or conditionals. Inline imports hide dependencies from static analysis, slow hot paths with repeated lookups, and mask circular-import problems instead of fixing them; ruff's `PLC0415` enforces this. Defer an import only to (1) break a true unavoidable circular import (fix the structure first if you can), (2) reference types under `TYPE_CHECKING`, or (3) keep a heavy/optional dependency off the import path so it loads only when its code runs. For (3), add a justified `# noqa: PLC0415` on the import line (e.g. `# noqa: PLC0415 — keeps the heavy dep off the import path`) — never blanket-suppress the rule
+- Python: prefer a frozen dataclass (`@dataclass(frozen=True)`) over a tuple when returning or passing multiple values, in two cases: (1) two or more elements share a type, so callers can silently swap them (e.g. `(start, end)`, `(width, height)`); add `kw_only=True` here so construction is keyword-only and a swap is impossible at the call site too; (2) the tuple is big (roughly 3+ elements), where positional access hurts readability. Named fields make the code easier to read and, combined with keyword-only construction, make swapped-value bugs impossible. Small tuples with unambiguous, differently typed elements are fine as-is
 - Frontend: for any frontend work — the main app (`frontend/src/`) **or** a product frontend (`products/*/frontend/`) — follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md): reuse existing Lemon/quill components instead of hand-rolling tables/badges/labels, import generated `*Api` types instead of handwriting them, and run typecheck/typegen at the right moments. Product frontends share the same components and generated types, so the same rules apply there
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Frontend (quill design system): before writing UI that imports `@posthog/quill` / `lib/ui/quill`, read [packages/quill/packages/primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) — component choice (dropdown vs select vs combobox, accordion vs collapsible, etc.), composition, and spacing rules. Charts: [packages/quill/packages/charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md); DataTable/DateTimePicker: [packages/quill/packages/components/AGENTS.md](packages/quill/packages/components/AGENTS.md)
-- Frontend (quill vs LemonUI): LemonUI is the default in the main app. Use quill for menus, comboboxes, and autocompletes (`DropdownMenu`, `Combobox`, `Autocomplete` from `@posthog/quill`), with the trigger styled to match the surrounding scene's existing UI (LemonButton / ButtonPrimitive). Don't add new `LemonMenu` or `lib/ui/DropdownMenu` (Radix) menus — those are legacy. Don't mix quill and Lemon components within one component's internals. Quill uses Base UI's `render` prop, not Radix's `asChild` — don't carry `asChild` over when converting
+- Frontend (quill vs LemonUI): quill is for MCP apps and the desktop app. It is deliberately more compact than LemonUI, so its components look out of place in the main app, and there is no active migration of the main app onto it. In `frontend/src/` and `products/*/frontend/`, use LemonUI, including for menus — `LemonMenu` with a `LemonButton` trigger is the default there. `lib/ui/DropdownMenu` (Radix) is legacy; don't add new ones. Where quill is the right library, don't mix quill and Lemon components within one component's internals, and note that quill uses Base UI's `render` prop rather than Radix's `asChild`, so don't carry `asChild` over when converting
 - Frontend: Any button or form submit that triggers a network request must guard against double-submission — disable the button and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight. Never leave a submit button clickable during an active mutation; reset the state in both success and error paths. This applies to `<form onSubmit>` handlers, `onClick` handlers that call `api.*`, and any kea `listener` that issues a request — wire the in-flight state (loader `*Loading` selectors, local `useState`, or a reducer) into the trigger's disabled/loading props.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
@@ -233,6 +238,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Invoke when in the area:**
 
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
+- `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support

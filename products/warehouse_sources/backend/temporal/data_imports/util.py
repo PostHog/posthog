@@ -57,6 +57,12 @@ class PostHogInternalDatabaseError(Exception):
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
 
+# A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
+# deleting source files for as long as its own rewrite takes - documented up to ~45s for a
+# fragmented table in core/delta/maintenance.py - which can outlive a single retry. Bound the retries
+# with backoff instead, mirroring _purge_s3_prefix's approach to the same class of race.
+_COPY_FILES_MAX_ATTEMPTS = 4
+
 
 def is_posthog_team(team_id: int) -> bool:
     DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
@@ -184,18 +190,27 @@ async def prepare_s3_files_for_querying(
                 # S3's SlowDown rate limiting on the destination prefix.
                 await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
-        try:
-            await asyncio.gather(*[copy_file(file) for file in file_uris])
-        except FileNotFoundError as e:
-            if refresh_file_uris is None:
-                raise
-            # A concurrent compact/vacuum pass on the same Delta table (e.g. a zombie attempt
-            # from a heartbeat timeout still running) can physically delete a source file
-            # between our listing and this copy. Re-listing picks up wherever that pass left
-            # the table and retries once against the current file set.
-            await _log(f"Source file vanished mid-copy, retrying with a fresh file listing: {e}", level="error")
-            file_uris = await refresh_file_uris()
-            await asyncio.gather(*[copy_file(file) for file in file_uris])
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                await asyncio.gather(*[copy_file(file) for file in file_uris])
+                break
+            except FileNotFoundError as e:
+                if refresh_file_uris is None or attempt >= _COPY_FILES_MAX_ATTEMPTS:
+                    raise
+                # A concurrent compact/vacuum pass on the same Delta table (e.g. a zombie attempt
+                # from a heartbeat timeout still running) can physically delete a source file
+                # between our listing and this copy. Re-listing picks up wherever that pass left
+                # the table; back off first so a still-running pass has time to finish before we
+                # retry against it again.
+                await _log(
+                    f"Source file vanished mid-copy (attempt {attempt}/{_COPY_FILES_MAX_ATTEMPTS}), "
+                    f"retrying with a fresh file listing: {e}",
+                    level="error",
+                )
+                await asyncio.sleep(2**attempt)
+                file_uris = await refresh_file_uris()
 
         # Delete existing files after copying new ones
         if delete_existing and files_to_delete:

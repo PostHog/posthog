@@ -152,6 +152,7 @@ class TaskDetailDTO:
     origin_product: str
     runtime: str
     repository: str | None
+    repositories: list[str]
     github_integration: int | None
     github_user_integration: UUID | None
     signal_report: UUID | None
@@ -175,7 +176,24 @@ class ChannelDTO:
     id: UUID
     name: str
     channel_type: str
+    github_integration: int | None
+    repositories: list[str]
     created_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+    starred: bool = False
+
+
+@dataclass(frozen=True)
+class ChannelInstructionsDTO:
+    """The HTTP representation of a channel's CONTEXT.md instructions version.
+
+    A channel that has never had instructions published reads as a blank
+    version 0 — publish against ``base_version: 0`` to create version 1."""
+
+    channel: UUID
+    content: str
+    version: int
+    created_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
 
 

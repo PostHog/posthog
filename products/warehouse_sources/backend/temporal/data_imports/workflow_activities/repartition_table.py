@@ -31,7 +31,10 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
+    DeltaTableRef,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionTarget,
@@ -136,7 +139,7 @@ def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -
 def _maybe_flag_pre_extraction(
     schema: ExternalDataSchema,
     job: ExternalDataJob,
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     enabled: bool,
 ) -> dict[str, Any] | None:
@@ -153,15 +156,21 @@ def _maybe_flag_pre_extraction(
     instead of paying for a second flag evaluation.
     """
     try:
-        delta_table = async_to_sync(helper.get_delta_table)()
+        delta_table = async_to_sync(table_ref.get_delta_table)()
         if delta_table is None:
             logger.debug("repartition: no delta table on disk, cannot measure for repartition")
             return None
         async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger, enabled=enabled)
     except Exception as e:
-        # Detection is best-effort; a failure here must not block the sync.
-        logger.warning("repartition: pre-extraction detection failed", exc_info=True)
-        capture_exception(e)
+        # Detection is best-effort; a failure here must not block the sync. `get_delta_table` re-raises
+        # transient object-store blips (S3/credential-provider timeouts) rather than swallowing them —
+        # see its own docstring — so this is the layer that must apply is_transient_object_store_error
+        # before reporting, same as the other best-effort call sites around this table.
+        if is_transient_object_store_error(e):
+            logger.warning("repartition: pre-extraction detection failed with a transient object-store error")
+        else:
+            logger.warning("repartition: pre-extraction detection failed", exc_info=True)
+            capture_exception(e)
         return None
     return schema.repartition_pending
 
@@ -252,13 +261,13 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
     resource_name = schema.resolved_s3_folder_name or schema.name
-    helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=logger)
+    table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=logger)
 
     if pending is None and swap is None:
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
         # on-disk measurement. Measure now and self-flag if it's over budget — the only path that can
         # rescue a table which OOMs its merge every run (and so never reaches post-load detection).
-        pending = _maybe_flag_pre_extraction(schema, job, helper, logger, enabled)
+        pending = _maybe_flag_pre_extraction(schema, job, table_ref, logger, enabled)
         if pending is None:
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
@@ -286,7 +295,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # and on worker shutdown, so Temporal reschedules us instead of timing the activity out.
         with HeartbeaterSync(logger=logger):
             result = async_to_sync(repartition_table_in_place)(
-                helper=helper,
+                table_ref=table_ref,
                 schema=schema,
                 target=target,
                 logger=logger,

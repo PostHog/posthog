@@ -35,7 +35,14 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, 
 from products.signals.backend.scout_harness.limits import FAILURE_STREAK_PAUSE_THRESHOLD, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, _ai_stage, _create_run_row, arun_signals_scout
+from products.signals.backend.scout_harness.runner import (
+    SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
+    SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+    RunResult,
+    _ai_stage,
+    _create_run_row,
+    arun_signals_scout,
+)
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     SkillNotFoundError,
@@ -45,6 +52,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -846,6 +854,60 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
     # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
     assert captured["ai_stage"] == "scout:custom"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "network_access,expected_env_name,expected_level",
+    [
+        pytest.param(
+            None,
+            SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            id="default_trusted",
+        ),
+        pytest.param(
+            "full",
+            SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.FULL,
+            id="full",
+        ),
+    ],
+)
+async def test_sandbox_env_matches_config_network_access(
+    ateam, aerrors_skill, network_access, expected_env_name, expected_level
+):
+    # The (env name, level) pair is the egress enforcement point: `upsert_internal_sandbox_env`
+    # reasserts policy per call on the per-team env row named here, so a `full` config routed to
+    # the shared trusted env would silently lift the restriction for every other scout on the
+    # team — and a config value that never reaches provisioning would leave a "full" scout
+    # blocked. The default path (no pre-existing config row) must stay on the trusted env.
+    if network_access is not None:
+        await database_sync_to_async(SignalScoutConfig.objects.create, thread_sensitive=False)(
+            team=ateam, skill_name="signals-scout-errors", network_access=network_access
+        )
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    env_mock = MagicMock(return_value="env-id")
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", env_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    env_mock.assert_called_once_with(ateam.id, expected_env_name, expected_level)
+    # Provenance stamp: `metadata.network_access` is present exactly when the run departed from
+    # the trusted default — a later config edit must not rewrite what past runs could reach.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.unscoped().get)(id=run_result.run_id)
+    assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
 
 
 @parameterized.expand(
