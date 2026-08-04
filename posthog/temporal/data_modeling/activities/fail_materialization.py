@@ -151,10 +151,14 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     _, job = await _fail_node_and_data_modeling_job(inputs)
     if job.saved_query_id is not None:
         bind_data_modeling_log_context(inputs.team_id, job.saved_query_id)
-    await logger.aerror(
-        f"Failed materialization job: node={inputs.node_id} dag={inputs.dag_id} job={job.id} "
-        f"workflow={job.workflow_id} workflow_run={job.workflow_run_id} error={inputs.error}"
+    job_context = (
+        f"node={inputs.node_id} dag={inputs.dag_id} job={job.id} "
+        f"workflow={job.workflow_id} workflow_run={job.workflow_run_id}"
     )
+    # The bound context above puts this line in front of users, so it carries the same sanitized
+    # error the job row does. The raw one stays write-only, where only internal logging sees it.
+    await logger.aerror(f"Failed materialization job: {job_context} error={strip_hostname_from_error(inputs.error)}")
+    await logger.aerror(f"Failed materialization job: {job_context} error={inputs.error}", write_only=True)
     # error-specific recovery: pause schedule on timeout, revert on unknown table, else suspend after repeated failures
     if not inputs.update_node:
         return
@@ -196,4 +200,6 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
                 )
     except Exception as e:
         capture_exception(e)
-        await logger.aexception(f"Failed to run error-specific recovery for node {inputs.node_id}: {str(e)}")
+        await logger.aexception(
+            f"Failed to run error-specific recovery for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
+        )

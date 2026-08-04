@@ -153,3 +153,28 @@ async def test_v2_activity_log_lines_are_routed_to_the_saved_query(
         assert message["log_source_id"] == str(asaved_query.id)
         assert message["instance_id"] == v2_activity_environment.info.workflow_run_id
         assert message["team_id"] == ateam.pk
+
+
+async def test_failure_logs_do_not_expose_clickhouse_hostnames(
+    v2_activity_environment, queue, ateam, adag, anode, asaved_query, ajob
+):
+    await v2_activity_environment.run(
+        fail_materialization_activity,
+        FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            error="Code 241. Memory limit exceeded (from chi-posthog-data-0-0.svc.cluster.local:9000)",
+            update_node=False,
+        ),
+    )
+    await _wait_for_queue_entries(queue)
+
+    routed_messages = [
+        json.loads(entry.decode("utf-8")) for entry in queue.entries if json.loads(entry.decode("utf-8"))["log_source"]
+    ]
+    assert len(routed_messages) >= 1
+    for message in routed_messages:
+        assert "svc.cluster.local" not in message["message"]
+    assert any("Memory limit exceeded" in message["message"] for message in routed_messages)
