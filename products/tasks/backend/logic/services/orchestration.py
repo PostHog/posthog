@@ -229,9 +229,7 @@ def send_child_message_to_parent(child_run: TaskRun, message: str) -> None:
     if not parent_task_id or not parent_run_id:
         raise ValueError("Calling run is not an orchestrated child")
 
-    parent_run = TaskRun.objects.filter(
-        id=parent_run_id, task_id=parent_task_id, team_id=child_run.team_id
-    ).first()
+    parent_run = TaskRun.objects.filter(id=parent_run_id, task_id=parent_task_id, team_id=child_run.team_id).first()
     if parent_run is None:
         raise ValueError("Parent run is not available")
 
