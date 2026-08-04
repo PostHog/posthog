@@ -1,5 +1,3 @@
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
-
 import { expectLogic } from 'kea-test-utils'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -299,21 +297,16 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     })
 
     // "Send and set status" must persist through the same PATCH as the "Save changes" button,
-    // and auto-assign the current user unless a specific user is already assigned.
-    test.each<[string, TicketAssignee, TicketStatus, TicketAssignee]>([
-        ['auto-assigns the current user when unassigned', null, 'resolved', { type: 'user', id: MOCK_DEFAULT_USER.id }],
-        [
-            'replaces a role assignee with the current user',
-            { type: 'role', id: 'role-1' },
-            'on_hold',
-            { type: 'user', id: MOCK_DEFAULT_USER.id },
-        ],
-        ['keeps an existing user assignee', { type: 'user', id: 999 }, 'pending', { type: 'user', id: 999 }],
-    ])('%s', async (_name, presetAssignee, statusAfterSend, expectedAssignee) => {
+    // and must never change who the ticket is assigned to.
+    test.each<[string, TicketAssignee, TicketStatus]>([
+        ['leaves an unassigned ticket unassigned', null, 'resolved'],
+        ['keeps a role assignee', { type: 'role', id: 'role-1' }, 'on_hold'],
+        ['keeps a user assignee', { type: 'user', id: 999 }, 'pending'],
+    ])('%s', async (_name, presetAssignee, statusAfterSend) => {
         if (presetAssignee) {
             logic.actions.setAssignee(presetAssignee)
         }
-        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), status: statusAfterSend, assignee: expectedAssignee })
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), status: statusAfterSend, assignee: presetAssignee })
 
         await expectLogic(logic, () => {
             logic.actions.sendMessage('hello', null, false, undefined, statusAfterSend)
@@ -321,7 +314,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
 
         expect(ticketUpdateMock).toHaveBeenCalledWith(
             '42',
-            expect.objectContaining({ status: statusAfterSend, assignee: expectedAssignee })
+            expect.objectContaining({ status: statusAfterSend, assignee: presetAssignee })
         )
         expect(logic.values.status).toBe(statusAfterSend)
         expect(logic.values.hasUnsavedChanges).toBe(false)
