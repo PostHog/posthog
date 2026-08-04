@@ -13,18 +13,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 
 
-class _FakePod:
+class _FakePod(PodMemory):
     """A PodMemory stand-in. `current_mb` may be a value or a zero-arg callable (to model change)."""
 
     def __init__(self, limit_mb: float | None, current_mb):
-        self._limit_mb = limit_mb
-        self._current = current_mb
+        super().__init__()
+        self._fake_limit = limit_mb
+        self._fake_current = current_mb
 
     def limit_mb(self) -> float | None:
-        return self._limit_mb
+        return self._fake_limit
 
     def current_mb(self) -> float | None:
-        return self._current() if callable(self._current) else self._current
+        return self._fake_current() if callable(self._fake_current) else self._fake_current
 
 
 def _governor(mode="enforce", *, limit_mb=30_000.0, current_mb=1_000.0, max_concurrent=15, **cfg) -> MemoryGovernor:
@@ -163,6 +164,7 @@ class TestGovernorSizing:
             assert gov._inflight == 1
             async with gov.admit(source_bytes=50 * MB) as second:
                 assert gov._inflight == 2
+                assert first.predicted_peak_mb is not None and second.predicted_peak_mb is not None
                 assert gov._reserved_mb == first.predicted_peak_mb + second.predicted_peak_mb
         assert gov._inflight == 0 and gov._reserved_mb == 0.0
 
