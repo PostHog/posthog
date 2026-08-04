@@ -11,6 +11,8 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns import (
+    INVALID_START_DATE_ERROR,
+    START_DATE_TOO_OLD_ERROR,
     LoopReturnsPaginator,
     LoopReturnsResumeConfig,
     endpoint_permissions,
@@ -19,11 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     probe_endpoint,
     resolve_filter_field,
     resolve_window_start,
+    start_date_error,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.settings import (
     DEFAULT_BACKFILL_DAYS,
     LOOP_RETURNS_ENDPOINTS,
+    MAX_BACKFILL_DAYS,
     MAX_WINDOW_DAYS,
     RETURN_STATES,
 )
@@ -294,6 +298,29 @@ class TestResolveWindowStart:
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2025, 3, 4, 5, 6, 7),
         ) == datetime(2025, 3, 4, 5, 6, 7, tzinfo=UTC)
+
+
+class TestStartDateError:
+    @pytest.mark.parametrize(
+        ("label", "start_date", "expected"),
+        [
+            ("unparseable", "not-a-date", INVALID_START_DATE_ERROR),
+            ("impossible_calendar_date", "2024-13-01", INVALID_START_DATE_ERROR),
+            ("reaches_back_past_the_cap", "1000-01-01", START_DATE_TOO_OLD_ERROR),
+            ("within_the_cap", "2023-06-01", None),
+        ],
+    )
+    def test_start_date_error(self, label: str, start_date: str, expected: Optional[str]) -> None:
+        # A start date the paginator can't cheaply walk (unparseable, or older than MAX_BACKFILL_DAYS)
+        # must be caught here, before a backfill fans out into thousands of empty-window requests.
+        now = datetime(2025, 8, 4, tzinfo=UTC)
+        assert start_date_error(start_date, now=now) == expected
+
+    def test_the_cap_floor_is_measured_from_now(self) -> None:
+        now = datetime(2025, 8, 4, tzinfo=UTC)
+        floor = now - timedelta(days=MAX_BACKFILL_DAYS)
+        assert start_date_error(floor.isoformat(), now=now) is None
+        assert start_date_error((floor - timedelta(days=1)).isoformat(), now=now) == START_DATE_TOO_OLD_ERROR
 
 
 class TestResolveFilterField:

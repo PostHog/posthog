@@ -24,11 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LoopReturnsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns import (
-    INVALID_START_DATE_ERROR,
     LoopReturnsResumeConfig,
     endpoint_permissions,
     loop_returns_source,
-    parse_datetime,
+    start_date_error,
     validate_credentials as validate_loop_returns_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.settings import (
@@ -122,10 +121,9 @@ Start date is optional and sets how far back the first sync reaches. Without it,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if config.start_date:
-            try:
-                parse_datetime(config.start_date)
-            except ValueError:
-                return False, INVALID_START_DATE_ERROR
+            error = start_date_error(config.start_date)
+            if error is not None:
+                return False, error
 
         return validate_loop_returns_credentials(
             config.api_key, self.resolve_api_version(api_version), schema_name=schema_name

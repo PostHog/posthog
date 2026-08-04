@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     DEFAULT_PAGE_SIZE,
     FILTER_FIELDS,
     LOOP_RETURNS_ENDPOINTS,
+    MAX_BACKFILL_DAYS,
     MAX_WINDOW_DAYS,
     LoopReturnsEndpointConfig,
 )
@@ -37,6 +38,9 @@ API_HOST = "https://api.loopreturns.com"
 AUTH_HEADER = "X-Authorization"
 PROBE_TIMEOUT_SECONDS = 30
 INVALID_START_DATE_ERROR = "Start date must be a date or datetime, for example 2024-01-01"
+START_DATE_TOO_OLD_ERROR = (
+    f"Start date can't be more than {MAX_BACKFILL_DAYS // 365} years ago. Pick a more recent date."
+)
 
 
 def base_url(api_version: str) -> str:
@@ -59,6 +63,25 @@ def parse_datetime(value: Any) -> datetime:
         parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
     raise ValueError(f"Cannot parse a datetime from {value!r}")
+
+
+def start_date_error(start_date: str, now: Optional[datetime] = None) -> Optional[str]:
+    """Why a configured start date is unusable, or None if it's fine.
+
+    Rejects a date we can't parse, and one reaching back further than `MAX_BACKFILL_DAYS`: the
+    returns endpoint walks history one 120-day window per state pass, so an unbounded lookback
+    would turn a single sync into thousands of empty-window requests.
+    """
+    try:
+        parsed = parse_datetime(start_date)
+    except ValueError:
+        return INVALID_START_DATE_ERROR
+
+    floor = (now or datetime.now(UTC)) - timedelta(days=MAX_BACKFILL_DAYS)
+    if parsed < floor:
+        return START_DATE_TOO_OLD_ERROR
+
+    return None
 
 
 def resolve_window_start(

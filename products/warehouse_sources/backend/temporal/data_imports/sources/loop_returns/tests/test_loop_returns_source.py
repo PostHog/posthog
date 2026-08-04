@@ -126,9 +126,9 @@ class TestLoopReturnsSource:
         assert self.source.validate_credentials(self.config, self.team_id, schema_name="destinations") == (True, None)
         mock_validate.assert_called_once_with("loop_test_key", "v1", schema_name="destinations")
 
-    @pytest.mark.parametrize("start_date", ["not-a-date", "2024-13-01"])
+    @pytest.mark.parametrize("start_date", ["not-a-date", "2024-13-01", "1000-01-01"])
     @mock.patch(VALIDATE_PATH)
-    def test_an_unparseable_start_date_is_rejected_before_calling_loop(
+    def test_a_bad_start_date_is_rejected_before_calling_loop(
         self, mock_validate: mock.MagicMock, start_date: str
     ) -> None:
         config = LoopReturnsSourceConfig(api_key="loop_test_key", start_date=start_date)

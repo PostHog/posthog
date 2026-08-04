@@ -15,6 +15,11 @@ DEFAULT_PAGE_SIZE = 250
 # Loop only returns the previous 24 hours, so a default is required for a usable backfill.
 DEFAULT_BACKFILL_DAYS = 730
 
+# The furthest back a configured start date may reach. A backfill walks history one 120-day window
+# per state pass, so an unbounded start date turns a single sync into thousands of empty-window
+# requests that tie up a worker. Cap the lookback at validation time instead.
+MAX_BACKFILL_DAYS = 5 * 365
+
 # `state` is a single-valued enum and, when omitted, Loop returns only open, closed and expired
 # returns. Each state is fetched as its own pass so cancelled and in-review returns land too.
 RETURN_STATES = ("open", "closed", "cancelled", "expired", "review")
