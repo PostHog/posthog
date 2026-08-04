@@ -434,16 +434,20 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
    the other two, so every spike is always in motion. With the stagger at a
    third of the duration (see LogoMark.tsx) the crests land evenly around the
    loop — and whenever two spikes sit at their turning points at once, the
-   third is mid-fall at full speed, so the back never reads as paused. */
+   third is mid-fall at full speed, so the back never reads as paused.
+   Rest is the logo's true height — a working row's silhouette stays the
+   logomark, softened, and the crest inflates past it into the headroom
+   LogoMark reserves in its viewBox (which is what keeps a scaleY above 1 from
+   being clipped flat at the svg's edge). */
 @keyframes ph-spike-wave {
   0%,
   100% {
-    opacity: 0.4;
-    transform: scaleY(0.88);
+    opacity: 0.55;
+    transform: scaleY(1);
   }
   33.333% {
     opacity: 1;
-    transform: scaleY(1);
+    transform: scaleY(1.1);
   }
 }
 
@@ -453,7 +457,7 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   animation: ph-spike-wave 1200ms ease-in-out infinite;
 }
 
-/* Hold a legible, evenly dimmed back rather than dropping the signal. */
+/* Hold the full logo, evenly softened, rather than dropping the signal. */
 @media (prefers-reduced-motion: reduce) {
   .ph-spike-wave {
     animation: none;

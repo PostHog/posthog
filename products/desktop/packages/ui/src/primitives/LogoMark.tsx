@@ -14,6 +14,13 @@ const WAVE_STAGGER_MS = 400;
 // squashed into a different hedgehog.
 const VIEWBOX_WIDTH = 51.669;
 const VIEWBOX_HEIGHT = 28;
+// Empty space above the mark, inside the svg's own viewport. The wave's crest
+// scales spikes past their drawn height, and an svg clips at its box — without
+// headroom every crest comes back with its tip sliced flat. Sized for the
+// keyframe's largest scaleY with a little slack, and applied to still marks
+// too, so a waving row and its quiet neighbours hold the mark at exactly the
+// same spot.
+const VIEWBOX_HEADROOM = 3.5;
 
 /**
  * The three spikes on the hedgehog's back, tail to head. Each is the union of
@@ -55,9 +62,9 @@ export function LogoMark({
   return (
     <svg
       aria-hidden="true"
-      viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
+      viewBox={`0 ${-VIEWBOX_HEADROOM} ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT + VIEWBOX_HEADROOM}`}
       width={width}
-      height={(width * VIEWBOX_HEIGHT) / VIEWBOX_WIDTH}
+      height={(width * (VIEWBOX_HEIGHT + VIEWBOX_HEADROOM)) / VIEWBOX_WIDTH}
       fill="currentColor"
       className={cn("shrink-0", className)}
       style={style}
