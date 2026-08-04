@@ -2730,6 +2730,8 @@ export interface PathsV2FilterApi {
 }
 
 export interface PathsV2EdgeApi {
+    /** Unique actors who transition from source to target at any step of any of their whole journeys, the position-free count behind "went source → target at any step". Equals the two-step item-strict funnel's converted count. Only set in open mode on edges between two named items. */
+    anyStepCount?: number | null
     /** Unique actors with a journey that transitions from source to target between these steps. */
     count: number
     /** Source path item, or null for the source column's "other" row. */
@@ -5327,6 +5329,45 @@ export interface StickinessActorsQueryApi {
     version?: number | null
 }
 
+export type PathsV2ElementTypeApi = (typeof PathsV2ElementTypeApi)[keyof typeof PathsV2ElementTypeApi]
+
+export const PathsV2ElementTypeApi = {
+    Node: 'node',
+    Edge: 'edge',
+    DropOff: 'dropOff',
+    Other: 'other',
+    Chain: 'chain',
+} as const
+
+export interface PathsV2ElementSelectorApi {
+    /** Match the source → target transition at any step of any whole journey instead of at one step pair: the position-free set behind an edge's anyStepCount. Requires a named source and target and open mode. Edge elements only. */
+    anyStep?: boolean | null
+    /** The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. */
+    chain?: PathsV2ItemApi[] | null
+    elementType: PathsV2ElementTypeApi
+    /** The node card's path item. Node elements only. */
+    item?: PathsV2ItemApi | null
+    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    source?: PathsV2ItemApi | null
+    /** 0-based step index (column) of the element; for an edge, its source column. Required for node, other, dropOff, and positional edge elements. */
+    stepIndex?: number | null
+    /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+    target?: PathsV2ItemApi | null
+}
+
+export interface PathsV2ActorsQueryApi {
+    element: PathsV2ElementSelectorApi
+    includeRecordings?: boolean | null
+    kind?: 'PathsV2ActorsQuery'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    response?: ActorsQueryResponseApi | null
+    source: PathsV2QueryApi
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export interface HogQLFiltersApi {
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
@@ -5475,6 +5516,7 @@ export interface ActorsQueryApi {
         | FunnelCorrelationActorsQueryApi
         | ExperimentActorsQueryApi
         | StickinessActorsQueryApi
+        | PathsV2ActorsQueryApi
         | HogQLQueryApi
         | null
     tags?: QueryLogTagsApi | null
