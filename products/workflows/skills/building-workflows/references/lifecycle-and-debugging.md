@@ -13,7 +13,6 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-enable` — draft → `active`. It starts running on real people, so test first and get the user's explicit approval before enabling. Later changes stage as drafts and take effect only on publish.
 - `workflows-publish` — apply an active workflow's staged draft to its live config. Call without `confirm` first: it echoes `in_flight_runs` + `draft_updated_at` and changes nothing. Get the user's go-ahead, then confirm with that exact `draft_updated_at` (409 = draft changed under you; re-read).
 - `workflows-discard-draft` — throw the staged draft away; live config untouched. Idempotent.
-- `workflows-disable` — `active` → draft, so it stops processing events. Get the user's explicit approval first. Not a way to make a change: edit the active workflow and publish instead, since a disable/edit/enable round trip drops runs that were in flight.
 - `workflows-archive` — retire a workflow.
 - `workflows-get` — full definition: trigger, edges, actions, exit condition, variables, staged `draft`/`draft_updated_at` (null when nothing staged), and read-only `schedules` (any recurring schedules attached to the workflow; there's no separate list-schedules tool).
 - `workflows-list` — all workflows with name, status, version, trigger, timestamps.

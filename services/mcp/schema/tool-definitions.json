@@ -751,20 +751,6 @@
             "readOnlyHint": false
         }
     },
-    "workflows-disable": {
-        "description": "Disable a live workflow, putting it back to draft so it stops processing events. Stopping something that's running is user-visible, so get the user's explicit approval before invoking. Runs already in flight aren't cancelled up front: each is dropped when it next wakes while the workflow is still disabled, so re-enabling soon after resumes them. Don't disable in order to make a change - edit the active workflow and publish with workflows-publish instead. A disable, edit, enable round trip drops in-flight runs for no reason.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Disable workflow",
-        "title": "Disable workflow",
-        "required_scopes": ["hog_flow:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "workflows-archive": {
         "description": "Archive a draft or disabled workflow.",
         "category": "Workflows",
