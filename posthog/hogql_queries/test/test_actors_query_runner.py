@@ -223,6 +223,33 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
 
+    @parameterized.expand(
+        [
+            # "username" is in PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES but was previously missing from the search clause.
+            ("default_username_property", None, "username"),
+            # A team-configured custom display-name property must be searchable, not just displayed/sortable.
+            ("custom_display_name_property", ["company"], "company"),
+        ]
+    )
+    def test_persons_query_search_matches_display_name_properties(
+        self, _name: str, person_display_name_properties: list[str] | None, property_key: str
+    ) -> None:
+        if person_display_name_properties is not None:
+            self.team.person_display_name_properties = person_display_name_properties
+            self.team.save()
+
+        needle = f"needle-{UUIDT()}"
+        _create_person(
+            properties={property_key: needle},
+            team=self.team,
+            distinct_ids=[f"id-{needle}"],
+            is_identified=True,
+        )
+        flush_persons_and_events()
+
+        runner = self._create_runner(ActorsQuery(search=needle))
+        self.assertEqual(len(runner.calculate().results), 1)
+
     def test_persons_query_search_trims_whitespace(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(search=f"  jacob4@{self.random_uuid}.posthog  "))

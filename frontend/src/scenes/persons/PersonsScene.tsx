@@ -3,6 +3,7 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { IconRewind } from '@posthog/icons'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -22,7 +23,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
 import { ActorsQuery, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab, CustomerProfileScope, OnboardingStepKey } from '~/types'
+import { ActivityTab, AnyPropertyFilter, CustomerProfileScope, OnboardingStepKey, PropertyGroupFilter } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
@@ -45,11 +46,20 @@ export function PersonsScene(): JSX.Element {
     const queryUniqueKey = 'persons-query'
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
 
+    const source = query.source as Partial<ActorsQuery> | undefined
+
     // A UUID-shaped search that returns nothing is often a session ID typed into the wrong field.
     // Session IDs aren't part of the persons query, so point the user to where they are searchable.
-    const rawSearch: unknown = (query.source as Partial<ActorsQuery> | undefined)?.search
+    const rawSearch: unknown = source?.search
     const searchTerm = typeof rawSearch === 'string' ? rawSearch.trim() : undefined
     const searchLooksLikeSessionId = !!searchTerm && isUUIDLike(searchTerm)
+
+    // No search term and no property filters means an empty result reflects the project having no
+    // person profiles at all, not a query that failed to match anything.
+    const hasActiveFilters =
+        !!searchTerm ||
+        !!convertPropertyGroupToProperties(source?.properties as PropertyGroupFilter | AnyPropertyFilter[] | undefined)
+            ?.length
 
     useOnMountEffect(() => {
         loadConfigs()
@@ -152,9 +162,11 @@ export function PersonsScene(): JSX.Element {
                     emptyStateHeading:
                         currentTeam?.ingested_event && searchLooksLikeSessionId
                             ? 'Looking for a session?'
-                            : currentTeam?.ingested_event
+                            : currentTeam?.ingested_event && hasActiveFilters
                               ? 'There are no matching persons for this query'
-                              : 'No persons exist because no events have been ingested',
+                              : currentTeam?.ingested_event
+                                ? 'No person profiles yet'
+                                : 'No persons exist because no events have been ingested',
                     emptyStateDetail:
                         currentTeam?.ingested_event && searchLooksLikeSessionId ? (
                             <>
@@ -163,13 +175,19 @@ export function PersonsScene(): JSX.Element {
                                 the <Link to={urls.activity(ActivityTab.ExploreSessions)}>Activity</Link> page. To find
                                 a person instead, search by name, email, person ID, or distinct ID.
                             </>
-                        ) : currentTeam?.ingested_event ? (
+                        ) : currentTeam?.ingested_event && hasActiveFilters ? (
                             <>
                                 This page only shows{' '}
                                 <Link to="https://posthog.com/docs/data/persons">identified persons</Link>. Try
                                 adjusting your property filters, or make sure you're calling{' '}
                                 <Link to="https://posthog.com/docs/product-analytics/identify">identify</Link> in your
                                 app.
+                            </>
+                        ) : currentTeam?.ingested_event ? (
+                            <>
+                                Events are coming in, but no person profiles exist yet. Call{' '}
+                                <Link to="https://posthog.com/docs/product-analytics/identify">identify</Link> in your
+                                app to start creating them.
                             </>
                         ) : (
                             <>
