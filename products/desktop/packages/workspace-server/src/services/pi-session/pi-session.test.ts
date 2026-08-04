@@ -470,13 +470,28 @@ describe("PiSessionService extension UI", () => {
     await service.respondToExtensionUI("task-1", response);
     expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith(response);
 
+    await iterator.return?.();
+    const orphanedRequest = { ...request, id: "orphaned-extension" };
+    extensionHandlers[0](orphanedRequest);
+    await vi.waitFor(() =>
+      expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: orphanedRequest.id,
+        cancelled: true,
+      }),
+    );
+
+    const oldIterator = service
+      .extensionEvents("task-1", abortController.signal)
+      [Symbol.asyncIterator]();
+    const oldEvent = oldIterator.next();
     extensionHandlers[0]({ ...request, id: "buffered-old-extension" });
     await service.start({
       taskId: "task-1",
       cwd: "/tmp/replacement",
       prompt: "hello again",
     });
-    await expect(iterator.next()).resolves.toEqual({
+    await expect(oldEvent).resolves.toEqual({
       done: true,
       value: undefined,
     });
