@@ -122,6 +122,7 @@ the row lists both.
 | buildbetter                      | HTTP                        | requests                                                        | ✅                          |
 | buildkite                        | HTTP                        | requests                                                        | ✅                          |
 | bunny                            | HTTP                        | requests                                                        | ✅                          |
+| buttondown                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | buzzsprout                       | HTTP                        | requests                                                        | ✅                          |
 | cal_com                          | HTTP                        | requests                                                        | ✅                          |
 | calendly                         | HTTP                        | requests                                                        | ✅                          |
@@ -829,7 +830,6 @@ doesn't conflict with concurrent PRs.
 - browse_ai
 - buffer
 - buildium
-- buttondown
 - buy_me_a_coffee
 - cal_com
 - calendarific
