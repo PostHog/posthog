@@ -14,7 +14,7 @@ from products.workflows.backend.services.batch_audience import (
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
-COOLDOWN_PROPERTY = "last_workflow_email_sent_at"
+COOLDOWN_PROPERTY = "last_email_sent_at"
 
 
 def _cooldown_filters(properties_operator: str | None) -> dict:
