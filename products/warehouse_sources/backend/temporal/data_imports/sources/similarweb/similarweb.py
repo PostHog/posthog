@@ -155,7 +155,7 @@ def _request(
         # Don't use raise_for_status(): it embeds response.url — which carries the api_key query
         # param — into the exception message, and that propagates to the job's stored error, logs,
         # and analytics. Raise with the param-free url instead.
-        raise requests.HTTPError(f"Similarweb API returned status {response.status_code} for {url}")
+        raise requests.HTTPError(f"Similarweb API returned status {response.status_code} for {url}", response=response)
 
     body = response.json()
     return body if isinstance(body, dict) else {}
