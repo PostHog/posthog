@@ -82,6 +82,23 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
           watchList: state.watchList.filter((entry) => entry.id !== taskId),
         })),
     }),
-    { name: "spaces-sidebar" },
+    {
+      name: "spaces-sidebar",
+      version: 1,
+      // v0 persisted watch entries as bare task-id strings; those couldn't be
+      // matched (or removed) once entries became refs. Lift them.
+      migrate: (persisted) => {
+        const state = persisted as { watchList?: unknown } | undefined;
+        if (state && Array.isArray(state.watchList)) {
+          state.watchList = state.watchList.map(
+            (entry: WatchedTaskRef | string): WatchedTaskRef =>
+              typeof entry === "string"
+                ? { id: entry, title: "Untitled task", addedAt: 0 }
+                : entry,
+          );
+        }
+        return state;
+      },
+    },
   ),
 );

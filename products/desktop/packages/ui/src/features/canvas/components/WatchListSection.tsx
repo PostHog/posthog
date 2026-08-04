@@ -14,10 +14,7 @@ import {
   PERSONAL_CHANNEL_NAME,
   useTaskChannels,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import {
-  useSpacesSidebarStore,
-  type WatchedTaskRef,
-} from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
+import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -52,23 +49,12 @@ export function WatchListSection() {
   const { pinnedTaskIds, togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
 
-  // Older builds persisted bare id strings; treat them as minimal refs.
-  const watchedRefs = useMemo<WatchedTaskRef[]>(
-    () =>
-      (watchList as unknown as (WatchedTaskRef | string)[]).map((entry) =>
-        typeof entry === "string"
-          ? { id: entry, title: "Untitled task", addedAt: 0 }
-          : entry,
-      ),
-    [watchList],
-  );
-
   // Same item shape the space lists use, held in watch-list order (newest
   // watched first) rather than the builder's recency sort. A watched task the
   // viewer's task list doesn't hold (someone else's, or beyond the page) still
   // renders, from the reference captured at drop time.
   const items = useMemo<ChannelItemModel[]>(() => {
-    const watched = new Set(watchedRefs.map((entry) => entry.id));
+    const watched = new Set(watchList.map((entry) => entry.id));
     const built = buildChannelItems({
       dashboards: [],
       feedTasks: allTasks.filter((t) => watched.has(t.id)),
@@ -77,7 +63,7 @@ export function WatchListSection() {
       ownedBy: null,
     });
     const byId = new Map(built.map((item) => [item.id, item]));
-    return watchedRefs.map(
+    return watchList.map(
       (entry) =>
         byId.get(entry.id) ?? {
           key: `task:${entry.id}`,
@@ -94,7 +80,7 @@ export function WatchListSection() {
           task: null,
         },
     );
-  }, [watchedRefs, allTasks, archivedTaskIds, pinnedTaskIds]);
+  }, [watchList, allTasks, archivedTaskIds, pinnedTaskIds]);
 
   // Each task's space: backend channel → display name → folder channel (which
   // the routes need). Unmapped tasks open under #me and carry no label.
@@ -224,15 +210,21 @@ export function WatchListSection() {
                   isActive={pathname.endsWith(`/tasks/${item.id}`)}
                   actions={actions}
                   contextLabel={spaceFor.get(item.id)?.spaceName ?? undefined}
+                  // Reference rows, not activity rows — the age adds noise.
+                  hideTimestamp
+                  onRemoveFromWatchList={() => removeFromWatchList(item.id)}
                 />
+                {/* Solid chrome backing so the × reads over the badges it
+                    covers; the row menu carries the same action for keyboard
+                    and right-click. */}
                 <Button
                   variant="default"
                   size="icon-sm"
                   aria-label="Remove from watch list"
                   onClick={() => removeFromWatchList(item.id)}
-                  className="-translate-y-1/2 absolute top-1/2 right-0.5 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/watch:opacity-100"
+                  className="-translate-y-1/2 absolute top-1/2 right-0.5 bg-chrome text-muted-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 group-hover/watch:opacity-100 hover:text-foreground"
                 >
-                  <XIcon size={12} />
+                  <XIcon size={13} weight="bold" />
                 </Button>
               </div>
             ))}

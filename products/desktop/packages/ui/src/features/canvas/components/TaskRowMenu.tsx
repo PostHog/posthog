@@ -43,6 +43,8 @@ export interface TaskRowMenuProps {
   /** Absent where there's no inline rename to open — canvases, for now. */
   onRename?: () => void;
   onTogglePin: () => void;
+  /** Present only on watch-list rows — forgets the local reference. */
+  onRemoveFromWatchList?: () => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
@@ -123,6 +125,9 @@ function TaskRowMenuItems({
             />
           </MenuSubFlyout>
         </Sub>
+      )}
+      {menu.onRemoveFromWatchList && (
+        <Item onClick={menu.onRemoveFromWatchList}>Remove from watch list</Item>
       )}
       {menu.onArchive && <Item onClick={menu.onArchive}>Archive</Item>}
       {/* The ellipsis is the promise that a confirm follows — deleting a canvas

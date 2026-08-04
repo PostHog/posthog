@@ -178,6 +178,8 @@ export function ChannelItemRow({
   onEditSubmit,
   onEditCancel,
   contextLabel,
+  hideTimestamp = false,
+  onRemoveFromWatchList,
 }: {
   item: ChannelItemModel;
   /** The space this row is listed under, ticked in the menu's "File to…". */
@@ -186,10 +188,17 @@ export function ChannelItemRow({
   actions: ChannelItemActions;
   isEditing?: boolean;
   /**
-   * A muted marker for where the row lives — the cross-space "My tasks" list
-   * names each row's space with it. Lists scoped to one space omit it.
+   * A muted marker for where the row lives — the watch list names each row's
+   * space with it. Lists scoped to one space omit it.
    */
   contextLabel?: string;
+  /** Drops the relative-age text from the trailing slot (watch-list rows). */
+  hideTimestamp?: boolean;
+  /**
+   * Watch-list rows only: forgets the local reference, surfaced in the row's
+   * menus alongside the hover ×.
+   */
+  onRemoveFromWatchList?: () => void;
   /** Puts the row into inline-rename mode. Absent for canvases. */
   onRename?: () => void;
   /** Absent when the command centre has no free cell, which disables the item. */
@@ -251,6 +260,7 @@ export function ChannelItemRow({
           onAddToCommandCenter,
           onRename,
           onTogglePin: () => actions.togglePin(item),
+          onRemoveFromWatchList,
           onArchive: () => actions.archive(item),
         };
 
@@ -330,9 +340,11 @@ export function ChannelItemRow({
                           <PinnedBadge />
                         </AvatarGroup>
                       )}
-                      <span className={TIMESTAMP_CLASS}>
-                        {formatRelativeTimeShort(item.ts)}
-                      </span>
+                      {!hideTimestamp && (
+                        <span className={TIMESTAMP_CLASS}>
+                          {formatRelativeTimeShort(item.ts)}
+                        </span>
+                      )}
                     </>
                   )}
                 </span>
