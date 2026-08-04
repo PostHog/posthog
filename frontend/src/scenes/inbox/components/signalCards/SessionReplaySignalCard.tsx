@@ -152,7 +152,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 <span className="font-mono">{extra.distinct_id.slice(0, 10)}…</span>
                 <span>·</span>
                 <span className="font-mono">
-                    {extra.start_time} – {extra.end_time}
+                    {extra.start_time} to {extra.end_time}
                 </span>
                 {(activeDuration || totalDuration) && (
                     <>
