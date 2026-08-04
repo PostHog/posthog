@@ -1,5 +1,6 @@
 import { Counter, Gauge } from 'prom-client'
 
+import { createIngestionRedisConnectionConfig } from '~/common/config/redis-pools'
 import { HogTransformationResult, HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -389,6 +390,11 @@ export class HogTransformerService implements HogTransformer {
 export type HogTransformerServiceConfig = Pick<
     CdpCoreServicesConfig,
     | 'REDIS_URL'
+    | 'INGESTION_REDIS_HOST'
+    | 'INGESTION_REDIS_PORT'
+    | 'POSTHOG_REDIS_HOST'
+    | 'POSTHOG_REDIS_PORT'
+    | 'POSTHOG_REDIS_PASSWORD'
     | 'REDIS_POOL_MIN_SIZE'
     | 'REDIS_POOL_MAX_SIZE'
     | 'ENCRYPTION_SALT_KEYS'
@@ -423,8 +429,9 @@ export function createHogTransformerService(
     config: HogTransformerServiceConfig,
     deps: HogTransformerServiceDeps
 ): HogTransformerService {
+    const redisConnection = createIngestionRedisConnectionConfig(config)
     const redis = createRedisV2PoolFromConfig({
-        connection: { url: config.REDIS_URL, name: 'hog-transformer-redis' },
+        connection: { ...redisConnection, name: 'hog-transformer-redis' },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })

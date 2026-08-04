@@ -1,4 +1,41 @@
-import { createFeatureFlagCalledDedupRedisConnectionConfig } from './redis-pools'
+import { createFeatureFlagCalledDedupRedisConnectionConfig, createIngestionRedisConnectionConfig } from './redis-pools'
+
+describe('createIngestionRedisConnectionConfig', () => {
+    const base = {
+        INGESTION_REDIS_HOST: '',
+        INGESTION_REDIS_PORT: 6379,
+        POSTHOG_REDIS_HOST: '',
+        POSTHOG_REDIS_PORT: 6379,
+        POSTHOG_REDIS_PASSWORD: '',
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+        REDIS_URL: 'redis://localhost:6379',
+    }
+
+    it('prefers the ingestion Redis host over REDIS_URL', () => {
+        expect(
+            createIngestionRedisConnectionConfig({
+                ...base,
+                INGESTION_REDIS_HOST: 'ingestion-dev-redis',
+                INGESTION_REDIS_PORT: 6380,
+            })
+        ).toEqual({ url: 'ingestion-dev-redis', options: { port: 6380 }, name: 'ingestion-redis' })
+    })
+
+    it('falls back to the PostHog Redis host before REDIS_URL', () => {
+        expect(
+            createIngestionRedisConnectionConfig({
+                ...base,
+                POSTHOG_REDIS_HOST: 'posthog-dev-redis',
+                POSTHOG_REDIS_PORT: 6381,
+                POSTHOG_REDIS_PASSWORD: 'secret',
+            })
+        ).toEqual({
+            url: 'posthog-dev-redis',
+            options: { port: 6381, password: 'secret' },
+            name: 'ingestion-redis',
+        })
+    })
+})
 
 describe('createFeatureFlagCalledDedupRedisConnectionConfig', () => {
     const base = {
