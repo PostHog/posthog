@@ -175,7 +175,7 @@ def process_ticket_message_side_effects(self, team_id: int, comment_id: str) -> 
     safe, save for the analytics events themselves, which can be emitted twice.
     """
     comment = CommentModel.objects.select_related("created_by").filter(id=comment_id, team_id=team_id).first()
-    if comment is None or comment.deleted:
+    if comment is None or comment.deleted or not comment.item_id:
         return
 
     item_context = comment.item_context
