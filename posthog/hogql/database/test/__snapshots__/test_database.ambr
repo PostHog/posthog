@@ -8825,7 +8825,8 @@
                   "fields": [
                       "ticket_id",
                       "user_id",
-                      "role_id"
+                      "role_id",
+                      "role_name"
                   ],
                   "hogql_value": "assignee",
                   "id": "assignee",
@@ -17715,7 +17716,8 @@
                   "fields": [
                       "ticket_id",
                       "user_id",
-                      "role_id"
+                      "role_id",
+                      "role_name"
                   ],
                   "hogql_value": "assignee",
                   "id": "assignee",
