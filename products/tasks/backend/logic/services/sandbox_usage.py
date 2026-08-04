@@ -11,9 +11,10 @@ The write helpers swallow and log every failure: the ledger must never break
 sandbox provisioning, cleanup, or user-message delivery.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
 from functools import wraps
 from typing import ParamSpec, TypeVar
 from uuid import UUID
@@ -25,7 +26,13 @@ from django.utils import timezone
 import structlog
 
 from products.tasks.backend.logic.services.sandbox import SandboxConfig
-from products.tasks.backend.models import SandboxSession, TaskRun
+from products.tasks.backend.logic.services.sandbox_pricing import (
+    COMPUTE_RATE_CARDS,
+    ComputeRateCard,
+    calculate_sandbox_compute_cost,
+    validate_compute_rate_cards,
+)
+from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +149,67 @@ class SandboxUsageByTeam:
     seconds: list[tuple[int, int]]
     cpu_core_seconds: list[tuple[int, int]]
     memory_gib_seconds: list[tuple[int, int]]
+
+
+@dataclass(frozen=True)
+class SandboxComputeUsageByTeam:
+    credits: list[tuple[int, int]]
+    cpu_core_seconds: list[tuple[int, float]]
+    memory_gib_seconds: list[tuple[int, float]]
+    cpu_cost_microusd: list[tuple[int, int]]
+    memory_cost_microusd: list[tuple[int, int]]
+
+
+def get_billable_sandbox_compute_usage_by_team(
+    begin: datetime,
+    end: datetime,
+    *,
+    rate_cards: Sequence[ComputeRateCard] | None = None,
+) -> SandboxComputeUsageByTeam:
+    rate_cards = COMPUTE_RATE_CARDS if rate_cards is None else rate_cards
+    if not rate_cards:
+        return SandboxComputeUsageByTeam([], [], [], [], [])
+
+    cards = validate_compute_rate_cards(rate_cards)
+    sessions = (
+        SandboxSession.objects.unscoped()
+        .filter(
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_attributed_at__isnull=False,
+            user_attributed_at__lt=end,
+        )
+        .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
+    )
+
+    usage: dict[int, list[Decimal]] = {}
+    calculated_at = timezone.now()
+    for session in sessions.iterator():
+        cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=cards)
+        totals = usage.setdefault(session.team_id, [Decimal(0) for _ in range(4)])
+        totals[0] += cost.cpu_core_seconds
+        totals[1] += cost.memory_gib_seconds
+        totals[2] += cost.cpu_cost_usd
+        totals[3] += cost.memory_cost_usd
+
+    credits: list[tuple[int, int]] = []
+    cpu_core_seconds: list[tuple[int, float]] = []
+    memory_gib_seconds: list[tuple[int, float]] = []
+    cpu_cost_microusd: list[tuple[int, int]] = []
+    memory_cost_microusd: list[tuple[int, int]] = []
+    for team_id, totals in usage.items():
+        cpu_quantity, memory_quantity, cpu_usd, memory_usd = totals
+        credits.append((team_id, int(((cpu_usd + memory_usd) * 100).to_integral_value(rounding=ROUND_HALF_EVEN))))
+        cpu_core_seconds.append((team_id, float(cpu_quantity)))
+        memory_gib_seconds.append((team_id, float(memory_quantity)))
+        cpu_cost_microusd.append((team_id, int((cpu_usd * 1_000_000).to_integral_value(rounding=ROUND_HALF_EVEN))))
+        memory_cost_microusd.append(
+            (team_id, int((memory_usd * 1_000_000).to_integral_value(rounding=ROUND_HALF_EVEN)))
+        )
+
+    return SandboxComputeUsageByTeam(
+        credits, cpu_core_seconds, memory_gib_seconds, cpu_cost_microusd, memory_cost_microusd
+    )
 
 
 def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsageByTeam:

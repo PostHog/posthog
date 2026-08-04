@@ -65,7 +65,12 @@ from products.surveys.backend.util import (
     get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
-from products.tasks.backend.facade.billing import SandboxUsageByTeam, get_task_sandbox_usage_by_team
+from products.tasks.backend.facade.billing import (
+    SandboxComputeUsageByTeam,
+    SandboxUsageByTeam,
+    get_billable_sandbox_compute_usage_by_team,
+    get_task_sandbox_usage_by_team,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -244,8 +249,14 @@ class UsageReportCounters:
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
 
-    # PostHog Desktop Billing Credits (PostHog Desktop product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
+    # PostHog Desktop Billing Credits
     posthog_code_credits_used_in_period: int
+    posthog_code_token_credits_used_in_period: int
+    sandbox_compute_credits_used_in_period: int
+    sandbox_compute_cpu_core_seconds_in_period: float
+    sandbox_compute_memory_gib_seconds_in_period: float
+    sandbox_compute_cpu_cost_microusd_in_period: int
+    sandbox_compute_memory_cost_microusd_in_period: int
 
     # Cloud task sandbox compute, all task origins (raw user-attributed usage from the
     # SandboxSession ledger — unpriced until a billing model is decided; pre-warm time excluded)
@@ -1715,7 +1726,7 @@ def get_self_driving_credits_used_in_period_for_org(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_posthog_code_credits_used_in_period(
+def get_teams_with_posthog_code_token_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
@@ -1742,6 +1753,22 @@ def get_teams_with_task_sandbox_usage_in_period(begin: datetime, end: datetime) 
     Unpriced: reported for visibility until a sandbox billing model is decided.
     """
     return get_task_sandbox_usage_by_team(begin, end)
+
+
+@timed_log()
+def get_teams_with_billable_sandbox_compute_usage_in_period(
+    begin: datetime, end: datetime
+) -> SandboxComputeUsageByTeam:
+    try:
+        return get_billable_sandbox_compute_usage_by_team(begin, end)
+    except Exception as err:
+        logger.exception("sandbox_compute.usage_report_failed")
+        capture_exception(err)
+        return SandboxComputeUsageByTeam([], [], [], [], [])
+
+
+def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> int:
+    return token_credits + compute_credits
 
 
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
@@ -2544,6 +2571,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         period_start, period_end
     )
     task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
+    sandbox_compute_usage = get_teams_with_billable_sandbox_compute_usage_in_period(period_start, period_end)
+    token_credits = get_teams_with_posthog_code_token_credits_used_in_period(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -2780,9 +2809,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
         ),
-        "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
-            period_start, period_end
-        ),
+        "teams_with_posthog_code_token_credits_used_in_period": token_credits,
+        "teams_with_sandbox_compute_credits_used_in_period": sandbox_compute_usage.credits,
+        "teams_with_sandbox_compute_cpu_core_seconds_in_period": sandbox_compute_usage.cpu_core_seconds,
+        "teams_with_sandbox_compute_memory_gib_seconds_in_period": sandbox_compute_usage.memory_gib_seconds,
+        "teams_with_sandbox_compute_cpu_cost_microusd_in_period": sandbox_compute_usage.cpu_cost_microusd,
+        "teams_with_sandbox_compute_memory_cost_microusd_in_period": sandbox_compute_usage.memory_cost_microusd,
         "teams_with_task_sandbox_seconds_in_period": task_sandbox_usage.seconds,
         "teams_with_task_sandbox_cpu_core_seconds_in_period": task_sandbox_usage.cpu_core_seconds,
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
@@ -2975,7 +3007,28 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
-        posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
+        posthog_code_credits_used_in_period=combine_posthog_code_credits(
+            all_data["teams_with_posthog_code_token_credits_used_in_period"].get(team.id, 0),
+            all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),
+        ),
+        posthog_code_token_credits_used_in_period=all_data["teams_with_posthog_code_token_credits_used_in_period"].get(
+            team.id, 0
+        ),
+        sandbox_compute_credits_used_in_period=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(
+            team.id, 0
+        ),
+        sandbox_compute_cpu_core_seconds_in_period=all_data[
+            "teams_with_sandbox_compute_cpu_core_seconds_in_period"
+        ].get(team.id, 0),
+        sandbox_compute_memory_gib_seconds_in_period=all_data[
+            "teams_with_sandbox_compute_memory_gib_seconds_in_period"
+        ].get(team.id, 0),
+        sandbox_compute_cpu_cost_microusd_in_period=all_data[
+            "teams_with_sandbox_compute_cpu_cost_microusd_in_period"
+        ].get(team.id, 0),
+        sandbox_compute_memory_cost_microusd_in_period=all_data[
+            "teams_with_sandbox_compute_memory_cost_microusd_in_period"
+        ].get(team.id, 0),
         task_sandbox_seconds_in_period=all_data["teams_with_task_sandbox_seconds_in_period"].get(team.id, 0),
         task_sandbox_cpu_core_seconds_in_period=all_data["teams_with_task_sandbox_cpu_core_seconds_in_period"].get(
             team.id, 0

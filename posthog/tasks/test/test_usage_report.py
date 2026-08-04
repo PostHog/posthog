@@ -4636,7 +4636,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_credits_only_counts_posthog_code_events(self, mock_region: MagicMock) -> None:
         """The posthog_code query only counts generations tagged ai_product='posthog_code'."""
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+        from posthog.tasks.usage_report import get_teams_with_posthog_code_token_credits_used_in_period
 
         mock_region.return_value = "US"
         self._setup_teams()
@@ -4681,7 +4681,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+        posthog_code_result = get_teams_with_posthog_code_token_credits_used_in_period(period_start, period_end)
 
         # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
         # posthog_code event, not the signals one.
@@ -4702,7 +4702,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         PostHog Desktop never emits a matching $ai_trace event, so the LEFT JOIN never matches and the
         empty-trace fallback is what makes posthog_code billable at all — but only for $ai_billable=true.
         """
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+        from posthog.tasks.usage_report import get_teams_with_posthog_code_token_credits_used_in_period
 
         mock_region.return_value = "US"
         self._setup_teams()
@@ -4730,7 +4730,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_posthog_code_token_credits_used_in_period(period_start, period_end)
 
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
@@ -4803,6 +4803,33 @@ class TestTaskSandboxUsageReport(APIBaseTest):
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
+
+
+class TestPostHogCodeComputeUsageReport(SimpleTestCase):
+    def test_combined_credits_reconcile_with_components(self) -> None:
+        from posthog.tasks.usage_report import combine_posthog_code_credits
+
+        assert combine_posthog_code_credits(123, 45) == 168
+
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
+    def test_invalid_compute_configuration_is_observed_without_breaking_report(
+        self, mock_compute: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_billable_sandbox_compute_usage_in_period
+
+        from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
+        from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCardConfigurationError
+
+        error = ComputeRateCardConfigurationError("invalid")
+        mock_compute.side_effect = error
+
+        result = get_teams_with_billable_sandbox_compute_usage_in_period(
+            datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+        )
+
+        assert result == SandboxComputeUsageByTeam([], [], [], [], [])
+        mock_capture.assert_called_once_with(error)
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
