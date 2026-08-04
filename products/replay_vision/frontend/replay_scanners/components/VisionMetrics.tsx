@@ -9,13 +9,16 @@ import { urls } from 'scenes/urls'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
+import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
+import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
-import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -25,11 +28,22 @@ const COLLECTION_ID = 'replay-vision-list-observations'
 export function VisionMetrics(): JSX.Element {
     const { scannerStats, chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
     const { setChartDateRange } = useActions(replayScannersLogic)
-    const { quota, quotaLoading } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        quotaLoading,
+        showUsd,
+        onFreePlan,
+        billedCredits,
+        billedLimitCredits,
+        startupCapCredits,
+        showStartupCap,
+        showStartupCapLine,
+    } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
-    const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
+    const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection
     const hasCap = hasCreditLimit(quota)
+    const [freeWidth, billedWidth, projectedWidth] = quotaMeterWidths(usedPct, usedFreePct, [projectedPct])
     const styles = QUOTA_STATUS_STYLES[status]
 
     // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.
@@ -117,10 +131,6 @@ export function VisionMetrics(): JSX.Element {
                     </div>
                     {quota ? (
                         <>
-                            {/* TODO(replay-vision): remove when Vision billing goes live with open beta. */}
-                            <div className="text-xs text-accent mb-1">
-                                Estimated spend. You won't be billed during the closed beta.
-                            </div>
                             <div className="text-3xl font-semibold tabular-nums">
                                 {formatCreditCount(quota.credits_used)}
                                 {hasCap && (
@@ -130,10 +140,12 @@ export function VisionMetrics(): JSX.Element {
                                     </span>
                                 )}
                             </div>
-                            <div className="text-muted text-sm tabular-nums">
-                                ≈ {creditsToUsd(quota.credits_used)}
-                                {hasCap ? ` / ${creditsToUsd(quota.credit_limit ?? 0)}` : ''}
-                            </div>
+                            {showUsd && (
+                                <div className="text-muted text-sm tabular-nums">
+                                    ≈ {creditsToUsd(billedCredits)} billed
+                                    {hasCap ? ` / ${creditsToUsd(billedLimitCredits)} limit` : ''}
+                                </div>
+                            )}
                             {hasCap ? (
                                 <>
                                     <Tooltip
@@ -153,6 +165,14 @@ export function VisionMetrics(): JSX.Element {
                                                     Monthly limit:{' '}
                                                     <strong>{formatCreditCount(quota.credit_limit ?? 0)}</strong>
                                                 </div>
+                                                {showStartupCapLine && (
+                                                    <div>
+                                                        Startup program cap:{' '}
+                                                        <strong>
+                                                            {formatCreditCount(startupCapCredits ?? 0)}/month
+                                                        </strong>
+                                                    </div>
+                                                )}
                                                 {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
                                             </div>
                                         }
@@ -160,27 +180,42 @@ export function VisionMetrics(): JSX.Element {
                                         <QuotaMeterBar
                                             className="mt-2"
                                             usedPct={usedPct}
+                                            usedFreePct={usedFreePct}
                                             projected={[{ pct: projectedPct, barClass: styles.bar, striped: true }]}
                                             valueNow={percentLabel}
                                             label={`Projected ${percentLabel}% of the monthly spend limit`}
                                         />
                                     </Tooltip>
                                     <div className="flex items-center gap-3 text-xs text-muted mt-1.5">
-                                        <QuotaMeterLegendItem>Spent</QuotaMeterLegendItem>
-                                        <QuotaMeterLegendItem barClass={styles.bar} striped>
+                                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
+                                            Free
+                                        </QuotaMeterLegendItem>
+                                        <QuotaMeterLegendItem width={billedWidth}>
+                                            {freeWidth > 0 ? 'Billed' : 'Spent'}
+                                        </QuotaMeterLegendItem>
+                                        <QuotaMeterLegendItem barClass={styles.bar} striped width={projectedWidth}>
                                             Projected
                                         </QuotaMeterLegendItem>
-                                        <span className="ml-auto">
-                                            <QuotaStatusLine projection={projection} />
-                                        </span>
+                                        {/* The exhausted note below carries this status, so don't say it twice. */}
+                                        {!projection.exhausted && (
+                                            <span className="ml-auto">
+                                                <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
+                                            </span>
+                                        )}
                                     </div>
+                                    {projection.exhausted && (
+                                        <div className="mt-1.5">
+                                            <QuotaExhaustedNote onFreePlan={onFreePlan} />
+                                        </div>
+                                    )}
                                 </>
                             ) : (
-                                <div className="text-xs text-muted mt-2">
-                                    No spend limit set: projected ~{formatCreditCount(quota.projected_monthly_credits)}
-                                    /month from enabled scanners. Set a billing limit in your billing settings to cap
-                                    spend.
+                                <div className="mt-2">
+                                    <NoBillingLimitNote projectedCredits={quota.projected_monthly_credits} />
                                 </div>
+                            )}
+                            {showStartupCap && (
+                                <div className="text-xs text-muted mt-1.5">{STARTUP_CAP_EXPLANATION}</div>
                             )}
                             <div className="mt-2">
                                 <Link to={`${urls.replayVision()}?tab=usage`} className="text-xs">

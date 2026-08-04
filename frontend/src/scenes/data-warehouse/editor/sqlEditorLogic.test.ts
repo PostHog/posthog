@@ -1064,6 +1064,65 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.editingView?.latest_history_id).toBe('server-head')
             expect(logic.values.suggestionPayload).toBe(null)
         })
+
+        it('does not flag a conflict when the cached head is stale but the server query is unchanged', async () => {
+            // The server has a query-change head that the editor's cached head does not match —
+            // but the server query still equals the baseline this edit started from, so no one
+            // else actually changed the query. This must save cleanly, not raise a false conflict.
+            serverViewHistoryId = 'server-head'
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab(MOCK_VIEW.query.query, { ...MOCK_VIEW, latest_history_id: 'stale-head' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setQueryInput('SELECT 2')
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                edited_history_id: 'stale-head',
+                types: [],
+            })
+            await expectLogic(logic).toDispatchActions(['updateView', 'updateViewSuccess']).toFinishAllListeners()
+
+            expect(logic.values.suggestionPayload).toBe(null)
+        })
+
+        it.each([
+            [false, 'Update view'],
+            [true, 'Update and re-materialize view'],
+        ])(
+            'reviewViewUpdate gates the save behind the inline diff (shouldRematerialize=%s)',
+            async (shouldRematerialize, acceptText) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+
+                logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+                await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+                logic.actions.setQueryInput('SELECT 2')
+                logic.actions.reviewViewUpdate({
+                    id: MOCK_VIEW.id,
+                    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                    shouldRematerialize,
+                    types: [],
+                })
+                await expectLogic(logic).toDispatchActions(['reviewViewUpdate']).toFinishAllListeners()
+
+                // The edit is shown as an accept/reject diff (saved query vs edits), not saved
+                // immediately, and the accept label reflects whether it re-materializes.
+                expect(logic.values.suggestionPayload?.originalValue).toBe(MOCK_VIEW.query.query)
+                expect(logic.values.suggestionPayload?.acceptText).toBe(acceptText)
+            }
+        )
     })
 
     describe('inline insight metadata editing', () => {

@@ -9,9 +9,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import psycopg
 from asgiref.sync import async_to_sync
 
-from posthog.ducklake.team_state import CPUnavailableError
-from posthog.models import DuckgresSinkSchemaState, Organization, Team
+from posthog.models import Organization, Team
 
+from products.managed_warehouse.backend.facade.contracts import (
+    CPUnavailableError,
+    DuckgresSinkState,
+    DuckgresSinkStateCreateInput,
+)
+from products.managed_warehouse.backend.facade.testing import create_sink_state, get_sink_state
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
     PermanentBatchApplyError,
@@ -846,10 +851,14 @@ class TestPermanentApplyErrors:
 # close_old_connections, so the row must be committed for that thread to see it.
 @pytest.mark.django_db(transaction=True)
 class TestLiveApplyStamp:
-    def _sink_state(self) -> DuckgresSinkSchemaState:
+    def _sink_state(self):
         team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
-        return DuckgresSinkSchemaState.objects.create(
-            team=team, schema_id=uuid.uuid4(), state=DuckgresSinkSchemaState.State.PRIMED
+        return create_sink_state(
+            DuckgresSinkStateCreateInput(
+                team_id=team.id,
+                schema_id=uuid.uuid4(),
+                state=DuckgresSinkState.PRIMED,
+            )
         )
 
     def test_live_apply_stamps_the_sink_state_row(self) -> None:
@@ -866,7 +875,8 @@ class TestLiveApplyStamp:
             async_to_sync(adapter.after_batch_processed)(_make_healthy_conn(), batch=batch)
 
         mock_mark_applied.assert_awaited_once()
-        state.refresh_from_db()
+        state = get_sink_state(state.id)
+        assert state is not None
         assert state.queue_last_applied_at is not None
 
     @pytest.mark.parametrize(
@@ -889,5 +899,6 @@ class TestLiveApplyStamp:
         ):
             async_to_sync(adapter.after_batch_processed)(_make_healthy_conn(), batch=batch)
 
-        state.refresh_from_db()
+        state = get_sink_state(state.id)
+        assert state is not None
         assert state.queue_last_applied_at is None

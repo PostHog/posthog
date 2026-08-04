@@ -19,6 +19,12 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
+# egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
+# own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass
+# off (the bypass itself is gated by a feature flag, not by a setting).
+DATA_WAREHOUSE_S3_REGION: str = os.getenv("DATA_WAREHOUSE_S3_REGION", os.getenv("AWS_REGION", ""))
+
 # Rollback-only escape hatch: restores the legacy delta-rs unsafe-rename S3 backend,
 # which has no commit-conflict detection. Default (false) keeps conditional-put commits.
 DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
