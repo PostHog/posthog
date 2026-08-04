@@ -63271,6 +63271,16 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd_prev: number | null;
+      /**
+         * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes: number | null;
+      /**
+         * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes_prev: number | null;
       /** Whether the job-level source is synced (cost and queue figures exist). */
       jobs_available: boolean;
       /** 'master' or 'main', picked by observed run volume in the window. */
