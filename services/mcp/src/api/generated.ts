@@ -55981,6 +55981,12 @@ export namespace Schemas {
       network_access?: ScoutConfigNetworkAccessEnum;
       /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
       auto_pause_exempt?: boolean;
+      /**
+         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags of 50 characters each. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
     }
 
     export interface PatchedSignalSourceConfig {
@@ -65887,6 +65893,8 @@ export namespace Schemas {
       readonly status_changed_at: string | null;
       /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
       readonly auto_pause_exempt: boolean;
+      /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags of 50 characters each. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
+      readonly tags: readonly string[];
       readonly created_at: string;
     }
 
@@ -65923,6 +65931,12 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /**
+         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags of 50 characters each. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
+      /**
          * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -65958,6 +65972,12 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags of 50 characters each. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
     }
 
     /**
@@ -84376,6 +84396,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsScoutConfigListParams = {
+    /**
+     * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
+     * @minLength 1
+     */
+    tags?: string;
     };
 
     export type SignalsScoutMembersListParams = {
