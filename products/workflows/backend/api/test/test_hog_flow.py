@@ -52,7 +52,6 @@ class _StubAccountAudienceProvider:
         return self.group_type
 
 
-_REVISIONS_FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_revisions"
 _SECRET_TEMPLATE_ID = "template-secret-webhook"
 
 
@@ -1378,17 +1377,6 @@ class TestHogFlowAPI(APIBaseTest):
         assert activate.status_code == 200, activate.json()
         return flow_id
 
-    def test_mcp_cannot_modify_active_workflow(self):
-        # Active workflows are read-only via MCP for now — editing risks breaking already-scheduled runs.
-        flow_id = self._create_active_hog_flow()
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"name": "Renamed via MCP"},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert response.status_code == 400, response.json()
-        assert "active workflow isn't supported via MCP" in response.json()["detail"]
-
     @parameterized.expand([("disable_to_draft", "draft"), ("archive", "archived")])
     def test_mcp_can_disable_active_workflow(self, _name, target_status):
         flow_id = self._create_active_hog_flow()
@@ -1610,12 +1598,6 @@ class TestHogFlowAPI(APIBaseTest):
         flow_id = self._create_draft_flow_with_graph()
         response = self._patch_graph(flow_id, [])
         assert response.status_code == 400, response.json()
-
-    def test_graph_mcp_cannot_edit_active_workflow(self):
-        flow_id = self._create_active_hog_flow()
-        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "x"}}])
-        assert response.status_code == 400, response.json()
-        assert "active workflow isn't supported via MCP" in response.json()["detail"]
 
     def test_graph_non_mcp_can_edit_active_workflow(self):
         flow_id = self._create_active_hog_flow()
@@ -4074,8 +4056,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_publish_promotes_draft_secret_to_live_without_wiping(self, _flag):
+    def test_publish_promotes_draft_secret_to_live_without_wiping(self):
         flow_id = self._create()
         assert (
             self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
@@ -4157,8 +4138,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert res.status_code == 200, res.json()
         return res
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_activation_keeps_secret_stripped_from_live_actions(self, _flag):
+    def test_activation_keeps_secret_stripped_from_live_actions(self):
         # Activating a draft re-validates its actions (recovering secrets); the live actions blob must
         # stay stripped, with the secret only in encrypted_inputs.
         flow_id = self._create()
@@ -4171,8 +4151,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert "api_key" not in db_inputs
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_restore_reattaches_live_secret_not_historical(self, _flag):
+    def test_restore_reattaches_live_secret_not_historical(self):
         flow_id = self._create()
         assert (
             self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
@@ -4240,8 +4219,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Duplicate action id" in str(response.json())
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_noop_resave_of_secret_flow_does_not_bump_revision(self, _flag):
+    def test_noop_resave_of_secret_flow_does_not_bump_revision(self):
         # Resending the masked graph a GET returned (api_key as {"secret": true}) must be a true no-op:
         # validation recovers the secret back into actions before the strip, so the version-bump compare
         # has to normalize both sides secret-free or every such save spuriously bumps the version.
@@ -4334,8 +4312,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert row["trigger"]["inputs"]["api_key"] == {"secret": True}
         assert "TRIGGER-SECRET" not in json.dumps(listing)
 
-    @patch(_REVISIONS_FLAG_PATH, return_value=True)
-    def test_legacy_plaintext_secret_stripped_from_revision_snapshot(self, _flag):
+    def test_legacy_plaintext_secret_stripped_from_revision_snapshot(self):
         # A row written before encryption shipped still has a plaintext secret in `actions`. The first
         # tracked live edit bootstraps a revision of that prior state, which must be stripped - not carry
         # the plaintext forward into history.
@@ -4367,7 +4344,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
             edges=[{"from": "trigger_node", "to": "action_1", "type": "continue"}],
         )
 
-        # A web live edit (flag on) bumps the version and bootstraps a revision of the pre-edit state.
+        # A web live edit bumps the version and bootstraps a revision of the pre-edit state.
         changed_action = {
             "id": "action_1",
             "name": "action_1",
