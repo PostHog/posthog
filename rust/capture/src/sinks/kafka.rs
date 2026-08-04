@@ -261,7 +261,13 @@ fn route(
                         preserve_locality: true,
                     }) => Route {
                         target: Output::AnalyticsOverflow,
-                        ordering: OrderingGuarantee::PerDistinctId,
+                        // The locality preference does not outrank a stage that
+                        // already took person processing away. The global rate
+                        // limiter stamps its verdict before the overflow
+                        // limiter, which then overwrites the reason, so without
+                        // this a key the rate limiter declared too hot would go
+                        // back to hashing onto one partition.
+                        ordering: person_ordering(metadata.skip_person_processing),
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
@@ -304,7 +310,8 @@ fn route(
                         preserve_locality: true,
                     }) => Route {
                         target: Output::AiOverflow,
-                        ordering: OrderingGuarantee::PerDistinctId,
+                        // Same precedence as the analytics overflow lane above.
+                        ordering: person_ordering(metadata.skip_person_processing),
                     },
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
@@ -367,6 +374,7 @@ fn route(
 #[cfg(test)]
 mod route_tests {
     use super::*;
+    use rstest::rstest;
 
     fn meta(data_type: DataType) -> ProcessedEventMetadata {
         ProcessedEventMetadata {
@@ -493,6 +501,40 @@ mod route_tests {
         let mut replay = base;
         replay.overflow_reason = Some(OverflowReason::ReplayLimited);
         assert_eq!(route(&replay, false).unwrap().target, Output::AnalyticsMain);
+    }
+
+    /// The global rate limiter stamps `skip_person_processing` before the
+    /// overflow limiter runs, and the overflow limiter overwrites the reason it
+    /// stamped. Without this precedence a key the rate limiter declared too hot
+    /// would go back to hashing onto a single overflow partition whenever the
+    /// limiter preserves locality, which is how prod-US is configured.
+    #[rstest]
+    #[case::analytics(DataType::AnalyticsMain, Outputs::AnalyticsOverflow)]
+    #[case::ai(DataType::AiEvents, Outputs::AiOverflow)]
+    fn person_processing_off_outranks_preserve_locality(
+        #[case] data_type: DataType,
+        #[case] expected_target: Outputs<'static>,
+    ) {
+        let armed = data_type == DataType::AiEvents;
+        let mut m = meta(data_type);
+        m.overflow_reason = Some(OverflowReason::RateLimited {
+            preserve_locality: true,
+        });
+
+        assert_eq!(
+            route(&m, armed).ordering,
+            OrderingGuarantee::PerDistinctId,
+            "locality is preserved while person processing is on"
+        );
+
+        m.skip_person_processing = true;
+        assert_eq!(
+            route(&m, armed),
+            Route {
+                target: expected_target,
+                ordering: OrderingGuarantee::None,
+            }
+        );
     }
 
     #[test]
@@ -3052,6 +3094,37 @@ mod tests {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
                     force_disable_person_processing: None,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        /// The wire outcome for the combination the global rate limiter and the
+        /// overflow limiter produce together on prod-US, where locality
+        /// preservation is on: the record keeps the person-processing header and
+        /// loses the partition key.
+        #[rstest]
+        #[case::analytics(DataType::AnalyticsMain, OVERFLOW_TOPIC)]
+        #[case::ai(DataType::AiEvents, AI_EVENTS_OVERFLOW_TOPIC)]
+        #[tokio::test]
+        async fn overflow_reason_rate_limited_preserving_drops_key_when_person_off(
+            #[case] data_type: DataType,
+            #[case] expected_topic: &str,
+        ) {
+            assert_routing(
+                EventInput {
+                    data_type,
+                    skip_person_processing: true,
+                    overflow_reason: Some(OverflowReason::RateLimited {
+                        preserve_locality: true,
+                    }),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: expected_topic,
+                    has_key: false,
+                    force_disable_person_processing: Some(true),
                     ..Default::default()
                 },
             )
