@@ -19,6 +19,8 @@ from django.utils import timezone
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.common.utils import retry_on_db_connection_drop
+
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -93,8 +95,11 @@ def active_key_fallback(config: EvaluationConfig, provider: str) -> LLMProviderK
 
 
 def _eval_config(team_id: int) -> EvaluationConfig:
-    config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-    return config
+    def _get_or_create() -> EvaluationConfig:
+        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
+        return config
+
+    return retry_on_db_connection_drop(_get_or_create)
 
 
 def _provider_key_required() -> ApplicationError:
@@ -107,7 +112,7 @@ def _provider_key_required() -> ApplicationError:
 
 def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:
     try:
-        key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
+        key = retry_on_db_connection_drop(lambda: LLMProviderKey.objects.get(id=key_id, team_id=team_id))
     except LLMProviderKey.DoesNotExist:
         raise ApplicationError(
             "Provider key not found.",
@@ -125,5 +130,5 @@ def _ensure_usable(key: LLMProviderKey) -> LLMProviderKey:
             non_retryable=True,
         )
     key.last_used_at = timezone.now()
-    key.save(update_fields=["last_used_at"])
+    retry_on_db_connection_drop(lambda: key.save(update_fields=["last_used_at"]))
     return key

@@ -1,6 +1,9 @@
 import uuid
 
 import pytest
+from unittest.mock import patch
+
+from django.db import OperationalError
 
 from temporalio.exceptions import ApplicationError
 
@@ -53,6 +56,18 @@ class TestExplicitModelSpec:
         assert resolved.is_byok
         key.refresh_from_db()
         assert key.last_used_at is not None
+
+    def test_byok_key_lookup_recovers_from_transient_operational_error(self, team):
+        # A pgbouncer query_wait_timeout during pool saturation surfaces as a transient
+        # OperationalError; resolution must retry it instead of failing the whole eval run.
+        key = _key(team, "anthropic")
+        with patch.object(
+            type(key).objects, "get", side_effect=[OperationalError("query_wait_timeout"), key]
+        ) as mock_get:
+            resolved = ExplicitModelSpec("anthropic", "claude-opus-4-8", str(key.id)).resolve(team.id)
+
+        assert resolved.provider_key == key
+        assert mock_get.call_count == 2
 
     def test_byok_missing_key_raises_key_not_found(self, team):
         with pytest.raises(ApplicationError) as exc_info:
