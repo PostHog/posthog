@@ -4,13 +4,21 @@ These are the source of truth for the generated frontend types and MCP tool sche
 field carries help_text and every response shape is a declared serializer rather than a raw dict.
 """
 
+from typing import Any
+
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
+from posthog.exceptions_capture import capture_exception
+
+from products.growth.backend.enrichment.lab import DEFAULT_SAMPLE_SIZE, DRAFT_VERSION_SENTINEL, MAX_SAMPLE_SIZE
 from products.growth.backend.enrichment.labels import (
     OUTPUT_FIELD_KEY_RE,
     OUTPUT_FIELD_TYPES,
     RESERVED_OUTPUT_FIELD_KEYS,
+    PromptConfigError,
+    validate_input_fields,
+    validate_output_fields,
 )
 from products.growth.backend.models import EnrichmentPromptConfig
 
@@ -23,10 +31,11 @@ _OUTPUT_FIELDS_HELP = (
 
 _PROMPT_TEXT_HELP = "System prompt; {email} is replaced with the signup email domain at runtime."
 
+_MODEL_HELP = "Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves."
+
 _INPUT_FIELDS_HELP = (
-    "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to "
-    "the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored "
-    "on the result indefinitely."
+    "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected "
+    "value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional."
 )
 
 
@@ -59,6 +68,34 @@ def _validate_output_field_keys_are_unique(value: list[dict[str, str]]) -> list[
     if duplicates:
         raise serializers.ValidationError(f"Duplicate output field key {sorted(duplicates)[0]!r}.")
     return value
+
+
+def _validate_config_shape(attrs: dict[str, Any], *, capture_path: str | None = None) -> None:
+    """Run validate_input_fields/validate_output_fields (enrichment/labels.py) against a
+    throwaway, unsaved config built from the submitted shape, translating a PromptConfigError
+    into a normal 400 instead of it surfacing as an unhandled 500 - or, on the streaming /run/
+    endpoint, only after a 200 response has already started.
+
+    capture_path is set only by the money-spending /run/ endpoint's serializer: a bad draft
+    config there means a request was about to reach the LLM gateway, which is worth tracking
+    even though it's "just" a 400. Plain save-time validation errors are routine user input and
+    don't need capture_exception, matching how ActivateRequestSerializer/RenameRequestSerializer
+    style 400s are handled elsewhere in this file.
+    """
+    draft = EnrichmentPromptConfig(
+        name=attrs.get("label", ""),
+        prompt_text=attrs.get("prompt_text", ""),
+        model=attrs.get("model", ""),
+        input_fields=attrs.get("input_fields", []),
+        output_fields=attrs["output_fields"],
+    )
+    try:
+        validate_input_fields(draft)
+        validate_output_fields(draft)
+    except PromptConfigError as e:
+        if capture_path is not None:
+            capture_exception(e, {"path": capture_path})
+        raise serializers.ValidationError(str(e)) from e
 
 
 class LabelSummarySerializer(serializers.Serializer):
@@ -113,3 +150,82 @@ class ConfigsQuerySerializer(serializers.Serializer):
 
 class ActivateRequestSerializer(serializers.Serializer):
     config_id = serializers.UUIDField(help_text="Prompt config id to activate for its label.")
+
+
+class GatewayModelSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Gateway model id, usable as `model` on save/run.")
+
+
+@extend_schema_serializer(many=False)
+class GatewayModelListResponseSerializer(serializers.Serializer):
+    results = GatewayModelSerializer(
+        many=True,
+        help_text="Models the gateway currently lists (cached for 5 minutes), or empty if it is unreachable - "
+        "there is no curated mirror, since one goes stale silently.",
+    )
+
+
+class SaveRequestSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=128, help_text="Label this config computes, e.g. ai_pilled.")  # type: ignore[assignment]  # DRF Field.label collides with a field named label
+    version = serializers.CharField(
+        max_length=128,
+        required=False,
+        allow_blank=True,
+        help_text="Version identity for the new row, e.g. v3. Optional: omit (or send blank) to accept the "
+        "server-suggested next version for this label. Versions are immutable once created - there is no "
+        "update endpoint - and (label, version) must be unique.",
+    )
+    prompt_text = serializers.CharField(help_text=_PROMPT_TEXT_HELP)
+    model = serializers.CharField(max_length=128, help_text=_MODEL_HELP)
+    input_fields = serializers.ListField(
+        child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
+    )
+    output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
+
+    def validate_version(self, value: str) -> str:
+        # The /run/ endpoint stamps every unsaved draft with exactly this string (see
+        # DRAFT_VERSION_SENTINEL's docstring); accepting it here would let a saved row collide in
+        # meaning with an in-flight test run's draft.
+        if value == DRAFT_VERSION_SENTINEL:
+            raise serializers.ValidationError(
+                f"{DRAFT_VERSION_SENTINEL!r} is reserved for unsaved test runs and cannot be saved as a version."
+            )
+        return value
+
+    def validate_output_fields(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        return _validate_output_field_keys_are_unique(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        _validate_config_shape(attrs)
+        return attrs
+
+
+class RunRequestSerializer(serializers.Serializer):
+    label = serializers.CharField(  # type: ignore[assignment]
+        max_length=128,
+        help_text="Label this draft config computes, e.g. ai_pilled. Need not already exist - run classifies "
+        "against an in-memory config only and persists nothing.",
+    )
+    prompt_text = serializers.CharField(help_text=_PROMPT_TEXT_HELP)
+    model = serializers.CharField(max_length=128, help_text=_MODEL_HELP)
+    input_fields = serializers.ListField(
+        child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
+    )
+    output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
+    sample = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_SAMPLE_SIZE,
+        min_value=1,
+        max_value=MAX_SAMPLE_SIZE,
+        help_text=f"Number of the most recently archived, distinct orgs to classify (1-{MAX_SAMPLE_SIZE}). Each "
+        "sampled org costs one LLM call, so keep this bounded during iteration.",
+    )
+
+    def validate_output_fields(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        return _validate_output_field_keys_are_unique(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # capture_path: this endpoint spends real LLM money the moment it starts streaming, so a
+        # draft config that would fail is worth tracking even though it never reaches the LLM.
+        _validate_config_shape(attrs, capture_path="ai_enrichment.run")
+        return attrs

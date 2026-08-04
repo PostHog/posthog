@@ -52,7 +52,7 @@ export interface ConfigVersionApi {
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
     input_fields: string[]
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
     output_fields: OutputFieldApi[]
@@ -94,6 +94,65 @@ export interface LabelSummaryApi {
 export interface LabelListResponseApi {
     /** Distinct labels, alphabetical. */
     results: LabelSummaryApi[]
+}
+
+export interface GatewayModelApi {
+    /** Gateway model id, usable as `model` on save/run. */
+    id: string
+}
+
+export interface GatewayModelListResponseApi {
+    /** Models the gateway currently lists (cached for 5 minutes), or empty if it is unreachable - there is no curated mirror, since one goes stale silently. */
+    results: GatewayModelApi[]
+}
+
+export interface RunRequestApi {
+    /**
+     * Label this draft config computes, e.g. ai_pilled. Need not already exist - run classifies against an in-memory config only and persists nothing.
+     * @maxLength 128
+     */
+    label: string
+    /** System prompt; {email} is replaced with the signup email domain at runtime. */
+    prompt_text: string
+    /**
+     * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
+     * @maxLength 128
+     */
+    model: string
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+    input_fields?: string[]
+    /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+    output_fields: OutputFieldApi[]
+    /**
+     * Number of the most recently archived, distinct orgs to classify (1-10). Each sampled org costs one LLM call, so keep this bounded during iteration.
+     * @minimum 1
+     * @maximum 10
+     */
+    sample?: number
+}
+
+export interface SaveRequestApi {
+    /**
+     * Label this config computes, e.g. ai_pilled.
+     * @maxLength 128
+     */
+    label: string
+    /**
+     * Version identity for the new row, e.g. v3. Optional: omit (or send blank) to accept the server-suggested next version for this label. Versions are immutable once created - there is no update endpoint - and (label, version) must be unique.
+     * @maxLength 128
+     */
+    version?: string
+    /** System prompt; {email} is replaced with the signup email domain at runtime. */
+    prompt_text: string
+    /**
+     * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
+     * @maxLength 128
+     */
+    model: string
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+    input_fields?: string[]
+    /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+    output_fields: OutputFieldApi[]
 }
 
 export interface ProductPushCampaignApi {
@@ -514,6 +573,18 @@ export type GrowthAiEnrichmentConfigsRetrieveParams = {
      */
     label: string
 }
+
+export type GrowthAiEnrichmentRunCreateParams = {
+    format?: GrowthAiEnrichmentRunCreateFormat
+}
+
+export type GrowthAiEnrichmentRunCreateFormat =
+    (typeof GrowthAiEnrichmentRunCreateFormat)[keyof typeof GrowthAiEnrichmentRunCreateFormat]
+
+export const GrowthAiEnrichmentRunCreateFormat = {
+    Json: 'json',
+    Ndjson: 'ndjson',
+} as const
 
 export type ProductPushCampaignActiveRetrieveParams = {
     /**
