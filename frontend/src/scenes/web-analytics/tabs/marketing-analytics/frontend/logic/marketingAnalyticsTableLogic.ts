@@ -70,7 +70,7 @@ export interface marketingAnalyticsTableLogicMeta {
         defaultColumns: (
             conversion_goals: ConversionGoalFilter[],
             drillDownLevel: MarketingAnalyticsDrillDownLevel,
-            featureFlags: any
+            featureFlags: FeatureFlagsSet
         ) => string[]
         sortedColumns: (defaultColumns: string[], query: DataTableNode | null) => string[]
     }
