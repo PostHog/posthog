@@ -41,10 +41,13 @@ export function TerminalCard({ command, copyLabel, onCopy, className }: Terminal
     const displayCommand = condenseCommand(command)
 
     const handleCopy = (): void => {
-        void copyToClipboard(command, copyLabel)
-        onCopy?.()
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
+        void copyToClipboard(command, copyLabel).then((copied) => {
+            if (copied) {
+                onCopy?.()
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
+            }
+        })
     }
 
     return (
