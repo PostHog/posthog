@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -9,156 +10,417 @@ from unittest.mock import patch
 from click.testing import CliRunner
 from hogli_commands import ci_insights
 
+_TOKEN = "phx_test_key_do_not_leak"
+
+_SOURCES = [
+    {"id": "src-other", "repo": "PostHog/posthog.com", "prefix": "website", "synced": True},
+    {"id": "src-unsynced", "repo": "PostHog/posthog", "prefix": "", "synced": False},
+    {"id": "src-good", "repo": "PostHog/posthog", "prefix": "eng_analytics", "synced": True},
+]
+
+_MASTER = {
+    "default_branch": "master",
+    "settled_workflows": 61,
+    "failing_workflows": 2,
+    "failing_workflow_names": ["ci-backend", "ci-frontend"],
+}
+
+
+def _row(test_id: str, *, state: str = "flaky", signature: str = "AssertionError", **overrides: Any) -> dict[str, Any]:
+    return {
+        "fingerprint": f"{test_id} | {signature}",
+        "test_id": test_id,
+        "error_signature": signature,
+        "job_name": "Django tests (1/19)",
+        "repo": "PostHog/posthog",
+        "state": state,
+        "first_seen": "2026-08-04T10:00:00Z",
+        "last_seen": "2026-08-04T13:00:00Z",
+        "occurrences": 4,
+        "branches": 2,
+        "master_hits": 0,
+        "latest_run_id": 30912586404,
+        "latest_branch": "feat/thing",
+        "trend_24h": [0] * 22 + [4, 0],
+        **overrides,
+    }
+
+
+_ROWS = [
+    _row("posthog/api/test/test_capture.py::test_event", state="breaking_master", master_hits=9),
+    _row("posthog/hogql/test/test_resolver.py::test_join", state="novel_burst"),
+    _row("products/logs/test_query.py::test_severity", state="pr_only"),
+]
+
+_BROKEN = {"rows": _ROWS, "breaking_master_jobs": ["ci-backend / Django tests"], "window_days": 2, "truncated": False}
+
+_MASTER_FAILURES = [
+    {
+        "repo": {"provider": "github", "owner": "PostHog", "name": "posthog"},
+        "workflow_name": "ci-frontend",
+        "failed_job": "Jest tests",
+        "run_count": 18,
+        "first_seen": "2026-08-04T09:00:00Z",
+        "last_seen": "2026-08-04T13:00:00Z",
+        "latest_run_id": 30912401882,
+    }
+]
+
+_FLAKY = {
+    "items": [
+        {
+            "runner": "pytest",
+            "nodeid": "posthog/api/test/test_capture.py::test_event",
+            "selector": "posthog/api/test/test_capture.py::TestCapture::test_event",
+            "classification": "confirmed_flake",
+            "failed_run_count": 12,
+            "failed_pr_count": 5,
+            "master_failed_run_count": 1,
+        }
+    ],
+    "truncated": False,
+    "limit": 200,
+}
+
+_PAYLOADS: dict[str, Any] = {
+    "sources": _SOURCES,
+    "current_branch_health": _MASTER,
+    "broken_tests": _BROKEN,
+    "master_failures": _MASTER_FAILURES,
+    "flaky_tests": _FLAKY,
+    "resolve_branch": [{"repo": "PostHog/posthog", "number": 77271, "title": "Do a thing", "state": "open"}],
+    "run_failure_logs": {
+        "run_id": 30912586404,
+        "logs_available": True,
+        "truncated": False,
+        "jobs": [
+            {
+                "job_id": 1,
+                "run_id": 30912586404,
+                "conclusion": "failure",
+                "branch": "feat/thing",
+                "original_total_lines": 900,
+                "line_count": 2,
+                "truncated": False,
+                "lines": [{"original_line": 42, "text": "FAILED x::y"}, {"original_line": None, "text": "... 3 lines"}],
+            }
+        ],
+    },
+}
+
+
+class _Response:
+    """The slice of ``requests.Response`` the module reads."""
+
+    def __init__(self, status_code: int, payload: Any) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = json.dumps(payload) if payload is not None else ""
+
+    def json(self) -> Any:
+        if self._payload is None:
+            raise ValueError("no body")
+        return self._payload
+
+
+class _Recorder:
+    """Replaces ``_request``, recording every call and replaying canned payloads."""
+
+    def __init__(self, *, status: int = 200, payload: Any = None, fail: str | None = None) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._status = status
+        self._payload = payload
+        self._fail = fail
+
+    def __call__(self, url: str, *, token: str, params: dict[str, Any], timeout: float) -> _Response:
+        self.calls.append({"url": url, "token": token, "params": params, "timeout": timeout})
+        action = url.rstrip("/").rsplit("/", 1)[-1]
+        if self._status != 200 and action != "sources":
+            return _Response(self._status, self._payload)
+        if self._fail == action:
+            return _Response(500, {"detail": "upstream exploded"})
+        return _Response(200, _PAYLOADS[action])
+
+    def actions(self) -> set[str]:
+        return {call["url"].rstrip("/").rsplit("/", 1)[-1] for call in self.calls}
+
+    def params_for(self, action: str) -> dict[str, Any]:
+        return next(call["params"] for call in self.calls if call["url"].rstrip("/").endswith(action))
+
 
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.fixture
-def ready() -> Iterator[None]:
-    """Backend binary present and authenticated."""
-    with (
-        patch.object(ci_insights.shutil, "which", return_value="/usr/bin/mendral"),
-        patch.object(ci_insights, "_capture", return_value="Authenticated"),
+@pytest.fixture(autouse=True)
+def repo_checkout() -> Iterator[None]:
+    """Pretend we're standing in a PostHog/posthog checkout on a feature branch."""
+    with patch.object(
+        ci_insights,
+        "_git",
+        side_effect=lambda *args: "git@github.com:PostHog/posthog.git" if args[0] == "remote" else "feat/thing",
     ):
         yield
 
 
-def test_missing_binary_reports_install_hint(runner: CliRunner) -> None:
-    with patch.object(ci_insights.shutil, "which", return_value=None):
-        result = runner.invoke(ci_insights.ci_insights, [])
-    assert result.exit_code != 0
-    assert "brew install mendral-ai/tap/mendral" in result.output
+@pytest.fixture(autouse=True)
+def token(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in ci_insights._KEY_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", _TOKEN)
 
 
-def test_unauthenticated_reports_login_hint(runner: CliRunner) -> None:
-    with (
-        patch.object(ci_insights.shutil, "which", return_value="/usr/bin/mendral"),
-        patch.object(ci_insights, "_capture", return_value="Not authenticated. Run 'mendral auth login'."),
-    ):
-        result = runner.invoke(ci_insights.ci_insights, [])
-    assert result.exit_code != 0
-    assert "auth login" in result.output
+def _invoke(runner: CliRunner, argv: list[str], recorder: _Recorder) -> Any:
+    with patch.object(ci_insights, "_request", recorder):
+        return runner.invoke(ci_insights.ci_insights, argv)
+
+
+# `hogli ci:insights --help` is exercised for every manifest `click:` entry by
+# tools/hogli/tests/test_cli.py, so it has to work with nothing configured — which is why
+# credentials are resolved inside each command body, not the group callback.
+@pytest.mark.parametrize("argv", [["--help"], ["search", "--help"], ["view", "--help"]])
+def test_help_works_without_a_configured_key(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, argv: list[str]
+) -> None:
+    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
+    result = runner.invoke(ci_insights.ci_insights, argv)
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "personal API key" not in result.output
 
 
 @pytest.mark.parametrize(
-    "argv, expected",
+    "env, expected",
     [
-        ([], ("mendral", "here")),
-        (["search", "flaky timeout"], ("mendral", "insight", "search", "flaky timeout")),
-        (["view", "01ABC"], ("mendral", "insight", "view", "01ABC")),
-        (["view", "01ABC", "--json"], ("mendral", "insight", "view", "01ABC", "--json")),
+        ({"POSTHOG_PERSONAL_API_KEY": "phx_direct"}, "phx_direct"),
+        ({"POSTHOG_AUTH_HEADER": "Bearer phx_from_header"}, "phx_from_header"),
+        ({"POSTHOG_AUTH_HEADER": "phx_bare_header"}, "phx_bare_header"),
+        ({"POSTHOG_PERSONAL_API_KEY": "phx_wins", "POSTHOG_AUTH_HEADER": "Bearer phx_loses"}, "phx_wins"),
     ],
 )
-def test_verb_maps_to_backend_call(runner: CliRunner, ready: None, argv: list[str], expected: tuple[str, ...]) -> None:
-    with patch.object(ci_insights, "_run", return_value=0) as run:
-        result = runner.invoke(ci_insights.ci_insights, argv)
+def test_key_ladder(monkeypatch: pytest.MonkeyPatch, env: dict[str, str], expected: str) -> None:
+    for var in ci_insights._KEY_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    for var, value in env.items():
+        monkeypatch.setenv(var, value)
+    assert ci_insights._token() == expected
+
+
+def test_missing_key_exits_not_configured_with_the_hint_on_stderr(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The debugging-ci-failures skill branches to `gh` on exit 78, so the code is contract."""
+    for var in ci_insights._KEY_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    result = CliRunner(mix_stderr=False).invoke(ci_insights.ci_insights, [])
+    assert result.exit_code == ci_insights._EXIT_NOT_CONFIGURED
+    assert "personal API key" in result.stderr
+    assert "preset=mcp_server" in result.stderr
+    # Diagnostics stay off stdout so `--format json` consumers never parse them.
+    assert result.stdout == ""
+
+
+def test_digest_fails_when_no_section_came_back(runner: CliRunner) -> None:
+    """A page of 'unavailable' sections exiting 0 would read as 'CI is fine'."""
+    result = _invoke(runner, ["--format", "text"], _Recorder(status=503, payload={"detail": "down"}))
+    assert result.exit_code == 1
+    assert "unavailable" not in result.output
+
+
+def test_request_shape_and_no_key_in_output(runner: CliRunner) -> None:
+    recorder = _Recorder()
+    result = _invoke(runner, ["--format", "text"], recorder)
     assert result.exit_code == 0
-    run.assert_called_once_with(*expected)
+    broken = next(call for call in recorder.calls if call["url"].endswith("broken_tests/"))
+    assert broken["url"] == "https://us.posthog.com/api/projects/2/engineering_analytics/broken_tests/"
+    assert broken["token"] == _TOKEN
+    assert broken["params"] == {"source_id": "src-good", "repo": "PostHog/posthog"}
+    assert recorder.params_for("master_failures")["date_from"] == "-24h"
+    # A leaked key would land in every agent transcript that ran this command.
+    assert _TOKEN not in result.output
 
 
-@pytest.mark.parametrize("argv", [[], ["search", "x"], ["view", "01ABC"]])
-def test_backend_exit_code_propagates(runner: CliRunner, ready: None, argv: list[str]) -> None:
-    with patch.object(ci_insights, "_run", return_value=7):
-        result = runner.invoke(ci_insights.ci_insights, argv)
-    assert result.exit_code == 7
-
-
-@pytest.mark.parametrize("argv", [["--help"], ["search", "--help"], ["view", "--help"], ["plan", "--help"]])
-def test_help_works_without_backend(runner: CliRunner, argv: list[str]) -> None:
-    with patch.object(ci_insights.shutil, "which", return_value=None):
-        result = runner.invoke(ci_insights.ci_insights, argv)
-    assert result.exit_code == 0
-    assert "Usage:" in result.output
-    assert "not found" not in result.output
-
-
-_INSIGHT = {
-    "actions": [
-        {"id": "a1", "recommended": True, "status": "merged", "title": "Old fix", "full_plan": "merged plan"},
-        {"id": "a2", "recommended": True, "status": "proposed", "title": "New fix", "full_plan": "do X then Y"},
-    ]
-}
-
-
-def test_plan_prints_actionable_recommended_plan(runner: CliRunner) -> None:
-    with (
-        patch.object(ci_insights.shutil, "which", return_value="/usr/bin/mendral"),
-        patch.object(ci_insights, "_capture", side_effect=["Authenticated", json.dumps(_INSIGHT)]),
-    ):
-        result = runner.invoke(ci_insights.ci_insights, ["plan", "01XYZ"])
-    assert result.exit_code == 0
-    assert "New fix" in result.output
-    assert "do X then Y" in result.output
-
-
-def test_plan_errors_when_no_actions(runner: CliRunner) -> None:
-    with (
-        patch.object(ci_insights.shutil, "which", return_value="/usr/bin/mendral"),
-        patch.object(ci_insights, "_capture", side_effect=["Authenticated", json.dumps({"actions": []})]),
-    ):
-        result = runner.invoke(ci_insights.ci_insights, ["plan", "01XYZ"])
-    assert result.exit_code != 0
-    assert "No remediation plan" in result.output
-
-
-@pytest.mark.parametrize("payload", ["", "not json{", '{"actions": [null]}'])
-def test_plan_reports_clean_error_on_bad_response(runner: CliRunner, payload: str) -> None:
-    with (
-        patch.object(ci_insights.shutil, "which", return_value="/usr/bin/mendral"),
-        patch.object(ci_insights, "_capture", side_effect=["Authenticated", payload]),
-    ):
-        result = runner.invoke(ci_insights.ci_insights, ["plan", "01XYZ"])
-    assert result.exit_code != 0
+@pytest.mark.parametrize(
+    "status, detail, expected_exit, expected_text",
+    [
+        (401, "Invalid token", ci_insights._EXIT_NOT_CONFIGURED, "rejected the API key"),
+        (403, "API key missing required scope 'engineering_analytics:read'", 78, "engineering_analytics:read"),
+        (403, "This action requires feature flag 'engineering-analytics'", 78, "flag-gated"),
+        (400, "Connect a GitHub data warehouse source to use engineering analytics.", 1, "warehouse access"),
+        (404, "Not found.", 1, "project id may be wrong"),
+        (500, "boom", 1, "failed (500)"),
+    ],
+)
+def test_http_failures_become_actionable_messages(
+    runner: CliRunner, status: int, detail: str, expected_exit: int, expected_text: str
+) -> None:
+    recorder = _Recorder(status=status, payload={"detail": detail})
+    result = _invoke(runner, [], recorder)
+    assert result.exit_code == expected_exit
+    assert expected_text in result.output
     assert "Traceback" not in result.output
 
 
-def test_plan_errors_when_recommended_action_has_no_plan_text(runner: CliRunner) -> None:
-    insight = {"actions": [{"id": "a", "recommended": True, "status": "proposed", "full_plan": ""}]}
-    with (
-        patch.object(ci_insights.shutil, "which", return_value="/usr/bin/mendral"),
-        patch.object(ci_insights, "_capture", side_effect=["Authenticated", json.dumps(insight)]),
-    ):
-        result = runner.invoke(ci_insights.ci_insights, ["plan", "01XYZ"])
-    assert result.exit_code != 0
-    assert "no plan text" in result.output
-
-
-def test_plan_warns_when_only_fix_is_merged(runner: CliRunner) -> None:
-    insight = {"actions": [{"id": "a", "recommended": True, "status": "merged", "title": "X", "full_plan": "the plan"}]}
-    with (
-        patch.object(ci_insights.shutil, "which", return_value="/usr/bin/mendral"),
-        patch.object(ci_insights, "_capture", side_effect=["Authenticated", json.dumps(insight)]),
-    ):
-        result = runner.invoke(ci_insights.ci_insights, ["plan", "01XYZ"])
+@pytest.mark.parametrize(
+    "repo, expected",
+    [
+        ("PostHog/posthog", "src-good"),
+        ("posthog/POSTHOG", "src-good"),
+        ("PostHog/posthog.com", "src-other"),
+    ],
+)
+def test_source_binding_prefers_the_synced_entry(runner: CliRunner, repo: str, expected: str) -> None:
+    """Reading an unsynced or unrelated source would report another repo's CI as yours."""
+    recorder = _Recorder()
+    result = _invoke(runner, ["--repo", repo, "--format", "text"], recorder)
     assert result.exit_code == 0
-    assert "already been merged" in result.output
-    assert "the plan" in result.output
+    assert recorder.params_for("broken_tests")["source_id"] == expected
+
+
+def test_unknown_repo_names_what_the_key_can_read(runner: CliRunner) -> None:
+    result = _invoke(runner, ["--repo", "PostHog/nope"], _Recorder())
+    assert result.exit_code == 1
+    assert "PostHog/posthog" in result.output
+
+
+def test_digest_reports_every_row_state_and_discloses_the_cap(runner: CliRunner) -> None:
+    recorder = _Recorder()
+    result = _invoke(runner, ["--format", "text", "--limit", "2"], recorder)
+    assert result.exit_code == 0
+    assert "master" in result.output and "2 of 61 workflows failing" in result.output
+    assert "3 distinct failures over 2d" in result.output
+    assert "Showing 2 of 3" in result.output
+    assert "PR #77271" in result.output
+    # Every state present in the rows is named, so a class of failure can't go unmentioned.
+    for state in ("breaking_master", "novel_burst", "pr_only"):
+        assert state in result.output
+
+
+def test_digest_degrades_one_section_without_losing_the_rest(runner: CliRunner) -> None:
+    """A partial outage is exactly when this read is worth most, so it must not be all-or-nothing."""
+    result = _invoke(runner, ["--format", "text"], _Recorder(fail="master_failures"))
+    assert result.exit_code == 0
+    assert "unavailable" in result.output
+    assert "3 distinct failures" in result.output
+
+
+def test_digest_json_carries_only_the_shown_rows_and_no_sparklines(runner: CliRunner) -> None:
+    """Auto-JSON plus an endpoint passthrough would dump the full payload into transcripts."""
+    result = _invoke(runner, ["--json", "--limit", "1"], _Recorder())
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["broken_tests"]["total"] == 3
+    assert len(payload["broken_tests"]["rows"]) == 1
+    assert payload["broken_tests"]["state_counts"]["breaking_master"] == 1
+    assert "trend_24h" not in payload["broken_tests"]["rows"][0]
+    assert payload["broken_tests"]["rows"][0]["ref"] == ci_insights._ref(_ROWS[0]["fingerprint"])
 
 
 @pytest.mark.parametrize(
-    "actions, expected_id",
+    "argv, expect_json",
     [
-        ([], None),
-        ([{"id": "a", "status": "merged"}], "a"),
-        (
-            [
-                {"id": "a", "recommended": True, "status": "merged"},
-                {"id": "b", "recommended": True, "status": "proposed"},
-            ],
-            "b",
-        ),
-        ([{"id": "a", "recommended": True, "status": "merged"}], "a"),
-        (
-            [
-                {"id": "a", "recommended": False, "status": "proposed"},
-                {"id": "b", "recommended": True, "status": "rejected"},
-            ],
-            "b",
-        ),
+        ([], True),
+        (["--format", "text"], False),
+        (["--json"], True),
+        # These options are declared on the group AND on every subcommand, so a value given
+        # on one side must not be lost to the other side's default, and `--json` must not
+        # outrank an explicit `--format` across that boundary.
+        (["--json", "search", "test_capture"], True),
+        (["search", "test_capture", "--json"], True),
+        (["--json", "search", "test_capture", "--format", "text"], False),
+        (["--format", "text", "search", "test_capture", "--json"], True),
+        (["--format", "text", "search", "test_capture"], False),
     ],
 )
-def test_recommended_action_selection(actions: list[dict[str, object]], expected_id: str | None) -> None:
-    chosen = ci_insights._recommended_action(actions)
-    assert (chosen or {}).get("id") == expected_id
+def test_format_resolution(runner: CliRunner, argv: list[str], expect_json: bool) -> None:
+    """CliRunner's stdout is not a tty, so 'auto' must resolve to JSON there."""
+    result = _invoke(runner, argv, _Recorder())
+    assert result.exit_code == 0
+    assert result.output.lstrip().startswith("{") is expect_json
+
+
+@pytest.mark.parametrize("argv", [["--repo", "PostHog/posthog.com", "view", "test_capture"], ["view", "test_capture"]])
+def test_subcommands_inherit_group_level_options(runner: CliRunner, argv: list[str]) -> None:
+    """Dropping a group-level --repo/--host would silently answer about a different repo."""
+    recorder = _Recorder()
+    result = _invoke(runner, [*argv, "--format", "text"], recorder)
+    assert result.exit_code == 0
+    expected = "src-other" if "--repo" in argv else "src-good"
+    assert recorder.params_for("broken_tests")["source_id"] == expected
+
+
+def test_ref_is_stable_and_short() -> None:
+    ref = ci_insights._ref(_ROWS[0]["fingerprint"])
+    assert ref == ci_insights._ref(_ROWS[0]["fingerprint"])
+    assert len(ref) == 8
+    assert ref != ci_insights._ref(_ROWS[1]["fingerprint"])
+
+
+@pytest.mark.parametrize(
+    "ref_of",
+    [
+        "full_ref",
+        "prefix",
+        "fingerprint",
+        "test_id_substring",
+    ],
+)
+def test_view_resolves_every_accepted_ref_form(runner: CliRunner, ref_of: str) -> None:
+    """A ref printed by the digest has to be usable by view — the two must not drift."""
+    row = _ROWS[0]
+    ref = {
+        "full_ref": ci_insights._ref(row["fingerprint"]),
+        "prefix": ci_insights._ref(row["fingerprint"])[:4],
+        "fingerprint": row["fingerprint"],
+        "test_id_substring": "test_capture",
+    }[ref_of]
+    result = _invoke(runner, ["view", ref, "--format", "text"], _Recorder())
+    assert result.exit_code == 0
+    assert row["test_id"] in result.output
+    assert "breaking_master — failing on the default branch" in result.output
+
+
+def test_view_lists_candidates_when_a_ref_is_ambiguous(runner: CliRunner) -> None:
+    result = _invoke(runner, ["view", "test_", "--format", "text"], _Recorder())
+    assert result.exit_code == 1
+    assert "matches 3 failures" in result.output
+
+
+def test_view_points_at_the_digest_for_an_unknown_ref(runner: CliRunner) -> None:
+    result = _invoke(runner, ["view", "deadbeef", "--format", "text"], _Recorder())
+    assert result.exit_code == 1
+    assert "hogli ci:insights" in result.output
+
+
+def test_view_logs_reads_the_rows_latest_run(runner: CliRunner) -> None:
+    recorder = _Recorder()
+    result = _invoke(runner, ["view", "test_capture", "--logs", "--format", "text"], recorder)
+    assert result.exit_code == 0
+    assert recorder.params_for("run_failure_logs")["run_id"] == _ROWS[0]["latest_run_id"]
+    assert "FAILED x::y" in result.output
+
+
+def test_search_keeps_the_two_grains_in_separate_sections(runner: CliRunner) -> None:
+    """Merging failure lines with the test-health queue would invent a verdict neither made."""
+    recorder = _Recorder()
+    result = _invoke(runner, ["search", "test_capture", "--format", "text"], recorder)
+    assert result.exit_code == 0
+    assert "broken tests" in result.output and "test health" in result.output
+    assert "confirmed_flake" in result.output
+    assert recorder.params_for("flaky_tests")["date_from"] == "-7d"
+
+
+def test_search_with_no_match_states_what_it_cannot_see(runner: CliRunner) -> None:
+    result = _invoke(runner, ["search", "nothing_matches_this", "--format", "text"], _Recorder())
+    assert result.exit_code == 0
+    assert result.output.count("no match") == 2
+    assert "non-pytest" in result.output
+
+
+def test_search_json_reports_both_surfaces(runner: CliRunner) -> None:
+    result = _invoke(runner, ["search", "test_capture", "--json"], _Recorder())
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert [row["test_id"] for row in payload["broken_tests"]] == [_ROWS[0]["test_id"]]
+    assert len(payload["flaky_tests"]) == 1
