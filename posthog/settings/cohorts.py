@@ -47,15 +47,23 @@ BEHAVIORAL_BACKFILL_FINALIZER_ENABLED: bool = get_from_env(
 # for behavioral runs, so this is the only thing standing between an enabled person seed path and a
 # live person stamp.
 #
-# Keep it off until the flags service stops accepting that stamp as proof the membership table is
-# populated. `Cohort::uses_realtime_membership` takes *either* backfill timestamp, because ~19k
-# cohorts still carry a person stamp written by the legacy realtime workflow before #57545 removed
-# that write, and for those it correctly means "the legacy pipeline computed this cohort into
+# Keep it off until every region's flags service runs
+# `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY=events_or_calculation_stamp` (after that flip's delta
+# queries and hypercache refresh). Under the service's default policy the routing predicate takes
+# *either* backfill timestamp as proof the membership table is populated, because ~19k cohorts
+# still carry a person stamp written by the legacy realtime workflow before #57545 removed that
+# write, and for those it correctly means "the legacy pipeline computed this cohort into
 # cohort_membership". A stamp written here means something different: only the person half is
-# backfilled. Until the two can be told apart, a person stamp landing on a cohort whose behavioral
-# half is unseeded routes flag evaluation through `cohort_membership` anyway, which under-matches
+# backfilled. Until the policy flips, a person stamp landing on a cohort whose behavioral half is
+# unseeded routes flag evaluation through `cohort_membership` anyway, which under-matches
 # "in cohort" targeting and over-matches negated targeting. `Cohort.is_flag_compatible` fail-closes
-# on this; the flags service does not.
+# on this; the flags service under its default policy does not.
+#
+# Coupling: when later lighting a team in the service's `REALTIME_COHORT_EVALUATION_TEAM_IDS`, add
+# it to `REALTIME_COHORT_TEAM_ALLOWLIST` too. Edit-time invalidation of
+# `last_realtime_cohort_calculation_at` (which the flipped policy trusts) only runs inside the
+# allowlist guard, so for a non-allowlisted team an edited cohort would keep routing to a
+# membership table computed for its old definition.
 #
 # The stamp's other precondition is already met: `cohort_person_shape_changed_supersede` supersedes
 # a cohort's active person-property runs when its person leaves change, so an A->B->A revert can no

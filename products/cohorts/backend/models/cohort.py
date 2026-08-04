@@ -386,6 +386,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             if person_shape_changed:
                 self.last_backfill_person_properties_at = None
                 self._person_shape_changed = True
+            if behavioral_shape_changed or person_shape_changed:
+                # The legacy workflow's stamp vouches for the whole-cohort membership
+                # computation, so either kind of leaf-shape change stales it. Its writer is
+                # retired, so nothing re-stamps an edited cohort; nulling here makes it fall
+                # out of realtime flag routing instead of serving the old definition forever.
+                self.last_realtime_cohort_calculation_at = None
 
             if maintained_update_fields is None:
                 return None
@@ -399,6 +405,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 maintained_update_fields.add("last_backfill_events_at")
             if person_shape_changed:
                 maintained_update_fields.add("last_backfill_person_properties_at")
+            if behavioral_shape_changed or person_shape_changed:
+                maintained_update_fields.add("last_realtime_cohort_calculation_at")
             return maintained_update_fields
         except Exception as error:
             logger.exception(

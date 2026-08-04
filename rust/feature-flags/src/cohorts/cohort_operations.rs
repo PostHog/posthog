@@ -9,10 +9,13 @@ use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_cache_manager::CohortFetchError;
 use crate::cohorts::cohort_models::{
-    Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty,
+    Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty, MembershipStampPolicy,
 };
 use crate::database::get_connection_with_metrics;
-use crate::metrics::consts::{COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER};
+use crate::metrics::consts::{
+    COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER,
+    FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
+};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
@@ -52,13 +55,42 @@ fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &
     }
 }
 
+/// Cohorts already warned about by `record_stamp_policy_divergence`, deduped for the same
+/// reason as `WARNED_MALFORMED_COHORTS` above.
+static WARNED_DIVERGENT_COHORTS: Lazy<Mutex<HashSet<(TeamId, CohortId)>>> =
+    Lazy::new(|| Mutex::new(HashSet::new()));
+
+/// Counts and logs a cohort on which the compat and disambiguated membership stamp
+/// policies disagree about realtime routing. The counter is traffic-weighted and can't
+/// identify *which* cohort diverges, so the deduped log carries the ids.
+pub(crate) fn record_stamp_policy_divergence(cohort: &Cohort) {
+    let Some(divergence) = MembershipStampPolicy::divergence(cohort) else {
+        return;
+    };
+    common_metrics::inc(
+        FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
+        &[("direction".to_string(), divergence.as_label().to_string())],
+        1,
+    );
+
+    let mut warned = WARNED_DIVERGENT_COHORTS.lock().unwrap();
+    if warned.insert((cohort.team_id, cohort.id)) {
+        tracing::warn!(
+            cohort_id = cohort.id,
+            team_id = cohort.team_id,
+            direction = divergence.as_label(),
+            "Membership stamp policies disagree on this cohort's realtime routing; the REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY flip would change it"
+        );
+    }
+}
+
 /// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
 const COHORT_COLUMNS: &str = r#"
     c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
     c.query, c.version, c.pending_version, c.count, c.is_calculating,
     c.is_static, c.errors_calculating, c.groups, c.created_by_id,
     c.cohort_type, c.last_backfill_person_properties_at, c.last_backfill_events_at,
-    c.condition_type
+    c.condition_type, c.last_realtime_cohort_calculation_at
 "#;
 
 impl Cohort {
@@ -664,6 +696,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         // This should not fail even though the filters are malformed
@@ -693,6 +726,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let dependencies = static_cohort_empty_filters.extract_dependencies().unwrap();
@@ -719,6 +753,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         // This should fail because it's dynamic and the filters are malformed
@@ -766,6 +801,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         }
     }
 
@@ -815,6 +851,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         // Create a dynamic cohort (cohort 20) that depends on the static cohort
@@ -851,6 +888,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let cohorts = vec![static_cohort, dynamic_cohort];
@@ -947,6 +985,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let cohorts = vec![cohort];
@@ -1021,6 +1060,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let cohorts = vec![cohort_with_negation];
@@ -1114,6 +1154,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         }
     }
 

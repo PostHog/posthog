@@ -5,6 +5,7 @@ use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
@@ -18,7 +19,7 @@ pub enum CohortType {
 }
 
 /// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
-/// `_serialize_cohort()` in posthog/models/feature_flag/flags_cache.py. Field changes
+/// `_serialize_cohort()` in products/feature_flags/backend/flags_cache.py. Field changes
 /// must follow the expand-and-contract pattern. Golden fixture contract test:
 ///   cargo test -p feature-flags test_hypercache_contract
 #[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
@@ -54,36 +55,123 @@ pub struct Cohort {
     pub last_backfill_events_at: Option<DateTime<Utc>>,
     /// Flags describing which kinds of conditions the cohort's filters contain — see
     /// `CohortConditionFlags` in products/cohorts/backend/models/cohort.py. Used to gate
-    /// `uses_realtime_membership()` on cohorts with a `behavioral`/`lifecycle` condition,
+    /// `MembershipStampPolicy::uses_realtime_membership()` on cohorts with a `behavioral`/`lifecycle` condition,
     /// not just any Realtime/Behavioral `cohort_type`. `#[serde(default)]` so hypercache
     /// entries written before this field existed deserialize as `None` (safe default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition_type: Option<Value>,
+    /// When the legacy realtime workflow last computed this cohort's membership into the
+    /// PG `cohort_membership` table. That workflow is retired, so this is a static
+    /// grandfathering marker: non-null means the table was populated for this cohort's
+    /// current definition (Django nulls it on any leaf-shape change). `#[serde(default)]`
+    /// and `#[sqlx(default)]` so cache entries and rows written before this field
+    /// existed read as `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub last_realtime_cohort_calculation_at: Option<DateTime<Utc>>,
+}
+
+/// Which cohort stamps count as proof that the PG `cohort_membership` table has been
+/// populated for a cohort, one of the three preconditions for routing the cohort to the
+/// realtime membership read path instead of dynamic filter evaluation. Selected via the
+/// `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY` env var.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MembershipStampPolicy {
+    /// Accept either backfill stamp. `last_backfill_person_properties_at` is overloaded:
+    /// ~19k rows carry a pre-#57545 stamp from the legacy realtime workflow, for which it
+    /// genuinely means "computed into cohort_membership". The new person-backfill writer
+    /// (gated Django-side behind `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`) means
+    /// only "person seed state exists", which says nothing about table population.
+    #[default]
+    AnyBackfillStamp,
+    /// Accept only stamps that prove table population: `last_backfill_events_at`
+    /// (new-pipeline behavioral backfill completed and reconciled) or
+    /// `last_realtime_cohort_calculation_at` (legacy workflow computed this cohort).
+    EventsOrCalculationStamp,
+}
+
+impl MembershipStampPolicy {
+    /// The full routing predicate: should this cohort's membership be resolved via the
+    /// realtime `cohort_membership` table rather than dynamic filter evaluation? The
+    /// policy owns every conjunct so a call site cannot consult it for one and bypass it
+    /// for another. Requires a realtime/behavioral cohort type, a stamp this policy
+    /// accepts as proof the membership table is populated, AND at least one
+    /// behavioral/lifecycle leaf condition. Cohorts made up only of person properties
+    /// never use the membership table, even when otherwise eligible: there's no realtime
+    /// signal to gain from it, so they fall through to dynamic filter evaluation like any
+    /// other property-only cohort.
+    pub fn uses_realtime_membership(self, cohort: &Cohort) -> bool {
+        matches!(
+            cohort.cohort_type,
+            Some(CohortType::Realtime) | Some(CohortType::Behavioral)
+        ) && self.membership_table_populated(cohort)
+            && cohort.has_behavioral_condition()
+    }
+
+    fn membership_table_populated(self, cohort: &Cohort) -> bool {
+        match self {
+            Self::AnyBackfillStamp => {
+                cohort.last_backfill_person_properties_at.is_some()
+                    || cohort.last_backfill_events_at.is_some()
+            }
+            Self::EventsOrCalculationStamp => {
+                cohort.last_backfill_events_at.is_some()
+                    || cohort.last_realtime_cohort_calculation_at.is_some()
+            }
+        }
+    }
+
+    /// How the two policies disagree on this cohort's routing, if they do. Feeds the
+    /// divergence counter that must stay flat before the policy flip in any region where
+    /// realtime evaluation is enabled.
+    pub fn divergence(cohort: &Cohort) -> Option<StampPolicyDivergence> {
+        match (
+            Self::AnyBackfillStamp.uses_realtime_membership(cohort),
+            Self::EventsOrCalculationStamp.uses_realtime_membership(cohort),
+        ) {
+            (true, false) => Some(StampPolicyDivergence::WouldLose),
+            (false, true) => Some(StampPolicyDivergence::WouldGain),
+            (true, true) | (false, false) => None,
+        }
+    }
+}
+
+impl FromStr for MembershipStampPolicy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "any_backfill_stamp" | "any-backfill-stamp" => Ok(Self::AnyBackfillStamp),
+            "events_or_calculation_stamp" | "events-or-calculation-stamp" => {
+                Ok(Self::EventsOrCalculationStamp)
+            }
+            _ => Err(format!(
+                "Invalid REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY: '{s}'. Expected 'any_backfill_stamp' or 'events_or_calculation_stamp'"
+            )),
+        }
+    }
+}
+
+/// Direction a cohort's routing would move if the policy flipped from
+/// `AnyBackfillStamp` to `EventsOrCalculationStamp`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StampPolicyDivergence {
+    /// Routes realtime today, would fall back to dynamic evaluation (person stamp only).
+    WouldLose,
+    /// Evaluates dynamically today, would route realtime (calculation stamp only).
+    WouldGain,
+}
+
+impl StampPolicyDivergence {
+    pub fn as_label(self) -> &'static str {
+        match self {
+            Self::WouldLose => "would_lose",
+            Self::WouldGain => "would_gain",
+        }
+    }
 }
 
 impl Cohort {
-    /// Returns true if this cohort's membership should be resolved via the
-    /// realtime cohort_membership table rather than the static cohortpeople table.
-    /// Requires a realtime/behavioral cohort type, at least one populated backfill
-    /// timestamp (indicating the membership table has been written to), AND at least
-    /// one behavioral/lifecycle leaf condition. Cohorts made up only of person
-    /// properties never use the membership table, even when otherwise eligible —
-    /// there's no realtime signal to gain from it, so they fall through to dynamic
-    /// filter evaluation like any other property-only cohort.
-    ///
-    /// Note: Python's `Cohort.is_flag_compatible` gates on filter composition (person vs
-    /// behavioral) and requires the matching timestamp(s) before a flag can reference the
-    /// cohort at all. Here we only need to know that the membership table has been
-    /// populated, so accepting either timestamp is sufficient.
-    pub fn uses_realtime_membership(&self) -> bool {
-        matches!(
-            self.cohort_type,
-            Some(CohortType::Realtime) | Some(CohortType::Behavioral)
-        ) && (self.last_backfill_person_properties_at.is_some()
-            || self.last_backfill_events_at.is_some())
-            && self.has_behavioral_condition()
-    }
-
     /// Returns true if `condition_type` flags a `behavioral` or `lifecycle` leaf condition.
     /// Missing or malformed `condition_type` (e.g. a hypercache entry written before this
     /// field existed, or a cohort with no filters) defaults to `false` — the safe choice,
@@ -261,6 +349,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         }
     }
 
@@ -388,7 +477,7 @@ mod tests {
     #[test]
     #[allow(clippy::type_complexity)]
     fn test_uses_realtime_membership() {
-        let backfill_ts = Some(Utc::now());
+        let ts = Some(Utc::now());
         let behavioral = Some(serde_json::json!({
             "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
         }));
@@ -396,156 +485,256 @@ mod tests {
             "person_properties": true, "behavioral": false, "lifecycle": false, "cohorts": false
         }));
 
-        // (cohort_type, person_props_ts, events_ts, condition_type, expected)
+        // (cohort_type, person_ts, events_ts, calc_ts, condition_type,
+        //  expected under AnyBackfillStamp, expected under EventsOrCalculationStamp)
         let cases: Vec<(
             Option<CohortType>,
             Option<DateTime<Utc>>,
             Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
             Option<Value>,
             bool,
+            bool,
         )> = vec![
-            (None, None, None, None, false),
-            (None, backfill_ts, None, None, false),
-            (None, None, backfill_ts, None, false),
-            (Some(CohortType::Static), None, None, None, false),
+            // Type gate: only Realtime/Behavioral qualify, under either policy.
+            (None, ts, ts, ts, behavioral.clone(), false, false),
             (
                 Some(CohortType::Static),
-                backfill_ts,
-                None,
+                ts,
+                ts,
+                ts,
                 behavioral.clone(),
                 false,
+                false,
             ),
-            (Some(CohortType::PersonProperty), None, None, None, false),
             (
                 Some(CohortType::PersonProperty),
-                backfill_ts,
-                None,
+                ts,
+                ts,
+                ts,
                 behavioral.clone(),
                 false,
+                false,
             ),
-            (Some(CohortType::Analytical), None, None, None, false),
             (
                 Some(CohortType::Analytical),
-                backfill_ts,
-                None,
+                ts,
+                ts,
+                ts,
                 behavioral.clone(),
                 false,
-            ),
-            // Realtime + behavioral condition: either timestamp enables realtime membership
-            (
-                Some(CohortType::Realtime),
-                None,
-                None,
-                behavioral.clone(),
                 false,
             ),
-            (
-                Some(CohortType::Realtime),
-                backfill_ts,
-                None,
-                behavioral.clone(),
-                true,
-            ),
+            // No stamp at all: never routes.
             (
                 Some(CohortType::Realtime),
                 None,
-                backfill_ts,
-                behavioral.clone(),
-                true,
-            ),
-            (
-                Some(CohortType::Realtime),
-                backfill_ts,
-                backfill_ts,
-                behavioral.clone(),
-                true,
-            ),
-            // Behavioral + behavioral condition: either timestamp enables realtime membership
-            (
-                Some(CohortType::Behavioral),
                 None,
                 None,
                 behavioral.clone(),
                 false,
+                false,
+            ),
+            // Person stamp only: overloaded, trusted only by the compat policy.
+            (
+                Some(CohortType::Realtime),
+                ts,
+                None,
+                None,
+                behavioral.clone(),
+                true,
+                false,
             ),
             (
                 Some(CohortType::Behavioral),
-                backfill_ts,
+                ts,
+                None,
                 None,
                 behavioral.clone(),
+                true,
+                false,
+            ),
+            // Events stamp only: proves table population under both policies.
+            (
+                Some(CohortType::Realtime),
+                None,
+                ts,
+                None,
+                behavioral.clone(),
+                true,
+                true,
+            ),
+            // Calculation stamp only: legacy-computed, trusted only by the disambiguated policy.
+            (
+                Some(CohortType::Realtime),
+                None,
+                None,
+                ts,
+                behavioral.clone(),
+                false,
                 true,
             ),
             (
                 Some(CohortType::Behavioral),
                 None,
-                backfill_ts,
+                None,
+                ts,
                 behavioral.clone(),
+                false,
                 true,
             ),
+            // Every stamp set: routes under both.
             (
-                Some(CohortType::Behavioral),
-                backfill_ts,
-                backfill_ts,
+                Some(CohortType::Realtime),
+                ts,
+                ts,
+                ts,
                 behavioral.clone(),
+                true,
                 true,
             ),
             // Person-properties-only cohorts never use realtime membership, regardless of
-            // cohort_type or backfill timestamps — there's no behavioral/lifecycle
-            // condition to gain a realtime signal from.
+            // stamps: there's no behavioral/lifecycle condition to gain a realtime signal
+            // from.
             (
                 Some(CohortType::Realtime),
-                backfill_ts,
-                None,
+                ts,
+                ts,
+                ts,
                 person_properties_only.clone(),
                 false,
-            ),
-            (
-                Some(CohortType::Realtime),
-                None,
-                backfill_ts,
-                person_properties_only.clone(),
-                false,
-            ),
-            (
-                Some(CohortType::Realtime),
-                backfill_ts,
-                backfill_ts,
-                person_properties_only.clone(),
                 false,
             ),
             // Missing condition_type (e.g. a hypercache entry written before this field
-            // existed) defaults to false — the safe choice.
-            (
-                Some(CohortType::Realtime),
-                backfill_ts,
-                backfill_ts,
-                None,
-                false,
-            ),
+            // existed) defaults to false under both policies, the safe choice.
+            (Some(CohortType::Realtime), ts, ts, ts, None, false, false),
         ];
 
-        for (cohort_type, pp_ts, events_ts, condition_type, expected) in cases {
+        for (
+            cohort_type,
+            person_ts,
+            events_ts,
+            calc_ts,
+            condition_type,
+            expected_any,
+            expected_disambiguated,
+        ) in cases
+        {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
-            cohort.last_backfill_person_properties_at = pp_ts;
+            cohort.last_backfill_person_properties_at = person_ts;
             cohort.last_backfill_events_at = events_ts;
+            cohort.last_realtime_cohort_calculation_at = calc_ts;
             cohort.condition_type = condition_type.clone();
-            assert_eq!(
-                cohort.uses_realtime_membership(),
-                expected,
-                "cohort_type={cohort_type:?}, pp_ts={}, events_ts={}, condition_type={condition_type:?} should return {expected}",
-                pp_ts.is_some(),
-                events_ts.is_some()
-            );
+            for (policy, expected) in [
+                (MembershipStampPolicy::AnyBackfillStamp, expected_any),
+                (
+                    MembershipStampPolicy::EventsOrCalculationStamp,
+                    expected_disambiguated,
+                ),
+            ] {
+                assert_eq!(
+                    policy.uses_realtime_membership(&cohort),
+                    expected,
+                    "policy={policy:?}, cohort_type={cohort_type:?}, person_ts={}, events_ts={}, calc_ts={}, condition_type={condition_type:?} should return {expected}",
+                    person_ts.is_some(),
+                    events_ts.is_some(),
+                    calc_ts.is_some()
+                );
+            }
         }
     }
 
     #[test]
+    fn test_stamp_policy_divergence() {
+        let ts = Some(Utc::now());
+        let behavioral = Some(serde_json::json!({
+            "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+        }));
+
+        let make_cohort = |person_ts, events_ts, calc_ts, condition_type: &Option<Value>| {
+            let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
+            cohort.cohort_type = Some(CohortType::Realtime);
+            cohort.condition_type = condition_type.clone();
+            cohort.last_backfill_person_properties_at = person_ts;
+            cohort.last_backfill_events_at = events_ts;
+            cohort.last_realtime_cohort_calculation_at = calc_ts;
+            cohort
+        };
+
+        // (person_ts, events_ts, calc_ts, expected)
+        let cases = [
+            (ts, None, None, Some(StampPolicyDivergence::WouldLose)),
+            (None, None, ts, Some(StampPolicyDivergence::WouldGain)),
+            // The events stamp routes under both policies, so it masks the person stamp.
+            (ts, ts, None, None),
+            // The calculation stamp keeps a person-stamped cohort routing after the flip.
+            (ts, None, ts, None),
+            (None, None, None, None),
+        ];
+        for (person_ts, events_ts, calc_ts, expected) in cases {
+            let cohort = make_cohort(person_ts, events_ts, calc_ts, &behavioral);
+            assert_eq!(
+                MembershipStampPolicy::divergence(&cohort),
+                expected,
+                "person_ts={}, events_ts={}, calc_ts={}",
+                person_ts.is_some(),
+                events_ts.is_some(),
+                calc_ts.is_some()
+            );
+        }
+
+        // A cohort that routes under neither policy (condition_type never resaved) cannot
+        // diverge, whatever its stamps say.
+        let unrouted = make_cohort(ts, None, None, &None);
+        assert_eq!(MembershipStampPolicy::divergence(&unrouted), None);
+    }
+
+    #[test]
+    fn test_membership_stamp_policy_from_str() {
+        let valid = [
+            (
+                "any_backfill_stamp",
+                MembershipStampPolicy::AnyBackfillStamp,
+            ),
+            (
+                "any-backfill-stamp",
+                MembershipStampPolicy::AnyBackfillStamp,
+            ),
+            (
+                " Any_Backfill_Stamp ",
+                MembershipStampPolicy::AnyBackfillStamp,
+            ),
+            (
+                "events_or_calculation_stamp",
+                MembershipStampPolicy::EventsOrCalculationStamp,
+            ),
+            (
+                "events-or-calculation-stamp",
+                MembershipStampPolicy::EventsOrCalculationStamp,
+            ),
+        ];
+        for (input, expected) in valid {
+            assert_eq!(
+                input.parse::<MembershipStampPolicy>().unwrap(),
+                expected,
+                "{input}"
+            );
+        }
+
+        let err = "person_stamp".parse::<MembershipStampPolicy>().unwrap_err();
+        assert!(
+            err.contains("any_backfill_stamp") && err.contains("events_or_calculation_stamp"),
+            "error must name the valid values: {err}"
+        );
+    }
+
+    #[test]
     fn test_realtime_cohort_filtering_mirrors_flag_matching() {
-        // Verifies that filtering cohorts by `uses_realtime_membership()` correctly
-        // selects only Realtime/Behavioral cohorts with a backfill timestamp AND a
-        // behavioral/lifecycle condition, which is the same filter applied in
-        // flag_matching::prepare_flag_evaluation_data.
+        // Verifies that filtering cohorts by the default policy's
+        // `uses_realtime_membership()` correctly selects only Realtime/Behavioral cohorts
+        // with a backfill timestamp AND a behavioral/lifecycle condition, which is the
+        // same filter applied in flag_matching::prepare_flag_evaluation_state.
         let backfill_ts = Some(Utc::now());
         let behavioral = Some(serde_json::json!({
             "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
@@ -606,7 +795,7 @@ mod tests {
 
         let realtime_ids: Vec<i32> = cohorts
             .iter()
-            .filter(|c| c.uses_realtime_membership())
+            .filter(|c| MembershipStampPolicy::default().uses_realtime_membership(c))
             .map(|c| c.id)
             .collect();
 
@@ -705,6 +894,7 @@ mod skip_serializing_if_tests {
             "cohort_type",
             "last_backfill_person_properties_at",
             "condition_type",
+            "last_realtime_cohort_calculation_at",
         ] {
             assert_absent(&output, key);
         }
@@ -725,6 +915,7 @@ mod skip_serializing_if_tests {
             created_by_id: Some(9),
             cohort_type: Some(CohortType::Behavioral),
             last_backfill_person_properties_at: Some(Utc::now()),
+            last_realtime_cohort_calculation_at: Some(Utc::now()),
             condition_type: Some(serde_json::json!({
                 "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
             })),
@@ -742,6 +933,7 @@ mod skip_serializing_if_tests {
         assert_eq!(output["created_by_id"], 9);
         assert_eq!(output["cohort_type"], "behavioral");
         assert!(output["last_backfill_person_properties_at"].is_string());
+        assert!(output["last_realtime_cohort_calculation_at"].is_string());
         assert_eq!(output["condition_type"]["behavioral"], true);
     }
 }

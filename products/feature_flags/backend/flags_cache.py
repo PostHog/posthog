@@ -207,7 +207,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
     HYPERCACHE CONTRACT: These field names must match the Rust Cohort struct in
     rust/feature-flags/src/cohorts/cohort_models.rs. Field changes must follow
     the expand-and-contract pattern. The contract test will catch mismatches:
-      pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+      pytest products/feature_flags/backend/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
 
     Note: deleted, is_calculating, is_static, errors_calculating, and groups
     are required by the Rust struct (no #[serde(default)]), so omitting them
@@ -236,6 +236,11 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         ),
         "last_backfill_events_at": (
             cohort.last_backfill_events_at.isoformat() if cohort.last_backfill_events_at else None
+        ),
+        "last_realtime_cohort_calculation_at": (
+            cohort.last_realtime_cohort_calculation_at.isoformat()
+            if cohort.last_realtime_cohort_calculation_at
+            else None
         ),
     }
 
