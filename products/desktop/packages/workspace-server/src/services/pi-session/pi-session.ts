@@ -94,6 +94,7 @@ interface ManagedPiSession {
   startupExtensionDialogs: PiExtensionDialogRequest[];
   hasHadExtensionSubscriber: boolean;
   extensionSubscriberCount: number;
+  outstandingExtensionDialogs: Set<string>;
   pid?: number;
 }
 
@@ -394,9 +395,17 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     taskId: string,
     response: RpcExtensionUIResponse,
   ): Promise<void> {
-    return this.withActiveRequest(taskId, (session) =>
-      session.client.respondToExtensionUI(response),
-    );
+    return this.withActiveRequest(taskId, async (session) => {
+      if (!session.outstandingExtensionDialogs.delete(response.id)) {
+        return;
+      }
+      try {
+        await session.client.respondToExtensionUI(response);
+      } catch (error) {
+        session.outstandingExtensionDialogs.add(response.id);
+        throw error;
+      }
+    });
   }
 
   async *extensionEvents(
@@ -428,7 +437,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
           return;
         }
-        yield piExtensionEventSchema.parse(event);
+        yield this.prepareExtensionEvent(session, event);
       }
 
       while (true) {
@@ -440,12 +449,18 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
           return;
         }
         nextLiveEvent = liveEvents.next();
-        yield piExtensionEventSchema.parse(result.value);
+        yield this.prepareExtensionEvent(session, result.value);
       }
     } finally {
       session.extensionSubscriberCount -= 1;
       subscriptionAbort.abort();
       await liveEvents.return?.();
+      if (
+        session.extensionSubscriberCount === 0 &&
+        this.sessions.get(taskId) === session
+      ) {
+        await this.cancelOutstandingExtensionDialogs(taskId, session);
+      }
     }
   }
 
@@ -618,6 +633,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       startupExtensionDialogs: [],
       hasHadExtensionSubscriber: false,
       extensionSubscriberCount: 0,
+      outstandingExtensionDialogs: new Set(),
     };
 
     this.sessions.get(taskId)?.extensionEventsAbort.abort();
@@ -659,6 +675,43 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     });
 
     return session;
+  }
+
+  private prepareExtensionEvent(
+    session: ManagedPiSession,
+    event: PiExtensionEvent,
+  ): PiExtensionEvent {
+    const parsed = piExtensionEventSchema.parse(event);
+    if (isPiExtensionDialogRequest(parsed)) {
+      session.outstandingExtensionDialogs.add(parsed.id);
+    }
+    return parsed;
+  }
+
+  private async cancelOutstandingExtensionDialogs(
+    taskId: string,
+    session: ManagedPiSession,
+  ): Promise<void> {
+    const requestIds = [...session.outstandingExtensionDialogs];
+    session.outstandingExtensionDialogs.clear();
+    await Promise.all(
+      requestIds.map(async (requestId) => {
+        try {
+          await session.client.respondToExtensionUI({
+            type: "extension_ui_response",
+            id: requestId,
+            cancelled: true,
+          });
+        } catch (error) {
+          session.outstandingExtensionDialogs.add(requestId);
+          this.log.warn("Failed to cancel orphaned Pi extension dialog", {
+            taskId,
+            requestId,
+            error,
+          });
+        }
+      }),
+    );
   }
 
   private trackProcess(taskId: string, session: ManagedPiSession): void {

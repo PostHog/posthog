@@ -470,7 +470,22 @@ describe("PiSessionService extension UI", () => {
     await service.respondToExtensionUI("task-1", response);
     expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith(response);
 
+    const pendingEvent = iterator.next();
+    const pendingRequest = { ...request, id: "pending-extension" };
+    extensionHandlers[0](pendingRequest);
+    await expect(pendingEvent).resolves.toEqual({
+      done: false,
+      value: pendingRequest,
+    });
     await iterator.return?.();
+    await vi.waitFor(() =>
+      expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: pendingRequest.id,
+        cancelled: true,
+      }),
+    );
+
     const orphanedRequest = { ...request, id: "orphaned-extension" };
     extensionHandlers[0](orphanedRequest);
     await vi.waitFor(() =>
