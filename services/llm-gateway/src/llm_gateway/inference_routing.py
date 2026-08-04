@@ -1,8 +1,8 @@
-"""Backend selection for GLM (`@cf/...`) traffic across Cloudflare, Modal, and Baseten.
+"""Route supported models to their configured inference providers.
 
-Modal takes traffic opted in by its server-side flag or the environment-configured fraction.
-Baseten takes traffic opted in by its server-side flag. Caller-forwarded flag headers cannot
-select a backend. There are no cross-backend retries.
+GLM can be served by Cloudflare, Modal, or Baseten. DeepSeek V4 Flash is served only by
+Baseten. Provider selection is internal to the gateway; caller-forwarded feature flag headers
+cannot select a backend. There are no cross-provider retries.
 """
 
 from __future__ import annotations
@@ -130,7 +130,7 @@ async def _send_via_cloudflare(
     )
 
 
-async def _send_glm_request(
+async def _send_inference_request(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
@@ -166,14 +166,17 @@ async def _send_glm_request(
 # overridable seam.
 
 
-async def send_glm_anthropic_messages(
+async def send_inference_anthropic_messages(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _send_glm_request(
-        normalize_glm_anthropic_request(request_data, product=product),
+    if request_data["model"] == BASETEN_PUBLIC_MODEL:
+        request_data = normalize_glm_anthropic_request(request_data, product=product)
+
+    return await _send_inference_request(
+        request_data,
         user,
         is_streaming,
         product,
@@ -186,13 +189,13 @@ async def send_glm_anthropic_messages(
     )
 
 
-async def send_glm_chat_completions(
+async def send_inference_chat_completions(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _send_glm_request(
+    return await _send_inference_request(
         request_data,
         user,
         is_streaming,
@@ -206,13 +209,13 @@ async def send_glm_chat_completions(
     )
 
 
-async def send_glm_responses(
+async def send_inference_responses(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _send_glm_request(
+    return await _send_inference_request(
         request_data,
         user,
         is_streaming,

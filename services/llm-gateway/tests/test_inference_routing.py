@@ -7,11 +7,11 @@ from fastapi import HTTPException
 from llm_gateway.api.handler import ProviderError
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import Settings
-from llm_gateway.glm_routing import (
+from llm_gateway.inference_routing import (
     normalize_glm_anthropic_request,
-    send_glm_anthropic_messages,
-    send_glm_chat_completions,
-    send_glm_responses,
+    send_inference_anthropic_messages,
+    send_inference_chat_completions,
+    send_inference_responses,
 )
 from llm_gateway.request_context import RequestContext, set_request_context
 
@@ -21,9 +21,9 @@ KIMI_MODEL = "@cf/moonshotai/kimi-k2.6"
 PRODUCT = "posthog_code"
 
 SURFACES = [
-    (send_glm_anthropic_messages, "modal_anthropic_messages", "cloudflare_anthropic_messages"),
-    (send_glm_chat_completions, "modal_chat_completions", "cloudflare_chat_completions"),
-    (send_glm_responses, "modal_responses", "cloudflare_responses"),
+    (send_inference_anthropic_messages, "modal_anthropic_messages", "cloudflare_anthropic_messages"),
+    (send_inference_chat_completions, "modal_chat_completions", "cloudflare_chat_completions"),
+    (send_inference_responses, "modal_responses", "cloudflare_responses"),
 ]
 
 
@@ -48,15 +48,15 @@ async def _send(
     settings: Settings,
     handle: AsyncMock,
     flag: bool | None = None,
-    send_fn: Any = send_glm_anthropic_messages,
+    send_fn: Any = send_inference_anthropic_messages,
     product: str = PRODUCT,
     request_data: dict[str, Any] | None = None,
 ) -> tuple[Any, AsyncMock]:
     evaluate = AsyncMock(return_value=flag)
     with (
-        patch("llm_gateway.glm_routing.get_settings", return_value=settings),
-        patch("llm_gateway.glm_routing.handle_llm_request", handle),
-        patch("llm_gateway.glm_routing.evaluate_flag", evaluate),
+        patch("llm_gateway.inference_routing.get_settings", return_value=settings),
+        patch("llm_gateway.inference_routing.handle_llm_request", handle),
+        patch("llm_gateway.inference_routing.evaluate_flag", evaluate),
     ):
         result = await send_fn(
             request_data or {"model": GLM_MODEL, "messages": [{"role": "user", "content": "hi"}]},
@@ -186,6 +186,19 @@ async def test_deepseek_routes_each_surface_directly_to_baseten(send_fn: Any, en
     assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
     assert handle.call_args.kwargs["model"] == DEEPSEEK_MODEL
     evaluate.assert_not_called()
+
+
+async def test_deepseek_does_not_apply_glm_anthropic_normalization() -> None:
+    handle = AsyncMock(return_value={"ok": True})
+    request = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+        "output_config": {"effort": "high"},
+    }
+
+    await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)
+
+    assert handle.call_args.kwargs["request_data"] == request
 
 
 async def test_modal_flag_is_evaluated_without_baseten_credentials() -> None:
