@@ -32,6 +32,7 @@ import { urls } from 'scenes/urls'
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    CyclotronJobFiltersType,
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,
     EventPropertyFilter,
@@ -266,25 +267,39 @@ function buildTemplateGlobals(survey: SurveyNotificationContext): CyclotronJobIn
     })
 }
 
-export function buildLastSurveyResponseQuery(surveyId: string): EventsQuery | null {
+/**
+ * The filters the backend actually evaluates for a test invocation: a mapping's filters win
+ * over the top-level ones, matching how `buildHogFunctionInvocations` picks a trigger.
+ */
+export function getEffectiveNotificationFilters(
+    notification: Pick<HogFunctionType, 'filters' | 'mappings'> | null | undefined
+): CyclotronJobFiltersType | null {
+    return notification?.mappings?.[0]?.filters ?? notification?.filters ?? null
+}
+
+/**
+ * One lookup per event the notification triggers on, each carrying that event's own property
+ * filters. Anything less would fetch a response the notification would never have sent for
+ * (a partial `survey sent`, a rating below the configured threshold), and the test would be
+ * skipped with no way for the user to tell why.
+ */
+export function buildLastSurveyResponseQueries(
+    surveyId: string,
+    filters: CyclotronJobFiltersType | null
+): EventsQuery[] {
     if (!surveyId || surveyId === NEW_SURVEY.id) {
-        return null
+        return []
     }
-    return {
+
+    const surveyIdProperty: EventPropertyFilter = {
+        key: SurveyEventProperties.SURVEY_ID,
+        type: PropertyFilterType.Event,
+        value: surveyId,
+        operator: PropertyOperator.Exact,
+    }
+    const baseQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
         select: ['*', 'person'],
-        fixedProperties: [
-            {
-                key: SurveyEventProperties.SURVEY_ID,
-                type: PropertyFilterType.Event,
-                value: surveyId,
-                operator: PropertyOperator.Exact,
-            },
-            {
-                type: PropertyFilterType.HogQL,
-                key: `event IN ('${SurveyEventName.SENT}', '${SurveyEventName.DISMISSED}')`,
-            },
-        ],
         after: '-90d',
         orderBy: ['timestamp DESC'],
         limit: 1,
@@ -292,6 +307,24 @@ export function buildLastSurveyResponseQuery(surveyId: string): EventsQuery | nu
             personsOnEventsMode: 'person_id_no_override_properties_on_events',
         },
     }
+
+    const events = filters?.events ?? []
+    if (events.length === 0) {
+        return [
+            {
+                ...baseQuery,
+                events: [SurveyEventName.SENT, SurveyEventName.DISMISSED],
+                fixedProperties: [surveyIdProperty],
+            },
+        ]
+    }
+
+    return events.map((event) => ({
+        ...baseQuery,
+        event: event.id,
+        filterTestAccounts: filters?.filter_test_accounts,
+        fixedProperties: [surveyIdProperty, ...(event.properties ?? []), ...(filters?.properties ?? [])],
+    }))
 }
 
 type LastSurveyResponseResult =
@@ -299,25 +332,44 @@ type LastSurveyResponseResult =
     | { status: 'empty' }
     | { status: 'failed' }
 
+// Copying the excluded value into the sample would guarantee the filter rejects it.
+const NEGATED_PROPERTY_OPERATORS = new Set<PropertyOperator>([
+    PropertyOperator.IsNot,
+    PropertyOperator.NotIContains,
+    PropertyOperator.NotRegex,
+    PropertyOperator.IsNotSet,
+])
+
 /**
- * Aligns sample globals with the saved notification's first event filter so the test
- * passes the compiled filter bytecode. Without this, a tiny mismatch (e.g. a survey id
+ * Aligns sample globals with the first event filter of the configuration being tested so the
+ * test passes the compiled filter bytecode. Without this, a tiny mismatch (e.g. a survey id
  * that drifted from `values.survey.id` due to copying or migration) skips the test.
  */
-function alignGlobalsWithNotificationFilter(
+export function alignGlobalsWithNotificationFilter(
     globals: CyclotronJobInvocationGlobals,
-    notification: HogFunctionType | null
+    filters: CyclotronJobFiltersType | null
 ): CyclotronJobInvocationGlobals {
-    const effectiveFilter = notification?.mappings?.[0]?.filters ?? notification?.filters ?? null
-    const firstEvent = effectiveFilter?.events?.[0]
+    const firstEvent = filters?.events?.[0]
     if (!firstEvent) {
         return globals
     }
     const mergedProperties = { ...globals.event.properties }
     for (const prop of firstEvent.properties ?? []) {
-        if ('key' in prop && prop.key && 'value' in prop && prop.value !== undefined) {
-            mergedProperties[prop.key] = prop.value
+        if (!('key' in prop) || !prop.key || !('value' in prop) || prop.value === undefined) {
+            continue
         }
+        if (prop.operator && NEGATED_PROPERTY_OPERATORS.has(prop.operator)) {
+            continue
+        }
+        if (prop.operator === PropertyOperator.IsSet && mergedProperties[prop.key] !== undefined) {
+            continue
+        }
+        // An `is any of` filter stores every accepted value; one of them is enough for the sample.
+        const value = Array.isArray(prop.value) ? prop.value[0] : prop.value
+        if (value === undefined) {
+            continue
+        }
+        mergedProperties[prop.key] = value
     }
     return {
         ...globals,
@@ -329,19 +381,28 @@ function alignGlobalsWithNotificationFilter(
     }
 }
 
-async function fetchLastSurveyResponseGlobals(query: EventsQuery | null): Promise<LastSurveyResponseResult> {
-    if (!query) {
+async function fetchLastSurveyResponseGlobals(queries: EventsQuery[]): Promise<LastSurveyResponseResult> {
+    if (queries.length === 0) {
         return { status: 'empty' }
     }
     try {
-        const response = await performQuery(query)
-        const row = response?.results?.[0]
-        const event = row?.[0] as EventType | undefined
-        const person = row?.[1] as PersonType | undefined
-        if (!event || !person) {
+        const responses = await Promise.all(queries.map((query) => performQuery(query)))
+        let latest: { event: EventType; person: PersonType } | null = null
+        for (const response of responses) {
+            const row = response?.results?.[0]
+            const event = row?.[0] as EventType | undefined
+            const person = row?.[1] as PersonType | undefined
+            if (!event || !person) {
+                continue
+            }
+            if (!latest || Date.parse(event.timestamp ?? '') > Date.parse(latest.event.timestamp ?? '')) {
+                latest = { event, person }
+            }
+        }
+        if (!latest) {
             return { status: 'empty' }
         }
-        return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(event, person) }
+        return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(latest.event, latest.person) }
     } catch {
         return { status: 'failed' }
     }
@@ -873,7 +934,6 @@ export interface surveyNotificationModalLogicValues {
     isNotificationFormSubmitting: boolean
     isNotificationFormValid: boolean
     isOpen: boolean
-    lastResponseEventQuery: EventsQuery | null
     notificationForm: SurveyNotificationForm
     notificationFormAllErrors: Record<string, any>
     notificationFormChanged: boolean
@@ -1122,7 +1182,6 @@ export interface surveyNotificationModalLogicMeta {
             notificationForm: SurveyNotificationForm
         ) => IntegrationType | null
         templateGlobals: (survey: NewSurvey | Survey) => CyclotronJobInvocationGlobals
-        lastResponseEventQuery: (survey: NewSurvey | Survey) => EventsQuery | null
         submitDisabledReason: (
             survey: NewSurvey | Survey,
             notificationFormErrors: DeepPartialMap<SurveyNotificationForm, ValidationErrorType>,
@@ -1233,28 +1292,36 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                         copiedNotification: values.copiedNotification,
                     })
 
+                    // Filter against the configuration being tested, not the saved notification,
+                    // so unsaved filter edits in the modal are reflected in the test.
+                    const filters = getEffectiveNotificationFilters(configuration)
+
                     let globals: CyclotronJobInvocationGlobals = values.templateGlobals
                     let usingSample = source === 'sample'
                     if (source === 'last_response') {
-                        const lookup = await fetchLastSurveyResponseGlobals(values.lastResponseEventQuery)
+                        const lookup = await fetchLastSurveyResponseGlobals(
+                            buildLastSurveyResponseQueries(values.survey.id, filters)
+                        )
                         if (lookup.status === 'ok') {
                             globals = lookup.globals
                         } else if (lookup.status === 'failed') {
                             usingSample = true
                             lemonToast.warning(
-                                'Could not fetch the last response — sent the test with sample data instead.'
+                                "Couldn't load the last response. Sent the test with sample data instead."
                             )
                         } else {
                             usingSample = true
-                            lemonToast.info('No survey responses yet — sent the test with sample data instead.')
+                            lemonToast.info(
+                                'No response in the last 90 days matches these filters. Sent the test with sample data instead.'
+                            )
                         }
                     }
 
-                    // Align sample globals with the saved filter's expected values so the test
+                    // Align sample globals with the filter's expected values so the test
                     // isn't skipped by a $survey_id or completion-flag mismatch. Applies to an
                     // explicit sample-data test and to a last-response test that fell back to it.
                     if (usingSample) {
-                        globals = alignGlobalsWithNotificationFilter(globals, values.editingNotification)
+                        globals = alignGlobalsWithNotificationFilter(globals, filters)
                     }
 
                     const id = values.editingNotification?.id ?? 'new'
@@ -1308,10 +1375,6 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 null,
         ],
         templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
-        lastResponseEventQuery: [
-            (s) => [s.survey],
-            (survey: SurveyNotificationContext): EventsQuery | null => buildLastSurveyResponseQuery(survey.id),
-        ],
         submitDisabledReason: [
             (s) => [
                 s.survey,
