@@ -459,6 +459,16 @@ pub fn assert_round_trip(
 // ---------------------------------------------------------------------------
 
 /// Serialize a list of Events into a valid V1 batch JSON payload.
+/// A non-historical batch wrapping `events`, the shape `process_batch` takes.
+pub fn valid_batch(events: Vec<Event>) -> crate::v1::analytics::types::Batch {
+    crate::v1::analytics::types::Batch {
+        created_at: "2026-03-19T14:30:00.000Z".to_string(),
+        historical_migration: false,
+        capture_internal: None,
+        batch: events,
+    }
+}
+
 pub fn batch_payload(events: &[Event]) -> Vec<u8> {
     let batch_json = serde_json::json!({
         "created_at": "2026-03-19T14:30:00.000Z",
@@ -685,6 +695,8 @@ pub struct TestState {
 pub struct TestStateBuilder {
     quota_limited: bool,
     overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
+    overflow_preserve_locality: bool,
+    overflow_forced_key: Option<String>,
     ai_events_overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
@@ -707,6 +719,8 @@ impl TestStateBuilder {
         Self {
             quota_limited: false,
             overflow_limiter: None,
+            overflow_preserve_locality: false,
+            overflow_forced_key: None,
             ai_events_overflow_limiter: None,
             historical_threshold_days: None,
             restriction_service: None,
@@ -743,6 +757,20 @@ impl TestStateBuilder {
             NonZeroU32::new(per_second).expect("per_second must be > 0"),
             NonZeroU32::new(burst).expect("burst must be > 0"),
         ));
+        self
+    }
+
+    /// Keep partition keys when rerouting to overflow, as prod-US does via
+    /// `OVERFLOW_PRESERVE_PARTITION_LOCALITY`. Applies to both lanes' limiters
+    /// because production derives both from that one setting.
+    pub fn with_overflow_preserve_locality(mut self) -> Self {
+        self.overflow_preserve_locality = true;
+        self
+    }
+
+    /// Force-route this key outright, as an ops-configured hot key does.
+    pub fn with_overflow_forced_key(mut self, key: impl Into<String>) -> Self {
+        self.overflow_forced_key = Some(key.into());
         self
     }
 
@@ -843,13 +871,23 @@ impl TestStateBuilder {
             None => HistoricalConfig::new(false, 1),
         };
 
-        let overflow_limiter = self
-            .overflow_limiter
-            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let overflow_limiter = self.overflow_limiter.map(|(per_sec, burst)| {
+            Arc::new(OverflowLimiter::new(
+                per_sec,
+                burst,
+                self.overflow_forced_key.clone(),
+                self.overflow_preserve_locality,
+            ))
+        });
 
-        let ai_events_overflow_limiter = self
-            .ai_events_overflow_limiter
-            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let ai_events_overflow_limiter = self.ai_events_overflow_limiter.map(|(per_sec, burst)| {
+            Arc::new(OverflowLimiter::new(
+                per_sec,
+                burst,
+                self.overflow_forced_key.clone(),
+                self.overflow_preserve_locality,
+            ))
+        });
         let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
 
         // Build the v1 sink router with a MockProducer-backed KafkaSink

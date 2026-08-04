@@ -12,6 +12,9 @@ pub mod log_util;
 pub mod metrics_middleware;
 pub mod ordering;
 pub mod otel;
+/// Cross-path parity suite for the v0 and v1 overflow / rate-limit matrix.
+#[cfg(test)]
+mod overflow_parity;
 pub mod payload;
 pub mod prometheus;
 pub mod quota_limiters;
