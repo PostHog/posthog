@@ -196,7 +196,8 @@ async def deliver_slack(
             failed_thread_count=len(result.failed_thread_message_indices),
             total_thread_count=result.total_thread_messages,
         )
-        partial_message = f"{len(result.failed_thread_message_indices)} thread message(s) failed"
+        failed_count = len(result.failed_thread_message_indices)
+        partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.target_value,

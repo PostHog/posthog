@@ -175,13 +175,13 @@ function subscriptionsListStateEqual(
     )
 }
 
-/** LemonTable columnKey → DRF `ordering` field (see SubscriptionViewSet.ordering_fields). */
 function omitKey(state: Record<number, true>, id: number): Record<number, true> {
     const next = { ...state }
     delete next[id]
     return next
 }
 
+/** LemonTable columnKey → DRF `ordering` field (see SubscriptionViewSet.ordering_fields). */
 function buildSubscriptionsListOrdering(sorting: Sorting | null): string {
     if (!sorting) {
         return '-created_at'

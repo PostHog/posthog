@@ -223,6 +223,8 @@ def _execute_and_serialize_insight_query(
             "query_error": {
                 "type": "cache_miss",
                 "message": "No synchronous result (async or cache-only response)",
+                # Static, audience-safe: a cold cache is a routine condition, not an internal error.
+                "human_readable_error": "No cached result was available for this insight.",
             },
         }
         if insight_result.cache_key:
@@ -265,6 +267,7 @@ def build_insight_delivery_snapshot(
         base["query_error"] = {
             "type": "missing_query",
             "message": "Insight has no query or convertible filters",
+            "human_readable_error": "This insight has no query to run.",
         }
         base["comparison_enabled"] = False
         base["value_format"] = None

@@ -59,6 +59,9 @@ LOGGER = get_logger(__name__)
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
 NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
+# Plain-English twin of NO_ASSETS_REASON for the delivery-history UI: "assets" and "export pipeline"
+# are internal jargon subscribers won't parse.
+NO_ASSETS_HUMAN_READABLE_REASON = "Nothing could be generated to send this time. We'll try again on the next scheduled run."
 
 
 class NoExportableInsightsError(Exception):
@@ -465,7 +468,7 @@ async def _deliver_insight_dashboard_subscription(
                 recipient=subscription.target_value,
                 status="failed",
                 error={"message": NO_ASSETS_REASON, "type": "no_assets"},
-                human_readable_error=NO_ASSETS_REASON,
+                human_readable_error=NO_ASSETS_HUMAN_READABLE_REASON,
             )
         )
         # Plain Exception — `_capture_delivery_failed_event` only reads `str(e)` and

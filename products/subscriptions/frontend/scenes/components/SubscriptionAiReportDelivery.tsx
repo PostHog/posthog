@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -127,24 +129,39 @@ function recipientStatusTag(status: DeliveryRecipientStatus): JSX.Element {
     return <LemonTag type="warning">Partial</LemonTag>
 }
 
-/** Summary line for a recipients list. Null when every row shares one status — a green "Success" tag per row
- * already says that, so a count would be redundant. Only the mixed outcome spells out the split. */
+/** Summary line for a recipients list. Null when every row shares one status — a tag per row already says
+ * that, so a count would be redundant. Only the mixed outcome spells out the split. */
 function recipientResultsSummary(results: readonly DeliveryRecipientResult[]): string | null {
     const total = results.length
     const succeeded = results.filter((r) => r.status === 'success').length
+    const partial = results.filter((r) => r.status === 'partial').length
     const failed = results.filter((r) => r.status === 'failed').length
-    const noun = total === 1 ? 'recipient' : 'recipients'
-    if (failed === 0 || succeeded === 0) {
+    const distinctStatuses = [succeeded > 0, partial > 0, failed > 0].filter(Boolean).length
+    if (distinctStatuses < 2) {
         return null
     }
-    return `${total} ${noun} · ${succeeded} succeeded · ${failed} failed`
+    const noun = total === 1 ? 'recipient' : 'recipients'
+    const parts: string[] = []
+    if (succeeded > 0) {
+        parts.push(`${succeeded} succeeded`)
+    }
+    if (partial > 0) {
+        parts.push(`${partial} partial`)
+    }
+    if (failed > 0) {
+        parts.push(`${failed} failed`)
+    }
+    return `${total} ${noun} · ${parts.join(' · ')}`
 }
 
 // Success first, then partial, then failed — so failures sink to the bottom where they're easy to act on.
 const RECIPIENT_STATUS_ORDER: Record<DeliveryRecipientStatus, number> = { success: 0, partial: 1, failed: 2 }
 
 function DeliveryRecipients({ results }: { results: readonly DeliveryRecipientResult[] }): JSX.Element {
-    const sorted = [...results].sort((a, b) => RECIPIENT_STATUS_ORDER[a.status] - RECIPIENT_STATUS_ORDER[b.status])
+    const sorted = useMemo(
+        () => [...results].sort((a, b) => RECIPIENT_STATUS_ORDER[a.status] - RECIPIENT_STATUS_ORDER[b.status]),
+        [results]
+    )
     const summary = recipientResultsSummary(results)
     return (
         <div className="flex flex-col gap-2">
@@ -268,7 +285,7 @@ function insightItemTag(item: DeliveryInsightItem): JSX.Element {
 }
 
 function DeliveryInsightItems({ items }: { items: readonly DeliveryInsightItem[] }): JSX.Element {
-    const sorted = [...items].sort((a, b) => INSIGHT_ITEM_ORDER(a) - INSIGHT_ITEM_ORDER(b))
+    const sorted = useMemo(() => [...items].sort((a, b) => INSIGHT_ITEM_ORDER(a) - INSIGHT_ITEM_ORDER(b)), [items])
     const summary = insightItemsSummary(items)
     return (
         <div className="flex flex-col gap-2">
@@ -297,13 +314,23 @@ function DeliveryInsightItems({ items }: { items: readonly DeliveryInsightItem[]
  * table's `rowExpandable` and `ExpandedDeliveryRow`'s early return, so the two can't disagree on which rows
  * are expandable. */
 export function deliveryRowHasExpandableContent(row: SubscriptionDeliveryApi): boolean {
-    return (
-        Boolean(row.change_summary) ||
-        Boolean(row.ai_report) ||
-        Boolean(row.ai_report_prompt) ||
-        (row.ai_report_diagnostics ?? []).length > 0 ||
-        parseRecipientResults(row.recipient_results).length > 0 ||
-        parseContentSnapshotInsights(row.content_snapshot).length > 0
+    if (row.change_summary || row.ai_report || row.ai_report_prompt || (row.ai_report_diagnostics ?? []).length > 0) {
+        return true
+    }
+    if (Array.isArray(row.recipient_results) && row.recipient_results.length > 0) {
+        return true
+    }
+    // Skeleton-only snapshots (stuck runs where every insight is still pending) have nothing actionable
+    // to show — don't offer an expand chevron for them. The full parse happens in ExpandedDeliveryRow.
+    if (!row.content_snapshot || typeof row.content_snapshot !== 'object') {
+        return false
+    }
+    const insights = (row.content_snapshot as { insights?: unknown }).insights
+    if (!Array.isArray(insights)) {
+        return false
+    }
+    return insights.some(
+        (ins) => typeof ins === 'object' && ins !== null && ('query_results' in ins || 'query_error' in ins)
     )
 }
 
@@ -355,8 +382,9 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
     const diagnostics = row.ai_report_diagnostics ?? []
     const report = row.ai_report
     const prompt = row.ai_report_prompt
-    const recipients = parseRecipientResults(row.recipient_results)
-    const insights = parseContentSnapshotInsights(row.content_snapshot)
+    // Memoized: payloads can be large for dashboard exports and this row re-renders with the table.
+    const recipients = useMemo(() => parseRecipientResults(row.recipient_results), [row.recipient_results])
+    const insights = useMemo(() => parseContentSnapshotInsights(row.content_snapshot), [row.content_snapshot])
     if (!deliveryRowHasExpandableContent(row)) {
         return null
     }
