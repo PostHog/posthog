@@ -132,13 +132,11 @@ def run_evidence(*, bounded: bool) -> str:
 
 
 def _scan(*, bounded: bool) -> str:
-    """The span scan with every placeholder filled.
+    """The span scan with every ``__``-token substituted — the only way to obtain this SQL.
 
-    A function rather than a module-level template with tokens left in it: an unsubstituted token is
-    not a HogQL parse error you'd notice, it is a silently wrong query, and nothing would stop a
-    second render path from forgetting one. Here the only way to obtain the SQL is to obtain it
-    substituted. The ``{...}`` names that remain are real HogQL placeholders, bound by
-    ``scan_placeholders``.
+    An unsubstituted token is not a parse error you would notice, it is a silently wrong query, so
+    every render goes through here rather than each caller remembering the list. The ``{...}`` names
+    that remain are real HogQL placeholders, bound by ``scan_placeholders``.
     """
     return _SCAN_TEMPLATE.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "").replace(
         "__QUEUE_PR__", _SPAN_PR_NUMBER
@@ -148,7 +146,6 @@ def _scan(*, bounded: bool) -> str:
 # Scans [scan_from, date_to?]; `is_current` splits rows at {date_from} so a caller scanning
 # an extra prior window (scan_from < date_from) gets the current/prior split for free. A
 # caller without a prior window passes scan_from = date_from and ignores the column.
-# Carries __-tokens, so it is never usable directly — go through ``_scan``.
 _SCAN_TEMPLATE = """
     SELECT
         if(attributes['test.runner'] = 'jest' OR service_name = 'ci-frontend', 'jest', 'pytest') AS runner,

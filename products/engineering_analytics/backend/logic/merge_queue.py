@@ -44,17 +44,16 @@ _SOURCE_PR_PATTERN = "^(?:trunk-merge/|gh-readonly-queue/[^/]+/)pr-([0-9]+)[/-]"
 MERGE_QUEUE_BOT_HANDLES: frozenset[str] = frozenset({"trunk-io[bot]"})
 
 
-# Every expression below guards its input with ``ifNull``. A branch column can read NULL rather than
-# '' — the CI spans hold theirs in a map, which yields NULL for a run that predates the stamp — and a
-# NULL into startsWith/regexpExtract makes the whole expression NULL. That is not a cosmetic
-# difference: `WHERE NOT <NULL>` drops the row, and `if(<NULL> != '', a, b)` returns NULL instead of
-# the fallback, so an unstamped branch would silently delete data rather than fail a filter.
-def _branch(column: str) -> str:
-    return f"ifNull({column}, '')"
+# Both helpers ``ifNull`` their input, and that is load-bearing rather than defensive: a branch or
+# actor column can read NULL rather than '' (the CI spans hold theirs in a map, NULL for a run that
+# predates the stamp), and NULL into regexpExtract poisons the whole expression. `WHERE NOT <NULL>`
+# drops the row and `if(<NULL>, a, b)` returns NULL instead of the fallback, so an unstamped column
+# would silently delete data rather than fail a filter.
+def _source_pr_string(branch_column: str) -> str:
+    return f"regexpExtract(ifNull({branch_column}, ''), '{_SOURCE_PR_PATTERN}')"
 
 
 def _pushed_by_queue(actor_column: str) -> str:
-    """HogQL predicate: is ``actor_column`` an identity only the merge queue can be?"""
     handles = ", ".join(f"'{handle}'" for handle in sorted(MERGE_QUEUE_BOT_HANDLES))
     return f"ifNull({actor_column}, '') IN ({handles})"
 
@@ -69,10 +68,6 @@ def looks_like_merge_queue_branch_expr(branch_column: str) -> str:
     the shape is contributor-controlled.
     """
     return f"{_source_pr_string(branch_column)} != ''"
-
-
-def _source_pr_string(branch_column: str) -> str:
-    return f"regexpExtract({_branch(branch_column)}, '{_SOURCE_PR_PATTERN}')"
 
 
 def source_pr_string_expr(branch_column: str, *, queue_actor_column: str) -> str:

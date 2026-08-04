@@ -74,11 +74,10 @@ FIELDS: dict[str, FieldOrTable] = {
     "multiplier": IntegerDatabaseField(name="multiplier", nullable=True),
     "billable_seconds": IntegerDatabaseField(name="billable_seconds", nullable=True),
     "estimated_cost_usd": FloatDatabaseField(name="estimated_cost_usd", nullable=True),
-    # Not nullable, unlike the attribution columns above: it is derived, never read off the source, so
-    # it is always 0 or 1. A job whose run row is missing reads 0 — the same "no" an unjoined row gives
-    # every other run attribute. Exposed here rather than left to consumers because "what does the
-    # merge queue cost" is a question this view exists to answer, and re-deriving it from head_branch
-    # would put the definition of a gate branch in a second place (it lives in logic/merge_queue.py).
+    # Non-nullable unlike the attribution columns above, because it is derived rather than read off
+    # the source: an unjoined run reads 0, the same "no" it gives every other run attribute. Exposed
+    # so "what does the merge queue cost" doesn't get answered by re-deriving a gate branch from
+    # head_branch, which would put that definition somewhere other than logic/merge_queue.py.
     "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
 }
 
