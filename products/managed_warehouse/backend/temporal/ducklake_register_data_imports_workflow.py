@@ -344,23 +344,23 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             logger.info("Skipping stale prepared Parquet generation before catalog swap")
             return False
 
-    get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(len(landing_paths))
-    )
-    get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(registered_rows)
-    )
-    get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-        float(copied_bytes)
-    )
+        get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(len(landing_paths))
+        )
+        get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(registered_rows)
+        )
+        get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+            float(copied_bytes)
+        )
 
-    logger.info(
-        "Copied, verified, and registered prepared Parquet files in DuckLake",
-        ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
-        file_count=len(landing_paths),
-        landing_uri=inputs.metadata.landing_uri,
-    )
-    return True
+        logger.info(
+            "Copied, verified, and registered prepared Parquet files in DuckLake",
+            ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
+            file_count=len(landing_paths),
+            landing_uri=inputs.metadata.landing_uri,
+        )
+        return True
 
 
 def _is_valid_queryable_folder(queryable_folder: str) -> bool:
