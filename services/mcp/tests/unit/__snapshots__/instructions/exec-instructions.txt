@@ -1,5 +1,4 @@
 Below are tools available in the MCP. Prioritize skills over tools.
-PostHog ships changes daily — if a capability seems missing, check what's new via docs-search or https://posthog.com/changelog.md before concluding it doesn't exist.
 You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
 Project timezone: America/New_York.
 The user's name is Jane Doe (jane@acme.com).
