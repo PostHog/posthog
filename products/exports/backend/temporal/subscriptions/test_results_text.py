@@ -3,6 +3,7 @@ from parameterized import parameterized
 from products.exports.backend.temporal.subscriptions.results_text import (
     MAX_COLUMNS,
     MAX_ROWS,
+    MAX_TEXT_LENGTH,
     build_results_text,
     build_results_text_for_snapshot,
 )
@@ -66,6 +67,17 @@ class TestBuildResultsText:
 
         assert text is not None
         assert text.splitlines()[-1].split() == ["b", "-"]
+
+    def test_oversized_text_is_cut_on_line_boundaries(self) -> None:
+        # A character-level cut would leave a half-written value looking like a whole one.
+        cell = "x" * 90
+        text = build_results_text([[cell] * MAX_COLUMNS] * MAX_ROWS, [f"c{i}" for i in range(MAX_COLUMNS)])
+
+        assert text is not None
+        assert len(text) <= MAX_TEXT_LENGTH
+        lines = text.splitlines()
+        assert lines[-1] == "... (truncated)"
+        assert all(line.endswith(cell) for line in lines[2:-1])
 
     @parameterized.expand(
         [

@@ -50,9 +50,25 @@ def build_results_text(results: Any, columns: Any) -> str | None:
     hidden = len(results) - len(shown)
     if hidden:
         text += f"\n... and {hidden:,} more row{'' if hidden == 1 else 's'}"
-    if len(text) > MAX_TEXT_LENGTH:
-        text = text[:MAX_TEXT_LENGTH].rstrip() + "\n... (truncated)"
-    return text or None
+    return _cap_length(text) or None
+
+
+def _cap_length(text: str) -> str:
+    """Drop whole lines to fit the budget.
+
+    A character-level cut would leave a half-written number reading as a real one, which is
+    the one failure this whole rendering can't afford.
+    """
+    if len(text) <= MAX_TEXT_LENGTH:
+        return text
+    kept: list[str] = []
+    budget = MAX_TEXT_LENGTH - len("\n... (truncated)")
+    for line in text.splitlines():
+        if budget - len(line) - 1 < 0:
+            break
+        kept.append(line)
+        budget -= len(line) + 1
+    return "\n".join([*kept, "... (truncated)"])
 
 
 def _preview_rows(results: Any) -> list[list[Any]] | None:
