@@ -48,6 +48,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
+from products.tasks.backend.client_provenance import get_task_client_provenance
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
@@ -343,7 +344,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
-        task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
+        task = tasks_facade.create_task(
+            self.team_id,
+            self._user_id(),
+            validated_data=dict(serializer.validated_data),
+            client_provenance=get_task_client_provenance(request),
+        )
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
@@ -788,6 +794,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             reasoning_effort=request.validated_data.get("reasoning_effort"),
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
+            client_provenance=get_task_client_provenance(request),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)

@@ -27,14 +27,20 @@ POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
 ARRAY_APP_ID_DEV = "019ebb47-c750-0000-e1ea-723a6ff112d3"
 POSTHOG_AI_APP_ID_DEV = "019edb1a-cce4-0000-1f6d-682061862da9"
 
+POSTHOG_DESKTOP_OAUTH_CLIENT_IDS = frozenset(
+    {
+        ARRAY_APP_CLIENT_ID_US,
+        ARRAY_APP_CLIENT_ID_EU,
+        ARRAY_APP_CLIENT_ID_DEV,
+    }
+)
+
 # Every OAuth application sandbox agent tokens are minted under. Tokens for these apps
 # are only ever created server-side (never via the consent flow or personal API keys),
 # so a request bearing one provably originates from a sandbox run.
 SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     {
-        ARRAY_APP_CLIENT_ID_US,
-        ARRAY_APP_CLIENT_ID_EU,
-        ARRAY_APP_CLIENT_ID_DEV,
+        *POSTHOG_DESKTOP_OAUTH_CLIENT_IDS,
         POSTHOG_AI_APP_CLIENT_ID_US,
         POSTHOG_AI_APP_CLIENT_ID_EU,
         POSTHOG_AI_APP_CLIENT_ID_DEV,
