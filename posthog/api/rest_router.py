@@ -216,6 +216,7 @@ projects_router.register(
     ["team_id"],
 )
 
+
 projects_router.register(
     r"user_product_list",
     user_product_list.UserProductListViewSet,

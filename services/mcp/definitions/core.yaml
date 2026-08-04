@@ -64,69 +64,6 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
-    desktop-file-system-count-by-path-create:
-        operation: desktop_file_system_count_by_path_create
-        enabled: false
-    desktop-file-system-count-create:
-        operation: desktop_file_system_count_create
-        enabled: false
-    desktop-file-system-create:
-        operation: desktop_file_system_create
-        enabled: false
-    desktop-file-system-destroy:
-        operation: desktop_file_system_destroy
-        enabled: false
-    desktop-file-system-link-create:
-        operation: desktop_file_system_link_create
-        enabled: false
-    desktop-file-system-list:
-        operation: desktop_file_system_list
-        enabled: false
-    desktop-file-system-log-view-create:
-        operation: desktop_file_system_log_view_create
-        enabled: false
-    desktop-file-system-log-view-retrieve:
-        operation: desktop_file_system_log_view_retrieve
-        enabled: false
-    desktop-file-system-move-create:
-        operation: desktop_file_system_move_create
-        enabled: false
-    desktop-file-system-partial-update:
-        operation: desktop_file_system_partial_update
-        enabled: false
-    desktop-file-system-retrieve:
-        operation: desktop_file_system_retrieve
-        enabled: false
-    desktop-file-system-shortcut-create:
-        operation: desktop_file_system_shortcut_create
-        enabled: false
-    desktop-file-system-shortcut-destroy:
-        operation: desktop_file_system_shortcut_destroy
-        enabled: false
-    desktop-file-system-shortcut-list:
-        operation: desktop_file_system_shortcut_list
-        enabled: false
-    desktop-file-system-shortcut-partial-update:
-        operation: desktop_file_system_shortcut_partial_update
-        enabled: false
-    desktop-file-system-shortcut-reorder-create:
-        operation: desktop_file_system_shortcut_reorder_create
-        enabled: false
-    desktop-file-system-shortcut-retrieve:
-        operation: desktop_file_system_shortcut_retrieve
-        enabled: false
-    desktop-file-system-shortcut-update:
-        operation: desktop_file_system_shortcut_update
-        enabled: false
-    desktop-file-system-undo-delete-create:
-        operation: desktop_file_system_undo_delete_create
-        enabled: false
-    desktop-file-system-unfiled-retrieve:
-        operation: desktop_file_system_unfiled_retrieve
-        enabled: false
-    desktop-file-system-update:
-        operation: desktop_file_system_update
-        enabled: false
     domains-create:
         operation: domains_create
         enabled: false
