@@ -90,10 +90,11 @@ export function SpacesSidebarNav() {
     : undefined;
 
   // Dropping an All-spaces row into this region pins it (stars it), same as
-  // the directory's star but as one gesture.
+  // the directory's star but as one gesture; dragging a pinned row out again
+  // unpins it.
   const { channels } = useChannels();
   const { starredRefToShortcutId } = useChannelStars();
-  const { star } = useChannelStarMutations();
+  const { star, unstar } = useChannelStarMutations();
   const [isSpaceDropTarget, setIsSpaceDropTarget] = useState(false);
 
   const me = pinnedSpaces.find((c) => c.name === PERSONAL_CHANNEL_NAME);
@@ -150,7 +151,30 @@ export function SpacesSidebarNav() {
     if (event.canceled) return;
     const sourceId = event.operation.source?.id;
     const targetId = event.operation.target?.id;
-    if (!sourceId || !targetId || sourceId === targetId) return;
+    if (!sourceId) return;
+    // Released over no pinned row — the drag left the list, which unpins.
+    // In-place drops are safe: the row under the pointer (itself included)
+    // is still the target.
+    if (!targetId) {
+      const channel = channels.find((c) => c.id === String(sourceId));
+      const shortcutId = channel && starredRefToShortcutId.get(channel.path);
+      if (!channel || !shortcutId) return;
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "unstar",
+        surface: "sidebar",
+        channel_id: channel.id,
+      });
+      unstar(shortcutId).catch((error: unknown) =>
+        toast.error("Couldn't unpin space", {
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      setSpaceOrder(
+        orderedSpaces.map((c) => c.id).filter((id) => id !== channel.id),
+      );
+      return;
+    }
+    if (sourceId === targetId) return;
     const ids = orderedSpaces.map((c) => c.id);
     const from = ids.indexOf(String(sourceId));
     const to = ids.indexOf(String(targetId));

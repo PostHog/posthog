@@ -1,11 +1,27 @@
-import { CaretRightIcon, GearSixIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+  CaretRightIcon,
+  GearSixIcon,
+  PlusIcon,
+  StarIcon,
+} from "@phosphor-icons/react";
 import { isOwnedBy } from "@posthog/core/canvas/channelItems";
-import { Button, cn, Skeleton } from "@posthog/quill";
+import {
+  Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+  cn,
+  Skeleton,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
+import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
@@ -23,10 +39,13 @@ const INITIAL_ROWS = 5;
 /**
  * One pinned space in the static sidebar. The whole row is one click target:
  * it folds the space's task list open and closed (caret included — no separate
- * hover zones). Hovering reveals two controls on the right: a plus that files
- * a new task into this space, and the gear that opens the space itself in the
- * main view, where the header tabs (Feed/Context/Loops/Artifacts) live. #me
- * wears its lock in the same right-hand well, stepping aside on hover.
+ * hover zones). Hovering reveals the controls on the right: a plus that files
+ * a new task into this space, a filled star that unpins it, and the gear that
+ * opens the space itself in the main view, where the header tabs
+ * (Feed/Context/Loops/Artifacts) live. Right-click carries the same actions
+ * as a menu, and dragging the row out of the pinned list also unpins. #me
+ * wears its lock in the same right-hand well, stepping aside on hover, and
+ * can't be unpinned.
  *
  * An opened space leads with its first five items and a "Show more" that
  * unfolds the rest inline — the pinned-spaces region around these sections is
@@ -61,6 +80,8 @@ export function SpaceSection({
   const base = `/website/${channel.id}`;
   const isActive = pathname === base || pathname.startsWith(`${base}/`);
   const isUnread = useIsChannelUnread()(channel.name);
+  const isPersonal = channel.name === PERSONAL_CHANNEL_NAME;
+  const { toggleStar } = useChannelStarToggle(channel);
   // Only #me has a glyph under the layout (its lock) — same rule as
   // ChannelBackRow; it sits in the trailing well, not in front of the name.
   const glyph = channelGlyph(channel.name, {
@@ -135,83 +156,130 @@ export function SpaceSection({
     });
   };
 
+  const newTask = () => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "new_task_open",
+      surface: "sidebar",
+      channel_id: channel.id,
+    });
+    openTaskInput({ channelId: channel.id });
+  };
+
+  // Unpinning removes the space from this list; it stays reachable (and
+  // re-pinnable) in the All spaces directory below.
+  const unpin = () => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "unstar",
+      surface: "sidebar",
+      channel_id: channel.id,
+    });
+    toggleStar();
+  };
+
   // While searching, a space is its matches — none means the whole section
   // steps aside rather than listing an empty shell.
   if (searching && sectionItems.length === 0) return null;
 
   return (
     <div>
-      <div className="group/space relative">
-        <Button
-          ref={dragHandleRef}
-          variant="default"
-          left
-          aria-expanded={open}
-          data-selected={isActive || undefined}
-          className="w-full gap-1.5 text-left data-selected:bg-fill-selected"
-          onClick={() => toggle(channel.id)}
-        >
-          <CaretRightIcon
-            size={12}
-            className={cn(
-              "shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-90",
-            )}
-          />
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-[13px]",
-              // Bold is unread's alone; full contrast is shared with the space
-              // you're in — the same vocabulary as the channel list rows.
-              isUnread ? "font-bold" : "font-medium",
-              isUnread || isActive
-                ? "text-foreground"
-                : "text-muted-foreground group-hover/button:text-foreground",
-            )}
+      {/* Right-click carries the row's management — the discoverable path to
+          everything the hover controls do. */}
+      <ContextMenu>
+        <ContextMenuTrigger render={<div className="group/space relative" />}>
+          <Button
+            ref={dragHandleRef}
+            variant="default"
+            left
+            aria-expanded={open}
+            data-selected={isActive || undefined}
+            className="w-full gap-1.5 text-left data-selected:bg-fill-selected"
+            onClick={() => toggle(channel.id)}
           >
-            {channel.name}
-          </span>
-          {/* Trailing well, reserved so the name truncates clear of the lock
-              and the two hover controls rather than shifting when they appear. */}
-          <span aria-hidden className="h-6 w-12 shrink-0" />
-        </Button>
-        {/* Overlays, not children — the row is a button already. The lock
+            <CaretRightIcon
+              size={12}
+              className={cn(
+                "shrink-0 text-muted-foreground transition-transform",
+                open && "rotate-90",
+              )}
+            />
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-[13px]",
+                // Bold is unread's alone; full contrast is shared with the space
+                // you're in — the same vocabulary as the channel list rows.
+                isUnread ? "font-bold" : "font-medium",
+                isUnread || isActive
+                  ? "text-foreground"
+                  : "text-muted-foreground group-hover/button:text-foreground",
+              )}
+            >
+              {channel.name}
+            </span>
+            {/* Trailing well, reserved so the name truncates clear of the lock
+              and the hover controls rather than shifting when they appear.
+              #me has two controls (new task, open); shared spaces add the
+              unpin star between them. */}
+            <span
+              aria-hidden
+              className={cn("h-6 shrink-0", isPersonal ? "w-12" : "w-[72px]")}
+            />
+          </Button>
+          {/* Overlays, not children — the row is a button already. The lock
             yields its spot to the controls on hover so the well never doubles
             up. */}
-        {glyph && (
-          <span
-            aria-hidden
-            className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-[11px] flex items-center transition-opacity group-hover/space:opacity-0"
+          {glyph && (
+            <span
+              aria-hidden
+              className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-[11px] flex items-center transition-opacity group-hover/space:opacity-0"
+            >
+              {glyph}
+            </span>
+          )}
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={`New task in ${channel.name}`}
+            onClick={newTask}
+            className={cn(
+              "-translate-y-1/2 absolute top-1/2 text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/space:opacity-100",
+              isPersonal ? "right-[30px]" : "right-[54px]",
+            )}
           >
-            {glyph}
-          </span>
-        )}
-        <Button
-          variant="default"
-          size="icon-sm"
-          aria-label={`New task in ${channel.name}`}
-          onClick={() => {
-            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-              action_type: "new_task_open",
-              surface: "sidebar",
-              channel_id: channel.id,
-            });
-            openTaskInput({ channelId: channel.id });
-          }}
-          className="-translate-y-1/2 absolute top-1/2 right-[30px] text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/space:opacity-100"
-        >
-          <PlusIcon size={14} />
-        </Button>
-        <Button
-          variant="default"
-          size="icon-sm"
-          aria-label={`Open ${channel.name}`}
-          onClick={openSpace}
-          className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/space:opacity-100"
-        >
-          <GearSixIcon size={14} />
-        </Button>
-      </div>
+            <PlusIcon size={14} />
+          </Button>
+          {/* Filled: this row is pinned, and the star is the way out. */}
+          {!isPersonal && (
+            <Button
+              variant="default"
+              size="icon-sm"
+              aria-label={`Unpin ${channel.name}`}
+              onClick={unpin}
+              className="-translate-y-1/2 absolute top-1/2 right-[30px] text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/space:opacity-100"
+            >
+              <StarIcon size={14} weight="fill" />
+            </Button>
+          )}
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={`Open ${channel.name}`}
+            onClick={openSpace}
+            className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/space:opacity-100"
+          >
+            <GearSixIcon size={14} />
+          </Button>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          <ContextMenuItem onClick={openSpace}>Open space</ContextMenuItem>
+          <ContextMenuItem onClick={newTask}>New task</ContextMenuItem>
+          {!isPersonal && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={unpin}>Unpin space</ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
 
       {/* Tasks under the space, pinned first. Same inset as the channel
           groups' trees (pl-5). A search opens every matching space. */}
