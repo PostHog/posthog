@@ -98,10 +98,12 @@ export function SpacesSidebarNav() {
           global button defaults to #me — the composer's space chip is where
           to retarget; a space's own "+" pre-fills that space instead. */}
       <div className="shrink-0 px-2 pb-1.5">
+        {/* quill's primary treatment — the sidebar's one elevated CTA, sized
+            like the sm rows around it. */}
         <Button
-          variant="outline"
+          variant="primary"
           size="sm"
-          className="w-full justify-start gap-1.5"
+          className="w-full gap-1.5"
           onClick={() => {
             track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
               action_type: "new_task_open",
@@ -111,7 +113,7 @@ export function SpacesSidebarNav() {
             openTaskInput({ channelId: me?.id, space: "website" });
           }}
         >
-          <PlusIcon size={14} />
+          <PlusIcon size={14} weight="bold" />
           New session
         </Button>
       </div>
