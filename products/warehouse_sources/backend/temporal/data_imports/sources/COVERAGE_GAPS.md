@@ -357,6 +357,27 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 - [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
       scoped to an organization ID this source does not collect).
 
+### TikTok Ads — spec-verified
+
+Supersedes the TikTok Ads entries in the section above.
+Diffed on 2026-08-04 against the TikTok Marketing API v1.3 surface as expressed by the actively
+maintained Airbyte `source-tiktok-marketing` manifest
+(<https://github.com/airbytehq/airbyte/blob/master/airbyte-integrations/connectors/source-tiktok-marketing/manifest.yaml>),
+since TikTok publishes no machine-readable spec and its docs portal renders client-side.
+
+Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, creative_videos,
+creative_images, campaign_demographic_report, campaign_country_report, campaign_platform_report,
+ad_group_demographic_report, ad_group_country_report, ad_group_platform_report,
+ad_demographic_report, ad_country_report, ad_platform_report.
+
+- [x] Creative metadata — `creative_videos` (`/file/video/ad/search/`) and `creative_images` (`/file/image/ad/search/`) decode the `video_id` / `image_ids` already synced on `ads`.
+- [x] Breakdown dimensions on the report tables — nine `report_type=AUDIENCE` tables covering gender + age, country, and operating system at campaign, ad group, and ad level. All default to off.
+- [ ] Ad account table (skipped: `/advertiser/info/` is not readable with the scope the PostHog TikTok app holds, so the table would fail for every connection. Report tables already carry `currency`; timezone stays missing).
+- [ ] Audiences (skipped: `/dmp/custom_audience/list/` needs the audience-management scope, which the app does not hold today).
+- [ ] Pixel / conversion event definitions (skipped: `/pixel/list/` needs the events-manager scope, which the app does not hold today).
+- [ ] Province-level breakdown (skipped: TikTok only offers `province_id` at ad level, so it does not fit the symmetric set above).
+- [ ] Spark Ads posts, creative portfolios, and music assets.
+
 ### Linear — spec-verified
 
 Verified 2026-08-04 against the root `Query` type published by `@linear/sdk` 89.0.0 (npm), which is
