@@ -47,7 +47,8 @@ export const buildApiFetcher: (
     config.userAgent === undefined
       ? `posthog/desktop.hog.dev; version: ${config.appVersion}`
       : config.userAgent;
-  const requestTimeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const requestTimeoutMs =
+    config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
   const makeRequest = async (
     input: Parameters<Parameters<typeof createApiClient>[0]["fetch"]>[0],
