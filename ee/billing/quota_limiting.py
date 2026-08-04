@@ -759,7 +759,11 @@ def refresh_org_self_driving_quota(organization_id: str) -> None:
     todays_credits = get_self_driving_credits_used_in_period_for_org(organization.id, period_start, period_end)
 
     with transaction.atomic():
-        organization = Organization.objects.select_for_update().get(id=organization_id)
+        # filter().first() like the precheck above: the org can be deleted between the two
+        # reads, and a deleted org needs no refresh rather than a DoesNotExist from the task.
+        organization = Organization.objects.select_for_update().filter(id=organization_id).first()
+        if organization is None:
+            return
         resource_usage = (organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
         if not resource_usage:
             return
