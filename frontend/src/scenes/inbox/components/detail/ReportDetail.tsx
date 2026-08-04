@@ -82,9 +82,9 @@ export function ReportDetailBadges({
     )
 }
 
-/** Shared explainer for the finding count in the meta line and the Evidence section. */
-const FINDINGS_TOOLTIP =
-    'Signals are the individual pieces of evidence – from your connected sources and scouts – that were grouped into this report.'
+/** Shared explainer for the signal count in the meta line and the Evidence section. */
+const SIGNALS_TOOLTIP =
+    'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
 /**
  * Single meta line under the title: status/actionability chips, then dot-separated stats
@@ -110,7 +110,7 @@ function ReportDetailMeta({
     const stats: ReactNode[] = []
     if (evidenceCount > 0) {
         stats.push(
-            <Tooltip title={FINDINGS_TOOLTIP}>
+            <Tooltip title={SIGNALS_TOOLTIP}>
                 <span className="tabular-nums cursor-help">
                     {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                 </span>
@@ -375,7 +375,7 @@ export function InboxDetailFrame({
                             </LemonMarkdown>
                         ) : (
                             <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet – an agent is still investigating.
+                                No summary yet. An agent is still investigating.
                             </p>
                         )}
                         {trailingCharts.length > 0 && (
@@ -403,7 +403,7 @@ export function InboxDetailFrame({
                             collapsible
                             onToggleCollapsed={captureSectionToggle('evidence')}
                             rightSlot={
-                                <Tooltip title={FINDINGS_TOOLTIP}>
+                                <Tooltip title={SIGNALS_TOOLTIP}>
                                     <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
                                         {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                                     </span>
