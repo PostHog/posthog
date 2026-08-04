@@ -1338,6 +1338,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "description": "",
                 "icon_key": "",
                 "icon_domain": "",
+                "url": server.url,
                 "connection_state": "ready",
             }
         ]
@@ -1473,6 +1474,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "description": "Notion workspace",
                 "icon_key": "notion",
                 "icon_domain": "notion.so",
+                "url": server.url,
                 "connection_state": "missing_credential",
             }
         ]
@@ -1811,6 +1813,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "description": "",
                 "icon_key": "",
                 "icon_domain": "",
+                "url": granted_server.url,
                 "connection_state": "ready",
             }
         ]

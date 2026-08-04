@@ -34,6 +34,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.permissions import DenyMCPBuiltInAgentOAuth
 
 from ..agents import built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
+from ..composio import COMPOSIO_HUB_URL
 from ..gateway import installation_for_agent_access, installation_for_agent_grant, members_can_manage_agent_access
 from ..models import (
     APPROVAL_STATES,
@@ -42,6 +43,7 @@ from ..models import (
     POLICY_SCOPE_TYPE_CHOICES,
     SERVICE_ACCOUNT_STATUS_CHOICES,
     MCPAuditEvent,
+    MCPComposioConnection,
     MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPOrgRule,
@@ -209,15 +211,44 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 
 
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
-    if installation.auth_type != "oauth":
+    # Composio holds the vendor tokens, so this row has no access token by design and there is no
+    # OAuth flow to finish. Readiness for it means "has a connected app" instead.
+    if installation.auth_type != "oauth" or installation.url == COMPOSIO_HUB_URL:
         return False
     return not (installation.sensitive_configuration or {}).get("access_token")
 
 
 def _installation_needs_reauth(installation: MCPServerInstallation) -> bool:
-    if installation.auth_type != "oauth":
+    if installation.auth_type != "oauth" or installation.url == COMPOSIO_HUB_URL:
         return False
     return bool((installation.sensitive_configuration or {}).get("needs_reauth"))
+
+
+def _composio_agent_servers(installation: MCPServerInstallation, grant_state: str) -> list[dict[str, Any]]:
+    """One entry per app reachable through a granted Composio connection.
+
+    `grant_state` carries anything wrong at the grant level (the server disabled for the team, the
+    credential removed); when the grant is healthy each app is ready, because Composio holds the
+    vendor tokens and an active connection is the whole of readiness.
+    """
+    connections = (
+        MCPComposioConnection.objects.for_team(installation.team_id)
+        .filter(installation=installation, status="active")
+        .select_related("template")
+        .order_by("toolkit_slug")
+    )
+    return [
+        {
+            "id": connection.id,
+            "name": connection.template.name if connection.template else connection.toolkit_slug,
+            "description": connection.template.description if connection.template else "",
+            "icon_key": "",
+            "icon_domain": connection.template.icon_domain if connection.template else "",
+            "url": connection.template.url if connection.template else COMPOSIO_HUB_URL,
+            "connection_state": grant_state,
+        }
+        for connection in connections
+    ]
 
 
 def _connection_payload(installation: MCPServerInstallation) -> dict[str, Any]:
@@ -553,6 +584,9 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
     description = serializers.CharField(help_text="Server description.")
     icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
     icon_domain = serializers.CharField(help_text="Brand domain. Empty for custom servers.")
+    url = serializers.CharField(
+        help_text="The server's URL. Clients derive a brand icon from it when no icon_domain is known.",
+    )
     connection_state = serializers.ChoiceField(
         choices=AGENT_SERVER_CONNECTION_STATE_CHOICES,
         help_text="Whether the credential delegated to the agent is ready to use.",
@@ -623,6 +657,14 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             elif _installation_pending_oauth(installation):
                 connection_state = "pending_oauth"
 
+            # Every Composio app rides one grant, so listing it verbatim would tell the user their
+            # agent has "Connected apps" and nothing about which apps that means. Expand it into
+            # the apps actually reachable, which is what someone auditing an agent wants to see.
+            if server.url == COMPOSIO_HUB_URL:
+                if installation is not None:
+                    servers.extend(_composio_agent_servers(installation, connection_state))
+                continue
+
             servers.append(
                 {
                     "id": server.id,
@@ -630,6 +672,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "description": server.description,
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
+                    "url": server.url,
                     "connection_state": connection_state,
                 }
             )

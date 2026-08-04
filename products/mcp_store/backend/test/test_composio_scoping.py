@@ -211,3 +211,63 @@ class TestComposioIconRouting(APIBaseTest):
         # No logo.dev key in tests, so the provider path reports itself unavailable (503) rather
         # than silently returning one of the two toolkits' logos.
         assert self._icon("domain=shared.example.com") == 503
+
+
+class TestComposioAgentServers(APIBaseTest):
+    """An agent's granted-servers list is what someone auditing the agent reads. One grant covers
+    every Composio app, so listing it verbatim would say "Connected apps" and name none of them."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.hub = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url=COMPOSIO_HUB_URL,
+            display_name="Connected apps",
+            auth_type="oauth",
+            scope="personal",
+        )
+        self.template = MCPServerTemplate.objects.create(
+            name="Asana",
+            url="https://composio.dev/toolkits/asana",
+            provider="composio",
+            composio_toolkit_slug="asana",
+            auth_type="oauth",
+            is_active=True,
+        )
+        with team_scope(self.team.id):
+            MCPComposioConnection.objects.create(
+                team=self.team,
+                installation=self.hub,
+                template=self.template,
+                toolkit_slug="asana",
+                status="active",
+                connected_by=self.user,
+            )
+
+    def test_grant_expands_into_the_apps_the_agent_can_actually_reach(self) -> None:
+        from products.mcp_store.backend.presentation.gateway_views import _composio_agent_servers
+
+        entries = _composio_agent_servers(self.hub, "ready")
+
+        assert [e["name"] for e in entries] == ["Asana"]
+        # The URL carries the toolkit slug, which is how the client resolves the app's logo.
+        assert entries[0]["url"] == self.template.url
+
+    def test_pending_connections_are_not_presented_as_reachable(self) -> None:
+        from products.mcp_store.backend.presentation.gateway_views import _composio_agent_servers
+
+        MCPComposioConnection.objects.for_team(self.team.id).update(status="pending")
+
+        assert _composio_agent_servers(self.hub, "ready") == []
+
+    def test_hub_is_never_reported_as_pending_oauth(self) -> None:
+        from products.mcp_store.backend.presentation.gateway_views import (
+            _installation_needs_reauth,
+            _installation_pending_oauth,
+        )
+
+        # It holds no access token by design, and reporting it as pending made the agent's config
+        # show a permanent "finish connecting" warning that nothing could clear.
+        assert _installation_pending_oauth(self.hub) is False
+        assert _installation_needs_reauth(self.hub) is False

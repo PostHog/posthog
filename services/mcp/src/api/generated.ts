@@ -41852,6 +41852,8 @@ export namespace Schemas {
       icon_key: string;
       /** Brand domain. Empty for custom servers. */
       icon_domain: string;
+      /** The server's URL. Clients derive a brand icon from it when no icon_domain is known. */
+      url: string;
       /** Whether the credential delegated to the agent is ready to use.
        *
        * * `ready` - ready

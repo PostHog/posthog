@@ -19,6 +19,7 @@ function server(id: string, name: string, connectionState: ConnectionStateEnumAp
         description: `${name} workspace`,
         icon_key: name.toLowerCase(),
         icon_domain: `${name.toLowerCase()}.com`,
+        url: `https://mcp.${name.toLowerCase()}.com/mcp`,
         connection_state: connectionState,
     }
 }
