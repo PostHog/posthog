@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import type { LinkedAccountRoleApi, TicketLinkedAccountApi } from '../../generated/api.schemas'
+import type { LinkedAccountRelationshipApi, TicketLinkedAccountApi } from '../../generated/api.schemas'
 
 const EMPTY_VALUE = '—'
 
@@ -47,15 +47,16 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
     )
 }
 
-function RoleRow({ label, role }: { label: string; role: LinkedAccountRoleApi | null }): JSX.Element | null {
-    if (!role) {
+// Skips relationships whose assigned user was deleted — nothing useful to show for those.
+function RelationshipRow({ relationship }: { relationship: LinkedAccountRelationshipApi }): JSX.Element | null {
+    if (!relationship.user) {
         return null
     }
     return (
-        <Row label={label}>
+        <Row label={relationship.definition.name}>
             <span className="flex items-center gap-1 justify-end">
-                <ProfilePicture user={{ email: role.email }} size="sm" />
-                <span>{role.email}</span>
+                <ProfilePicture user={{ email: relationship.user.email }} size="sm" />
+                <span>{relationship.user.email}</span>
             </span>
         </Row>
     )
@@ -77,9 +78,9 @@ export function TicketAccountDetails({ account }: { account: TicketLinkedAccount
             <Row label="Name">
                 <Link to={urls.customerAnalyticsAccount(account.id)}>{account.name}</Link>
             </Row>
-            <RoleRow label="CSM" role={account.csm} />
-            <RoleRow label="Account executive" role={account.account_executive} />
-            <RoleRow label="Account owner" role={account.account_owner} />
+            {account.relationships.map((relationship) => (
+                <RelationshipRow key={relationship.definition.id} relationship={relationship} />
+            ))}
             {account.custom_properties.map((property) => (
                 <Row key={property.name} label={property.name}>
                     {formatCustomValue(property.value, property.display_type, property.is_big_number)}

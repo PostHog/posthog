@@ -109,10 +109,8 @@ class TestTicketAPI(APIBaseTest):
         )
         Ticket.objects.filter(id=ticket.id).update(organization_id="org-key-42")
         customer_analytics_facade.create_account_for_view(
-            team_id=self.team.id,
             team=self.team,
             input=customer_analytics_contracts.CreateAccountInput(name="Acme Corp", external_id="org-key-42"),
-            organization_id=self.organization.id,
             user=self.user,
             was_impersonated=False,
         )

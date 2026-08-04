@@ -39818,6 +39818,16 @@ export namespace Schemas {
     }
 
     /**
+     * A team member assigned to an account relationship (output-only).
+     */
+    export interface LinkedAccountAssignment {
+      /** PostHog user id of the assigned team member. */
+      readonly id: number;
+      /** Email of the assigned team member. */
+      readonly email: string;
+    }
+
+    /**
      * A team-defined custom property currently set on the linked account (output-only).
      */
     export interface LinkedAccountCustomProperty {
@@ -39832,13 +39842,23 @@ export namespace Schemas {
     }
 
     /**
-     * A team member assigned to a customer-analytics account role (output-only).
+     * The team-defined relationship type an assignment belongs to (output-only).
      */
-    export interface LinkedAccountRole {
-      /** PostHog user id of the assigned team member. */
-      readonly id: number;
-      /** Email of the assigned team member. */
-      readonly email: string;
+    export interface LinkedAccountRelationshipDefinition {
+      /** Unique id of the relationship type. */
+      readonly id: string;
+      /** Display name of the relationship type, e.g. 'CSM'. */
+      readonly name: string;
+    }
+
+    /**
+     * One active assignment of a user to an account relationship (output-only).
+     */
+    export interface LinkedAccountRelationship {
+      /** The relationship type this assignment belongs to. */
+      readonly definition: LinkedAccountRelationshipDefinition;
+      /** The assigned user; null when their account was deleted. */
+      readonly user: LinkedAccountAssignment | null;
     }
 
     /**
@@ -73443,12 +73463,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly external_id: string | null;
-      /** Customer success manager assigned to the account, if any. */
-      readonly csm: LinkedAccountRole | null;
-      /** Account executive assigned to the account, if any. */
-      readonly account_executive: LinkedAccountRole | null;
-      /** Account owner assigned to the account, if any. */
-      readonly account_owner: LinkedAccountRole | null;
+      /** Active relationship assignments on the account, e.g. its CSM. */
+      readonly relationships: readonly LinkedAccountRelationship[];
       /**
          * Linked Stripe customer id.
          * @nullable

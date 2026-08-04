@@ -913,13 +913,33 @@ export interface AiFeedbackRequestApi {
 }
 
 /**
- * A team member assigned to a customer-analytics account role (output-only).
+ * The team-defined relationship type an assignment belongs to (output-only).
  */
-export interface LinkedAccountRoleApi {
+export interface LinkedAccountRelationshipDefinitionApi {
+    /** Unique id of the relationship type. */
+    readonly id: string
+    /** Display name of the relationship type, e.g. 'CSM'. */
+    readonly name: string
+}
+
+/**
+ * A team member assigned to an account relationship (output-only).
+ */
+export interface LinkedAccountAssignmentApi {
     /** PostHog user id of the assigned team member. */
     readonly id: number
     /** Email of the assigned team member. */
     readonly email: string
+}
+
+/**
+ * One active assignment of a user to an account relationship (output-only).
+ */
+export interface LinkedAccountRelationshipApi {
+    /** The relationship type this assignment belongs to. */
+    readonly definition: LinkedAccountRelationshipDefinitionApi
+    /** The assigned user; null when their account was deleted. */
+    readonly user: LinkedAccountAssignmentApi | null
 }
 
 /**
@@ -950,12 +970,8 @@ export interface TicketLinkedAccountApi {
      * @nullable
      */
     readonly external_id: string | null
-    /** Customer success manager assigned to the account, if any. */
-    readonly csm: LinkedAccountRoleApi | null
-    /** Account executive assigned to the account, if any. */
-    readonly account_executive: LinkedAccountRoleApi | null
-    /** Account owner assigned to the account, if any. */
-    readonly account_owner: LinkedAccountRoleApi | null
+    /** Active relationship assignments on the account, e.g. its CSM. */
+    readonly relationships: readonly LinkedAccountRelationshipApi[]
     /**
      * Linked Stripe customer id.
      * @nullable

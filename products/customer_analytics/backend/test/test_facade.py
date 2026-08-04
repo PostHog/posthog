@@ -338,26 +338,32 @@ class TestGetAccountSummaryByExternalId(BaseTest):
             facade.get_account_summary_by_external_id(self.team.id, "missing", user_access_control=self._uac()) is None
         )
 
-    def test_bundles_roles_and_custom_property_values(self):
-        account = create_account(
-            team_id=self.team.id,
-            name="Acme Corp",
-            external_id="org-key-1",
-            _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
-            ).model_dump(mode="json"),
+    def test_bundles_relationships_and_custom_property_values(self):
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="org-key-1")
+        relationship_definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="CSM", created_by=self.user
         )
-        definition = create_custom_property_definition(
+        assert relationship_definition.id is not None
+        facade.assign_account_relationship(
+            team_id=self.team.id,
+            account_id=account.id,
+            definition_id=relationship_definition.id,
+            user_id=self.user.id,
+            created_by=self.user,
+        )
+        custom_property_definition = create_custom_property_definition(
             team_id=self.team.id, name="MRR", display_type=DisplayType.NUMBER
         )
-        facade.set_custom_property_value(self.team.id, account.id, definition.id, 1000)
+        facade.set_custom_property_value(self.team.id, account.id, custom_property_definition.id, 1000)
 
         summary = facade.get_account_summary_by_external_id(self.team.id, "org-key-1", user_access_control=self._uac())
 
         assert isinstance(summary, contracts.AccountSummary)
         assert summary.id == account.id
         assert summary.external_id == "org-key-1"
-        assert summary.properties.csm == contracts.AccountAssignment(id=self.user.id, email=self.user.email)
+        assert len(summary.relationships) == 1
+        assert summary.relationships[0].definition.name == "CSM"
+        assert summary.relationships[0].user == contracts.AccountAssignment(id=self.user.id, email=self.user.email)
         assert summary.custom_properties == [
             contracts.AccountCustomProperty(
                 name="MRR", display_type=DisplayType.NUMBER, is_big_number=False, value=1000.0

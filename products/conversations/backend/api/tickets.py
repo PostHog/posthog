@@ -352,11 +352,29 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
         return None
 
 
-class LinkedAccountRoleSerializer(serializers.Serializer):
-    """A team member assigned to a customer-analytics account role (output-only)."""
+class LinkedAccountAssignmentSerializer(serializers.Serializer):
+    """A team member assigned to an account relationship (output-only)."""
 
     id = serializers.IntegerField(read_only=True, help_text="PostHog user id of the assigned team member.")
     email = serializers.EmailField(read_only=True, help_text="Email of the assigned team member.")
+
+
+class LinkedAccountRelationshipDefinitionSerializer(serializers.Serializer):
+    """The team-defined relationship type an assignment belongs to (output-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique id of the relationship type.")
+    name = serializers.CharField(read_only=True, help_text="Display name of the relationship type, e.g. 'CSM'.")
+
+
+class LinkedAccountRelationshipSerializer(serializers.Serializer):
+    """One active assignment of a user to an account relationship (output-only)."""
+
+    definition = LinkedAccountRelationshipDefinitionSerializer(
+        read_only=True, help_text="The relationship type this assignment belongs to."
+    )
+    user = LinkedAccountAssignmentSerializer(
+        read_only=True, allow_null=True, help_text="The assigned user; null when their account was deleted."
+    )
 
 
 class LinkedAccountCustomPropertySerializer(serializers.Serializer):
@@ -386,14 +404,8 @@ class TicketLinkedAccountSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The account's external id — the org group key matching the ticket's organization_id.",
     )
-    csm = LinkedAccountRoleSerializer(
-        read_only=True, allow_null=True, help_text="Customer success manager assigned to the account, if any."
-    )
-    account_executive = LinkedAccountRoleSerializer(
-        read_only=True, allow_null=True, help_text="Account executive assigned to the account, if any."
-    )
-    account_owner = LinkedAccountRoleSerializer(
-        read_only=True, allow_null=True, help_text="Account owner assigned to the account, if any."
+    relationships = LinkedAccountRelationshipSerializer(
+        many=True, read_only=True, help_text="Active relationship assignments on the account, e.g. its CSM."
     )
     stripe_customer_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked Stripe customer id.")
     hubspot_deal_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked HubSpot deal id.")
@@ -1154,9 +1166,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 "id": summary.id,
                 "name": summary.name,
                 "external_id": summary.external_id,
-                "csm": props.csm,
-                "account_executive": props.account_executive,
-                "account_owner": props.account_owner,
+                "relationships": summary.relationships,
                 "stripe_customer_id": props.stripe_customer_id,
                 "hubspot_deal_id": props.hubspot_deal_id,
                 "billing_id": props.billing_id,

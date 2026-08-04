@@ -13,6 +13,9 @@ interface TicketCustomerPanelProps {
     personUuid?: string | null
     // Organization group key snapshotted at creation, used by the related-groups tab.
     organizationId?: string | null
+    // How organizationId was resolved ("person" or "slack_channel_account"), passed through to the
+    // related-groups tab so it can label a channel-inferred group differently from a person's.
+    organizationIdSource?: string | null
     // Whether the linked customer analytics account may be shown (feature flag + org gating done by caller).
     accountEnabled: boolean
 }
@@ -28,13 +31,16 @@ export function TicketCustomerPanel({
     ticketId,
     personUuid,
     organizationId,
+    organizationIdSource,
     accountEnabled,
 }: TicketCustomerPanelProps): JSX.Element | null {
     const { account, activeTab, panelOpen } = useValues(ticketCustomerPanelLogic({ ticketId, accountEnabled }))
     const { setActiveTab, setPanelOpen } = useActions(ticketCustomerPanelLogic({ ticketId, accountEnabled }))
 
     const accountAvailable = !!account
-    const relatedAvailable = !!personUuid
+    // Related groups can render from the person's live groups, or (with no person) just the
+    // creation-snapshot group — so it's available whenever either exists.
+    const relatedAvailable = !!(personUuid || organizationId)
 
     if (!accountAvailable && !relatedAvailable) {
         return null
@@ -89,10 +95,11 @@ export function TicketCustomerPanel({
                     <div className="LemonCollapsePanel__content border-t">
                         {showAccount && account ? (
                             <TicketAccountDetails account={account} />
-                        ) : personUuid ? (
+                        ) : relatedAvailable ? (
                             <RelatedGroupsPanel
                                 personUuid={personUuid}
                                 organizationId={organizationId}
+                                organizationIdSource={organizationIdSource}
                                 renderCollapse={false}
                             />
                         ) : null}

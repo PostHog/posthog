@@ -331,6 +331,7 @@ def get_account_summary_by_external_id(
         name=account.name,
         external_id=account.external_id,
         properties=_to_account_properties(account.properties),
+        relationships=list_account_relationships(team_id=team_id, account_id=account.id),
         custom_properties=custom_properties,
     )
 

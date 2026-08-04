@@ -150,8 +150,8 @@ class AccountCustomProperty:
 
 @dataclass(frozen=True)
 class AccountSummary:
-    """A read-only account summary: identity, role assignments and external-system identifiers
-    (``properties``), plus the account's current custom-property values.
+    """A read-only account summary: identity, external-system identifiers (``properties``),
+    active relationship assignments, and the account's current custom-property values.
 
     Backs consumers that render an account's customer-success context alongside another entity
     (e.g. the support-ticket account panel), resolved from the org group key via ``external_id``.
@@ -161,6 +161,7 @@ class AccountSummary:
     name: str
     external_id: str | None
     properties: AccountProperties
+    relationships: list[AccountRelationship] = field(default_factory=list)
     custom_properties: list[AccountCustomProperty] = field(default_factory=list)
 
 
