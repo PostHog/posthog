@@ -1059,6 +1059,36 @@ class TestClaimFencing:
         # Version 0 is the sole commit; one-per-source-file would leave version 11.
         assert temp.version() == 0
 
+    def test_rewrite_of_empty_source_writes_nothing(self, tmp_path):
+        # The post-loop drain always runs, so flush() has to tolerate an empty buffer — an empty
+        # source, or a loop that flushed exactly on the bound. Without the guard it indexes an empty
+        # list and raises instead of completing with nothing written.
+        live_uri = str(tmp_path / "live")
+        empty = pa.table(
+            {
+                "id": pa.array([], type=pa.int64()),
+                "created_at": pa.array([], type=pa.timestamp("us")),
+                PARTITION_KEY: pa.array([], type=pa.string()),
+            }
+        )
+        deltalake.write_deltalake(live_uri, empty, partition_by=PARTITION_KEY)
+
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=deltalake.DeltaTable(live_uri),
+                temp_uri=str(tmp_path / "temp"),
+                storage_options={},
+                target=target,
+                batch_size=50_000,
+                logger=logger,
+            )
+        )
+        assert rows_written == 0
+        assert resolved == target
+
     def test_rewrite_flushes_on_byte_bound_before_row_bound(self, tmp_path):
         # A row count says nothing about width once struct/list columns are flattened into JSON
         # strings, so a row-only bound lets wide rows buffer arbitrarily many bytes and OOM the

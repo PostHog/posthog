@@ -662,6 +662,34 @@ class TestRepartitionActivity:
         # The activity minted a fencing claim before starting the rewrite.
         assert schema.repartition_claim is not None
 
+    def test_stand_down_survives_a_failing_telemetry_capture(self, team):
+        # The stand-down emitters run inside except-handlers whose contract is to swallow. A raising
+        # capture must not escape: it would fail an activity that deliberately stood down, retrying
+        # work the newer claimant already owns.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_count": 4, "partition_keys": ["id"], "trigger_reason": "t"}
+        )
+
+        def _capture(event, props):
+            if event == "warehouse_repartition_skipped":
+                raise RuntimeError("analytics unavailable")
+
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(
+                repartition_table,
+                "repartition_table_in_place",
+                new=AsyncMock(side_effect=RepartitionSupersededError("claim lost")),
+            ),
+            patch.object(repartition_table, "capture_repartition_event", side_effect=_capture),
+            patch.object(repartition_table, "_still_claimant", return_value=True),
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+
     def test_schema_fetch_retries_once_on_transient_db_connection_drop(self, team):
         # The schema fetch runs on a long-lived Temporal worker thread, so a pooler-dropped
         # connection can raise OperationalError on first use. Unlike every DB read past this point,
