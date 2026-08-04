@@ -91,6 +91,17 @@ export const effectiveState = (state: HogWatcherState) => {
     return state
 }
 
+export async function readValuesAcrossSlots(pool: RedisV2, keys: string[]): Promise<(string | null)[]> {
+    const result = await pool.usePipeline({ name: 'readStatesForObserve' }, (pipeline) => {
+        keys.forEach((key) => pipeline.get(key))
+    })
+    const error = result?.find(([commandError]) => commandError)?.[0]
+    if (error) {
+        throw error
+    }
+    return result?.map(([, value]) => value) ?? []
+}
+
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
     private lazyLoader: LazyLoader<HogWatcherFunctionState>
@@ -467,22 +478,15 @@ export class HogWatcherService {
 
         // Split reads (state/lock) to the reader and writes (token bucket) to the writer.
         // These can run concurrently since the reads don't depend on the write results.
-        // Uses mget to batch all state keys and lock keys into 2 commands instead of 2N individual gets.
+        // Individual pipelined GETs preserve batching without Redis Cluster's cross-slot MGET restriction.
         const stateKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE}/${fc.functionId}`)
         const lockKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE_LOCK}/${fc.functionId}`)
 
         const readStates = async (pool: RedisV2) => {
-            const result = await pool.usePipeline({ name: 'readStatesForObserve' }, (pipeline) => {
-                stateKeys.forEach((key) => pipeline.get(key))
-                lockKeys.forEach((key) => pipeline.get(key))
-            })
-            const error = result?.find(([commandError]) => commandError)?.[0]
-            if (error) {
-                throw error
-            }
+            const values = await readValuesAcrossSlots(pool, [...stateKeys, ...lockKeys])
             return {
-                states: result?.slice(0, stateKeys.length).map(([, value]) => value) ?? [],
-                locks: result?.slice(stateKeys.length).map(([, value]) => value) ?? [],
+                states: values.slice(0, stateKeys.length),
+                locks: values.slice(stateKeys.length),
             }
         }
 
