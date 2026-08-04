@@ -109,7 +109,7 @@ UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
 # not merely a model-registry advertising filter; the registry also derives its advertising from it
 # so the two can't drift. Keys must be lowercase.
 RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
-    BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"review_hog"}),
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
@@ -128,7 +128,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "posthog_code": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
-        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | {BASETEN_DEEPSEEK_PUBLIC_MODEL} | BEDROCK_MODELS,
         allow_api_keys=False,
         # Bills as posthog_code credits (pass-through model costs, no markup) — see
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.

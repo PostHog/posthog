@@ -70,6 +70,14 @@ class TestCheckProductAccess:
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
+            (
+                "posthog_code",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
             # wizard allows API keys and OAuth with valid app ID
             ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
