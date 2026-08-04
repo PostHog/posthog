@@ -18,10 +18,10 @@ use crate::{
 
 /// Per-worker cache for event-level release resolution. Both lookups run once per exception event
 /// on the ingestion hot path, so without this a mobile app that never bound a release re-queries
-/// Postgres on every event it sends (the common negative case). A release row is immutable once
-/// the CLI creates it, so a positive hit never goes stale; caching the negative result too is what
-/// removes the per-event query, and the TTL bounds how long a miss lingers after a later dSYM
-/// upload creates the release.
+/// Postgres on every event it sends (the common negative case). The CLI never mutates a release
+/// after creating it, but the public API can update or delete one, so a positive hit can go stale;
+/// the TTL bounds that staleness, and also how long a miss lingers after a later dSYM upload
+/// creates the release. Caching the negative result too is what removes the per-event query.
 ///
 /// The two lookups key on different things — a release-row id for web builds, a reconstructed
 /// content hash for mobile builds — so they get separate caches. `try_get_with` coalesces
@@ -136,8 +136,8 @@ fn record_cache_outcome(cache_type: &'static str, cache_miss: bool) {
 ///      `$app_version`, and `$app_build`, which the CLI hashed into the release when it uploaded the
 ///      dSYMs. We reconstruct that hash and look the release up by it.
 ///
-/// When neither resolves, the event release stays unset and the pipeline falls back to the
-/// per-frame symbol-set join for legacy events.
+/// When neither resolves, the event release stays unset and `$exception_release` is omitted;
+/// there is no per-frame fallback.
 #[derive(Clone, Default)]
 pub struct EventReleaseResolver;
 

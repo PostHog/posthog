@@ -16,9 +16,12 @@ pub struct ReleaseRecord {
     pub metadata: Option<Value>,
 }
 
-// The info, as written to clickhouse at the exception level.
+// The info, as written to clickhouse at the exception level. The scalar fields are a
+// point-in-time snapshot; `id` references the release row so consumers can re-fetch the
+// current values if the release is later edited via the API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseInfo {
+    id: Uuid,
     version: String,
     project: String,
     timestamp: DateTime<Utc>,
@@ -73,6 +76,7 @@ impl ReleaseRecord {
 
     pub fn to_info(&self) -> ReleaseInfo {
         ReleaseInfo {
+            id: self.id,
             project: self.project.clone(),
             version: self.version.clone(),
             timestamp: self.created_at,
