@@ -362,29 +362,6 @@ function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
-function parseJSONOrNull(text: string): any {
-    try {
-        return JSON.parse(text)
-    } catch {
-        return null
-    }
-}
-
-async function parseErrorResponse(response: Response): Promise<{ message: string; data: any }> {
-    const statusMessage = `HTTP ${response.status}`
-    const text = await response.text().catch(() => '')
-
-    if (!text) {
-        return { message: statusMessage, data: null }
-    }
-
-    const data = parseJSONOrNull(text)
-    const serverMessage = data?.detail || data?.error || data?.message
-    const detail = typeof serverMessage === 'string' ? serverMessage : text
-
-    return { message: `${statusMessage}: ${detail}`, data }
-}
-
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
@@ -398,6 +375,32 @@ export async function getJSONOrNull(response: Response): Promise<any> {
         }
         return null
     }
+}
+
+async function getApiErrorFromResponse(response: Response, method: string, url: string): Promise<ApiError> {
+    const data = await getJSONOrNull(response)
+
+    if (response.status >= 400 && data) {
+        if (typeof data.error === 'string') {
+            return new ApiError(data.error, response.status, response.headers, data)
+        }
+
+        if (typeof data.detail === 'string') {
+            return new ApiError(data.detail, response.status, response.headers, data)
+        }
+
+        if (typeof data.message === 'string') {
+            return new ApiError(data.message, response.status, response.headers, data)
+        }
+    }
+
+    const pathname = new URL(url, location.origin).pathname
+    return new ApiError(
+        `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
+        response.status,
+        response.headers,
+        data
+    )
 }
 
 /**
@@ -3573,8 +3576,7 @@ const api = {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
                     if (!response.ok) {
-                        const { message, data } = await parseErrorResponse(response)
-                        const error = new ApiError(message, response.status, response.headers, data)
+                        const error = await getApiErrorFromResponse(response, 'GET', url)
                         onError(error)
                         abortController.abort()
                         return
@@ -7620,28 +7622,7 @@ async function handleFetch(
             }
         }
 
-        const data = await getJSONOrNull(response)
-
-        if (response.status >= 400 && data) {
-            if (typeof data.error === 'string') {
-                throw new ApiError(data.error, response.status, response.headers, data)
-            }
-
-            if (typeof data.detail === 'string') {
-                throw new ApiError(data.detail, response.status, response.headers, data)
-            }
-
-            if (typeof data.message === 'string') {
-                throw new ApiError(data.message, response.status, response.headers, data)
-            }
-        }
-
-        throw new ApiError(
-            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
-            response.status,
-            response.headers,
-            data
-        )
+        throw await getApiErrorFromResponse(response, method, url)
     }
 
     return response

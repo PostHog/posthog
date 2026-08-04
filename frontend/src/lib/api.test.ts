@@ -83,13 +83,10 @@ describe('API helper', () => {
             await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
             expect(fetchEventSourceSpy).toHaveBeenCalledTimes(1)
 
-            const response = {
-                ok: false,
+            const response = new Response(JSON.stringify(body), {
                 status,
-                headers: new Headers({ 'Content-Type': 'application/json' }),
-                clone: () => ({ status }),
-                text: () => Promise.resolve(JSON.stringify(body)),
-            } as Response
+                headers: { 'Content-Type': 'application/json' },
+            })
             await fetchEventSourceSpy.mock.calls[0][1].onopen?.(response)
 
             expect(onApiResponse).toHaveBeenCalledTimes(1)
