@@ -216,6 +216,7 @@ rules:
                               |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
+                              |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
@@ -555,6 +556,7 @@ rules:
                         |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
+                        |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference

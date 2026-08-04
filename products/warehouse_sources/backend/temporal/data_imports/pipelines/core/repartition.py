@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import math
+import time
 import asyncio
 import dataclasses
 from collections import defaultdict
@@ -29,6 +30,8 @@ import deltalake as deltalake
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.common.utils import retry_on_db_connection_drop
+
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -36,11 +39,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_column_name,
     realign_decimal_buffers,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import DEFAULT_MAX_TABLE_BYTES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import _purge_s3_prefix
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -48,9 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 # Coarse → fine. A datetime table that's OOMing steps one tier finer each repartition cycle.
 DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
@@ -58,11 +61,41 @@ DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
 # Rows per streamed record-batch. Bounds the repartition's peak memory independent of partition size.
 DEFAULT_REPARTITION_BATCH_SIZE = 50_000
 
+# Minimum gap between claim re-reads during the rewrite loop. The loop yields at least one batch per
+# source *file*, so an over-fragmented table (the exact kind being repartitioned) produces one batch
+# per partition regardless of `DEFAULT_REPARTITION_BATCH_SIZE` — a few thousand rows spread over a few
+# thousand hour-partitions is a few thousand batches. Re-reading the claim on every one turns a small
+# rewrite into thousands of Postgres round-trips, and any single failure discards the whole rewrite.
+# Throttling is safe because the rewrite writes only to a temp table scoped to our own claim token
+# (`_temp_uri_for`), so a superseded writer cannot reach a newer attempt's rebuild no matter how long
+# it keeps going; the claim's real teeth are the unthrottled checks around the destructive swap steps.
+# 0 disables the throttle (check every batch).
+CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
+
+# Arrow payload the rewrite may hold in its coalescing buffer. Half the package's per-table cap
+# deliberately: the batch that triggers a flush is already materialised and stays resident while the
+# buffer drains, so the true peak is buffer + one incoming batch. Budgeting half keeps that sum inside
+# one `DEFAULT_MAX_TABLE_BYTES` instead of letting it reach twice the cap. Coalescing loses nothing
+# that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
+REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
+
 TEMP_URI_SUFFIX = "__repartitioned"
 
 
 class RepartitionUnpartitionableError(Exception):
     """The table has no column suitable for partitioning — repartition is skipped, not retried."""
+
+
+class RepartitionBudgetExceededError(Exception):
+    """The rewrite ran out of activity budget before it finished streaming the table.
+
+    Raised by the rewrite loop on reaching the deadline derived from the activity's
+    `start_to_close_timeout`. It exists so the activity observes its own budget exhaustion instead of
+    being killed by Temporal, which records nothing: the killed attempt keeps running as a zombie
+    until a claim check makes it stand down, standing down burns no attempt, so
+    `MAX_REPARTITION_ATTEMPTS` is never reached and the table re-enters the rewrite ahead of every
+    later sync forever. A table whose rewrite cannot fit in one activity needs to be told so.
+    """
 
 
 class RepartitionSupersededError(Exception):
@@ -170,7 +203,10 @@ def _temp_uri_for(live_uri: str, claim_token: str | None) -> str:
 
 
 def _current_claim_token(schema: ExternalDataSchema) -> str | None:
-    schema.refresh_from_db(fields=["sync_type_config"])
+    # Retry a dropped pooled connection: this read runs repeatedly across a rewrite that can span tens
+    # of minutes, and pgbouncer recycling one connection under it would otherwise discard all of that
+    # work — the read failing tells us nothing about whether we still hold the claim.
+    retry_on_db_connection_drop(lambda: schema.refresh_from_db(fields=["sync_type_config"]))
     claim = schema.repartition_claim
     return claim.get("token") if claim else None
 
@@ -377,13 +413,19 @@ async def _rewrite_into_temp(
     batch_size: int,
     logger: FilteringBoundLogger,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
+    claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
+    deadline: float | None = None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a fresh temp table under the new partition scheme.
 
     Returns (rows_written, resolved_target). The first batch resolves any auto-detected mode/format/
     keys so every subsequent batch is bucketed identically (a per-batch auto-detect could disagree).
-    `ensure_claim` runs before every batch write so a superseded attempt stops within one batch
-    instead of appending into (and corrupting) the newer attempt's rebuild.
+    `ensure_claim` runs before the first batch and then at most once per
+    `claim_recheck_interval_seconds`, so a superseded attempt stops within that window rather than
+    paying a database round-trip per batch (see `CLAIM_RECHECK_INTERVAL_SECONDS`).
+
+    `deadline` is a `time.monotonic()` value past which the rewrite gives up with
+    `RepartitionBudgetExceededError` rather than run until Temporal kills it. None runs unbounded.
     """
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
@@ -392,12 +434,51 @@ async def _rewrite_into_temp(
     resolved: RepartitionTarget | None = None
     rows_written = 0
 
+    buffered: list[pa.Table] = []
+    buffered_rows = 0
+    buffered_bytes = 0
+
+    async def flush() -> int:
+        """Write the buffered batches as one Delta commit and return the rows written."""
+        nonlocal buffered, buffered_rows, buffered_bytes
+        if not buffered:
+            return 0
+        # Every buffered table was already aligned to `live_schema`, so they concat without promotion.
+        combined = buffered[0] if len(buffered) == 1 else pa.concat_tables(buffered)
+        buffered = []
+        buffered_rows = 0
+        buffered_bytes = 0
+        await asyncio.to_thread(
+            deltalake.write_deltalake,
+            temp_uri,
+            combined,
+            partition_by=PARTITION_KEY,
+            mode="append",
+            schema_mode="merge",
+            storage_options=storage_options,
+        )
+        return combined.num_rows
+
+    last_claim_check: float | None = None
+
     while True:
         if ensure_claim is not None:
-            await ensure_claim()
+            now = time.monotonic()
+            if last_claim_check is None or now - last_claim_check >= claim_recheck_interval_seconds:
+                await ensure_claim()
+                last_claim_check = now
         batch = await asyncio.to_thread(_read_next_batch, reader)
         if batch is None:
             break
+        # Deliberately after the read, so exhausting the reader always beats the deadline. Checking
+        # first would let a rewrite that has already copied every row be discarded and charged an
+        # attempt because it happened to cross the deadline on the iteration that would have hit
+        # EOF, which is likeliest for a table whose rewrite lands near the budget: exactly the ones
+        # this deadline exists to rescue.
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RepartitionBudgetExceededError(
+                f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}"
+            )
 
         table = pa.Table.from_batches([batch])
         if table.num_rows == 0:
@@ -439,16 +520,23 @@ async def _rewrite_into_temp(
         partitioned_table = evolve_pyarrow_schema(partitioned_table, live_schema)
         partitioned_table = realign_decimal_buffers(partitioned_table)
 
-        await asyncio.to_thread(
-            deltalake.write_deltalake,
-            temp_uri,
-            partitioned_table,
-            partition_by=PARTITION_KEY,
-            mode="append",
-            schema_mode="merge",
-            storage_options=storage_options,
-        )
-        rows_written += partitioned_table.num_rows
+        # Coalesce before writing, so commits scale with data size rather than source file count
+        # (see `CLAIM_RECHECK_INTERVAL_SECONDS`). Bound the buffer by bytes as well as rows: a row
+        # count says nothing about width once `evolve_pyarrow_schema` has flattened struct and list
+        # columns into JSON strings. Flush *before* appending whatever would overflow, never after,
+        # or a nearly-full buffer could still take a further full-sized batch. Peak residency is this
+        # buffer plus the batch in hand, which `REWRITE_BUFFER_MAX_BYTES` budgets for.
+        table_bytes = table_payload_bytes(partitioned_table)
+        if buffered and (
+            buffered_rows + partitioned_table.num_rows > batch_size
+            or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
+        ):
+            rows_written += await flush()
+        buffered.append(partitioned_table)
+        buffered_rows += partitioned_table.num_rows
+        buffered_bytes += table_bytes
+
+    rows_written += await flush()
 
     if resolved is None:
         # Empty source table — nothing to rewrite.
@@ -457,13 +545,14 @@ async def _rewrite_into_temp(
 
 
 async def repartition_table_in_place(
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     logger: FilteringBoundLogger,
     *,
     batch_size: int = DEFAULT_REPARTITION_BATCH_SIZE,
     claim_token: str | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
@@ -473,11 +562,16 @@ async def repartition_table_in_place(
     observability. Raises `RepartitionUnpartitionableError` (terminal) if no partition mode applies.
 
     `claim_token` fences out zombie attempts: the temp table is scoped to the token so concurrent
-    writers can never share one, and the claim is re-checked before every batch write and every
-    destructive step (raising `RepartitionSupersededError` when a newer attempt has taken over).
+    writers can never share one, and the claim is re-checked before every destructive step — and,
+    during the rewrite, at most once per `CLAIM_RECHECK_INTERVAL_SECONDS` (raising
+    `RepartitionSupersededError` when a newer attempt has taken over).
+
+    `deadline` (a `time.monotonic()` value) bounds the rewrite phase only. The swap that follows
+    needs no bound of its own: it records `repartition_swap` before touching live, so a swap cut
+    short by the activity timeout resumes from the intact temp table on a later run.
     """
-    live_uri = await helper.get_table_uri()
-    storage_options = helper.get_storage_options()
+    live_uri = await table_ref.get_table_uri()
+    storage_options = table_ref.get_storage_options()
 
     async def ensure_claim() -> None:
         await _ensure_claim(schema, claim_token)
@@ -493,7 +587,7 @@ async def repartition_table_in_place(
     await ensure_claim()
 
     try:
-        old_delta = await helper.get_delta_table()
+        old_delta = await table_ref.get_delta_table()
     except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
         # Live's `_delta_log` is unreadable (an OOM-crashed merge or interrupted swap). If a swap was
         # already staged we can still recover from temp below; otherwise skip and let the import
@@ -514,7 +608,7 @@ async def repartition_table_in_place(
         # this same early return) and let the next sync bootstrap an empty table over the lost data.
         if resuming:
             return await _resume_swap_with_missing_live(
-                helper=helper,
+                table_ref=table_ref,
                 schema=schema,
                 target=target,
                 temp_uri=temp_uri,
@@ -572,8 +666,9 @@ async def repartition_table_in_place(
                 batch_size=batch_size,
                 logger=logger,
                 ensure_claim=ensure_claim,
+                deadline=deadline,
             )
-        except (RepartitionSupersededError, RepartitionUnpartitionableError):
+        except (RepartitionSupersededError, RepartitionUnpartitionableError, RepartitionBudgetExceededError):
             raise
         except Exception as e:
             missing_path = _missing_live_object_path(e, live_uri)
@@ -641,7 +736,7 @@ async def repartition_table_in_place(
     await asyncio.to_thread(schema.stamp_last_repartition_at)
 
     # The cached delta-table object points at the pre-swap files; drop it so callers re-read live.
-    helper.get_delta_table.cache_clear()
+    table_ref.get_delta_table.cache_clear()
 
     await logger.ainfo(
         f"repartition: completed schema_id={schema.id} rows={rows_written} "
@@ -675,7 +770,7 @@ async def repartition_table_in_place(
 
 async def _resume_swap_with_missing_live(
     *,
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     temp_uri: str,
@@ -726,7 +821,7 @@ async def _resume_swap_with_missing_live(
     await asyncio.to_thread(schema.clear_repartition_swap)
     await asyncio.to_thread(schema.clear_repartition_pending)
     await asyncio.to_thread(schema.stamp_last_repartition_at)
-    helper.get_delta_table.cache_clear()
+    table_ref.get_delta_table.cache_clear()
 
     await logger.ainfo(
         f"repartition: recovered from interrupted swap schema_id={schema.id} rows={expected_rows}",

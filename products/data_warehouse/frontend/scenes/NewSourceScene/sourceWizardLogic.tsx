@@ -1490,6 +1490,7 @@ export interface sourceWizardLogicActions {
             | 'QuickBooks'
             | 'Railway'
             | 'Railz'
+            | 'Raisely'
             | 'Raken'
             | 'Ramp'
             | 'Rapid7Insightvm'
@@ -1785,6 +1786,8 @@ export interface sourceWizardLogicActions {
             | 'Whop'
             | 'WikipediaPageviews'
             | 'Windmill'
+            | 'WindsorAi'
+            | 'Wix'
             | 'Wiz'
             | 'Wompi'
             | 'WooCommerce'
@@ -3051,19 +3054,24 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(false)
         },
         onSubmit: () => {
-            // Shared function that triggers different actions depending on the current step
-            if (values.currentStep === 1) {
+            // Shared function that triggers different actions depending on the current step.
+            // Snapshot the step once: some branches below (e.g. step 4) dispatch actions that
+            // synchronously advance `currentStep`, and re-reading `values.currentStep` after that
+            // would let this same call fall through into the next step's branch too.
+            const step = values.currentStep
+
+            if (step === 1) {
                 return
             }
 
-            if (values.currentStep === 2 && values.selectedConnector?.name) {
+            if (step === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
-            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
+            } else if (step === 2 && values.isManualLinkFormVisible) {
                 selfManagedSourceLogic.actions.submitTable()
                 posthog.capture('source created', { sourceType: 'Manual' })
             }
 
-            if (values.currentStep === 3 && values.selectedConnector?.name) {
+            if (step === 3 && values.selectedConnector?.name) {
                 if (values.isDirectQueryMode) {
                     actions.updateSource({
                         payload: {
@@ -3242,7 +3250,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
 
-            if (values.currentStep === 4) {
+            if (step === 4) {
                 if (webhookResultHasNoPendingInputs(values.webhookResult)) {
                     actions.onNext()
                 } else {
@@ -3250,9 +3258,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     // (validates, then triggers submitWebhookFields)
                     actions.submitWebhookFieldInputs()
                 }
-            }
-
-            if (values.currentStep === 5) {
+            } else if (step === 5) {
                 if (props.onComplete) {
                     props.onComplete()
                 } else {
@@ -3364,7 +3370,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             }
 
-            actions.onNext()
+            // Only advance from the webhook step — guards against a stray double submission
+            // (e.g. the form's own Save button plus the wizard's Next button) re-firing this and
+            // pushing `currentStep` past the last real step.
+            if (values.currentStep === 4) {
+                actions.onNext()
+            }
         },
         handleRedirect: async ({ source }) => {
             // By default, we assume the source is a valid external data source

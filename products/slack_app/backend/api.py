@@ -62,7 +62,6 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
-    is_slack_app_queue_workflow_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
@@ -1591,27 +1590,35 @@ _ASSISTANT_MEMBER_JOIN_WELCOME = (
 )
 
 
-def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
-    """(slack_user_id, dm_channel_id, thread_ts, viewed_channel_id) for assistant events.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class AssistantEventFields:
+    slack_user_id: str
+    dm_channel_id: str | None
+    thread_ts: str | None
+    viewed_channel_id: str | None
+
+
+def _assistant_event_fields(event: dict) -> AssistantEventFields:
+    """Extract the assistant-surface fields for assistant events.
 
     For `message` events the fields live at the top level; for `assistant_thread_*` events
     they live under `assistant_thread` (with the viewed channel under `context`).
     """
     if event.get("type") == "message":
         ts = event.get("thread_ts") or event.get("ts")
-        return (
-            str(event.get("user") or ""),
-            event.get("channel") if isinstance(event.get("channel"), str) else None,
-            ts if isinstance(ts, str) else None,
-            None,
+        return AssistantEventFields(
+            slack_user_id=str(event.get("user") or ""),
+            dm_channel_id=event.get("channel") if isinstance(event.get("channel"), str) else None,
+            thread_ts=ts if isinstance(ts, str) else None,
+            viewed_channel_id=None,
         )
     thread = event.get("assistant_thread") or {}
     ctx = thread.get("context") or {}
-    return (
-        str(thread.get("user_id") or ""),
-        thread.get("channel_id") if isinstance(thread.get("channel_id"), str) else None,
-        thread.get("thread_ts") if isinstance(thread.get("thread_ts"), str) else None,
-        ctx.get("channel_id") if isinstance(ctx.get("channel_id"), str) else None,
+    return AssistantEventFields(
+        slack_user_id=str(thread.get("user_id") or ""),
+        dm_channel_id=thread.get("channel_id") if isinstance(thread.get("channel_id"), str) else None,
+        thread_ts=thread.get("thread_ts") if isinstance(thread.get("thread_ts"), str) else None,
+        viewed_channel_id=ctx.get("channel_id") if isinstance(ctx.get("channel_id"), str) else None,
     )
 
 
@@ -1716,7 +1723,7 @@ def _route_assistant_event(
 ) -> str:
     """Route DM / agent-container events through the same region + project resolution as mentions."""
     event_type = event.get("type")
-    slack_user_id, channel_id, thread_ts, ctx_channel = _assistant_event_fields(event)
+    fields = _assistant_event_fields(event)
 
     # Only first-party human DMs proceed — ignore channel messages, bot echoes, and edits.
     if event_type == "message" and (
@@ -1726,16 +1733,16 @@ def _route_assistant_event(
         or not str(event.get("text") or "").strip()
     ):
         return ROUTE_HANDLED_LOCALLY
-    if not (slack_user_id and channel_id and thread_ts):
+    if not (fields.slack_user_id and fields.dm_channel_id and fields.thread_ts):
         return ROUTE_HANDLED_LOCALLY
 
     result = load_integrations(
         slack_team_id=slack_team_id,
         kinds=[SLACK_INTEGRATION_KIND],
-        slack_user_id=slack_user_id,
+        slack_user_id=fields.slack_user_id,
         user=None,
-        channel=channel_id,
-        thread_ts=thread_ts,
+        channel=fields.dm_channel_id,
+        thread_ts=fields.thread_ts,
     )
     region_route = resolve_region_or_terminal_route(
         request,
@@ -1761,20 +1768,20 @@ def _route_assistant_event(
     resolution = resolve_user_for_workspace(
         workspace_result=result,
         slack_team_id=slack_team_id,
-        slack_user_id=slack_user_id,
+        slack_user_id=fields.slack_user_id,
         event_id=event_id,
     )
     if resolution.user is None:
         # Flag is on but the Slack user isn't a resolvable org member — tell them why (DMs only).
         if event_type == "message":
-            _post_assistant_unavailable(SlackIntegration(probe), channel_id, thread_ts)
+            _post_assistant_unavailable(SlackIntegration(probe), fields.dm_channel_id, fields.thread_ts)
         return ROUTE_HANDLED_LOCALLY
     posthog_user = resolution.user
 
     if event_type == "assistant_thread_started":
-        return _handle_assistant_thread_started(SlackIntegration(probe), channel_id, thread_ts)
+        return _handle_assistant_thread_started(SlackIntegration(probe), fields.dm_channel_id, fields.thread_ts)
     if event_type == "assistant_thread_context_changed":
-        _store_assistant_channel_context(probe.id, channel_id, thread_ts, ctx_channel)
+        _store_assistant_channel_context(probe.id, fields.dm_channel_id, fields.thread_ts, fields.viewed_channel_id)
         return ROUTE_HANDLED_LOCALLY
 
     # message.im — run the agent against the user's accessible default project, else ask them to pick.
@@ -1784,7 +1791,13 @@ def _route_assistant_event(
         _post_pick_a_project_hint(SlackIntegration(accessible[0]), accessible, event)
         return ROUTE_HANDLED_LOCALLY
     return _handle_assistant_dm_message(
-        event, mention_target, slack_team_id, event_id, channel_id, thread_ts, posthog_user=posthog_user
+        event,
+        mention_target,
+        slack_team_id,
+        event_id,
+        fields.dm_channel_id,
+        fields.thread_ts,
+        posthog_user=posthog_user,
     )
 
 
@@ -2817,10 +2830,9 @@ def _start_mention_workflow(
         untagged_followup=untagged_followup,
         is_ext_shared_channel=is_ext_shared_channel,
     )
-    # Deriving the ID is free, the flag evaluation is remote — check in that
-    # order. Events without channel/ts fall back to the per-message workflow.
+    # Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
-    if queue_workflow_id is not None and is_slack_app_queue_workflow_enabled(integration, slack_team_id):
+    if queue_workflow_id is not None:
         _start_posthog_code_workflow(
             SlackAppMentionWorkflow,
             SlackAppMentionWorkflowInputs(),

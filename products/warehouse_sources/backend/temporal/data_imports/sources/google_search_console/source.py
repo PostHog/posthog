@@ -16,6 +16,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
     IntegrationAccountListingError,
@@ -37,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     suggest_registered_site,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    PROPERTY_SCHEMAS,
     SEARCH_ANALYTICS_INCREMENTAL_FIELD,
     SEARCH_ANALYTICS_SCHEMAS,
 )
@@ -144,12 +148,31 @@ class GoogleSearchConsoleSource(
             )
             for name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
         ]
+        # Property metadata is a full snapshot each sync: both endpoints return the current
+        # state with no timestamp to filter on, so there is nothing to sync incrementally.
+        schemas += [
+            SourceSchema(
+                name=name,
+                supports_incremental=False,
+                supports_append=False,
+                description=property_schema["description"],
+                should_sync_default=property_schema["should_sync_default"],
+            )
+            for name, property_schema in PROPERTY_SCHEMAS.items()
+        ]
 
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs

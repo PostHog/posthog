@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cache, cached_property
@@ -517,6 +517,7 @@ class UserAccessControl:
         self._user = user
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
+        self._sibling_team_access_controls: dict[int, UserAccessControl] = {}
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
@@ -532,6 +533,43 @@ class UserAccessControl:
         self.__dict__.pop("blocked_resources", None)
         self.__dict__.pop("_organization_membership", None)
         self.__dict__.pop("_user_role_ids", None)
+        # Dropped rather than cleared through: each sibling carries its own preloaded rows, and
+        # some were primed from the caches being cleared here
+        self._sibling_team_access_controls = {}
+
+    def for_team_ids(self, team_ids: Iterable[int]) -> dict[int, "UserAccessControl"]:
+        """This user's access control for each of the given teams, memoized on this instance.
+
+        An instance only ever answers for the single team it was built with, and preloads that
+        team's rows on first use. Resolving objects across several teams therefore needs one
+        instance per team, and a request can reach that more than once (the file system tree
+        spans every environment in a project and resolves access on both its filter and its
+        serializer pass). Memoizing means the second pass reuses the first pass's instances,
+        including their preloaded rows, instead of rebuilding and re-querying them.
+        """
+        by_team: dict[int, UserAccessControl] = {}
+        missing: set[int] = set()
+        for team_id in team_ids:
+            if self._team is not None and team_id == self._team.id:
+                by_team[team_id] = self
+            elif team_id in self._sibling_team_access_controls:
+                by_team[team_id] = self._sibling_team_access_controls[team_id]
+            else:
+                missing.add(team_id)
+
+        if missing:
+            for team in Team.objects.filter(id__in=missing):
+                sibling = UserAccessControl(self._user, team=team)
+                if sibling._organization_id == self._organization_id:
+                    # Org membership and role ids don't vary by team, so seed them from this
+                    # instance rather than letting each sibling re-query them. Written straight
+                    # into __dict__ because that is where cached_property stores its value.
+                    sibling.__dict__["_organization_membership"] = self._organization_membership
+                    sibling.__dict__["_user_role_ids"] = self._user_role_ids
+                self._sibling_team_access_controls[team.id] = sibling
+                by_team[team.id] = sibling
+
+        return by_team
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
@@ -586,6 +624,13 @@ class UserAccessControl:
         need it: warehouse/system table ACL is honored only when a real user reaches the database build
         (a userless build fails closed), so forwarding just the access control isn't enough."""
         return self._user
+
+    @property
+    def team(self) -> Optional[Team]:
+        """The team this instance's checks are scoped to. Callers resolving access for objects
+        that may live outside this team (e.g. a cross-environment listing) need it to tell
+        whether they can reuse this instance or must build one scoped to the object's own team."""
+        return self._team
 
     @property
     def rbac_supported(self) -> bool:
@@ -1221,6 +1266,20 @@ class UserAccessControl:
         return bool(level and level != NO_ACCESS_LEVEL)
 
     @cached_property
+    def has_project_access(self) -> bool:
+        """Whether the user has any access to this instance's own team at the project level.
+
+        Resource and object rules only answer what the user may do with a kind of thing inside a
+        team, and fall back to `default_access_level` for a team that has no rules of its own. On
+        their own they will therefore grant editor in a team the user was explicitly denied, so
+        anything resolving access across several teams has to consult this separately.
+        """
+        if self._team is None:
+            return True
+        level = self.access_level_for_object(self._team, "project")
+        return bool(level and level != NO_ACCESS_LEVEL)
+
+    @cached_property
     def blocked_resources(self) -> list[str]:
         """Sorted list of resources the user has no access to at the resource level."""
         if self.is_organization_admin:
@@ -1228,10 +1287,52 @@ class UserAccessControl:
         candidate_resources = {ac.resource for ac in self._cached_access_controls if ac.resource_id is None}
         return sorted(resource for resource in candidate_resources if not self.has_resource_access(resource))
 
-    def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
+    def object_ids_matching(
+        self, resources: Sequence[APIScopeObject], predicate: Callable[[_AccessControl], bool]
+    ) -> dict[str, set[str]]:
+        """Object ids whose access control rows satisfy `predicate`, per resource.
+
+        Considers the same rows the queryset filters consider: every row applicable to this user
+        for the resource, whether it came from the team default, their membership, or a role.
+        Rows without a `resource_id` are resource-level rather than object-level and are skipped.
+
+        `predicate` decides per row, so a resource appears in the result when *any* of its rows
+        matches. Callers wanting a rule that depends on the whole set for an object (for example
+        "explicit rules win over defaults") want `_blocked_and_allowed_object_ids` instead.
+        """
+        matched: dict[str, set[str]] = {}
+        for resource in resources:
+            object_ids = {
+                access_control.resource_id
+                for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource))
+                if access_control.resource_id and predicate(access_control)
+            }
+            if object_ids:
+                matched[resource] = object_ids
+        return matched
+
+    def none_denied_object_ids(self, resources: Sequence[APIScopeObject]) -> dict[str, set[str]]:
+        """Object ids the user has a 'none' grant on, per resource.
+
+        Mirrors the row matching `filter_and_annotate_file_system_queryset` does in SQL: any
+        applicable row (team default, member, or role) at level 'none' denies the object. Kept as
+        a named method rather than a predicate at the call site so the tree filter's two halves,
+        this one and its SQL counterpart, can't drift onto different rules.
+        """
+        return self.object_ids_matching(resources, lambda ac: ac.access_level == NO_ACCESS_LEVEL)
+
+    def filter_and_annotate_file_system_queryset(
+        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None
+    ) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
         and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
+
+        `extra_denied_refs` maps a (file system type, team_id) pair to refs denied by a grant this
+        queryset's own `ref`-to-`resource_id` comparison can't see, because the ref isn't the
+        object's primary key. Keyed by team_id, like the rest of this method, because the queryset
+        can span every environment in a project - a denial made in one team must not hide a
+        same-valued ref that happens to belong to a different team.
         """
         user = self._user
 
@@ -1298,7 +1399,12 @@ class UserAccessControl:
 
         # 4) Exclude items that are "none" if the user is not the creator,
         #    not a project admin, and not an org-admin/staff (already handled in step #1).
-        queryset = queryset.exclude(Q(effective_access_level="none") & Q(is_project_admin=False) & ~Q(created_by=user))
+        denied = Q(effective_access_level="none")
+        for (entry_type, team_id), refs in (extra_denied_refs or {}).items():
+            if refs:
+                denied |= Q(team_id=team_id, type=entry_type, ref__in=refs)
+
+        queryset = queryset.exclude(denied & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset
 

@@ -195,6 +195,9 @@ export interface inboxFiltersLogicActions {
     clearFilters: () => {
         value: true
     }
+    clearScoutFilter: () => {
+        value: true
+    }
     loadAvailableReviewers: ({ query }?: { query?: string }) => {
         query?: string
     }
@@ -300,6 +303,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
         toggleSourceProduct: (source: string) => ({ source }),
         toggleScout: (scout: string) => ({ scout }),
+        clearScoutFilter: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
         // is restored in one action — one list refresh, no fan-out race between partial states.
@@ -350,6 +354,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setSort: () => captureQueryChange('sort'),
             toggleSourceProduct: () => captureQueryChange('source_product'),
             toggleScout: () => captureQueryChange('scout'),
+            clearScoutFilter: () => captureQueryChange('scout'),
             togglePriority: () => captureQueryChange('priority'),
             clearFilters: () => captureQueryChange('clear'),
             setFilters: () => captureQueryChange('url'),
@@ -426,6 +431,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 toggleScout: (state, { scout }) =>
                     state.includes(scout) ? state.filter((s) => s !== scout) : [...state, scout],
+                clearScoutFilter: () => [],
                 setFilters: (_, { filters }) => filters.scoutFilter,
                 clearFilters: () => [],
             },
@@ -471,6 +477,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setSort: toUrl,
             toggleSourceProduct: toUrl,
             toggleScout: toUrl,
+            clearScoutFilter: toUrl,
             togglePriority: toUrl,
             setSearchQuery: toUrl,
             clearFilters: toUrl,

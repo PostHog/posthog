@@ -2324,13 +2324,13 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ),
         model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
             .describe(
-                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             )
             .optional()
             .describe(
-                'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                'Reasoning effort to request for models that expose an effort control.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
         context_window: zod
             .enum(['200k', '1m'])

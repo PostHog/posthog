@@ -6,6 +6,7 @@ from typing import Final
 
 from fastapi import HTTPException
 
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
 from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
 
@@ -103,6 +104,15 @@ UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Models reserved for specific products must stay restricted even when a product otherwise allows
+# every model (`allowed_models=None`). This is an authorization boundary, not merely a
+# model-registry advertising filter; the registry also derives its advertising from it so the two
+# can't drift. Keys must be lowercase.
+RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
+    # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+}
+
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
         allowed_application_ids=None,
@@ -119,7 +129,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "posthog_code": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
-        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | {BASETEN_DEEPSEEK_PUBLIC_MODEL} | BEDROCK_MODELS,
         allow_api_keys=False,
         # Bills as posthog_code credits (pass-through model costs, no markup) — see
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
@@ -147,6 +157,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                # ReviewHog sandbox runs route here (no review_hog entry in the agent's
+                # origin→product map), so its reviewer-experiment arms must be allowed.
+                "gpt-5.6-sol",
             }
             | BEDROCK_MODELS
         ),
@@ -247,10 +260,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
         # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
-        # GLM 5.2 (evaluated as reviewer).
+        # GLM 5.2 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
                 "@cf/zai-org/glm-5.2",
+                "deepseek-ai/deepseek-v4-flash-0731",
                 "claude-sonnet-5",
                 "claude-opus-4-8",
                 "claude-opus-5",
@@ -310,6 +324,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,  # any model
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
+    ),
+    "web_analytics": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=None,
     ),
     # changelog-bot. Exact-pinned to these two ids (the agent sends "openai/"-prefixed).
     "changelog_bot": ProductConfig(
@@ -440,6 +460,12 @@ def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
     return [m for m in model_ids if _model_matches_product_allowlist(m, free_models, settings=settings)]
 
 
+def is_model_restricted_for_product(model: str, product: str) -> bool:
+    """Whether `model` is reserved for other products — see RESTRICTED_MODEL_PRODUCTS."""
+    allowed_products = RESTRICTED_MODEL_PRODUCTS.get(model.lower())
+    return allowed_products is not None and resolve_product_alias(product) not in allowed_products
+
+
 def check_product_access(
     product: str,
     auth_method: str,
@@ -484,6 +510,9 @@ def check_product_access(
         and (settings.posthog_code_model_gate_enabled or resolved_product in UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS)
     ):
         return False, f"Product '{product}' requires a server-minted credential"
+
+    if model and is_model_restricted_for_product(model, resolved_product):
+        return False, f"Model '{model}' not allowed for product '{product}'"
 
     if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(

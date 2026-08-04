@@ -20,6 +20,11 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.actions.backend.models.action import Action
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -158,6 +163,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         at: datetime = datetime(2026, 1, 9, 10, 0, 0, tzinfo=UTC),
         with_recording: bool = True,
         flag_key: str = "checkout-cta",
+        exposure_event: str = "$feature_flag_called",
         distinct_id: str = "user1",
         properties: Optional[dict[str, Any]] = None,
     ) -> str:
@@ -178,7 +184,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         if variant is not None:
             _create_event(
                 team=self.team,
-                event="$feature_flag_called",
+                event=exposure_event,
                 distinct_id=distinct_id,
                 timestamp=at,
                 properties={
@@ -200,7 +206,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         # captured with a $session_id here must leave the same trace they would in production.
         ingested = {event for event, _ in events or []}
         if variant is not None:
-            ingested.add("$feature_flag_called")
+            ingested.add(exposure_event)
         for event_name in ingested:
             EventProperty.objects.get_or_create(
                 team=self.team, project_id=self.team.project_id, event=event_name, property="$session_id"
@@ -494,6 +500,92 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         # Custom criteria carry semantics a flag-value filter can't stand in for: the population
         # must not widen to "the flag was active".
         assert purchased not in str(response.json())
+
+    @parameterized.expand(
+        [
+            # (name, rollout flag enabled, experiment start offset from the cutoff, expected event)
+            ("after_cutoff", True, 7, EXPERIMENT_EXPOSURE_EVENT),
+            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+            ("before_cutoff", True, -7, "$feature_flag_called"),
+        ]
+    )
+    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10))
+    def test_bucket_population_reads_the_resolved_exposure_event(
+        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+    ) -> None:
+        # setUp logged in under the class-level freeze, months before this test's frozen clock,
+        # so that session has expired; log in again inside the window.
+        self.client.force_login(self.user)
+        experiment = self._create_experiment(
+            metrics=[PURCHASE_METRIC],
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+        )
+        at = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=8)
+        purchase_at = at + timedelta(minutes=5)
+        new_event_session = self._session(
+            exposure_event=EXPERIMENT_EXPOSURE_EVENT, at=at, events=[("purchase", purchase_at)]
+        )
+        legacy_event_session = self._session(
+            exposure_event="$feature_flag_called", at=at, distinct_id="user2", events=[("purchase", purchase_at)]
+        )
+        other_flag_session = self._session(
+            exposure_event=EXPERIMENT_EXPOSURE_EVENT,
+            flag_key="unrelated-flag",
+            at=at,
+            distinct_id="user3",
+            events=[("purchase", purchase_at)],
+        )
+        flush_persons_and_events()
+
+        # Only answer for the exposure-event flag; returning True for every flag would flip
+        # unrelated HogQL query modifiers on and break the query under test.
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        # The analysis queries resolve the default exposure event per experiment
+        # (resolve_default_exposure_event), and the playlist ANDs these ids with an exposure
+        # filter the frontend builds from the same resolved event. A bucket read off the other
+        # event intersects two different populations once the two events stop being emitted
+        # together.
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        expected_session = new_event_session if expected_event == EXPERIMENT_EXPOSURE_EVENT else legacy_event_session
+        assert response.json()["session_ids"] == [expected_session]
+        # $experiment_exposure is emitted for every experiment, so matching it must still require
+        # this experiment's flag key.
+        assert other_flag_session not in response.json()["session_ids"]
+        assert response.json()["used_exposure_fallback"] is False
+
+    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10))
+    def test_rollout_exposure_event_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
+        self.client.force_login(self.user)
+        experiment = self._create_experiment(
+            metrics=[PURCHASE_METRIC],
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=7),
+        )
+        at = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=8)
+        purchased = self._session(
+            variant=None,
+            at=at,
+            events=[("purchase", at + timedelta(minutes=5))],
+            properties={"$feature/checkout-cta": "test"},
+        )
+        flush_persons_and_events()
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        # Under the rollout $experiment_exposure is the default exposure, not a custom choice, so
+        # exposure evaluated in a backend SDK must keep the stamped-property fallback rather than
+        # being refused the way a custom event is.
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["session_ids"] == [purchased]
+        assert response.json()["used_exposure_fallback"] is True
 
     @parameterized.expand([("custom_event",), ("action",)])
     def test_session_linkable_custom_exposure_defines_the_population(self, exposure_kind: str) -> None:

@@ -4,7 +4,6 @@ import type { ConversationItem } from "@posthog/ui/features/sessions/components/
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import {
   buildDoneLabel,
-  type CollapseMode,
   type GroupCounts,
   type GroupIconKey,
   grouping,
@@ -125,7 +124,11 @@ export function isGroupableItem(item: ConversationItem): boolean {
   return true;
 }
 
-function summarize(items: ConversationItem[]): GroupSummary {
+/**
+ * Tallies, icons, and live/done labels for a run of grouped items. Exported so the thread's
+ * `ToolGroup` reads the same counts, keeping one definition of what "ran 3 commands" means.
+ */
+export function summarize(items: ConversationItem[]): GroupSummary {
   const counts: GroupCounts = {
     execute: 0,
     read: 0,
@@ -244,7 +247,11 @@ const summaryCache = new WeakMap<
   { len: number; summary: GroupSummary }
 >();
 
-function summarizeMemo(
+/**
+ * `summarize`, skipping the walk for a run whose turn has completed. Exported so callers rendering
+ * many groups per streamed chunk don't re-walk the settled ones.
+ */
+export function summarizeMemo(
   leading: ConversationItem[],
   turnComplete: boolean,
 ): GroupSummary {
@@ -261,14 +268,13 @@ function summarizeMemo(
 /**
  * Transform the flat conversation items into rows for the new thread, folding
  * each turn's tool-call work into a collapsible group according to the global
- * collapse mode and any per-group overrides. Emits the keepMounted indices and
+ * per-group overrides. Emits the keepMounted indices and
  * item→row map in the same pass so callers don't re-walk the list.
  *
  * Safe to run on every render under useMemo; frozen-turn summaries are cached.
  */
 export function buildThreadGroups(
   items: ConversationItem[],
-  mode: CollapseMode,
   overrides: Record<string, boolean>,
 ): ThreadGrouping {
   const rows: ThreadRow[] = [];
@@ -291,17 +297,12 @@ export function buildThreadGroups(
       first.type === "session_update" && first.turnContext.turnComplete;
     const groupId = `group:${first.id}`;
 
-    // Base behavior from the global mode; a per-group override (true=expanded,
-    // false=collapsed) wins. A chip is shown whenever the group is collapsible
-    // by the mode or the user explicitly collapsed it — but never for a group
-    // with no countable tool work (e.g. a lone streaming thought): folding it
-    // would hide the only thing happening behind a meaningless "Worked" chip.
+    // Groups collapse by default; a per-group override (true=expanded) wins. No chip for a group
+    // with no countable tool work (e.g. a lone streaming thought): folding it would hide the only
+    // thing happening behind a meaningless "Worked" chip.
     const summary = summarizeMemo(leading, turnComplete);
-    const baseCollapse = mode === "all" || (mode === "partial" && turnComplete);
-    const override = overrides[groupId];
-    const expanded = override ?? !baseCollapse;
-    const chipPresent =
-      summary.hasCountableWork && (baseCollapse || override === false);
+    const expanded = overrides[groupId] ?? false;
+    const chipPresent = summary.hasCountableWork;
 
     if (chipPresent) {
       // The chip owns its children (rendered inside one bordered box when
