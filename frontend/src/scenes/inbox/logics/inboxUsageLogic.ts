@@ -72,16 +72,16 @@ export interface inboxUsageLogicValues {
     percentage: number
     pricePerPrUsd: number | null
     product: BillingProductV2Type | null
-    quotaLimited: boolean
     quotaEnforcementFlagEnabled: boolean
+    quotaLimited: boolean
     refundSummary: SignalReportRefundSummaryResponseApi | null
     refundSummaryLoading: boolean
     refundsFlagEnabled: boolean
-    summaryFlagEnabled: boolean
     resetDate: Dayjs | null
     showLimitFormErrors: boolean
     spentUsd: number | null
     status: InboxUsageStatus
+    summaryFlagEnabled: boolean
     usedPrs: number
     usedPrsDisplay: number
 }
