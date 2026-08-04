@@ -12,12 +12,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="teamworkflowsconfig",
             name="ses_tenant_reputation_impact",
-            field=models.CharField(blank=True, db_default="", default="", max_length=8),
+            field=models.CharField(blank=True, db_default="", default="", max_length=32),
         ),
         migrations.AddField(
             model_name="teamworkflowsconfig",
             name="ses_tenant_sending_status",
-            field=models.CharField(blank=True, db_default="", default="", max_length=16),
+            field=models.CharField(blank=True, db_default="", default="", max_length=32),
         ),
         migrations.AddField(
             model_name="teamworkflowsconfig",

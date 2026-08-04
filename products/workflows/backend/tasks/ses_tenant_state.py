@@ -5,6 +5,7 @@ from posthog.models.integration import Integration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.ses_tenant_state import sync_ses_tenant_state
 
 logger = get_logger(__name__)
@@ -40,11 +41,14 @@ def reconcile_ses_tenant_states() -> None:
         .distinct()
         .order_by("team_id")
     )
+    # One provider for the whole sweep: a fresh SESProvider per team would rebuild its boto3
+    # clients (and re-resolve credentials) thousands of times.
+    provider = SESProvider()
     synced = 0
     failed = 0
     for team_id in team_ids.iterator(chunk_size=500):
         try:
-            sync_ses_tenant_state(team_id)
+            sync_ses_tenant_state(team_id, provider=provider)
             synced += 1
         except Exception:
             failed += 1

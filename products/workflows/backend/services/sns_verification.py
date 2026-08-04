@@ -1,5 +1,6 @@
 import re
 import base64
+import hashlib
 import logging
 from typing import Any
 from urllib.parse import urlparse
@@ -41,7 +42,9 @@ def is_valid_sns_url(url: str | None) -> bool:
 
 
 def _fetch_signing_cert(cert_url: str) -> bytes | None:
-    cache_key = f"sns_signing_cert_{cert_url}"
+    # Hashed: the URL's path is caller-supplied and unbounded, and cache backends reject or mangle
+    # over-long keys.
+    cache_key = f"sns_signing_cert_{hashlib.sha256(cert_url.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -80,6 +83,13 @@ def verify_sns_message(message: dict[str, Any]) -> bool:
     # SignatureVersion=2 (a one-time SetTopicAttributes call, in the rollout runbook) instead of
     # ever verifying SHA1 here.
     if message.get("SignatureVersion") != "2":
+        # SNS defaults topics to version 1, so this is the shape a missing SetTopicAttributes step
+        # takes: every delivery rejected. Logged distinctly so that reads as misconfiguration
+        # rather than as an attack.
+        logger.warning(
+            "Rejected SNS message with unsupported signature version",
+            extra={"signature_version": message.get("SignatureVersion")},
+        )
         return False
     cert_url = message.get("SigningCertURL")
     if not isinstance(cert_url, str) or not is_valid_sns_url(cert_url):

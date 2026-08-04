@@ -1,10 +1,15 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.ses_tenant_state import PROVIDER_PAUSE_REASON, apply_ses_tenant_state
+from products.workflows.backend.services.ses_tenant_state import (
+    PROVIDER_PAUSE_REASON,
+    PROVIDER_PAUSE_REASON_UNSPECIFIED,
+    apply_ses_tenant_state,
+    sync_ses_tenant_state,
+)
 
 
 class TestApplySesTenantState(BaseTest):
@@ -67,6 +72,10 @@ class TestApplySesTenantState(BaseTest):
             ("unpause", "DISABLED", "HIGH", "ENABLED", "", "unsuspended"),
             ("reinstate", "DISABLED", "HIGH", "REINSTATED", "HIGH", "unsuspended"),
             ("first_finding", "ENABLED", "", "ENABLED", "LOW", "finding"),
+            # AWS reports "NONE" rather than an empty impact, so the healthy-to-finding and
+            # finding-to-resolved transitions really look like these two rows in production.
+            ("first_finding_from_none", "ENABLED", "NONE", "ENABLED", "LOW", "finding"),
+            ("finding_resolved_to_none", "ENABLED", "HIGH", "ENABLED", "NONE", None),
             ("escalation", "ENABLED", "LOW", "ENABLED", "HIGH", "finding"),
             ("deescalation", "ENABLED", "HIGH", "ENABLED", "LOW", None),
             # Impact escalating while already paused: the suspension email already covers it
@@ -105,3 +114,47 @@ class TestApplySesTenantState(BaseTest):
         emails = self._apply("ENABLED", "HIGH")
 
         assert emails["finding"].call_args.args[:2] == (self.team.id, "HIGH")
+
+    def test_pause_without_high_impact_does_not_blame_reputation_findings(self):
+        self._seed("ENABLED", "NONE")
+
+        emails = self._apply("DISABLED", "NONE")
+
+        assert emails["suspended"].call_args.args[1] == PROVIDER_PAUSE_REASON_UNSPECIFIED
+
+    def test_finding_email_carries_the_provider_remediation_text_worst_first(self):
+        self._seed("ENABLED", "NONE")
+
+        with (
+            patch(
+                "products.workflows.backend.services.ses_tenant_state.send_email_sending_reputation_finding"
+            ) as finding,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            apply_ses_tenant_state(
+                self.team.id,
+                sending_status="ENABLED",
+                reputation_impact="HIGH",
+                findings=[
+                    {"impact": "LOW", "description": "Clean up unengaged recipients"},
+                    {"impact": "HIGH", "description": "Remove hard-bouncing addresses"},
+                    {"impact": "HIGH", "description": ""},
+                ],
+            )
+
+        assert finding.delay.call_args.args[3] == [
+            {"impact": "HIGH", "description": "Remove hard-bouncing addresses"},
+            {"impact": "LOW", "description": "Clean up unengaged recipients"},
+        ]
+
+
+class TestSyncSesTenantState(BaseTest):
+    def test_unknown_team_is_skipped_without_calling_ses(self):
+        # SES keeps tenants for deleted projects, and the webhook trusts AWS for the team id. A
+        # write here would fail the config row's FK and retry forever.
+        provider = MagicMock()
+
+        sync_ses_tenant_state(self.team.id + 99_999, provider=provider)
+
+        provider.get_tenant_reputation.assert_not_called()
+        assert not TeamWorkflowsConfig.objects.filter(team_id=self.team.id + 99_999).exists()

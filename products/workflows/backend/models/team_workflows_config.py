@@ -37,10 +37,13 @@ class TeamWorkflowsConfig(models.Model):
 
     # Last-known state of the team's AWS SES tenant, mirrored so state *changes* can trigger
     # customer emails exactly once (EventBridge events are best-effort; a periodic sweep
-    # reconciles). Empty string = never synced; the first sync sets a baseline without notifying.
+    # reconciles). Empty string = never synced; the first sync only notifies a tenant that is
+    # already paused or already carries high-impact findings.
+    # Both fields mirror AWS enums verbatim, so they're sized well past today's longest value
+    # ("REINSTATED", "NONE") — a new level must not start failing writes.
     # db_default so raw INSERTs from non-Django writers keep working.
-    ses_tenant_sending_status = models.CharField(max_length=16, blank=True, default="", db_default="")
-    ses_tenant_reputation_impact = models.CharField(max_length=8, blank=True, default="", db_default="")
+    ses_tenant_sending_status = models.CharField(max_length=32, blank=True, default="", db_default="")
+    ses_tenant_reputation_impact = models.CharField(max_length=32, blank=True, default="", db_default="")
     ses_tenant_state_synced_at = models.DateTimeField(null=True, blank=True)
 
 

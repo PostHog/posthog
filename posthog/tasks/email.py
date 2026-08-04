@@ -628,7 +628,9 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
-def send_email_sending_reputation_finding(team_id: int, impact: str, found_at: str) -> None:
+def send_email_sending_reputation_finding(
+    team_id: int, impact: str, found_at: str, findings: list[dict[str, str]] | None = None
+) -> None:
     """
     Warn a team's admins that our email provider raised reputation findings against their
     project's sending. LOW impact is a fix-this warning; HIGH impact means sending can be
@@ -653,6 +655,7 @@ def send_email_sending_reputation_finding(team_id: int, impact: str, found_at: s
         template_context={
             "team": team,
             "high_impact": high_impact,
+            "findings": findings or [],
             "reputation_path": f"/project/{team.id}/workflows/reputation",
         },
     )
