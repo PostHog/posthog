@@ -39,9 +39,8 @@ POSTHOG_DESKTOP_OAUTH_CLIENT_IDS = frozenset(
     }
 )
 
-# Every OAuth application sandbox agent tokens are minted under. Tokens for these apps
-# are only ever created server-side (never via the consent flow or personal API keys),
-# so a request bearing one provably originates from a sandbox run.
+# OAuth applications used to mint sandbox agent tokens. The Array applications also
+# issue interactive Desktop grants, so membership in this set does not prove sandbox origin.
 SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     {
         ARRAY_APP_CLIENT_ID_US,
