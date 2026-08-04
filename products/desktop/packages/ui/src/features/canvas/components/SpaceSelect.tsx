@@ -31,9 +31,16 @@ interface SpaceGroup {
 export function SpaceSelect({
   value,
   onChange,
+  disabled = false,
 }: {
   value: string;
   onChange: (channelId: string) => void;
+  /**
+   * Held shut while a task is being created. Retargeting mid-submit navigates
+   * away from the composer that owns the in-flight request, so the task lands
+   * in the space you left rather than the one you picked.
+   */
+  disabled?: boolean;
 }) {
   const { channels } = useChannels();
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -78,6 +85,7 @@ export function SpaceSelect({
         if (nextId && nextId !== value) onChange(nextId);
       }}
       itemToStringLabel={(id) => byId.get(id)?.name ?? ""}
+      disabled={disabled}
     >
       <div ref={anchorRef} className="inline-flex">
         <ComboboxTrigger
@@ -86,6 +94,7 @@ export function SpaceSelect({
               type="button"
               variant="default"
               size="sm"
+              disabled={disabled}
               aria-label="Space"
               title={current?.name}
             >

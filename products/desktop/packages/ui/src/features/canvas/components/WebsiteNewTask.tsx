@@ -132,9 +132,13 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           // Beside the Cloud/Local chip: which space the task files into.
           // Arriving from a space's own "+" this is pre-filled; the global
           // new-task entry points land on #me.
-          spaceSelector={
-            <SpaceSelect value={channelId} onChange={handleSpaceChange} />
-          }
+          spaceSelector={({ disabled }) => (
+            <SpaceSelect
+              value={channelId}
+              onChange={handleSpaceChange}
+              disabled={disabled}
+            />
+          )}
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
           channelName={channelName}

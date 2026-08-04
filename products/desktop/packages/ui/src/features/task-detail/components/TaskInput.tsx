@@ -162,9 +162,10 @@ interface TaskInputProps {
   /**
    * A space picker chip rendered first in the selector row above the composer
    * (beside the workspace-mode chip). Channels new-task screen only — /code
-   * has no spaces to pick.
+   * has no spaces to pick. Called with the composer's in-flight state so the
+   * picker can hold shut mid-submit, like every other chip in the row.
    */
-  spaceSelector?: ReactNode;
+  spaceSelector?: (props: { disabled: boolean }) => ReactNode;
 }
 
 export function TaskInput({
@@ -1213,7 +1214,7 @@ export function TaskInput({
                 align="center"
                 className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
               >
-                {spaceSelector}
+                {spaceSelector?.({ disabled: isCreatingTask })}
                 {piHarnessEnabled && (
                   <AgentRuntimeSelect
                     value={runtime}
