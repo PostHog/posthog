@@ -143,11 +143,13 @@ def _decimal_seconds(duration) -> Decimal:
 
 
 def _billable_resources(session: SandboxSession) -> tuple[Decimal, Decimal]:
-    if session.burstable:
-        if session.cpu_request_cores is None or session.memory_request_mb is None:
-            raise ValueError("burstable sandbox sessions require recorded request resources")
-        return Decimal(str(session.cpu_request_cores)), Decimal(session.memory_request_mb) / Decimal(1024)
-    return Decimal(str(session.cpu_cores)), Decimal(str(session.memory_gb))
+    cpu_cores = session.cpu_request_cores if session.cpu_request_cores is not None else session.cpu_cores
+    memory_gib = (
+        Decimal(session.memory_request_mb) / Decimal(1024)
+        if session.memory_request_mb is not None
+        else Decimal(str(session.memory_gb))
+    )
+    return Decimal(str(cpu_cores)), memory_gib
 
 
 def _price_line_item(

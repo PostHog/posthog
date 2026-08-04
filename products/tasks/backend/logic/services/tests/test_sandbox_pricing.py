@@ -114,33 +114,51 @@ def test_rounds_each_session_duration_up_to_a_whole_second(duration, expected):
     assert _calculate(_session(ended_at=EFFECTIVE_AT + duration)).billable_seconds == expected
 
 
-def test_burstable_sessions_use_request_floors_instead_of_limits():
+@pytest.mark.parametrize(
+    "resource_overrides, expected_cpu_core_seconds, expected_memory_gib_seconds",
+    [
+        ({"cpu_request_cores": 0.5}, Decimal("5.0"), Decimal("160.0")),
+        ({"memory_request_mb": 1024}, Decimal("40.0"), Decimal("10")),
+        ({}, Decimal("40.0"), Decimal("160.0")),
+    ],
+)
+def test_selects_cpu_and_memory_request_quantities_independently(
+    resource_overrides, expected_cpu_core_seconds, expected_memory_gib_seconds
+):
+    cost = _calculate(_session(**resource_overrides))
+
+    assert cost.cpu_core_seconds == expected_cpu_core_seconds
+    assert cost.memory_gib_seconds == expected_memory_gib_seconds
+
+
+def test_cpu_limit_does_not_change_cost_when_request_is_unchanged():
+    smaller_limit = _calculate(_session(cpu_cores=4.0, cpu_request_cores=0.5))
+    larger_limit = _calculate(_session(cpu_cores=16.0, cpu_request_cores=0.5))
+
+    assert smaller_limit == larger_limit
+
+
+def test_memory_request_mebibytes_are_converted_to_gibibytes_exactly():
+    cost = _calculate(_session(memory_request_mb=384))
+
+    assert cost.memory_gib_seconds == Decimal("3.750")
+
+
+@pytest.mark.parametrize("vm_runtime", [False, True])
+@pytest.mark.parametrize("burstable", [False, True])
+def test_runtime_and_burstability_do_not_change_pricing(vm_runtime, burstable):
+    expected = _calculate(_session(cpu_request_cores=0.5, memory_request_mb=1024))
+
     cost = _calculate(
         _session(
-            burstable=True,
-            cpu_cores=4.0,
-            memory_gb=16.0,
+            vm_runtime=vm_runtime,
+            burstable=burstable,
             cpu_request_cores=0.5,
             memory_request_mb=1024,
         )
     )
 
-    assert cost.cpu_core_seconds == Decimal("5.0")
-    assert cost.memory_gib_seconds == Decimal("10")
-
-
-def test_non_burstable_sessions_use_configured_resources():
-    cost = _calculate(_session(cpu_cores=Decimal("1.25"), memory_gb=Decimal("2.5")))
-
-    assert cost.cpu_core_seconds == Decimal("12.50")
-    assert cost.memory_gib_seconds == Decimal("25.0")
-
-
-def test_vm_and_gvisor_sessions_use_the_same_v0_rates():
-    gvisor = _calculate(_session(vm_runtime=False))
-    vm = _calculate(_session(vm_runtime=True))
-
-    assert vm == gvisor
+    assert cost == expected
 
 
 def test_fractional_resources_and_cost_subtotals_remain_exact():
@@ -248,8 +266,3 @@ def test_usage_before_compute_billing_effective_date_is_not_priced():
 def test_invalid_missing_overlapping_or_ambiguous_rate_cards_fail_safely(cards, message):
     with pytest.raises(ComputeRateCardConfigurationError, match=message):
         validate_compute_rate_cards(cards)
-
-
-def test_burstable_session_with_missing_request_floor_fails_safely():
-    with pytest.raises(ValueError, match="recorded request resources"):
-        _calculate(_session(burstable=True, cpu_request_cores=None, memory_request_mb=None))
