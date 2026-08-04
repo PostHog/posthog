@@ -1318,7 +1318,11 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
     )
     prefix = serializers.CharField(
-        max_length=100, required=False, allow_null=True, allow_blank=True, help_text="Table name prefix in HogQL."
+        max_length=100,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.",
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
@@ -1383,7 +1387,10 @@ class SourceSetupSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.",
+        help_text=(
+            "Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. "
+            "Does not filter which tables are imported. Defaults to the source type."
+        ),
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
@@ -2212,6 +2219,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
+        except Exception as e:
+            # `get_schemas` opens its own connection, so credentials validated above can still fail
+            # here (e.g. a BigQuery service account key rotated/revoked in between). Classify via
+            # the source's own non-retryable-error map, same as `database_schema` and
+            # `refresh_schemas`, and roll back the row so a source that can't discover its schema
+            # doesn't linger half-created.
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(
+                    e,
+                    {
+                        "source_type": source_type,
+                        "team_id": self.team_id,
+                        "source_id": str(new_source_model.id),
+                    },
+                )
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": error_message},
             )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
