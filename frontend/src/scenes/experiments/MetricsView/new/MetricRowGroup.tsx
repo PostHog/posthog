@@ -79,7 +79,7 @@ interface BreakdownErrorStateProps {
 
 function BreakdownErrorState({ metric, isAlternatingRow, onRemoveBreakdown }: BreakdownErrorStateProps): JSX.Element {
     return (
-        <tr data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+        <tr data-breakdown-row className="hover:bg-bg-hover group">
             <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <div className="p-1">
                     <div className="flex items-center gap-2">
@@ -179,7 +179,7 @@ function CollapsibleBreakdownSection({
     }
 
     return (
-        <tr ref={mainTableRef} data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+        <tr ref={mainTableRef} data-breakdown-row className="hover:bg-bg-hover group">
             <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <LemonCollapse
                     multiple={false}
@@ -503,6 +503,7 @@ interface MetricRowGroupProps {
     isSecondary: boolean
     isLastMetric: boolean
     isAlternatingRow: boolean
+    dragHandle?: JSX.Element | null
     onDuplicateMetric?: () => void
     onDuplicateAsSingleUseMetric?: () => void
     onDeleteMetric?: () => void
@@ -525,6 +526,7 @@ export function MetricRowGroup({
     isSecondary,
     isLastMetric,
     isAlternatingRow,
+    dragHandle,
     onDuplicateMetric,
     onDuplicateAsSingleUseMetric,
     onDeleteMetric,
@@ -749,7 +751,7 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={FIXED_HEIGHT_STYLE}>
+                <tr className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
                     {/* Metric column: real header spanning every variant row, stays interactive while loading */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
@@ -759,6 +761,7 @@ export function MetricRowGroup({
                         style={getScaledHeightStyle(skeletonVariantKeys.length)}
                     >
                         <MetricHeader
+                            dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
                             metricType={metricType}
@@ -797,11 +800,7 @@ export function MetricRowGroup({
                 </tr>
 
                 {skeletonVariantKeys.slice(1).map((variantKey, index) => (
-                    <tr
-                        key={variantKey}
-                        className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
-                        style={FIXED_HEIGHT_STYLE}
-                    >
+                    <tr key={variantKey} className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
                         <SkeletonResultCells
                             variantKey={variantKey}
                             className={clsx(bg, index === skeletonVariantKeys.length - 2 && 'border-b')}
@@ -819,7 +818,7 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={noResultStateStyle}>
+                <tr className="hover:bg-bg-hover group" style={noResultStateStyle}>
                     {/* Metric column - always visible */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
@@ -828,6 +827,7 @@ export function MetricRowGroup({
                         style={noResultStateStyle}
                     >
                         <MetricHeader
+                            dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
                             metricType={metricType}
@@ -926,7 +926,7 @@ export function MetricRowGroup({
                 )}
 
             {/* Baseline row */}
-            <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={FIXED_HEIGHT_STYLE}>
+            <tr className="hover:bg-bg-hover group" style={FIXED_HEIGHT_STYLE}>
                 {/* Metric column - with rowspan */}
                 <td
                     className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
@@ -934,6 +934,7 @@ export function MetricRowGroup({
                     style={totalRowsHeightStyle}
                 >
                     <MetricHeader
+                        dragHandle={dragHandle}
                         displayOrder={displayOrder}
                         metric={metric}
                         metricType={metricType}
@@ -1057,7 +1058,7 @@ export function MetricRowGroup({
                 return (
                     <tr
                         key={`${metric.uuid}-${variant.key}`}
-                        className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+                        className="hover:bg-bg-hover group"
                         style={FIXED_HEIGHT_STYLE}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                         onMouseLeave={handleTooltipMouseLeave}

@@ -817,6 +817,53 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
         })
     })
+    describe('reorderMetrics', () => {
+        const testExperiment = {
+            ...experiment,
+            saved_metrics: [],
+            metrics: [
+                { kind: 'ExperimentMetric', uuid: 'first-uuid', name: 'First' },
+                { kind: 'ExperimentMetric', uuid: 'second-uuid', name: 'Second' },
+            ],
+            metrics_secondary: [],
+            primary_metrics_ordered_uuids: ['first-uuid', 'second-uuid'],
+        } as unknown as Experiment
+
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+            logic.actions.setExperiment(testExperiment)
+        })
+
+        it('applies the new order before the request lands, then persists only the ordering', async () => {
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
+            })
+
+            logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+
+            // Optimistic: the table must not wait on the round trip to show the new order.
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['second-uuid', 'first-uuid'])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
+                primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
+                update_feature_flag_params: false,
+            })
+        })
+
+        it('rolls the order back when the update fails', async () => {
+            api.update.mockRejectedValue(new Error('nope'))
+
+            await expectLogic(logic, () => {
+                logic.actions.reorderMetrics(false, ['second-uuid', 'first-uuid'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['first-uuid', 'second-uuid'])
+        })
+    })
     describe('breakdown management', () => {
         it('should add breakdown to inline metric', () => {
             const breakdown: Breakdown = { property: '$browser', type: 'event' }
