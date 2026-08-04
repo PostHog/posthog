@@ -41311,6 +41311,7 @@ export namespace Schemas {
       Blocked: 'blocked',
     } as const;
 
+    export const MCPAuditEventGrantScope = {...MCPAgentGrantScopeEnum,...BlankEnum,} as const
     export interface MCPAuditEvent {
       readonly id: string;
       readonly created_at: string;
@@ -41331,10 +41332,13 @@ export namespace Schemas {
       readonly actor_service_account: AuditActorServiceAccount | null;
       /** Denormalized actor label (email or handle) that survives deletion. */
       readonly actor_label: string;
-      /** Member whose connection an agent call used. Null for member calls. */
+      /** Member whose connection an agent call used. Null for member calls and for owners whose account has since been deleted. */
       readonly credential_owner: UserBasic | null;
-      /** Scope of the agent grant the call used: 'personal', 'team', or empty for member calls. */
-      readonly grant_scope: string;
+      /** Scope of the agent grant the call used. Blank for member calls.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      readonly grant_scope: typeof MCPAuditEventGrantScope[keyof typeof MCPAuditEventGrantScope];
     }
 
     /**

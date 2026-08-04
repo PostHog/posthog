@@ -88,6 +88,18 @@ export interface AuditActorServiceAccountApi {
     handle: string
 }
 
+/**
+ * * `personal` - Personal
+ * * `team` - Team
+ */
+export type MCPAgentGrantScopeEnumApi = (typeof MCPAgentGrantScopeEnumApi)[keyof typeof MCPAgentGrantScopeEnumApi]
+
+export const MCPAgentGrantScopeEnumApi = {
+    Personal: 'personal',
+    Team: 'team',
+} as const
+
+export const MCPAuditEventApiGrantScope = { ...MCPAgentGrantScopeEnumApi, ...BlankEnumApi } as const
 export interface MCPAuditEventApi {
     readonly id: string
     readonly created_at: string
@@ -108,10 +120,13 @@ export interface MCPAuditEventApi {
     readonly actor_service_account: AuditActorServiceAccountApi | null
     /** Denormalized actor label (email or handle) that survives deletion. */
     readonly actor_label: string
-    /** Member whose connection an agent call used. Null for member calls. */
+    /** Member whose connection an agent call used. Null for member calls and for owners whose account has since been deleted. */
     readonly credential_owner: UserBasicApi | null
-    /** Scope of the agent grant the call used: 'personal', 'team', or empty for member calls. */
-    readonly grant_scope: string
+    /** Scope of the agent grant the call used. Blank for member calls.
+     *
+     * * `personal` - Personal
+     * * `team` - Team */
+    readonly grant_scope: (typeof MCPAuditEventApiGrantScope)[keyof typeof MCPAuditEventApiGrantScope]
 }
 
 export interface PaginatedMCPAuditEventListApi {
@@ -424,17 +439,6 @@ export interface GatewayYourConnectionApi {
      */
     last_used_at: string | null
 }
-
-/**
- * * `personal` - Personal
- * * `team` - Team
- */
-export type MCPAgentGrantScopeEnumApi = (typeof MCPAgentGrantScopeEnumApi)[keyof typeof MCPAgentGrantScopeEnumApi]
-
-export const MCPAgentGrantScopeEnumApi = {
-    Personal: 'personal',
-    Team: 'team',
-} as const
 
 /**
  * * `active` - Active
