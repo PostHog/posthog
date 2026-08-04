@@ -209,7 +209,11 @@ def _schema_table_statuses(
     per-source detail lookup (one source's schemas, for the drill-down modal) so the readiness
     computation and the visibility rules never drift between the two views.
     """
-    source_filter: dict[str, object] = {"team_id": team_id, "deleted": False}
+    source_filter: dict[str, object] = {
+        "team_id": team_id,
+        "deleted": False,
+        "access_method": ExternalDataSource.AccessMethod.WAREHOUSE,
+    }
     if source_id is not None:
         source_filter["id"] = source_id
     sources = user_access_control.filter_queryset_by_access_level(ExternalDataSource.objects.filter(**source_filter))
