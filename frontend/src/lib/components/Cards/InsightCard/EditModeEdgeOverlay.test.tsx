@@ -162,6 +162,25 @@ describe('EditModeEdgeOverlay', () => {
             fireEvent.mouseMove(document, { clientX: 200, clientY: 150 })
             expect(zones[1]).not.toHaveStyle({ pointerEvents: 'none' })
         })
+
+        it('yields every zone stacked on the point, not just the hovered one', () => {
+            const { zones } = renderWithScrollableUnderneath()
+            // Corner zones paint above edge zones near card corners. jsdom has no layout, so give the
+            // sw corner and s edge zones their real overlapping geometry at the card's bottom-left.
+            const rects: Array<[number, { left: number; top: number; right: number; bottom: number }]> = [
+                [1, { left: 0, top: 288, right: 400, bottom: 302 }],
+                [6, { left: -2, top: 284, right: 16, bottom: 302 }],
+            ]
+            for (const [index, rect] of rects) {
+                zones[index].getBoundingClientRect = () =>
+                    ({ ...rect, width: rect.right - rect.left, height: rect.bottom - rect.top }) as DOMRect
+            }
+
+            fireEvent.mouseMove(zones[6], { clientX: 8, clientY: 292 })
+
+            expect(zones[6]).toHaveStyle({ pointerEvents: 'none' })
+            expect(zones[1]).toHaveStyle({ pointerEvents: 'none' })
+        })
     })
 
     describe('isPointInScrollbarGutter', () => {

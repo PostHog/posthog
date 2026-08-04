@@ -123,11 +123,32 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
         if (!container || scrollbarPassThroughEdges.has(edge)) {
             return
         }
-        if (pointIsOverScrollbarInside(container, event.clientX, event.clientY)) {
-            setScrollbarPassThroughEdges((prev) => new Set(prev).add(edge))
-            // The zone's own mouseleave won't fire once it ignores pointer events, so release here.
-            releaseHover()
+        const { clientX, clientY } = event
+        if (!pointIsOverScrollbarInside(container, clientX, clientY)) {
+            return
         }
+        // Corner zones paint above edge zones, so several zones can stack on these pixels. Yield every
+        // zone whose rect contains the point, not just the hovered one: a zone beneath only receives its
+        // own mousemove after the one above yields, and until then it would swallow a press aimed at the
+        // scrollbar (handlePress keeps it out of edit mode, but the press reaches no scrollbar either).
+        setScrollbarPassThroughEdges((prev) => {
+            let next: Set<EditModeEdge> | null = null
+            for (const [zoneEdge, zone] of zoneRefs.current) {
+                if (!zone || prev.has(zoneEdge)) {
+                    continue
+                }
+                const rect = zone.getBoundingClientRect()
+                const containsPoint =
+                    clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+                if (zoneEdge === edge || containsPoint) {
+                    next = next ?? new Set(prev)
+                    next.add(zoneEdge)
+                }
+            }
+            return next ?? prev
+        })
+        // The zone's own mouseleave won't fire once it ignores pointer events, so release here.
+        releaseHover()
     }
 
     useEffect(() => {
