@@ -799,6 +799,10 @@ export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault = 1
 export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin = 10
 export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax = 7200
 
+export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsDefault = 3600
+export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin = 10
+export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 86400
+
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     source: zod
         .string()
@@ -819,11 +823,11 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Optional trigger conditions to filter which events are sampled.'),
     target: zod
-        .enum(['generation', 'trace'])
-        .describe('\* `generation` - Generation\n\* `trace` - Trace')
+        .enum(['generation', 'trace', 'session'])
+        .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
         .default(evaluationsTestHogCreateBodyTargetDefault)
         .describe(
-            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. Previewing a 'session' target is not supported.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. Previewing a 'session' target is not supported.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
         ),
     target_config: zod
         .object({
@@ -833,6 +837,14 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
                 .max(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax)
                 .default(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault)
                 .describe('Aggregation window for trace samples, in seconds.'),
+            quiet_period_seconds: zod
+                .number()
+                .min(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin)
+                .max(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax)
+                .default(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsDefault)
+                .describe(
+                    'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.'
+                ),
         })
         .optional()
         .describe('Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.'),

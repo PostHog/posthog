@@ -354,7 +354,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                         <Tooltip
                             title={
                                 isSessionTarget
-                                    ? null
+                                    ? 'Compile and run your code against up to 3 sessions that have gone quiet, the same way it runs online'
                                     : evaluation.target === 'trace'
                                       ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
                                       : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
@@ -365,11 +365,6 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 size="xsmall"
                                 loading={hogTestResultsLoading}
                                 disabled={!source.trim()}
-                                disabledReason={
-                                    isSessionTarget
-                                        ? "Sample testing isn't available for whole session evaluations yet. Save the evaluation and check its results once sessions settle."
-                                        : undefined
-                                }
                                 onClick={() => testHogOnSample()}
                                 data-attr="llma-evaluation-test-hog"
                             >

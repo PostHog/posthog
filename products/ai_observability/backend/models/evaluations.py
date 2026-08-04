@@ -53,18 +53,6 @@ class EvaluationTarget(models.TextChoices):
     SESSION = "session", "Session"
 
 
-class PreviewableEvaluationTarget(models.TextChoices):
-    """Targets the "Test on sample" preview can run against.
-
-    A session preview would have to pick sessions, settle them and render a multi-trace transcript,
-    none of which the preview endpoint does, so it is deliberately absent. Named rather than
-    inlined so the request field and the response field share one enum in the generated schema.
-    """
-
-    GENERATION = "generation", "Generation"
-    TRACE = "trace", "Trace"
-
-
 class Evaluation(ModelActivityMixin, UUIDTModel):
     class Meta:
         db_table = "llm_analytics_evaluation"

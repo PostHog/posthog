@@ -528,12 +528,29 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.json())
         self.assertEqual(response.json()["attr"], "target_config")
 
-    def test_test_hog_rejects_session_target(self):
+    @parameterized.expand(["generation", "trace", "session"])
+    def test_test_hog_previews_every_target(self, target: str):
+        """Every target an evaluation can run on must also be previewable, or the editor can only
+        check the code for some of them."""
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "return true", "target": "session"},
+            {"source": "return true", "target": target},
         )
-        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIn("results", response.json())
+
+    def test_session_preview_says_why_a_sample_is_empty(self):
+        """An empty session sample is a real answer at a long quiet period, so the caller has to be
+        able to tell it apart from a broken preview."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true", "target": "session", "target_config": {"quiet_period_seconds": 86400}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        body = response.json()
+        self.assertEqual(body["results"], [])
+        self.assertIn("24 hours", body["empty_reason"])
 
     def test_sentiment_evaluation_rejects_model_configuration(self):
         response = self.client.post(

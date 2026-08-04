@@ -47,6 +47,11 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     call_llm_judge,
     get_output_type_config,
 )
+from posthog.temporal.ai_observability.evaluation_payload import (
+    PAYLOAD_BYTES_EXPR,
+    payload_budget_bytes,
+    should_skip_for_payload,
+)
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
@@ -172,6 +177,33 @@ def _count_trace_events(team: Team, trace_id: str, date_from: datetime, date_to:
     return int(result.results[0][0])
 
 
+_TRACE_PAYLOAD_BYTES_SQL = f"""
+SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+  AND trace_id = {{trace_id}}
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
+"""
+
+
+def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> int:
+    result = query_ai_events(
+        query=parse_select(_TRACE_PAYLOAD_BYTES_SQL),
+        placeholders={
+            "trace_id": ast.Constant(value=trace_id),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+        },
+        team=team,
+        query_type="TraceEvaluationPayloadBytes",
+        fall_back_to_events=False,
+    )
+    if not result.results:
+        return 0
+    return int(result.results[0][0] or 0)
+
+
 def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
     """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
     preflight so degenerate traces are skipped before pulling their payload."""
@@ -180,6 +212,16 @@ def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: dateti
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0)
     if event_count > MAX_TRACE_EVAL_EVENTS:
         return TraceFetchOutcome(trace=None, skip_reason="trace_too_large", event_count=event_count)
+
+    # Log-only for trace. `should_skip_for_payload` returns False for this target by design: trace
+    # evaluations already run in production, and enforcing a brand-new dimension on them would start
+    # skipping units that grade fine today. The metric supplies the distribution needed to set a
+    # trace budget with evidence, and flipping it to enforcing is a deliberate follow-up.
+    should_skip_for_payload(
+        target="trace",
+        payload_bytes=_sum_trace_payload_bytes(team, trace_id, date_from, date_to),
+        budget_bytes=payload_budget_bytes(JUDGE_TRACE_MAX_CHARS),
+    )
 
     runner = TraceQueryRunner(
         team=team,

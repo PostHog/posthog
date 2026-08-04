@@ -26,6 +26,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import (
     build_hog_event_global,
     execute_hog_eval_bytecode,
@@ -33,11 +34,20 @@ from posthog.temporal.ai_observability.evaluation_hog import (
     hog_bytecode_references_global,
 )
 from posthog.temporal.ai_observability.evaluation_llm_judge import call_llm_judge, get_output_type_config
+from posthog.temporal.ai_observability.evaluation_payload import (
+    PAYLOAD_BYTES_EXPR,
+    payload_budget_bytes,
+    should_skip_for_payload,
+)
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.models.evaluation_configs import MAX_SESSION_EVAL_EVENTS
+from products.ai_observability.backend.models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
+    MAX_SESSION_EVAL_EVENTS,
+)
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
     format_trace_text_repr,
@@ -58,9 +68,12 @@ _SESSION_SKIP_REASONING = {
         "This session's events have no trace id, so there was nothing to evaluate. Set $ai_trace_id "
         "on the events you want graded."
     ),
+    # One reason for both ways of being too big: to a user they are the same situation. Which limit
+    # tripped is carried by the llma_eval_payload_budget metric, not by a second reason code.
     "session_too_large": (
-        f"This session has more than {MAX_SESSION_EVAL_EVENTS} events, which usually means one session id is "
-        "shared across several conversations. Give each conversation its own $ai_session_id so it can be evaluated."
+        f"This session is too large to evaluate. Sessions are capped at {MAX_SESSION_EVAL_EVENTS} events and at "
+        "the payload size one evaluation can hold. This usually means one session id is shared across several "
+        "conversations, so give each conversation its own $ai_session_id."
     ),
     "session_truncated": (
         f"This session has more than {MAX_SELECT_TRACES_LIMIT_EXPORT} traces, which is more than one evaluation "
@@ -104,6 +117,48 @@ WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$a
   AND timestamp >= {date_from}
   AND timestamp <= {date_to}
 """
+
+
+# Deliberately a second query rather than another aggregate on the count's scan: summing lengths
+# forces ClickHouse to decompress the payload columns, and a runaway session id should be rejected
+# by the count without ever paying for that. Only sessions that already look plausible get here.
+_SESSION_PAYLOAD_BYTES_SQL = f"""
+SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+  AND isNotNull(trace_id)
+  AND trace_id != ''
+  AND trace_id IN (
+      SELECT trace_id
+      FROM posthog.ai_events AS ai_events
+      WHERE session_id = {{session_id}}
+        AND isNotNull(trace_id)
+        AND trace_id != ''
+        AND timestamp >= {{date_from}}
+        AND timestamp <= {{date_to}}
+  )
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
+"""
+
+
+def _sum_session_payload_bytes(team: Team, session_id: str, date_from: datetime, date_to: datetime) -> int:
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = query_ai_events(
+            query=parse_select(_SESSION_PAYLOAD_BYTES_SQL),
+            placeholders={
+                "session_id": ast.Constant(value=session_id),
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+            },
+            team=team,
+            query_type="SessionEvaluationPayloadBytes",
+            fall_back_to_events=False,
+            workload=Workload.OFFLINE,
+        )
+    if not result.results:
+        return 0
+    return int(result.results[0][0] or 0)
 
 
 def session_fetch_lookback(max_age_seconds: int) -> timedelta:
@@ -178,6 +233,15 @@ def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: da
     if preflight.event_count == 0:
         return SessionFetchOutcome(traces=None, skip_reason="session_not_found", event_count=0)
     if preflight.event_count > MAX_SESSION_EVAL_EVENTS:
+        return SessionFetchOutcome(traces=None, skip_reason="session_too_large", event_count=preflight.event_count)
+
+    # Only now that the row count looks plausible is it worth reading the payload columns to size it.
+    payload_bytes = _sum_session_payload_bytes(team, session_id, retention_floor, date_to)
+    if should_skip_for_payload(
+        target="session",
+        payload_bytes=payload_bytes,
+        budget_bytes=payload_budget_bytes(JUDGE_SESSION_MAX_CHARS),
+    ):
         return SessionFetchOutcome(traces=None, skip_reason="session_too_large", event_count=preflight.event_count)
 
     event_count = preflight.event_count
@@ -412,3 +476,150 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
         return build_session_skip_result(allows_na, skip_reason or "session_not_found")
 
     return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="session")
+
+
+@dataclass
+class SessionHogTestResult:
+    """One session's outcome from `run_hog_eval_over_recent_sessions`, shaped for the editor test
+    endpoint rather than for online emission."""
+
+    session_id: str
+    verdict: bool | None
+    reasoning: str
+    error: str | None
+    input_preview: str
+    output_preview: str
+
+
+# Sessions whose structural activity has been quiet for the configured period, restricted to those
+# with a generation matching the evaluation's conditions. At a long quiet period the sample is
+# legitimately empty, and the caller says so rather than widening the window and previewing sessions
+# the evaluation has not reached yet.
+#
+# Quiet is judged on `timestamp` here, not the `_timestamp` arrival clock the online settle poll
+# uses. Not a preference: any query that can return zero rows is also compiled against the shared
+# events table — as a fallback, or as the retention probe that classifies a miss — and `_timestamp`
+# does not exist there, so a `_timestamp` predicate makes the empty sample a hard error rather than
+# an empty list. The settle poll escapes this only because its ungrouped aggregate always returns a
+# row. The cost is that a client clock running fast can make a session look quiet a little early in
+# the preview; the online settle is unaffected and still judges on arrival.
+_SESSION_TEST_SAMPLE_SQL = """
+SELECT session_id, min(timestamp) AS trigger_timestamp, max(timestamp) AS last_seen
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
+  AND isNotNull(session_id)
+  AND session_id != ''
+  AND timestamp >= {date_from}
+  AND timestamp <= {date_to}
+  AND session_id IN (
+      SELECT session_id
+      FROM posthog.ai_events AS ai_events
+      WHERE event = '$ai_generation'
+        AND isNotNull(session_id)
+        AND session_id != ''
+        AND timestamp >= {date_from}
+        AND timestamp <= {date_to}
+        AND {condition_filter}
+  )
+GROUP BY session_id
+HAVING last_seen <= {quiet_cutoff}
+ORDER BY last_seen DESC
+LIMIT {sample_count}
+"""
+
+
+def _sample_quiet_sessions(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    date_from: datetime,
+    date_to: datetime,
+    quiet_cutoff: datetime,
+) -> list[str]:
+    with tags_context(product=Product.LLM_ANALYTICS):
+        response = query_ai_events(
+            query=parse_select(_SESSION_TEST_SAMPLE_SQL),
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+                "quiet_cutoff": ast.Constant(value=quiet_cutoff),
+                "sample_count": ast.Constant(value=sample_count),
+                "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
+            },
+            team=team,
+            query_type="EvaluationTestHogSessionSample",
+            fall_back_to_events=True,
+        )
+    return [str(row[0]) for row in (response.results or [])]
+
+
+def _session_io_preview(traces: list[LLMTrace]) -> tuple[str, str]:
+    """First input of the session's opening trace and last output of its closing one. The Hog body
+    still sees the whole session; this is only for display."""
+    input_preview = ""
+    output_preview = ""
+    for trace in traces:
+        for event in trace.events or []:
+            input_raw, output_raw = extract_event_io(event.event, event.properties)
+            if not input_preview:
+                input_preview = extract_text_from_messages(input_raw)[:200]
+            output_text = extract_text_from_messages(output_raw)[:200]
+            if output_text:
+                output_preview = output_text
+    return input_preview, output_preview
+
+
+def run_hog_eval_over_recent_sessions(
+    *,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    quiet_period_seconds: int,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+) -> list[SessionHogTestResult]:
+    """Sample sessions that have gone quiet and run session-level Hog bytecode against each.
+
+    The session mirror of `run_hog_eval_over_recent_traces`, so the editor preview matches how a
+    session evaluation runs online — whole session, session globals — rather than against one
+    generation or one trace. Each sampled session is fetched in full; `sample_count` is lower than
+    the trace path's because a session fetch is a whole conversation rather than a single trace.
+    """
+    now = datetime.now(UTC)
+    quiet_cutoff = now - timedelta(seconds=quiet_period_seconds)
+    date_from = now - timedelta(days=lookback_days)
+    session_ids = _sample_quiet_sessions(team, condition_filter, sample_count, date_from, now, quiet_cutoff)
+
+    results: list[SessionHogTestResult] = []
+    for session_id in session_ids:
+        outcome = fetch_session_for_evaluation(team.pk, session_id, now)
+        if outcome.skip_reason or outcome.traces is None:
+            results.append(
+                SessionHogTestResult(
+                    session_id=session_id,
+                    verdict=None,
+                    reasoning="",
+                    error=_SESSION_SKIP_REASONING.get(
+                        outcome.skip_reason or "session_not_found", "Evaluation skipped."
+                    ),
+                    input_preview="",
+                    output_preview="",
+                )
+            )
+            continue
+
+        globals_dict = build_session_hog_globals(outcome.traces, session_id, bytecode=bytecode)
+        hog_result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+        input_preview, output_preview = _session_io_preview(outcome.traces)
+        results.append(
+            SessionHogTestResult(
+                session_id=session_id,
+                verdict=hog_result.get("verdict"),
+                reasoning=hog_result.get("reasoning") or "",
+                error=hog_result.get("error"),
+                input_preview=input_preview,
+                output_preview=output_preview,
+            )
+        )
+    return results

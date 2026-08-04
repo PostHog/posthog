@@ -162,13 +162,10 @@ function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFi
     return completedRuns.filter((r) => r.sentiment_label?.toLowerCase() === filter)
 }
 
-// The test_hog endpoint only samples generations and traces. Previewing a session would mean
-// fetching several whole sessions per request, which it does not do, so its target enum has no
-// 'session' member and a session evaluation must never reach here.
-type TestableHogEvaluation = HogEvaluation & { target: 'generation' | 'trace' }
+type TestableHogEvaluation = HogEvaluation
 
 function isTestableHogEvaluation(evaluation: EvaluationConfig | null): evaluation is TestableHogEvaluation {
-    return evaluation?.evaluation_type === 'hog' && evaluation.target !== 'session'
+    return evaluation?.evaluation_type === 'hog'
 }
 
 function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestApi {
@@ -184,6 +181,13 @@ function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestA
     if (evaluation.target === 'trace') {
         request.target_config = {
             window_seconds: evaluation.target_config.window_seconds ?? DEFAULT_TRACE_WINDOW_SECONDS,
+        }
+    }
+    if (evaluation.target === 'session') {
+        // Preview against the quiet period this evaluation is actually configured with, so the
+        // sample only contains sessions it would already have graded.
+        request.target_config = {
+            quiet_period_seconds: evaluation.target_config.quiet_period_seconds ?? DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
         }
     }
     return request

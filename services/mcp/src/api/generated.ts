@@ -58166,18 +58166,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `generation` - Generation
-     * * `trace` - Trace
-     */
-    export type PreviewableEvaluationTargetEnum = typeof PreviewableEvaluationTargetEnum[keyof typeof PreviewableEvaluationTargetEnum];
-
-
-    export const PreviewableEvaluationTargetEnum = {
-      Generation: 'generation',
-      Trace: 'trace',
-    } as const;
-
-    /**
      * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
      */
     export type PrimaryPropertiesResponsePrimaryProperties = {[key: string]: string};
@@ -73225,6 +73213,12 @@ export namespace Schemas {
          * @maximum 7200
          */
       window_seconds?: number;
+      /**
+         * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
+         * @minimum 10
+         * @maximum 86400
+         */
+      quiet_period_seconds?: number;
     }
 
     export interface TestHogRequest {
@@ -73246,8 +73240,9 @@ export namespace Schemas {
       /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. Previewing a 'session' target is not supported.
        *
        * * `generation` - Generation
-       * * `trace` - Trace */
-      target?: PreviewableEvaluationTargetEnum;
+       * * `trace` - Trace
+       * * `session` - Session */
+      target?: EvaluationTargetEnum;
       /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
       target_config?: TestHogTargetConfig;
     }
@@ -73258,8 +73253,9 @@ export namespace Schemas {
       /** Type of sampled unit: generation or trace.
        *
        * * `generation` - Generation
-       * * `trace` - Trace */
-      sample_type: PreviewableEvaluationTargetEnum;
+       * * `trace` - Trace
+       * * `session` - Session */
+      sample_type: EvaluationTargetEnum;
       /**
          * UUID of the sampled $ai_generation event, or null for a trace sample.
          * @nullable

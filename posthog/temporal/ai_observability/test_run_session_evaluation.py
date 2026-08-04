@@ -12,6 +12,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 
+from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
     AI_EVENTS_RETENTION_DAYS,
@@ -184,6 +185,10 @@ class TestFetchSessionForEvaluation:
         with (
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=0,
+            ),
+            patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
                 return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
             ),
@@ -204,6 +209,30 @@ class TestFetchSessionForEvaluation:
         # tail of any session past 100 traces, so the fetch must ask for the export ceiling instead.
         assert kwargs["query"].limit == MAX_SELECT_TRACES_LIMIT_EXPORT
 
+    def test_skips_a_small_session_whose_payload_is_enormous(self):
+        """The event count cannot see this: a handful of events carrying megabytes each sits far
+        under the row cap while being exactly the payload the cap exists to keep out of the worker.
+        """
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=_SessionEventCount(event_count=14, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=payload_budget_bytes(JUDGE_SESSION_MAX_CHARS) + 1,
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC))
+
+        assert outcome.skip_reason == "session_too_large"
+        assert outcome.traces is None
+        mock_session_query_runner.assert_not_called()
+
     def test_widens_date_from_to_the_sessions_real_start(self):
         # A session that had been running for days before window_start must not have its opening
         # cut just because a forward-looking budget (max_age) happened to be shorter than that.
@@ -211,6 +240,10 @@ class TestFetchSessionForEvaluation:
         window_start = datetime(2026, 7, 20, tzinfo=UTC)
         with (
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=0,
+            ),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
                 return_value=_SessionEventCount(event_count=3, first_seen=first_seen),
@@ -235,6 +268,10 @@ class TestFetchSessionForEvaluation:
         retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
         with (
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=0,
+            ),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
                 return_value=_SessionEventCount(event_count=3, first_seen=first_seen),
@@ -261,6 +298,10 @@ class TestFetchSessionForEvaluation:
         with (
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=0,
+            ),
+            patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
                 return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
             ),
@@ -279,6 +320,10 @@ class TestFetchSessionForEvaluation:
     def test_treats_a_truncated_result_as_a_skip_rather_than_a_partial_grade(self):
         with (
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=0,
+            ),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
                 return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),

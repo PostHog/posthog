@@ -908,18 +908,6 @@ export interface PatchedEvaluationApi {
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
 
-/**
- * * `generation` - Generation
- * * `trace` - Trace
- */
-export type PreviewableEvaluationTargetEnumApi =
-    (typeof PreviewableEvaluationTargetEnumApi)[keyof typeof PreviewableEvaluationTargetEnumApi]
-
-export const PreviewableEvaluationTargetEnumApi = {
-    Generation: 'generation',
-    Trace: 'trace',
-} as const
-
 export interface TestHogTargetConfigApi {
     /**
      * Aggregation window for trace samples, in seconds.
@@ -927,6 +915,12 @@ export interface TestHogTargetConfigApi {
      * @maximum 7200
      */
     window_seconds?: number
+    /**
+     * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
 }
 
 export interface TestHogRequestApi {
@@ -948,8 +942,9 @@ export interface TestHogRequestApi {
     /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. Previewing a 'session' target is not supported.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
-    target?: PreviewableEvaluationTargetEnumApi
+     * * `trace` - Trace
+     * * `session` - Session */
+    target?: EvaluationTargetEnumApi
     /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
     target_config?: TestHogTargetConfigApi
 }
@@ -960,8 +955,9 @@ export interface TestHogResultItemApi {
     /** Type of sampled unit: generation or trace.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
-    sample_type: PreviewableEvaluationTargetEnumApi
+     * * `trace` - Trace
+     * * `session` - Session */
+    sample_type: EvaluationTargetEnumApi
     /**
      * UUID of the sampled $ai_generation event, or null for a trace sample.
      * @nullable

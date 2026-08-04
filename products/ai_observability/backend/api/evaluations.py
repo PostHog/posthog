@@ -30,6 +30,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
+from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
 
 from ..hog import compile_ai_observability_hog
@@ -37,6 +38,7 @@ from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
+    SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MAX_MAX_AGE_SECONDS,
     SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MAX_WINDOW_SECONDS,
@@ -58,7 +60,7 @@ from ..models.evaluation_configs import (
     validate_target_config,
 )
 from ..models.evaluation_reports import EvaluationReport
-from ..models.evaluations import Evaluation, EvaluationTarget, PreviewableEvaluationTarget
+from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -702,6 +704,16 @@ class TestHogTargetConfigSerializer(serializers.Serializer):
         max_value=TRACE_EVAL_MAX_WINDOW_SECONDS,
         help_text="Aggregation window for trace samples, in seconds.",
     )
+    quiet_period_seconds = serializers.IntegerField(
+        required=False,
+        default=SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        min_value=SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+        max_value=SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+        help_text=(
+            "For session samples: only sessions with no activity for this long are previewed, "
+            "matching when a session evaluation would actually run."
+        ),
+    )
 
 
 class TestHogRequestSerializer(serializers.Serializer):
@@ -727,9 +739,9 @@ class TestHogRequestSerializer(serializers.Serializer):
         help_text="Optional trigger conditions to filter which events are sampled.",
     )
     target = serializers.ChoiceField(
-        choices=PreviewableEvaluationTarget.choices,
+        choices=EvaluationTarget.choices,
         required=False,
-        default=PreviewableEvaluationTarget.GENERATION,
+        default=EvaluationTarget.GENERATION,
         help_text=(
             "What the evaluation runs against: 'generation' samples individual generations, "
             "'trace' samples whole traces and runs against trace-level globals — matching how the "
@@ -749,9 +761,7 @@ class TestHogRequestSerializer(serializers.Serializer):
 class TestHogResultItemSerializer(serializers.Serializer):
     sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation or trace.")
     sample_type = serializers.ChoiceField(
-        # Not EvaluationTarget.choices: previewing a session is unsupported, so this response can
-        # only ever carry the two the endpoint samples.
-        choices=PreviewableEvaluationTarget.choices,
+        choices=EvaluationTarget.choices,
         help_text="Type of sampled unit: generation or trace.",
     )
     event_uuid = serializers.CharField(
@@ -770,6 +780,95 @@ class TestHogResponseSerializer(serializers.Serializer):
     results = TestHogResultItemSerializer(many=True)
     message = serializers.CharField(
         required=False, help_text="Optional message, e.g. when no recent events were found."
+    )
+
+
+# A session fetch is a whole conversation rather than one trace, so the preview samples fewer of
+# them than the trace path does. Fidelity per session is never traded away: a previewed session is
+# fetched exactly as the online evaluation would fetch it.
+SESSION_TEST_HOG_MAX_SAMPLES = 3
+
+
+def _humanize_seconds(seconds: int) -> str:
+    """Whole units only: this reads back the quiet period the user just set, so "24 hours" beats
+    "1440 minutes"."""
+    if seconds >= 3600 and seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    if seconds >= 60:
+        minutes = seconds // 60
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+    return f"{seconds} second" if seconds == 1 else f"{seconds} seconds"
+
+
+def _test_hog_over_sessions(
+    *,
+    request: Request,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    conditions: list[dict[str, Any]],
+    quiet_period_seconds: int,
+) -> Response:
+    """Session-target variant of `test_hog`: sample sessions that have gone quiet and run the code
+    against session-level globals, so the editor preview matches how a session eval runs online."""
+    tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+    try:
+        session_results = run_hog_eval_over_recent_sessions(
+            team=team,
+            bytecode=bytecode,
+            condition_filter=condition_filter,
+            sample_count=sample_count,
+            allows_na=allows_na,
+            quiet_period_seconds=quiet_period_seconds,
+        )
+    except AIEventsUnavailableError:
+        session_results = []
+
+    results = [
+        {
+            "sample_id": r.session_id,
+            "sample_type": EvaluationTarget.SESSION.value,
+            "event_uuid": None,
+            "trace_id": None,
+            "input_preview": r.input_preview,
+            "output_preview": r.output_preview,
+            "result": r.verdict,
+            "reasoning": r.reasoning,
+            "error": r.error,
+        }
+        for r in session_results
+    ]
+
+    report_user_action(
+        request.user,
+        "llma evaluation hog code tested",
+        {
+            "sample_count": sample_count,
+            "results_count": len(results),
+            "target": EvaluationTarget.SESSION.value,
+            "condition_count": len(conditions),
+        },
+        team=team,
+    )
+
+    return Response(
+        {
+            "results": results,
+            # An empty sample here is a real answer, not a failure: at a long quiet period there may
+            # genuinely be no settled session yet. Say which window came up empty so it does not
+            # read as broken.
+            "empty_reason": (
+                None
+                if results
+                else (
+                    f"No sessions have been quiet for {_humanize_seconds(quiet_period_seconds)} in the last "
+                    f"{EVALUATION_TEST_LOOKBACK_DAYS} days, so there is nothing to preview yet."
+                )
+            ),
+        }
     )
 
 
@@ -1068,6 +1167,20 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             condition_filter = condition_exprs[0]
         elif condition_exprs:
             condition_filter = ast.Or(exprs=condition_exprs)
+
+        if target == EvaluationTarget.SESSION.value:
+            return _test_hog_over_sessions(
+                request=request,
+                team=team,
+                bytecode=bytecode,
+                condition_filter=condition_filter,
+                sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
+                allows_na=allows_na,
+                conditions=conditions,
+                quiet_period_seconds=target_config.get(
+                    "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
+                ),
+            )
 
         if target == EvaluationTarget.TRACE.value:
             return _test_hog_over_traces(
