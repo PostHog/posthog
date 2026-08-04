@@ -6054,7 +6054,13 @@ export type CommentType = {
     completed_by: UserBasicType | null
 }
 
-export type CommentCreationParams = { mentions?: number[]; slug?: string }
+export type CommentCreationParams = {
+    mentions?: number[]
+    slug?: string
+    /** Client-generated UUID that makes creating the comment retry-safe: a repeat carrying the same
+     * key returns the comment the first attempt created instead of a duplicate. */
+    idempotency_key?: string
+}
 
 export interface DataWarehouseCredential {
     access_key: string

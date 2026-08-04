@@ -15,10 +15,14 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { delay } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { fullName } from 'lib/utils/strings'
@@ -62,6 +66,26 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+const SEND_RETRY_DELAY_MS = 500
+
+/** True when the send's outcome is unknown: either no response arrived at all, or the server may
+ * have committed the message before failing. A 4xx is a definite rejection, so it isn't unknown. */
+function isSendOutcomeUnknown(error: any): boolean {
+    if (!(error instanceof ApiError)) {
+        return false
+    }
+    return error.status === undefined || error.status >= 500
+}
+
+/** How many times to repeat a send whose outcome we couldn't determine. Safe only because the
+ * write is idempotent. A failure with no response is cheap to repeat, while a 5xx has already
+ * cost a round trip on an endpoint that can be slow, so it gets one attempt rather than two. */
+function sendRetryBudget(error: any): number {
+    if (!isSendOutcomeUnknown(error)) {
+        return 0
+    }
+    return error.status === undefined ? 2 : 1
+}
 
 function regionFromUrl(url?: string): Region | undefined {
     if (url) {
@@ -200,6 +224,7 @@ export interface supportTicketSceneLogicValues {
     messageSending: boolean
     messages: CommentType[]
     messagesLoading: boolean
+    sendIdempotencyKey: string | null
     olderMessagesLoading: boolean
     person: PersonType | null
     personLoading: boolean
@@ -357,6 +382,12 @@ export interface supportTicketSceneLogicActions {
     setHasMoreMessages: (hasMore: boolean) => {
         hasMore: boolean
     }
+    appendMessage: (message: CommentType) => {
+        message: CommentType
+    }
+    setSendIdempotencyKey: (key: string | null) => {
+        key: string | null
+    }
     setMessageSending: (sending: boolean) => {
         sending: boolean
     }
@@ -480,6 +511,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
         loadMessages: true,
         setMessages: (messages: CommentType[]) => ({ messages }),
+        appendMessage: (message: CommentType) => ({ message }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
 
         loadOlderMessages: true,
@@ -501,6 +533,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             statusAfterSend,
         }),
         setMessageSending: (sending: boolean) => ({ sending }),
+        setSendIdempotencyKey: (key: string | null) => ({ key }),
 
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
@@ -712,6 +745,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 setMessages: (_, { messages }) => messages,
                 setOlderMessages: (state, { olderMessages }) => [...olderMessages, ...state],
+                appendMessage: (state, { message }) =>
+                    state.some((existing) => existing.id === message.id) ? state : [...state, message],
             },
         ],
         messagesLoading: [
@@ -742,6 +777,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 sendMessage: () => true,
                 setMessageSending: (_, { sending }) => sending,
+            },
+        ],
+        sendIdempotencyKey: [
+            null as string | null,
+            {
+                setSendIdempotencyKey: (_, { key }) => key,
+                // Editing the draft makes it a different message, so it must not reuse a key
+                // the server may already have stored against the previous text.
+                setDraftContent: () => null,
             },
         ],
         draftContent: [
@@ -1086,7 +1130,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             }
         },
-        loadMessages: async () => {
+        loadMessages: async (_, breakpoint) => {
             if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessages([])
                 return
@@ -1096,9 +1140,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     scope: 'conversations_ticket',
                     item_id: values.ticket.id,
                 })
+                // Drop responses superseded while in flight: the 5s poll overlaps under load, and
+                // a slow reply to an older poll would otherwise wipe a message that just sent.
+                breakpoint()
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages((response.results || []).reverse())
-            } catch {
+            } catch (error: any) {
+                if (error?.isBreakpoint) {
+                    throw error
+                }
                 lemonToast.error('Failed to load messages')
                 actions.setMessagesLoading(false)
             }
@@ -1135,44 +1185,85 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setMessageSending(false)
                 return
             }
-            try {
-                await api.comments.create(
-                    {
-                        content,
-                        rich_content: richContent,
-                        scope: 'conversations_ticket',
-                        item_id: values.ticket.id,
-                        item_context: {
-                            author_type: 'support',
-                            is_private: isPrivate,
-                        },
-                    },
-                    {}
-                )
-                // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
-                // after this API call succeeds; the per-message delivery status is the send signal.
-                lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
-                actions.setMessageSending(false)
-                onSuccess?.()
-                if (!isPrivate) {
-                    actions.incrementUnreadCustomerCount()
-                }
-                if (statusAfterSend) {
-                    actions.setStatus(statusAfterSend)
-                    // Pick up the ticket for the sender unless a specific user is already assigned.
-                    if (values.assignee?.type !== 'user' && values.user) {
-                        actions.setAssignee({ type: 'user', id: values.user.id })
-                    }
-                    actions.updateTicket()
-                }
-                setTimeout(() => {
-                    actions.loadMessages()
-                }, 300)
-                actions.loadTickets()
-            } catch {
-                lemonToast.error('Failed to send message')
-                actions.setMessageSending(false)
+            const ticketId = values.ticket.id
+            // One key per composed message, held across retries and across a manual resend after a
+            // failure, so the server can recognise a repeat instead of storing it twice.
+            const idempotencyKey = values.sendIdempotencyKey ?? uuid()
+            if (!values.sendIdempotencyKey) {
+                actions.setSendIdempotencyKey(idempotencyKey)
             }
+
+            let lastError: any
+            let attempt = 0
+            for (;;) {
+                try {
+                    const created = await api.comments.create(
+                        {
+                            content,
+                            rich_content: richContent,
+                            scope: 'conversations_ticket',
+                            item_id: ticketId,
+                            item_context: {
+                                author_type: 'support',
+                                is_private: isPrivate,
+                            },
+                            idempotency_key: idempotencyKey,
+                        },
+                        {}
+                    )
+                    // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
+                    // after this API call succeeds; the per-message delivery status is the send signal.
+                    lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
+                    actions.setMessageSending(false)
+                    if (created?.id) {
+                        actions.appendMessage(created)
+                    }
+                    onSuccess?.()
+                    actions.setSendIdempotencyKey(null)
+                    if (!isPrivate) {
+                        actions.incrementUnreadCustomerCount()
+                    }
+                    if (statusAfterSend) {
+                        actions.setStatus(statusAfterSend)
+                        // Pick up the ticket for the sender unless a specific user is already assigned.
+                        if (values.assignee?.type !== 'user' && values.user) {
+                            actions.setAssignee({ type: 'user', id: values.user.id })
+                        }
+                        actions.updateTicket()
+                    }
+                    actions.loadTickets()
+                    return
+                } catch (error: any) {
+                    lastError = error
+                    if (attempt >= sendRetryBudget(error)) {
+                        break
+                    }
+                    attempt++
+                    await delay(SEND_RETRY_DELAY_MS)
+                }
+            }
+
+            actions.setMessageSending(false)
+
+            if (!isSendOutcomeUnknown(lastError)) {
+                lemonToast.error('Failed to send message')
+                return
+            }
+
+            // The write may well have landed, so the draft and its key are kept: sending again
+            // reuses the key and the server returns the original instead of a second copy.
+            posthog.capture('conversations reply send outcome unknown', {
+                ticket_id: ticketId,
+                is_private: isPrivate,
+                status: lastError?.status ?? null,
+            })
+            lemonToast.error("We couldn't confirm your message was sent. Check the thread before sending again.", {
+                autoClose: false,
+                button: {
+                    label: 'Check thread',
+                    action: () => actions.loadMessages(),
+                },
+            })
         },
         dismissKnowledgeGap: async ({ suggestionId }) => {
             try {

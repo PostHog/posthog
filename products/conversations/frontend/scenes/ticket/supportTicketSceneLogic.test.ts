@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
@@ -483,5 +485,125 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         }).toDispatchActions(['loadPreviousTicketsSuccess'])
 
         expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+    })
+})
+
+describe('supportTicketSceneLogic message sending', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const createMock = api.comments.create as jest.Mock
+    const listMock = api.comments.list as jest.Mock
+
+    function makeSupportComment(id: string): CommentType {
+        return {
+            id,
+            content: 'reply body',
+            scope: 'conversations_ticket',
+            item_id: 'ticket-1',
+            item_context: { author_type: 'support', is_private: false },
+            created_at: '2026-01-01T00:00:00Z',
+            created_by: null,
+        } as unknown as CommentType
+    }
+
+    function send(): void {
+        logic.actions.sendMessage('reply body', null, false, () => logic.actions.setDraftContent(null))
+    }
+
+    function sentKey(callIndex = 0): string {
+        return createMock.mock.calls[callIndex][0].idempotency_key
+    }
+
+    beforeEach(() => {
+        initKeaTests()
+        createMock.mockReset()
+        listMock.mockReset().mockResolvedValue({ results: [] })
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    it('shows the sent reply without waiting for a refetch', async () => {
+        createMock.mockResolvedValue(makeSupportComment('msg-1'))
+
+        await expectLogic(logic, () => send()).toDispatchActions(['appendMessage'])
+
+        expect(logic.values.messages.map((m) => m.id)).toEqual(['msg-1'])
+        expect(createMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not show the reply twice when the poll has already delivered it', async () => {
+        createMock.mockResolvedValue(makeSupportComment('msg-1'))
+        logic.actions.setMessages([makeSupportComment('msg-1')])
+
+        await expectLogic(logic, () => send()).toDispatchActions(['appendMessage'])
+
+        expect(logic.values.messages).toHaveLength(1)
+    })
+
+    // A dropped connection leaves the outcome unknown: the write may well have landed, so the
+    // repeat has to carry the same key or it becomes the duplicate we're trying to prevent.
+    it('repeats a send whose outcome is unknown using the same key', async () => {
+        createMock
+            .mockRejectedValueOnce(new ApiError('Failed to fetch', undefined))
+            .mockResolvedValueOnce(makeSupportComment('msg-1'))
+
+        await expectLogic(logic, () => send()).toDispatchActions(['appendMessage'])
+
+        expect(createMock).toHaveBeenCalledTimes(2)
+        expect(sentKey(0)).toEqual(sentKey(1))
+        expect(logic.values.messages).toHaveLength(1)
+    })
+
+    it('keeps the key after giving up so a manual resend cannot duplicate the message', async () => {
+        createMock.mockRejectedValue(new ApiError('Failed to fetch', undefined))
+
+        await expectLogic(logic, () => send()).toFinishAllListeners()
+
+        const abandonedKey = logic.values.sendIdempotencyKey
+        expect(abandonedKey).not.toBeNull()
+
+        createMock.mockReset().mockResolvedValue(makeSupportComment('msg-1'))
+        await expectLogic(logic, () => send()).toDispatchActions(['appendMessage'])
+
+        expect(sentKey()).toEqual(abandonedKey)
+    })
+
+    it('does not repeat a send the server definitively rejected', async () => {
+        createMock.mockRejectedValue(new ApiError('Bad request', 400))
+
+        await expectLogic(logic, () => send()).toFinishAllListeners()
+
+        expect(createMock).toHaveBeenCalledTimes(1)
+        expect(logic.values.messageSending).toBe(false)
+    })
+
+    it('mints a fresh key once the draft changes', async () => {
+        createMock.mockRejectedValue(new ApiError('Failed to fetch', undefined))
+        await expectLogic(logic, () => send()).toFinishAllListeners()
+        const abandonedKey = logic.values.sendIdempotencyKey
+
+        logic.actions.setDraftContent({ type: 'doc', content: [] })
+        expect(logic.values.sendIdempotencyKey).toBeNull()
+
+        createMock.mockReset().mockResolvedValue(makeSupportComment('msg-1'))
+        await expectLogic(logic, () => send()).toDispatchActions(['appendMessage'])
+
+        expect(sentKey()).not.toEqual(abandonedKey)
+    })
+
+    // The 5s poll overlaps under load, and setMessages replaces the list wholesale, so a slow
+    // reply to an earlier poll used to wipe a message that had just been sent.
+    it('ignores a poll response that a newer poll has already superseded', async () => {
+        let resolveSlow: (value: any) => void = () => {}
+        listMock
+            .mockReturnValueOnce(new Promise((resolve) => (resolveSlow = resolve)))
+            .mockResolvedValueOnce({ results: [makeSupportComment('msg-1')] })
+
+        logic.actions.loadMessages()
+        await expectLogic(logic, () => logic.actions.loadMessages()).toDispatchActions(['setMessages'])
+        resolveSlow({ results: [] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.messages.map((m) => m.id)).toEqual(['msg-1'])
     })
 })
