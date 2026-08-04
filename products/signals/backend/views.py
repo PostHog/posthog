@@ -2011,12 +2011,12 @@ class SignalReportViewSet(
             # Computed once and frozen onto the refund row below: the credited-path sync must
             # report the period the refund was accepted in, not whatever period is current when
             # the Celery task eventually reaches billing.
-            period_start, period_end = current_billing_period_bounds(self.organization)
+            period = current_billing_period_bounds(self.organization)
             ineligibility = refund_ineligibility_reason(
                 has_refund=False,  # the idempotent 200 above already handled existing refunds
                 billing_exempt=bool(report.billing_exempt_reason),
                 billable_run_at=billable_run.created_at if billable_run else None,
-                period=(period_start, period_end),
+                period=period,
             )
             if ineligibility is not None:
                 return Response(
@@ -2054,8 +2054,8 @@ class SignalReportViewSet(
                         credits=SIGNALS_CREDITS_PER_REPORT_WITH_PR,
                         pr_url=billable_run.pr_url,
                         pr_run_created_at=billable_run.created_at,
-                        period_start=period_start,
-                        period_end=period_end,
+                        period_start=period.start,
+                        period_end=period.end,
                     )
             except IntegrityError:
                 existing = SignalReportRefund.objects.filter(report_id=report.id).first()
@@ -2136,15 +2136,15 @@ class SignalReportViewSet(
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
 
-        period_start, period_end = current_billing_period_bounds(self.organization)
+        period = current_billing_period_bounds(self.organization)
         aggregates = (
             # Org-wide on purpose (unscoped + org filter): the usage this offsets is org-level.
             SignalReportRefund.objects.unscoped()
             .filter(
                 team__organization_id=self.organization.id,
                 billing_path=SignalReportRefund.BillingPath.CREDITED,
-                pr_run_created_at__gte=period_start,
-                pr_run_created_at__lt=period_end,
+                pr_run_created_at__gte=period.start,
+                pr_run_created_at__lt=period.end,
             )
             .aggregate(credited_refund_count=Count("id"), credited_credits=Sum("credits"))
         )
@@ -2152,9 +2152,7 @@ class SignalReportViewSet(
             {
                 "credited_refund_count": aggregates["credited_refund_count"] or 0,
                 "credited_credits": aggregates["credited_credits"] or 0,
-                "period_billable_credits": period_billable_credits_for_org(
-                    self.organization.id, period_start, period_end
-                ),
+                "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
             }
         )
 
@@ -2196,8 +2194,7 @@ class SignalReportViewSet(
         parsed = GitHubIntegration.parse_pull_request_url(pr_url)
         if parsed is None:
             return None
-        owner, repo, pr_number = parsed
-        return f"{owner}/{repo}", pr_number
+        return parsed.repository, parsed.number
 
     @extend_schema(
         responses={
