@@ -99,7 +99,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             <LemonField
                                 name="auto_sync_new_schemas"
-                                help="New tables found on this source will start syncing automatically, using recommended sync settings."
+                                help="New tables found on this source will start syncing automatically, using recommended sync settings. Their historical backfill is billed at standard rates unless the source is still within its first 7 days."
                             >
                                 {({ value, onChange }) => (
                                     <LemonSwitch

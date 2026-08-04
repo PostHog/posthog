@@ -43,6 +43,7 @@ import {
     supportsDirectQuery,
 } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
+import { SchemaHistoricalSyncNotice } from 'products/data_warehouse/frontend/shared/components/SchemaHistoricalSyncNotice'
 import {
     SchemaEditorAction,
     SourceEditorAction,
@@ -149,6 +150,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
 
     return (
         <>
+            {source && <SchemaHistoricalSyncNotice sourceCreatedAt={source.created_at} />}
             <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex flex-wrap items-center gap-3 min-w-0">
                     <LemonSwitch

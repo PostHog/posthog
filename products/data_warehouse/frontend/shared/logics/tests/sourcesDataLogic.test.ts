@@ -52,6 +52,7 @@ describe('sourcesDataLogic', () => {
                     id: 'test-1',
                     source_id: 'source-1',
                     connection_id: 'conn-1',
+                    created_at: '2024-01-01T00:00:00Z',
                     source_type: 'Postgres',
                     status: ExternalDataJobStatus.Running,
                     schemas: [],

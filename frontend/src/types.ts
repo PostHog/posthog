@@ -6272,6 +6272,7 @@ export interface ExternalDataSource {
     source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null
+    created_at: string
     access_method?: 'warehouse' | 'direct'
     direct_query_enabled?: boolean
     auto_sync_new_schemas?: boolean
