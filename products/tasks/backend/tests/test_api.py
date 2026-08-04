@@ -1036,6 +1036,7 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
             "name": "my-skill.zip",
             "type": "skill_bundle",
             "storage_path": f"{run.get_artifact_s3_prefix()}/abcdef01_my-skill.zip",
+            "uploaded_at": "2026-08-03T00:00:00Z",
         }
         entry.update(overrides)
         return entry
@@ -1045,7 +1046,7 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
     @patch.object(Task, "capture_event", autospec=True)
     def test_spawn_creates_and_starts_child_with_protected_state(self, capture_event, _flag, _gate, trigger):
-        channel = Channel.objects.create(team=self.team, name="orchestration")
+        channel = Channel.objects.unscoped().create(team=self.team, name="orchestration")
         parent_run = self._parent_run(channel=channel)
 
         response = self.client.post(self.url, self._payload(parent_run, wake_on=["pr_merged"]), format="json")
@@ -1197,14 +1198,14 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
     def test_spawn_inherits_and_overrides_sandbox_environment(self, _flag, _gate, _trigger):
         inherited = SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="Inherited")
         override = SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="Override")
-        inherited_image = SandboxCustomImage.objects.create(
+        inherited_image = SandboxCustomImage.objects.unscoped().create(
             team=self.team,
             created_by=self.user,
             name="Inherited image",
             status=SandboxCustomImage.Status.READY,
             modal_image_name="inherited:latest",
         )
-        override_image = SandboxCustomImage.objects.create(
+        override_image = SandboxCustomImage.objects.unscoped().create(
             team=self.team,
             created_by=self.user,
             name="Override image",
