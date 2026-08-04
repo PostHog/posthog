@@ -88,10 +88,6 @@ from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
 )
-from posthog.temporal.messaging import (
-    ACTIVITIES as MESSAGING_ACTIVITIES,
-    WORKFLOWS as MESSAGING_WORKFLOWS,
-)
 from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
     WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
@@ -448,8 +444,8 @@ _task_queue_specs = [
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
-        MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
-        MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
+        WA_DIGEST_WORKFLOWS,
+        WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
