@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 
 import pyarrow as pa
@@ -59,6 +60,39 @@ def _run(
     return rows, calls
 
 
+def _run_over_transport(endpoint: str) -> list[dict[str, Any]]:
+    """Same walk as `_run`, but through the real `_fetch_page` so the response-status handling is
+    exercised rather than stubbed out."""
+    tables = list(
+        github.get_rows(
+            personal_access_token="tok",
+            repository="acme/widgets",
+            endpoint=endpoint,
+            logger=mock.Mock(),
+            resumable_source_manager=_no_resume(),
+        )
+    )
+
+    rows: list[dict[str, Any]] = []
+    for table in tables:
+        assert isinstance(table, pa.Table)
+        rows.extend(table.to_pylist())
+    return rows
+
+
+def _not_found_response() -> mock.Mock:
+    response = mock.Mock(spec=requests.Response)
+    response.status_code = 404
+    response.ok = False
+    response.headers = {}
+    response.text = "Not Found"
+    response.request = None
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "404 Client Error: Not Found for url", response=response
+    )
+    return response
+
+
 class TestListParams:
     @parameterized.expand(
         [
@@ -70,6 +104,11 @@ class TestListParams:
             ("traffic_views", {"per_page"}),
             ("issue_events", {"per_page"}),
             ("forks", {"per_page", "sort"}),
+            # /activity answers 422 on an unknown sort or state, so it must stay a plain read
+            # carrying only the direction that makes the watermark stop correct.
+            ("repository_activity", {"per_page", "direction"}),
+            ("commit_comments", {"per_page"}),
+            ("issue_types", {"per_page"}),
             # "sorted" endpoints keep sort/direction but must not send state.
             ("code_scanning_alerts", {"per_page", "sort", "direction"}),
             ("security_advisories", {"per_page", "sort", "direction"}),
@@ -124,6 +163,7 @@ class TestListParams:
             # rest of the history.
             ("issue_events", "desc"),
             ("forks", "desc"),
+            ("repository_activity", "desc"),
             # Endpoints without the flag still start ascending and only flip once a cutoff exists.
             ("issue_comments", "asc"),
             ("milestones", "asc"),
@@ -166,6 +206,14 @@ class TestBodyTransforms:
                 [
                     {"week": 1336280400, "additions": 120, "deletions": -40},
                     {"week": 1336885200, "additions": 3, "deletions": 0},
+                ],
+            ),
+            (
+                "punch_card_stats",
+                [[0, 13, 4], [2, 14, 25]],
+                [
+                    {"day": 0, "hour": 13, "commits": 4},
+                    {"day": 2, "hour": 14, "commits": 25},
                 ],
             ),
             (
@@ -220,6 +268,31 @@ class TestBodyTransforms:
         )
 
         assert rows == [{"id": 3, "name": "production"}]
+
+
+class TestNotFoundTolerance:
+    @parameterized.expand(
+        [
+            # Issue types and repository teams are inherited from an organization owner, so a
+            # user-owned repository 404s on both even with a perfectly good token. Failing there
+            # would break the whole schema for every personal repository.
+            ("issue_types", True),
+            ("repository_teams", True),
+            # A plain repo-scoped table keeps 404 fatal, so a genuinely wrong or revoked repository
+            # still fails loud instead of quietly syncing an empty table forever.
+            ("labels", False),
+        ]
+    )
+    def test_404_syncs_zero_rows_only_where_the_resource_is_optional(self, endpoint: str, tolerated: bool) -> None:
+        session = mock.Mock()
+        session.request.return_value = _not_found_response()
+
+        with mock.patch.object(github, "make_tracked_session", return_value=session):
+            if not tolerated:
+                with pytest.raises(requests.exceptions.HTTPError):
+                    _run_over_transport(endpoint)
+                return
+            assert _run_over_transport(endpoint) == []
 
 
 class TestRowMappers:
