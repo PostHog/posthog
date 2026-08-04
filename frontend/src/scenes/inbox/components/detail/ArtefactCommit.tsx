@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -12,12 +12,6 @@ import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/
 import { CommitContent } from './artefactTypes'
 import { DiffBlock } from './DiffBlock'
 
-/**
- * A `commit` artefact: the message, short sha + repo@branch, and a collapsible "View diff" that
- * lazily fetches the commit-vs-parent diff from the backend on first expand. Missing / rewritten
- * commits surface a clean message; oversized diffs show a truncation notice. Mirrors desktop
- * `ArtefactCommit`.
- */
 export function ArtefactCommit({
     reportId,
     artefactId,
@@ -50,7 +44,9 @@ export function ArtefactCommit({
             })
             .catch(() => {
                 if (!cancelled) {
-                    setError("Couldn't load this commit's diff — it may have been rewritten or removed.")
+                    setError(
+                        "Couldn't load this commit's diff. Open the commit in GitHub to check whether it was rewritten or removed."
+                    )
                 }
             })
             .finally(() => {
@@ -65,45 +61,43 @@ export function ArtefactCommit({
     }, [expanded, artefactId, currentTeamId])
 
     return (
-        <div>
-            <span className="block text-default text-xs">{content.message}</span>
-            <span className="block font-mono text-tertiary text-[11px]">
-                {content.commit_sha.slice(0, 12)} · {content.repository}@{content.branch}
-            </span>
+        <LemonCard hoverEffect={false} className="w-full p-2 shadow-none">
+            <div className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 text-xs text-default">{content.message}</span>
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                    aria-label={expanded ? 'Hide commit diff' : 'Show commit diff'}
+                    onClick={() => setExpanded(!expanded)}
+                    className="shrink-0"
+                />
+            </div>
             {content.note?.trim() ? <span className="block text-secondary text-xs mt-1">{content.note}</span> : null}
 
-            <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="mt-1.5 flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-secondary transition-colors hover:bg-fill-highlight-50"
-            >
-                {expanded ? <IconChevronDown /> : <IconChevronRight />}
-                {expanded ? 'Hide diff' : 'View diff'}
-            </button>
-
             {expanded ? (
-                <div className="mt-1.5">
+                <div className="mt-2 border-t pt-2">
                     {loading ? (
-                        <div className="flex items-center gap-2 text-[11px] text-tertiary py-1">
-                            <Spinner className="size-3" />
-                            Fetching diff…
+                        <div className="flex flex-col gap-1.5 py-1">
+                            <LemonSkeleton className="h-3 w-full" />
+                            <LemonSkeleton className="h-3 w-4/5" />
                         </div>
                     ) : error ? (
-                        <span className="text-[11px] text-danger">{error}</span>
+                        <span className="text-xs text-danger">{error}</span>
                     ) : diff && diff.diff.trim() ? (
                         <>
                             <DiffBlock diff={diff.diff} />
                             {diff.truncated ? (
-                                <span className="mt-1 block text-[11px] text-tertiary italic">
-                                    Diff truncated — open the commit in GitHub for the full change.
+                                <span className="mt-1 block text-xs text-tertiary italic">
+                                    The diff is truncated. Open the commit in GitHub to see the full change.
                                 </span>
                             ) : null}
                         </>
                     ) : (
-                        <span className="text-[11px] text-tertiary">No changes recorded for this commit.</span>
+                        <span className="text-xs text-tertiary">No changes recorded for this commit.</span>
                     )}
                 </div>
             ) : null}
-        </div>
+        </LemonCard>
     )
 }
