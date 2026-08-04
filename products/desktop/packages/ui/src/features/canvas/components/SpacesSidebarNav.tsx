@@ -191,12 +191,13 @@ export function SpacesSidebarNav() {
           global button defaults to #me — the composer's space chip is where
           to retarget; a space's own "+" pre-fills that space instead. */}
       <div className="shrink-0 px-2 pb-1.5">
-        {/* quill's outline treatment — a step above the flat rows without
-            primary's shout; centered, sized like the sm rows around it. */}
+        {/* Between flat and primary: quill's outline with a raised fill and a
+            small shadow, so it reads as an elevated chip on the chrome
+            without primary's shout. Centered, sized like the sm rows. */}
         <Button
           variant="outline"
           size="sm"
-          className="w-full gap-1.5"
+          className="w-full gap-1.5 bg-gray-3 shadow-sm hover:bg-gray-4"
           onClick={() => {
             track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
               action_type: "new_task_open",
