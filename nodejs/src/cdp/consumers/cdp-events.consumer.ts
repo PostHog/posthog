@@ -6,6 +6,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import { UUID } from '~/common/utils/utils'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
@@ -15,7 +16,6 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
-import { UUID } from '~/common/utils/utils'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
