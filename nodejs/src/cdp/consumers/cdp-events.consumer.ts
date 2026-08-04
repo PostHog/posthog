@@ -136,13 +136,25 @@ export class CdpEventsConsumer<
         if (!opens.length) {
             return
         }
+        // Resolve the workflows in a single batch lookup (mirrors EmailTrackingService.trackLogs) rather
+        // than awaiting getHogFlow per event, so a batch carrying many opens doesn't serialize N lookups.
+        const workflowIds = Array.from(
+            new Set(
+                opens
+                    .map((g) => g.event.properties['$notification_workflow_id'])
+                    .filter((id): id is string => typeof id === 'string')
+            )
+        )
+        if (!workflowIds.length) {
+            return
+        }
+        const hogFlows = await this.hogFlowManager.getHogFlows(workflowIds)
         for (const g of opens) {
             const workflowId = g.event.properties['$notification_workflow_id']
             if (typeof workflowId !== 'string') {
                 continue
             }
-            const hogFlow = await this.hogFlowManager.getHogFlow(workflowId)
-            const metric = buildPushOpenedMetric(g.event.properties, g.project.id, hogFlow)
+            const metric = buildPushOpenedMetric(g.event.properties, g.project.id, hogFlows[workflowId] ?? null)
             if (metric) {
                 this.hogFunctionMonitoringService.queueAppMetric(metric, 'hog_flow')
             }
