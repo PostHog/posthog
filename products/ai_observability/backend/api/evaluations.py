@@ -19,6 +19,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
@@ -53,6 +54,7 @@ from ..models.evaluation_configs import (
     validate_evaluation_configs,
     validate_target_config,
 )
+from ..models.evaluation_directories import EvaluationDirectory
 from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
@@ -247,6 +249,13 @@ class EvaluationConditionSerializer(serializers.Serializer):
 
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    directory_id = TeamScopedPrimaryKeyRelatedField(
+        source="directory",
+        queryset=EvaluationDirectory.objects.unscoped(),
+        required=False,
+        allow_null=True,
+        help_text="Directory containing the evaluation. Pass null to move the evaluation to the top level.",
+    )
     model_configuration = ModelConfigurationSerializer(
         required=False,
         allow_null=True,
@@ -301,6 +310,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "directory_id",
             "enabled",
             "status",
             "status_reason",
@@ -613,6 +623,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
 class EvaluationFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
+    directory_id = django_filters.UUIDFilter(
+        field_name="directory_id",
+        help_text="Filter evaluations by directory UUID.",
+    )
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
     evaluation_type = django_filters.ChoiceFilter(
         choices=EvaluationType.choices,
@@ -907,6 +921,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         for field in [
             "name",
             "description",
+            "directory",
             "enabled",
             "evaluation_type",
             "output_type",

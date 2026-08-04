@@ -176,6 +176,25 @@ export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Replacement JSON object for descriptive dataset metadata.'),
 })
 
+export const evaluationDirectoriesCreateBodyNameMax = 400
+
+export const EvaluationDirectoriesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesCreateBodyNameMax)
+        .describe('Directory name shown in the online evals list.'),
+})
+
+export const evaluationDirectoriesPartialUpdateBodyNameMax = 400
+
+export const EvaluationDirectoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Directory name shown in the online evals list.'),
+})
+
 /**
  * Create a new evaluation run.
  *
@@ -225,6 +244,10 @@ export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .uuid()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()
@@ -417,6 +440,10 @@ export const evaluationsUpdateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsUpdateBodyNameMax).describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .uuid()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()
@@ -609,6 +636,10 @@ export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .uuid()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()

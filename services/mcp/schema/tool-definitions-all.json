@@ -5554,6 +5554,76 @@
             "readOnlyHint": false
         }
     },
+    "llma-evaluation-directory-create": {
+        "description": "Create a top-level directory for organizing online evaluations. Directory names must be unique within the project, ignoring capitalization.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation directory",
+        "title": "Create evaluation directory",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-directory-delete": {
+        "description": "Delete an evaluation directory. Evaluations in the directory are preserved and moved to the top level.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Delete evaluation directory",
+        "title": "Delete evaluation directory",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-directory-get": {
+        "description": "Get an evaluation directory by UUID, including its name and active evaluation count.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation directory",
+        "title": "Get evaluation directory",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-directory-list": {
+        "description": "List the project's evaluation directories and active evaluation counts.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List evaluation directories",
+        "title": "List evaluation directories",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-directory-update": {
+        "description": "Rename an evaluation directory. Directory names must be unique within the project, ignoring capitalization.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation directory",
+        "title": "Update evaluation directory",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-evaluation-get": {
         "description": "Get a specific AI observability evaluation by its UUID. Requires the evaluation `id` (UUID) as a parameter — if you don't have it, call llma-evaluation-list first to look it up by name. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
         "category": "AI observability",

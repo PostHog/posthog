@@ -15,6 +15,11 @@ import {
     DatasetsPartialUpdateBody,
     DatasetsPartialUpdateParams,
     DatasetsRestoreParams,
+    EvaluationDirectoriesCreateBody,
+    EvaluationDirectoriesDestroyParams,
+    EvaluationDirectoriesPartialUpdateBody,
+    EvaluationDirectoriesPartialUpdateParams,
+    EvaluationDirectoriesRetrieveParams,
     EvaluationRunsCreateBody,
     EvaluationsCreateBody,
     EvaluationsDestroyParams,
@@ -542,6 +547,106 @@ const llmaEvaluationConfigSetActiveKey = (): ToolBase<
     },
 })
 
+const LlmaEvaluationDirectoryCreateSchema = EvaluationDirectoriesCreateBody
+
+const llmaEvaluationDirectoryCreate = (): ToolBase<
+    typeof LlmaEvaluationDirectoryCreateSchema,
+    Schemas.EvaluationDirectory
+> => ({
+    name: 'llma-evaluation-directory-create',
+    schema: LlmaEvaluationDirectoryCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationDirectoryCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.EvaluationDirectory>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_directories/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationDirectoryDeleteSchema = EvaluationDirectoriesDestroyParams.omit({ project_id: true })
+
+const llmaEvaluationDirectoryDelete = (): ToolBase<typeof LlmaEvaluationDirectoryDeleteSchema, unknown> => ({
+    name: 'llma-evaluation-directory-delete',
+    schema: LlmaEvaluationDirectoryDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationDirectoryDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_directories/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationDirectoryGetSchema = EvaluationDirectoriesRetrieveParams.omit({ project_id: true })
+
+const llmaEvaluationDirectoryGet = (): ToolBase<
+    typeof LlmaEvaluationDirectoryGetSchema,
+    Schemas.EvaluationDirectory
+> => ({
+    name: 'llma-evaluation-directory-get',
+    schema: LlmaEvaluationDirectoryGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationDirectoryGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EvaluationDirectory>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_directories/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationDirectoryListSchema = z.object({})
+
+const llmaEvaluationDirectoryList = (): ToolBase<
+    typeof LlmaEvaluationDirectoryListSchema,
+    Schemas.EvaluationDirectory[]
+> => ({
+    name: 'llma-evaluation-directory-list',
+    schema: LlmaEvaluationDirectoryListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationDirectoryListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EvaluationDirectory[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_directories/`,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationDirectoryUpdateSchema = EvaluationDirectoriesPartialUpdateParams.omit({ project_id: true }).extend(
+    EvaluationDirectoriesPartialUpdateBody.shape
+)
+
+const llmaEvaluationDirectoryUpdate = (): ToolBase<
+    typeof LlmaEvaluationDirectoryUpdateSchema,
+    Schemas.EvaluationDirectory
+> => ({
+    name: 'llma-evaluation-directory-update',
+    schema: LlmaEvaluationDirectoryUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationDirectoryUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.EvaluationDirectory>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_directories/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaEvaluationCreateSchema = EvaluationsCreateBody
 
 const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Schemas.Evaluation> => ({
@@ -555,6 +660,9 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.directory_id !== undefined) {
+            body['directory_id'] = params.directory_id
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
@@ -659,6 +767,7 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/`,
             query: {
+                directory_id: params.directory_id,
                 enabled: params.enabled,
                 evaluation_type: params.evaluation_type,
                 id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
@@ -959,6 +1068,9 @@ const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Sch
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.directory_id !== undefined) {
+            body['directory_id'] = params.directory_id
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
@@ -1890,6 +2002,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-dataset-update': llmaDatasetUpdate,
     'llma-evaluation-config-get': llmaEvaluationConfigGet,
     'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
+    'llma-evaluation-directory-create': llmaEvaluationDirectoryCreate,
+    'llma-evaluation-directory-delete': llmaEvaluationDirectoryDelete,
+    'llma-evaluation-directory-get': llmaEvaluationDirectoryGet,
+    'llma-evaluation-directory-list': llmaEvaluationDirectoryList,
+    'llma-evaluation-directory-update': llmaEvaluationDirectoryUpdate,
     'llma-evaluation-create': llmaEvaluationCreate,
     'llma-evaluation-delete': llmaEvaluationDelete,
     'llma-evaluation-get': llmaEvaluationGet,

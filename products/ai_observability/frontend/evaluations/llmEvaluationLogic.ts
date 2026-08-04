@@ -855,6 +855,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: template?.name || '',
                     description: template?.description || '',
+                    directory_id:
+                        typeof router.values.searchParams.directory === 'string'
+                            ? router.values.searchParams.directory
+                            : null,
                     // Starting a keyless draft enabled would 400 on save for teams that require a key.
                     enabled: !values.requiresProviderKey,
                     status: 'active' as const,
@@ -957,6 +961,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: '',
                     description: '',
+                    directory_id:
+                        typeof router.values.searchParams.directory === 'string'
+                            ? router.values.searchParams.directory
+                            : null,
                     enabled: !values.requiresProviderKey,
                     status: 'active',
                     status_reason: null,

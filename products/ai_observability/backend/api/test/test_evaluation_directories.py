@@ -1,0 +1,88 @@
+from posthog.test.base import APIBaseTest
+
+from rest_framework import status
+
+from posthog.models import Team
+
+from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
+from products.ai_observability.backend.models.evaluations import Evaluation
+
+
+class TestEvaluationDirectoriesApi(APIBaseTest):
+    def _create_directory(self, name: str = "Quality") -> EvaluationDirectory:
+        return EvaluationDirectory.objects.for_team(self.team.id).create(
+            team=self.team,
+            name=name,
+            created_by=self.user,
+        )
+
+    def _create_evaluation(self, name: str = "Correctness") -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name=name,
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check correctness"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+
+    def test_names_are_trimmed_and_unique_ignoring_case(self) -> None:
+        url = f"/api/projects/{self.team.id}/evaluation_directories/"
+
+        created = self.client.post(url, {"name": "  Quality  "}, format="json")
+        duplicate = self.client.post(url, {"name": "quality"}, format="json")
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(created.json()["name"], "Quality")
+        self.assertEqual(duplicate.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(EvaluationDirectory.objects.for_team(self.team.id).count(), 1)
+
+    def test_evaluation_can_move_into_a_directory_and_back_to_the_top_level(self) -> None:
+        directory = self._create_directory()
+        evaluation = self._create_evaluation()
+        url = f"/api/projects/{self.team.id}/evaluations/{evaluation.id}/"
+
+        moved = self.client.patch(url, {"directory_id": str(directory.id)}, format="json")
+        moved_to_top_level = self.client.patch(url, {"directory_id": None}, format="json")
+
+        self.assertEqual(moved.status_code, status.HTTP_200_OK)
+        self.assertEqual(moved.json()["directory_id"], str(directory.id))
+        self.assertEqual(moved_to_top_level.status_code, status.HTTP_200_OK)
+        self.assertIsNone(moved_to_top_level.json()["directory_id"])
+
+    def test_evaluation_cannot_move_to_another_teams_directory(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_directory = EvaluationDirectory.objects.for_team(other_team.id).create(
+            team=other_team,
+            name="Other directory",
+        )
+        evaluation = self._create_evaluation()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/evaluations/{evaluation.id}/",
+            {"directory_id": str(other_directory.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        evaluation.refresh_from_db()
+        self.assertIsNone(evaluation.directory_id)
+
+    def test_deleting_a_directory_moves_its_evaluations_to_the_top_level(self) -> None:
+        directory = self._create_directory()
+        active_evaluation = self._create_evaluation("Active")
+        deleted_evaluation = self._create_evaluation("Deleted")
+        Evaluation.objects.filter(id__in=[active_evaluation.id, deleted_evaluation.id]).update(directory=directory)
+        Evaluation.objects.filter(id=deleted_evaluation.id).update(deleted=True)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/evaluation_directories/")
+        response = self.client.delete(f"/api/projects/{self.team.id}/evaluation_directories/{directory.id}/")
+
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual(listed.json()[0]["evaluation_count"], 1)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(EvaluationDirectory.objects.for_team(self.team.id).filter(id=directory.id).exists())
+        self.assertEqual(
+            Evaluation.objects.filter(id__in=[active_evaluation.id, deleted_evaluation.id], directory=None).count(),
+            2,
+        )

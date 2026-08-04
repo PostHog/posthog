@@ -1747,6 +1747,68 @@ support_tickets: PostgresTable = PostgresTable(
     },
 )
 
+evaluation_directories: PostgresTable = PostgresTable(
+    name="evaluation_directories",
+    postgres_table_name="llm_analytics_evaluationdirectory",
+    access_scope="evaluation",
+    description="Directories used to organize online evaluations; one row per directory.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Directory UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Directory name."),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the directory."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the directory was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the directory was last updated."
+        ),
+    },
+)
+
+evaluations: PostgresTable = PostgresTable(
+    name="evaluations",
+    postgres_table_name="llm_analytics_evaluation",
+    access_scope="evaluation",
+    description="Online evaluations that score AI generations or traces; one row per evaluation.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Evaluation UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "directory_id": UUIDDatabaseField(
+            name="directory_id",
+            nullable=True,
+            description="Directory containing the evaluation; NULL means the top level.",
+        ),
+        "name": StringDatabaseField(name="name", description="Evaluation name."),
+        "description": StringDatabaseField(name="description", description="Evaluation description."),
+        "enabled": BooleanDatabaseField(name="enabled", description="Whether the evaluation is active."),
+        "status": StringDatabaseField(name="status", description="Evaluation status."),
+        "status_reason": StringDatabaseField(
+            name="status_reason", nullable=True, description="Reason for the current status, when available."
+        ),
+        "evaluation_type": StringDatabaseField(name="evaluation_type", description="Evaluation implementation type."),
+        "evaluation_config": StringJSONDatabaseField(
+            name="evaluation_config", description="Evaluation-specific configuration."
+        ),
+        "output_type": StringDatabaseField(name="output_type", description="Evaluation result type."),
+        "output_config": StringJSONDatabaseField(name="output_config", description="Evaluation output configuration."),
+        "conditions": StringJSONDatabaseField(name="conditions", description="Conditions that select matching input."),
+        "target": StringDatabaseField(name="target", description="Unit evaluated, such as a generation or trace."),
+        "target_config": StringJSONDatabaseField(name="target_config", description="Target-specific configuration."),
+        "model_configuration_id": UUIDDatabaseField(
+            name="model_configuration_id",
+            nullable=True,
+            description="Model configuration used by an LLM judge evaluation.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the evaluation."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the evaluation was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the evaluation was last updated."),
+        "deleted": BooleanDatabaseField(name="deleted", description="Whether the evaluation has been deleted."),
+    },
+)
+
 review_queues: PostgresTable = PostgresTable(
     name="review_queues",
     postgres_table_name="llm_analytics_reviewqueue",
@@ -2257,6 +2319,8 @@ class SystemTables(TableNode):
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
         ),
         "early_access_features": TableNode(name="early_access_features", table=early_access_features),
+        "evaluation_directories": TableNode(name="evaluation_directories", table=evaluation_directories),
+        "evaluations": TableNode(name="evaluations", table=evaluations),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),

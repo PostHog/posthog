@@ -65,6 +65,7 @@ export interface BaseEvaluationConfig {
     id: string
     name: string
     description?: string
+    directory_id?: string | null
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null

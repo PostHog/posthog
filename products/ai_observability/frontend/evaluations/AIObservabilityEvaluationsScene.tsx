@@ -1,13 +1,27 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { cloneElement, forwardRef, useEffect, useRef, useState } from 'react'
+import type { ComponentProps, ReactElement } from 'react'
 
-import { IconEye, IconHide, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconEllipsis,
+    IconEye,
+    IconFolder,
+    IconHide,
+    IconPencil,
+    IconPlus,
+    IconSearch,
+    IconTrash,
+    IconWarning,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInput,
+    LemonMenu,
+    LemonModal,
     LemonSwitch,
     LemonTab,
     LemonTable,
@@ -24,11 +38,9 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -36,6 +48,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import type { EvaluationDirectoryApi } from '../generated/api.schemas'
 import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import {
     getUnhealthyProviderKey,
@@ -80,6 +93,26 @@ function getActiveTab(
     const tab = searchParams.tab
     return tab === 'offline-evals' || tab === 'offline' ? 'offline-evals' : 'online-evals'
 }
+
+type AccessControlledLemonMenuProps = ComponentProps<typeof LemonMenu> & {
+    disabled?: boolean
+    disabledReason: string | null
+}
+
+const AccessControlledLemonMenu = forwardRef<HTMLElement, AccessControlledLemonMenuProps>(
+    function AccessControlledLemonMenu({ children, disabled, disabledReason, ...menuProps }, ref): JSX.Element {
+        const trigger = children as ReactElement<{ disabled?: boolean; disabledReason?: string | null }>
+
+        return (
+            <LemonMenu {...menuProps} ref={ref}>
+                {cloneElement(trigger, {
+                    disabled: trigger.props.disabled ?? disabled,
+                    disabledReason: trigger.props.disabledReason ?? disabledReason,
+                })}
+            </LemonMenu>
+        )
+    }
+)
 
 function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
     if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
@@ -155,7 +188,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
     const metricsLogic = evaluationMetricsLogic()
     const {
         evaluations,
-        filteredEvaluations,
+        displayedEvaluations,
         evaluationsLoading,
         evaluationsFilter,
         showDisabledEvaluations,
@@ -163,23 +196,40 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         providerKeys,
         unhealthyProviderKeysUsedByEvaluations,
         canEnableEvaluation,
+        evaluationDirectories,
+        evaluationDirectoriesLoading,
+        selectedDirectory,
+        selectedDirectoryId,
+        directoryEditor,
+        submitDirectoryLoading,
+        deletingDirectoryId,
+        movingEvaluationId,
     } = useValues(evaluationsLogic)
-    const { setEvaluationsFilter, setShowDisabledEvaluations, toggleEvaluationEnabled, loadEvaluations, setDates } =
-        useActions(evaluationsLogic)
+    const {
+        setEvaluationsFilter,
+        setShowDisabledEvaluations,
+        toggleEvaluationEnabled,
+        setDates,
+        openCreateDirectory,
+        openRenameDirectory,
+        closeDirectoryEditor,
+        setDirectoryEditorName,
+        submitDirectory,
+        deleteDirectory,
+        moveEvaluation,
+        selectDirectory,
+        deleteEvaluation,
+    } = useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
-        filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
+        displayedEvaluations.some((filtered) => filtered.id === evaluation.id)
     )
-
-    if (!evaluationsLoading && evaluations.length === 0) {
-        return <EvaluationTemplatesEmptyState />
-    }
+    const directoryById = new Map(evaluationDirectories.map((directory) => [directory.id, directory]))
 
     const columns: LemonTableColumns<EvaluationConfig> = [
         {
@@ -194,6 +244,17 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </div>
             ),
             sorter: (a, b) => a.name.localeCompare(b.name),
+        },
+        {
+            title: 'Directory',
+            key: 'directory',
+            render: (_, evaluation) =>
+                evaluation.directory_id ? directoryById.get(evaluation.directory_id)?.name || 'Unknown' : 'Top level',
+            sorter: (a, b) => {
+                const directoryName = (evaluation: EvaluationConfig): string =>
+                    evaluation.directory_id ? directoryById.get(evaluation.directory_id)?.name || '' : ''
+                return directoryName(a).localeCompare(directoryName(b))
+            },
         },
         {
             title: 'Status',
@@ -374,6 +435,42 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         resourceType={AccessControlResourceType.LlmAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
+                        <AccessControlledLemonMenu
+                            disabledReason={null}
+                            items={[
+                                {
+                                    icon: <IconFolder />,
+                                    label: 'Top level',
+                                    onClick: () => moveEvaluation(evaluation.id, null),
+                                    disabledReason:
+                                        !evaluation.directory_id || movingEvaluationId === evaluation.id
+                                            ? 'Evaluation is already here'
+                                            : undefined,
+                                },
+                                ...evaluationDirectories.map((directory) => ({
+                                    icon: <IconFolder />,
+                                    label: directory.name,
+                                    onClick: () => moveEvaluation(evaluation.id, directory.id),
+                                    disabledReason:
+                                        evaluation.directory_id === directory.id || movingEvaluationId === evaluation.id
+                                            ? 'Evaluation is already here'
+                                            : undefined,
+                                })),
+                            ]}
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFolder />}
+                                tooltip="Move evaluation"
+                                loading={movingEvaluationId === evaluation.id}
+                            />
+                        </AccessControlledLemonMenu>
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -399,13 +496,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                                         type: 'primary',
                                         status: 'danger',
                                         'data-attr': 'confirm-delete-evaluation',
-                                        onClick: () => {
-                                            deleteWithUndo({
-                                                endpoint: `environments/${currentTeamId}/evaluations`,
-                                                object: evaluation,
-                                                callback: () => loadEvaluations(),
-                                            })
-                                        },
+                                        onClick: () => deleteEvaluation(evaluation.id),
                                     },
                                     secondaryButton: {
                                         children: 'Cancel',
@@ -416,6 +507,82 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         />
                     </AccessControlAction>
                 </div>
+            ),
+        },
+    ]
+
+    const directoryColumns: LemonTableColumns<EvaluationDirectoryApi> = [
+        {
+            title: 'Name',
+            key: 'name',
+            render: (_, directory) => (
+                <LemonButton
+                    type="tertiary"
+                    icon={<IconFolder />}
+                    onClick={() => selectDirectory(directory.id)}
+                    data-attr="evaluation-directory-link"
+                >
+                    {directory.name}
+                </LemonButton>
+            ),
+            sorter: (a, b) => a.name.localeCompare(b.name),
+        },
+        {
+            title: 'Evaluations',
+            key: 'evaluation_count',
+            render: (_, directory) => directory.evaluation_count,
+            sorter: (a, b) => a.evaluation_count - b.evaluation_count,
+        },
+        {
+            title: 'Actions',
+            key: 'actions',
+            render: (_, directory) => (
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <AccessControlledLemonMenu
+                        disabledReason={null}
+                        items={[
+                            {
+                                icon: <IconPencil />,
+                                label: 'Rename',
+                                onClick: () => openRenameDirectory(directory),
+                            },
+                            {
+                                icon: <IconTrash />,
+                                label: 'Delete',
+                                status: 'danger',
+                                onClick: () => {
+                                    LemonDialog.open({
+                                        title: `Delete ${directory.name}?`,
+                                        description: `${directory.evaluation_count} evaluation${
+                                            directory.evaluation_count === 1 ? '' : 's'
+                                        } will move to the top level.`,
+                                        primaryButton: {
+                                            children: 'Delete directory',
+                                            status: 'danger',
+                                            onClick: () => deleteDirectory(directory.id),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                },
+                                disabledReason:
+                                    deletingDirectoryId === directory.id ? 'Directory deletion in progress' : undefined,
+                            },
+                        ]}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconEllipsis />}
+                            loading={deletingDirectoryId === directory.id}
+                            tooltip="Directory actions"
+                        />
+                    </AccessControlledLemonMenu>
+                </AccessControlAction>
             ),
         },
     ]
@@ -440,66 +607,147 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-xl font-semibold">Online evals</h2>
+            <div className="flex justify-between items-start gap-3">
+                <div className="min-w-0 flex-1">
+                    {selectedDirectory ? (
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                icon={<IconArrowLeft />}
+                                onClick={() => selectDirectory(null)}
+                            >
+                                Online evals
+                            </LemonButton>
+                            <span className="text-muted">/</span>
+                            <h2 className="text-xl font-semibold m-0">{selectedDirectory.name}</h2>
+                        </div>
+                    ) : (
+                        <h2 className="text-xl font-semibold">Online evals</h2>
+                    )}
                     <p className="text-muted">
                         Configure evaluation prompts and triggers to automatically assess your AI generations. Each
                         evaluation run is billed as an AI observability event.
                     </p>
                 </div>
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.LlmAnalytics}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        to={combineUrl(urls.aiObservabilityEvaluationTemplates(), searchParams).url}
-                        data-attr="create-evaluation-button"
-                        tooltip="Create evaluation"
+                <div className="flex shrink-0 items-center gap-2">
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        Create evaluation
-                    </LemonButton>
-                </AccessControlAction>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconFolder />}
+                            onClick={() => openCreateDirectory()}
+                            data-attr="create-evaluation-directory-button"
+                        >
+                            New directory
+                        </LemonButton>
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            to={combineUrl(urls.aiObservabilityEvaluationTemplates(), searchParams).url}
+                            data-attr="create-evaluation-button"
+                            tooltip="Create evaluation"
+                        >
+                            Create evaluation
+                        </LemonButton>
+                    </AccessControlAction>
+                </div>
             </div>
 
-            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+            {!evaluationsLoading &&
+            !evaluationDirectoriesLoading &&
+            evaluations.length === 0 &&
+            evaluationDirectories.length === 0 ? (
+                <EvaluationTemplatesEmptyState />
+            ) : (
+                <>
+                    <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
-            <EvaluationMetrics />
+                    <EvaluationMetrics />
 
-            <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search online evals..."
+                            value={evaluationsFilter}
+                            data-attr="evaluations-search-input"
+                            onChange={setEvaluationsFilter}
+                            prefix={<IconSearch />}
+                            className="max-w-sm"
+                        />
+                        <LemonButton
+                            type="secondary"
+                            active={!showDisabledEvaluations}
+                            icon={showDisabledEvaluations ? <IconEye /> : <IconHide />}
+                            onClick={() => setShowDisabledEvaluations(!showDisabledEvaluations)}
+                            data-attr="toggle-show-disabled-evaluations"
+                            tooltip={showDisabledEvaluations ? 'Hide disabled evals' : 'Show disabled evals'}
+                        >
+                            {showDisabledEvaluations ? 'Hide disabled' : 'Show disabled'}
+                        </LemonButton>
+                    </div>
+
+                    {!evaluationsFilter && !selectedDirectoryId && (
+                        <LemonTable
+                            columns={directoryColumns}
+                            dataSource={evaluationDirectories}
+                            loading={evaluationDirectoriesLoading}
+                            rowKey="id"
+                            nouns={['directory', 'directories']}
+                        />
+                    )}
+
+                    <LemonTable
+                        columns={columns}
+                        dataSource={filteredEvaluationsWithMetrics}
+                        loading={evaluationsLoading}
+                        rowKey="id"
+                        pagination={{
+                            pageSize: 50,
+                        }}
+                        nouns={['evaluation', 'evaluations']}
+                    />
+                </>
+            )}
+
+            <LemonModal
+                isOpen={!!directoryEditor}
+                onClose={closeDirectoryEditor}
+                title={directoryEditor?.mode === 'rename' ? 'Rename directory' : 'New directory'}
+                width={480}
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={closeDirectoryEditor} disabled={submitDirectoryLoading}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => submitDirectory()}
+                            loading={submitDirectoryLoading}
+                            disabledReason={!directoryEditor?.name.trim() ? 'Directory name is required' : undefined}
+                            data-attr="save-evaluation-directory"
+                        >
+                            {directoryEditor?.mode === 'rename' ? 'Save directory' : 'Create directory'}
+                        </LemonButton>
+                    </>
+                }
+            >
                 <LemonInput
-                    type="search"
-                    placeholder="Search online evals..."
-                    value={evaluationsFilter}
-                    data-attr="evaluations-search-input"
-                    onChange={setEvaluationsFilter}
-                    prefix={<IconSearch />}
-                    className="max-w-sm"
+                    value={directoryEditor?.name || ''}
+                    onChange={(value) => setDirectoryEditorName(String(value || ''))}
+                    placeholder="Directory name"
+                    autoFocus
+                    fullWidth
+                    data-attr="evaluation-directory-name-input"
                 />
-                <LemonButton
-                    type="secondary"
-                    active={!showDisabledEvaluations}
-                    icon={showDisabledEvaluations ? <IconEye /> : <IconHide />}
-                    onClick={() => setShowDisabledEvaluations(!showDisabledEvaluations)}
-                    data-attr="toggle-show-disabled-evaluations"
-                    tooltip={showDisabledEvaluations ? 'Hide disabled evals' : 'Show disabled evals'}
-                >
-                    {showDisabledEvaluations ? 'Hide disabled' : 'Show disabled'}
-                </LemonButton>
-            </div>
-
-            <LemonTable
-                columns={columns}
-                dataSource={filteredEvaluationsWithMetrics}
-                loading={evaluationsLoading}
-                rowKey="id"
-                pagination={{
-                    pageSize: 50,
-                }}
-                nouns={['evaluation', 'evaluations']}
-            />
+            </LemonModal>
         </div>
     )
 }

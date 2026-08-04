@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import dataclasses
 from typing import TYPE_CHECKING, Any
 
 from posthog.models.activity_logging.activity_log import (
@@ -13,6 +14,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
+from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.llm_prompt import LLMPromptLabel
 
@@ -87,6 +89,17 @@ def _strip_compiled_from_eval_config(config: dict[str, Any] | None) -> dict[str,
     return {k: v for k, v in config.items() if k not in _COMPILED_KEYS}
 
 
+def _serialize_evaluation_change(change: Change) -> Change:
+    if change.field != "directory":
+        return change
+
+    return dataclasses.replace(
+        change,
+        before=str(change.before.pk) if isinstance(change.before, EvaluationDirectory) else change.before,
+        after=str(change.after.pk) if isinstance(change.after, EvaluationDirectory) else change.after,
+    )
+
+
 @mutable_receiver(model_activity_signal, sender=Evaluation)
 def handle_evaluation_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
@@ -107,6 +120,8 @@ def handle_evaluation_change(
         if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
             activity = "restored" if after_deleted is False else "deleted"
 
+    changes = [_serialize_evaluation_change(change) for change in changes_between(scope, before_log, after_log)]
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -116,7 +131,7 @@ def handle_evaluation_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_log, current=after_log),
+            changes=changes,
             name=after_update.name,
         ),
     )

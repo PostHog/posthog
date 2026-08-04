@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -14,6 +14,16 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
+import {
+    evaluationDirectoriesCreate,
+    evaluationDirectoriesDestroy,
+    evaluationDirectoriesList,
+    evaluationDirectoriesPartialUpdate,
+    evaluationsCreate,
+    evaluationsList,
+    evaluationsPartialUpdate,
+} from '../generated/api'
+import type { EvaluationDirectoryApi } from '../generated/api.schemas'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
@@ -24,6 +34,12 @@ const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export type LLMEvaluationsLogicProps = Record<string, never>
+
+export interface EvaluationDirectoryEditor {
+    mode: 'create' | 'rename'
+    directoryId: string | null
+    name: string
+}
 
 function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): void {
     router.actions.replace(
@@ -42,16 +58,26 @@ export interface llmEvaluationsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeProviderKey: LLMProviderKey | null | undefined // llmProviderKeysLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
+    searchParams: Record<string, any> // router
     canEnableEvaluation: (evaluation: EvaluationConfig) => boolean
     dateFilter: {
         dateFrom: string | null
         dateTo: string | null
     }
+    deletingDirectoryId: string | null
+    directoryEditor: EvaluationDirectoryEditor | null
+    displayedEvaluations: EvaluationConfig[]
+    evaluationDirectories: EvaluationDirectoryApi[]
+    evaluationDirectoriesLoading: boolean
     evaluations: EvaluationConfig[]
     evaluationsFilter: string
     evaluationsLoading: boolean
     filteredEvaluations: EvaluationConfig[]
+    movingEvaluationId: string | null
+    selectedDirectory: EvaluationDirectoryApi | null
+    selectedDirectoryId: string | null
     showDisabledEvaluations: boolean
+    submitDirectoryLoading: boolean
     unhealthyProviderKeysUsedByEvaluations: LLMProviderKey[]
 }
 
@@ -59,11 +85,27 @@ export interface llmEvaluationsLogicValues {
 export interface llmEvaluationsLogicActions {
     loadProviderKeys: () => any // llmProviderKeysLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    closeDirectoryEditor: () => {
+        value: true
+    }
     createEvaluation: (evaluation: Partial<EvaluationConfig>) => {
         evaluation: Partial<EvaluationConfig>
     }
     createEvaluationSuccess: (evaluation: EvaluationConfig) => {
         evaluation: EvaluationConfig
+    }
+    deleteDirectory: (id: string) => {
+        id: string
+    }
+    deleteDirectoryFailure: (
+        id: string,
+        error: string
+    ) => {
+        error: string
+        id: string
+    }
+    deleteDirectorySuccess: (id: string) => {
+        id: string
     }
     deleteEvaluation: (id: string) => {
         id: string
@@ -71,11 +113,56 @@ export interface llmEvaluationsLogicActions {
     deleteEvaluationSuccess: (id: string) => {
         id: string
     }
+    loadEvaluationDirectories: () => any
+    loadEvaluationDirectoriesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEvaluationDirectoriesSuccess: (
+        evaluationDirectories: EvaluationDirectoryApi[],
+        payload?: any
+    ) => {
+        evaluationDirectories: EvaluationDirectoryApi[]
+        payload?: any
+    }
     loadEvaluations: () => {
         value: true
     }
     loadEvaluationsSuccess: (evaluations: EvaluationConfig[]) => {
         evaluations: EvaluationConfig[]
+    }
+    moveEvaluation: (
+        id: string,
+        directoryId: string | null
+    ) => {
+        directoryId: string | null
+        id: string
+    }
+    moveEvaluationFailure: (
+        id: string,
+        error: string
+    ) => {
+        error: string
+        id: string
+    }
+    moveEvaluationSuccess: (
+        id: string,
+        directoryId: string | null
+    ) => {
+        directoryId: string | null
+        id: string
+    }
+    openCreateDirectory: () => {
+        value: true
+    }
+    openRenameDirectory: (directory: EvaluationDirectoryApi) => {
+        directory: EvaluationDirectoryApi
+    }
+    selectDirectory: (directoryId: string | null) => {
+        directoryId: string | null
     }
     setDates: (
         dateFrom: string | null,
@@ -84,11 +171,23 @@ export interface llmEvaluationsLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setDirectoryEditorName: (name: string) => {
+        name: string
+    }
     setEvaluationsFilter: (filter: string) => {
         filter: string
     }
     setShowDisabledEvaluations: (show: boolean) => {
         show: boolean
+    }
+    submitDirectory: () => {
+        value: true
+    }
+    submitDirectoryFailure: (error: string) => {
+        error: string
+    }
+    submitDirectorySuccess: () => {
+        value: true
     }
     toggleEvaluationEnabled: (id: string) => {
         id: string
@@ -127,6 +226,16 @@ export interface llmEvaluationsLogicMeta {
             evaluationsFilter: string,
             showDisabledEvaluations: boolean
         ) => EvaluationConfig[]
+        selectedDirectoryId: (searchParams: Record<string, any>) => string | null
+        selectedDirectory: (
+            evaluationDirectories: EvaluationDirectoryApi[],
+            selectedDirectoryId: string | null
+        ) => EvaluationDirectoryApi | null
+        displayedEvaluations: (
+            filteredEvaluations: EvaluationConfig[],
+            evaluationsFilter: string,
+            selectedDirectoryId: string | null
+        ) => EvaluationConfig[]
         canEnableEvaluation: (
             activeProviderKey: LLMProviderKey | null | undefined
         ) => (evaluation: EvaluationConfig) => boolean
@@ -148,7 +257,14 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
     props({} as LLMEvaluationsLogicProps),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'activeProviderKey']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            llmProviderKeysLogic,
+            ['providerKeys', 'activeProviderKey'],
+            router,
+            ['searchParams'],
+        ],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 
@@ -162,6 +278,20 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         updateEvaluationSuccess: (id: string, evaluation: Partial<EvaluationConfig>) => ({ id, evaluation }),
         deleteEvaluation: (id: string) => ({ id }),
         deleteEvaluationSuccess: (id: string) => ({ id }),
+        openCreateDirectory: true,
+        openRenameDirectory: (directory: EvaluationDirectoryApi) => ({ directory }),
+        closeDirectoryEditor: true,
+        setDirectoryEditorName: (name: string) => ({ name }),
+        submitDirectory: true,
+        submitDirectorySuccess: true,
+        submitDirectoryFailure: (error: string) => ({ error }),
+        deleteDirectory: (id: string) => ({ id }),
+        deleteDirectorySuccess: (id: string) => ({ id }),
+        deleteDirectoryFailure: (id: string, error: string) => ({ id, error }),
+        moveEvaluation: (id: string, directoryId: string | null) => ({ id, directoryId }),
+        moveEvaluationSuccess: (id: string, directoryId: string | null) => ({ id, directoryId }),
+        moveEvaluationFailure: (id: string, error: string) => ({ id, error }),
+        selectDirectory: (directoryId: string | null) => ({ directoryId }),
         toggleEvaluationEnabled: (id: string) => ({ id }),
         toggleEvaluationEnabledSuccess: (id: string) => ({ id }),
         toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
@@ -190,6 +320,14 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                         e.id === id ? ({ ...e, ...evaluation } as EvaluationConfig) : e
                     ),
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
+                deleteDirectorySuccess: (state, { id }) =>
+                    state.map((evaluation) =>
+                        evaluation.directory_id === id ? { ...evaluation, directory_id: null } : evaluation
+                    ),
+                moveEvaluationSuccess: (state, { id, directoryId }) =>
+                    state.map((evaluation) =>
+                        evaluation.id === id ? { ...evaluation, directory_id: directoryId } : evaluation
+                    ),
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
                     state.map((e: EvaluationConfig) =>
                         e.id === id
@@ -224,9 +362,69 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 setShowDisabledEvaluations: (_, { show }) => show,
             },
         ],
+        directoryEditor: [
+            null as EvaluationDirectoryEditor | null,
+            {
+                openCreateDirectory: () => ({ mode: 'create', directoryId: null, name: '' }),
+                openRenameDirectory: (_, { directory }) => ({
+                    mode: 'rename',
+                    directoryId: directory.id,
+                    name: directory.name,
+                }),
+                closeDirectoryEditor: () => null,
+                setDirectoryEditorName: (state, { name }) => (state ? { ...state, name } : state),
+                submitDirectorySuccess: () => null,
+            },
+        ],
+        submitDirectoryLoading: [
+            false,
+            {
+                submitDirectory: () => true,
+                submitDirectorySuccess: () => false,
+                submitDirectoryFailure: () => false,
+                closeDirectoryEditor: () => false,
+            },
+        ],
+        deletingDirectoryId: [
+            null as string | null,
+            {
+                deleteDirectory: (_, { id }) => id,
+                deleteDirectorySuccess: () => null,
+                deleteDirectoryFailure: () => null,
+            },
+        ],
+        movingEvaluationId: [
+            null as string | null,
+            {
+                moveEvaluation: (_, { id }) => id,
+                moveEvaluationSuccess: () => null,
+                moveEvaluationFailure: () => null,
+            },
+        ],
+    }),
+
+    loaders({
+        evaluationDirectories: [
+            [] as EvaluationDirectoryApi[],
+            {
+                loadEvaluationDirectories: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    return teamId ? await evaluationDirectoriesList(teamId.toString()) : []
+                },
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
+        loadEvaluationDirectoriesSuccess: ({ evaluationDirectories }) => {
+            if (
+                values.selectedDirectoryId &&
+                !evaluationDirectories.some((directory) => directory.id === values.selectedDirectoryId)
+            ) {
+                actions.selectDirectory(null)
+            }
+        },
+
         loadEvaluations: async () => {
             try {
                 const teamId = teamLogic.values.currentTeamId
@@ -234,9 +432,8 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
-                // nosemgrep: prefer-codegen-api
-                const response = await api.get(`/api/environments/${teamId}/evaluations/`)
-                actions.loadEvaluationsSuccess(response.results)
+                const response = await evaluationsList(teamId.toString())
+                actions.loadEvaluationsSuccess(response.results as unknown as EvaluationConfig[])
             } catch (error) {
                 console.error('Failed to load evaluations:', error)
                 actions.loadEvaluationsSuccess([])
@@ -250,9 +447,11 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
-                // nosemgrep: prefer-codegen-api
-                const response = await api.create(`/api/environments/${teamId}/evaluations/`, evaluation)
-                actions.createEvaluationSuccess(response)
+                const response = await evaluationsCreate(
+                    teamId.toString(),
+                    evaluation as Parameters<typeof evaluationsCreate>[1]
+                )
+                actions.createEvaluationSuccess(response as unknown as EvaluationConfig)
 
                 // Trigger global tracking stuff for quick start + intent
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
@@ -272,9 +471,12 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
-                // nosemgrep: prefer-codegen-api
-                const response = await api.update(`/api/environments/${teamId}/evaluations/${id}/`, evaluation)
-                actions.updateEvaluationSuccess(id, response)
+                const response = await evaluationsPartialUpdate(
+                    teamId.toString(),
+                    id,
+                    evaluation as Parameters<typeof evaluationsPartialUpdate>[2]
+                )
+                actions.updateEvaluationSuccess(id, response as unknown as EvaluationConfig)
             } catch (error) {
                 console.error('Failed to update evaluation:', error)
             }
@@ -286,11 +488,27 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 if (!teamId) {
                     return
                 }
-                // nosemgrep: prefer-codegen-api
-                await api.update(`/api/environments/${teamId}/evaluations/${id}/`, { deleted: true })
+                const evaluation = values.evaluations.find((item) => item.id === id)
+                await evaluationsPartialUpdate(teamId.toString(), id, { deleted: true })
                 actions.deleteEvaluationSuccess(id)
+                lemonToast.info(`${evaluation?.name || 'Evaluation'} has been deleted.`, {
+                    button: {
+                        label: 'Undo',
+                        action: async () => {
+                            try {
+                                const restored = await evaluationsPartialUpdate(teamId.toString(), id, {
+                                    deleted: false,
+                                })
+                                actions.createEvaluationSuccess(restored as unknown as EvaluationConfig)
+                                lemonToast.success(`${evaluation?.name || 'Evaluation'} has been restored.`)
+                            } catch (error) {
+                                lemonToast.error(evaluationErrorMessage(error, 'Failed to restore evaluation'))
+                            }
+                        },
+                    },
+                })
             } catch (error) {
-                console.error('Failed to delete evaluation:', error)
+                lemonToast.error(evaluationErrorMessage(error, 'Failed to delete evaluation'))
             }
         },
 
@@ -306,8 +524,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             }
 
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.update(`/api/environments/${teamId}/evaluations/${id}/`, {
+                await evaluationsPartialUpdate(teamId.toString(), id, {
                     enabled: !evaluation.enabled,
                 })
                 actions.toggleEvaluationEnabledSuccess(id)
@@ -316,6 +533,76 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 const message = evaluationErrorMessage(error, `Failed to ${action} evaluation`)
                 lemonToast.error(message)
                 actions.toggleEvaluationEnabledFailure(id, message)
+            }
+        },
+
+        submitDirectory: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            const editor = values.directoryEditor
+            if (!teamId || !editor) {
+                actions.submitDirectoryFailure('Directory details are unavailable.')
+                return
+            }
+
+            const name = editor.name.trim()
+            if (!name) {
+                actions.submitDirectoryFailure('Enter a directory name.')
+                return
+            }
+
+            try {
+                if (editor.mode === 'create') {
+                    await evaluationDirectoriesCreate(teamId.toString(), { name } as Parameters<
+                        typeof evaluationDirectoriesCreate
+                    >[1])
+                } else if (editor.directoryId) {
+                    await evaluationDirectoriesPartialUpdate(teamId.toString(), editor.directoryId, { name })
+                }
+                actions.submitDirectorySuccess()
+                actions.loadEvaluationDirectories()
+            } catch (error) {
+                const message = evaluationErrorMessage(error, 'Failed to save directory')
+                lemonToast.error(message)
+                actions.submitDirectoryFailure(message)
+            }
+        },
+
+        deleteDirectory: async ({ id }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.deleteDirectoryFailure(id, 'Project details are unavailable.')
+                return
+            }
+
+            try {
+                await evaluationDirectoriesDestroy(teamId.toString(), id)
+                actions.deleteDirectorySuccess(id)
+                actions.loadEvaluationDirectories()
+                if (values.selectedDirectoryId === id) {
+                    actions.selectDirectory(null)
+                }
+            } catch (error) {
+                const message = evaluationErrorMessage(error, 'Failed to delete directory')
+                lemonToast.error(message)
+                actions.deleteDirectoryFailure(id, message)
+            }
+        },
+
+        moveEvaluation: async ({ id, directoryId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.moveEvaluationFailure(id, 'Project details are unavailable.')
+                return
+            }
+
+            try {
+                await evaluationsPartialUpdate(teamId.toString(), id, { directory_id: directoryId })
+                actions.moveEvaluationSuccess(id, directoryId)
+                actions.loadEvaluationDirectories()
+            } catch (error) {
+                const message = evaluationErrorMessage(error, 'Failed to move evaluation')
+                lemonToast.error(message)
+                actions.moveEvaluationFailure(id, message)
             }
         },
     })),
@@ -340,6 +627,32 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                             e.evaluation_config.source.toLowerCase().includes(filter.toLowerCase()))
                 )
             },
+        ],
+        selectedDirectoryId: [
+            (s) => [s.searchParams],
+            (searchParams: Record<string, unknown>): string | null =>
+                typeof searchParams.directory === 'string' ? searchParams.directory : null,
+        ],
+        selectedDirectory: [
+            (s) => [s.evaluationDirectories, s.selectedDirectoryId],
+            (
+                directories: EvaluationDirectoryApi[],
+                selectedDirectoryId: string | null
+            ): EvaluationDirectoryApi | null =>
+                directories.find((directory) => directory.id === selectedDirectoryId) ?? null,
+        ],
+        displayedEvaluations: [
+            (s) => [s.filteredEvaluations, s.evaluationsFilter, s.selectedDirectoryId],
+            (
+                filteredEvaluations: EvaluationConfig[],
+                evaluationsFilter: string,
+                selectedDirectoryId: string | null
+            ): EvaluationConfig[] =>
+                evaluationsFilter
+                    ? filteredEvaluations
+                    : filteredEvaluations.filter(
+                          (evaluation) => (evaluation.directory_id ?? null) === selectedDirectoryId
+                      ),
         ],
         canEnableEvaluation: [
             (s) => [s.activeProviderKey],
@@ -398,6 +711,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
             if (method !== 'REPLACE') {
                 actions.loadEvaluations()
+                actions.loadEvaluationDirectories()
             }
         },
         [urls.aiObservabilityOfflineEvaluations()]: (_, searchParams) => {
@@ -427,10 +741,18 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 date_to: dateTo || undefined,
             },
         ],
+        selectDirectory: ({ directoryId }) => [
+            urls.aiObservabilityEvaluations(),
+            {
+                ...router.values.searchParams,
+                directory: directoryId ?? undefined,
+            },
+        ],
     })),
 
     afterMount(({ actions }) => {
         actions.loadProviderKeys()
         actions.loadEvaluations()
+        actions.loadEvaluationDirectories()
     }),
 ])

@@ -29,17 +29,19 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 
 ## Tools
 
-| Tool                                   | Purpose                                                       |
-| -------------------------------------- | ------------------------------------------------------------- |
-| `posthog:llma-evaluation-config-get`   | Check the active provider key used by unpinned judges         |
-| `posthog:llma-provider-key-list`       | Find a usable (`ok` state) provider key to pin                |
-| `posthog:llma-evaluation-judge-models` | List valid provider+model combos                              |
-| `posthog:llma-evaluation-test-hog`     | Dry-run Hog source against recent generations before creating |
-| `posthog:llma-evaluation-create`       | Create the evaluation (always `enabled: false` first)         |
-| `posthog:llma-evaluation-run`          | Spot-run a draft eval against one generation                  |
-| `posthog:llma-evaluation-update`       | Iterate config, then flip `enabled: true`                     |
-| `posthog:execute-sql`                  | Verify a condition matches the events and volume you expect   |
-| `posthog:generate-app-url`             | Build a region- and project-qualified deep link to the eval   |
+| Tool                                       | Purpose                                                       |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| `posthog:llma-evaluation-config-get`       | Check the active provider key used by unpinned judges         |
+| `posthog:llma-provider-key-list`           | Find a usable (`ok` state) provider key to pin                |
+| `posthog:llma-evaluation-judge-models`     | List valid provider+model combos                              |
+| `posthog:llma-evaluation-directory-list`   | List directories available for organizing the evaluation      |
+| `posthog:llma-evaluation-directory-create` | Create a directory when the user asks for a new one           |
+| `posthog:llma-evaluation-test-hog`         | Dry-run Hog source against recent generations before creating |
+| `posthog:llma-evaluation-create`           | Create the evaluation (always `enabled: false` first)         |
+| `posthog:llma-evaluation-run`              | Spot-run a draft eval against one generation                  |
+| `posthog:llma-evaluation-update`           | Iterate config, then flip `enabled: true`                     |
+| `posthog:execute-sql`                      | Verify a condition matches the events and volume you expect   |
+| `posthog:generate-app-url`                 | Build a region- and project-qualified deep link to the eval   |
 
 The full create payload (every field, the config schemas, the exact `conditions` shape) is in
 [references/evaluation-payload.md](references/evaluation-payload.md).
@@ -133,6 +135,10 @@ enable it. Ask the user to add or validate a key in the UI before continuing.
 ### 2.4 — Create it disabled
 
 Create with `enabled: false` so nothing fires until the scope is verified. Minimal `hog` example:
+
+Evaluations may be created at the top level or in one directory. If the user names a directory, call
+`posthog:llma-evaluation-directory-list` and pass its UUID as `directory_id`. Create a directory only when
+the user asks for one. Omit `directory_id` or pass `null` for the top level. Directories cannot be nested.
 
 ```json
 posthog:llma-evaluation-create
