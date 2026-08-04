@@ -39550,6 +39550,7 @@ export namespace Schemas {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -39599,6 +39600,7 @@ export namespace Schemas {
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
+      GoogleCalendar: 'google-calendar',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -39648,6 +39650,7 @@ export namespace Schemas {
        * * `gitlab` - Gitlab
        * * `google-ads` - Google Ads
        * * `google-analytics` - Google Analytics
+       * * `google-calendar` - Google Calendar
        * * `google-cloud-service-account` - Google Cloud Service Account
        * * `google-cloud-storage` - Google Cloud Storage
        * * `google-pubsub` - Google Pubsub
@@ -84031,6 +84034,7 @@ export namespace Schemas {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -84091,6 +84095,7 @@ export namespace Schemas {
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
+      GoogleCalendar: 'google-calendar',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
