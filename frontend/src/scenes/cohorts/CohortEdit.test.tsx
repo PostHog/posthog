@@ -614,9 +614,9 @@ describe('cohortEditLogic', () => {
         })
 
         it('renders the editor instead of crashing when a criterion has a value with no ROWS entry', async () => {
-            // Stored criteria can carry a legacy/unmapped behavioral value; the row builder used to
-            // dereference ROWS[type].fields unconditionally and crash the whole edit page. Reaching the
-            // name field proves the criteria row rendered instead of throwing past the error boundary.
+            // Stored criteria can carry a behavioral value with no ROWS entry, which the row builder
+            // still has to render. A throw here replaces the whole scene with the error boundary, so
+            // finding the cohort name is what proves the criteria row rendered.
             const cohortId = 11
 
             useMocks({
