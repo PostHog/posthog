@@ -5558,10 +5558,6 @@ snapshots:
         hash: v1.k794b7964.0d8f4e16f3bcd82f492569c9d57e00e8832cf39bfed4b85d9c2aaf69e81031d6.uSc9iCdSK_l3raRHxIVu7tVsgyKSOLoGZX2jcR3UOCo
     scenes-app-dashboards--access-control-dashboard--light:
         hash: v1.k794b7964.f4626c33df21d437b98ded1f174ad026eb0720eabc60409240faaed5aa0a5868.RLJrAHUy5YKmQr8FWngDI0xC1SxQmC2uekjwqCb7naQ
-    scenes-app-dashboards--edit--dark:
-        hash: v1.k794b7964.b85e622d121e2edfb031fec73921ba7d775a50124f5d68c8c82ad28a51985434.eFMlXYTQdWLdvwn7YobjvgCNrFbx2IMXMt2Lzs0yyo4
-    scenes-app-dashboards--edit--light:
-        hash: v1.k794b7964.49c4e9690bd77d8c7a66dea80d23618e98cfbb1092f918bc47d7518de0bd4cad.2kla497MZylrcqwodI1R5fGyLuRQwKmuaXviNn4gVi0
     scenes-app-dashboards--erroring--dark:
         hash: v1.k794b7964.f1569b95b37fd696ca93e1a429e100488d36b5283e843ba53e94a1dd0237a2c2.89VlumysxOVYUehHA-D-pwFe8LVtLhMbrjf13VAskKY
     scenes-app-dashboards--erroring--light:

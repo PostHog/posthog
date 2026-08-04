@@ -2,16 +2,14 @@ import { Meta, StoryObj } from '@storybook/react'
 import { delay, HttpResponse } from 'msw'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { App } from 'scenes/App'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
-import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
+import { BaseMathType, EntityTypes } from '~/types'
 
 import __dashboard1 from './__mocks__/dashboard1.json'
 import __dashboard_template_schema from './__mocks__/dashboard_template_schema.json'
@@ -197,21 +195,6 @@ export const Show: Story = {
         pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
         testOptions: { snapshotBrowsers: [] },
     },
-}
-
-export const Edit: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => {
-            dashboardLogic({ id: BASE_DASHBOARD_ID }).mount()
-            dashboardLogic({ id: BASE_DASHBOARD_ID }).actions.setDashboardMode(
-                DashboardMode.Edit,
-                DashboardEventSource.Browser
-            )
-        })
-
-        return <App />
-    },
-    parameters: { pageUrl: urls.dashboard(BASE_DASHBOARD_ID) },
 }
 
 export const DashboardStates: StoryObj<{ state: DashboardState }> = {
