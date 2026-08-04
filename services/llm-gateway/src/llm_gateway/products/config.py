@@ -157,6 +157,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                # ReviewHog sandbox runs route here (no review_hog entry in the agent's
+                # origin→product map), so its reviewer-experiment arms must be allowed.
+                "gpt-5.6-sol",
             }
             | BEDROCK_MODELS
         ),
