@@ -36,13 +36,13 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function SubscriptionEnabledSwitch({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { setSubscriptionEnabled } = useActions(subscriptionsSceneLogic)
-    const { togglingEnabledId } = useValues(subscriptionsSceneLogic)
+    const { togglingEnabledIds } = useValues(subscriptionsSceneLogic)
     const enabled = isSubscriptionEnabled(sub)
     return (
         <LemonSwitch
             checked={enabled}
             onChange={(newEnabled) => setSubscriptionEnabled(sub.id, newEnabled)}
-            loading={togglingEnabledId === sub.id}
+            loading={Boolean(togglingEnabledIds[sub.id])}
             aria-label={`${enabled ? 'Disable' : 'Enable'} ${subscriptionName(sub)}`}
             data-attr="subscription-row-toggle-enabled"
         />
@@ -52,10 +52,10 @@ function SubscriptionEnabledSwitch({ sub }: { sub: SubscriptionApi }): JSX.Eleme
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
     const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
-    const { deliveringSubscriptionId, togglingEnabledId } = useValues(subscriptionsSceneLogic)
+    const { deliveringSubscriptionId, togglingEnabledIds } = useValues(subscriptionsSceneLogic)
     const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
-    const isToggling = togglingEnabledId === sub.id
+    const isToggling = Boolean(togglingEnabledIds[sub.id])
     const enabled = isSubscriptionEnabled(sub)
 
     return (
