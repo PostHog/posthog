@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "directory_id": {
+            "description": "Filter evaluations by directory UUID.",
+            "type": "string"
+        },
         "enabled": {
             "description": "Filter by enabled status",
             "type": "boolean"
