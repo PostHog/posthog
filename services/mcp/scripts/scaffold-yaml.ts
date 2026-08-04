@@ -298,6 +298,7 @@ function mergeWithExisting(
         ...(existing.feature_flag ? { feature_flag: existing.feature_flag } : {}),
         ...(existing.feature_flag_behavior ? { feature_flag_behavior: existing.feature_flag_behavior } : {}),
         ...(existing.feature_flag_variant ? { feature_flag_variant: existing.feature_flag_variant } : {}),
+        ...(existing.capture_trace_payload ? { capture_trace_payload: existing.capture_trace_payload } : {}),
         ui_apps: existing.ui_apps ?? {},
         tools: sortedTools,
     }
