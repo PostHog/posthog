@@ -54,6 +54,9 @@ NON_RETRYABLE_ERRORS = [
     "InvalidNodeTypeException",
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
+    # raised by HogQL resolution for an invalid query, e.g. a cohort() reference to a cohort
+    # that's deleted or lives in another project — retrying can never make it resolve
+    "QueryError",
 ]
 
 

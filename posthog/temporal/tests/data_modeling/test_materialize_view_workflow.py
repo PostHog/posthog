@@ -11,6 +11,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import (
+    NON_RETRYABLE_ERRORS,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
 )
@@ -98,6 +99,13 @@ class TestMaybeEnrichViewSemantics:
             patch.object(temporalio.workflow, "logger"),
         ):
             await workflow._maybe_enrich_view_semantics(_inputs(), result)
+
+
+class TestNonRetryableErrors:
+    async def test_query_error_is_non_retryable(self):
+        # a HogQL QueryError (e.g. a cohort() reference to a deleted cohort) can never
+        # resolve on retry, so it must not be retried on every scheduled materialization run
+        assert "QueryError" in NON_RETRYABLE_ERRORS
 
 
 class TestCollectShadowComparison:
