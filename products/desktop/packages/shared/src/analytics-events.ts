@@ -56,6 +56,7 @@ export type CommandMenuAction =
   | "open-channel"
   | "open-command-center"
   | "open-inbox"
+  | "open-archived"
   | "open-loops"
   | "open-usage"
   | "search-files"
