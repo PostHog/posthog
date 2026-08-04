@@ -31,9 +31,9 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
-from posthog.models import Organization, SessionRecording, User
+from posthog.models import Organization, PersonalAPIKey, SessionRecording, User
 from posthog.models.team import Team
-from posthog.models.utils import uuid7
+from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.persons import create_person
@@ -1577,6 +1577,37 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["success"]
         assert response_data["deleted_count"] == 3
         assert response_data["total_requested"] == 3
+
+    @patch(
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
+        return_value=[],
+    )
+    def test_bulk_delete_accessible_with_scoped_personal_api_key(self, _mock_delete_via_recording_api):
+        create_person(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+        session_id = "bulk_delete_personal_api_key_test"
+        self.produce_replay_summary("user1", session_id, now() - relativedelta(days=1))
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["session_recording:write"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id]},
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["deleted_count"] == 1
 
     @parameterized.expand(
         [

@@ -876,6 +876,7 @@ class SessionRecordingViewSet(
     authentication_classes = [ExportRendererAuthentication]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
+    scope_object_write_actions = ["update", "partial_update", "patch", "destroy", "bulk_delete"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
