@@ -843,6 +843,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'replay-vision',
                 'replay-vision-actions',
                 'tasks',
+                'tasks-orchestration',
                 'dashboard-widgets',
                 'heatmaps-mcp',
                 'marketing-analytics-mcp',
