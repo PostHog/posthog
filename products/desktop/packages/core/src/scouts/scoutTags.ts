@@ -52,23 +52,33 @@ export function scoutTags(config: ScoutConfig): string[] {
   return config.tags ?? [];
 }
 
+export interface ScoutTagsAddition {
+  /**
+   * Full replacement list for the API, or null when there is nothing to send —
+   * either every addition is already present or the set would breach the cap.
+   */
+  tags: string[] | null;
+  /**
+   * True when the additions would push the scout past `MAX_SCOUT_TAGS`. Nothing
+   * is added in that case: applying the entries that happen to fit and letting
+   * the editor clear its input would drop the rest with no sign they hadn't
+   * taken, so the whole add is refused and reported instead.
+   */
+  overCap: boolean;
+}
+
 /**
- * Add tags to a scout's existing set, returning the full replacement list the
- * API expects. Sorted to match the stored order, so a no-op edit stays a no-op.
- * Returns null when nothing would change or the cap is already reached — the
- * caller skips the request rather than sending an edit that does nothing.
+ * Add tags to a scout's existing set. The replacement list is sorted to match
+ * the stored order, so re-adding a tag the scout already carries stays a no-op.
  */
 export function withScoutTagsAdded(
   existing: string[],
   additions: string[],
-): string[] | null {
-  const next = new Set(existing);
-  for (const tag of additions) {
-    if (next.size >= MAX_SCOUT_TAGS) break;
-    next.add(tag);
-  }
-  if (next.size === existing.length) return null;
-  return [...next].sort();
+): ScoutTagsAddition {
+  const next = new Set([...existing, ...additions]);
+  if (next.size > MAX_SCOUT_TAGS) return { tags: null, overCap: true };
+  if (next.size === existing.length) return { tags: null, overCap: false };
+  return { tags: [...next].sort(), overCap: false };
 }
 
 /** Remove one tag, returning the full replacement list, or null if absent. */

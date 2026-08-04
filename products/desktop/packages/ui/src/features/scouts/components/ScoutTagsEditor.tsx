@@ -8,7 +8,6 @@ import {
   withScoutTagRemoved,
   withScoutTagsAdded,
 } from "@posthog/core/scouts/scoutTags";
-import { Flex, Text } from "@radix-ui/themes";
 import { useState } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { ScoutTagBadge } from "./ScoutBadges";
@@ -27,21 +26,28 @@ export function ScoutTagsEditor({
   onUpdate: (configId: string, updates: ScoutConfigUpdate) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [tooLong, setTooLong] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const tags = scoutTags(config);
   const atCap = tags.length >= MAX_SCOUT_TAGS;
 
-  // `withScoutTags*` return null when the edit is a no-op, so a stray blur or a
-  // re-typed tag never fires a PATCH that changes nothing.
+  // A rejected commit keeps the draft so it can be edited in place. Clearing it
+  // would throw away what was typed to say why it didn't take.
   const commitDraft = () => {
     const parsed = parseScoutTagsInput(draft);
-    setTooLong(parsed.tooLong.length > 0);
-    // Keep the draft when something was too long so it can be shortened in
-    // place; the server would reject it anyway, one round trip later.
-    if (parsed.tooLong.length > 0) return;
-    const next = withScoutTagsAdded(tags, parsed.tags);
+    if (parsed.tooLong.length > 0) {
+      setError(`Tags are capped at ${MAX_SCOUT_TAG_LENGTH} characters.`);
+      return;
+    }
+    const added = withScoutTagsAdded(tags, parsed.tags);
+    if (added.overCap) {
+      setError(`A scout can carry at most ${MAX_SCOUT_TAGS} tags.`);
+      return;
+    }
+    setError(null);
     setDraft("");
-    if (next) onUpdate(config.id, { tags: next });
+    // Null means every tag typed is already on the scout, so there is nothing
+    // to PATCH — a stray blur never fires a request that changes nothing.
+    if (added.tags) onUpdate(config.id, { tags: added.tags });
   };
 
   const removeTag = (tag: string) => {
@@ -50,8 +56,8 @@ export function ScoutTagsEditor({
   };
 
   return (
-    <Flex direction="column" gap="1">
-      <Flex align="center" gap="1" wrap="wrap">
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {tags.map((tag) => (
           <ScoutTagBadge key={tag} tag={tag}>
             <button
@@ -68,7 +74,7 @@ export function ScoutTagsEditor({
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value);
-            setTooLong(false);
+            setError(null);
           }}
           onBlur={commitDraft}
           onKeyDown={(event) => {
@@ -91,12 +97,12 @@ export function ScoutTagsEditor({
           aria-label={`${config.skill_name} tags`}
           className="h-5 w-24 min-w-0 rounded border border-transparent bg-transparent px-1 text-[11.5px] text-gray-12 placeholder:text-gray-9 hover:border-(--gray-6) focus:border-(--gray-7) focus:outline-none disabled:cursor-default"
         />
-      </Flex>
-      {tooLong ? (
-        <Text className="text-(--red-11) text-[11.5px]">
-          Tags are capped at {MAX_SCOUT_TAG_LENGTH} characters.
-        </Text>
+      </div>
+      {error ? (
+        <span role="alert" className="text-(--red-11) text-[11.5px]">
+          {error}
+        </span>
       ) : null}
-    </Flex>
+    </div>
   );
 }

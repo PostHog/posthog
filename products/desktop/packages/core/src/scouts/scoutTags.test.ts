@@ -64,20 +64,60 @@ describe("parseScoutTagsInput", () => {
 
 describe("withScoutTagsAdded", () => {
   it("returns the full sorted replacement set", () => {
-    expect(withScoutTagsAdded(["revenue"], ["on-call"])).toEqual([
-      "on-call",
-      "revenue",
-    ]);
+    expect(withScoutTagsAdded(["revenue"], ["on-call"])).toEqual({
+      tags: ["on-call", "revenue"],
+      overCap: false,
+    });
   });
 
-  it("returns null when nothing would change, so no request is sent", () => {
-    expect(withScoutTagsAdded(["revenue"], ["revenue"])).toBeNull();
-    expect(withScoutTagsAdded(["revenue"], [])).toBeNull();
+  it("returns no list when nothing would change, so no request is sent", () => {
+    expect(withScoutTagsAdded(["revenue"], ["revenue"])).toEqual({
+      tags: null,
+      overCap: false,
+    });
+    expect(withScoutTagsAdded(["revenue"], [])).toEqual({
+      tags: null,
+      overCap: false,
+    });
   });
 
-  it("stops at the cap instead of sending a set the server would reject", () => {
+  it("refuses the whole add at the cap rather than truncating it", () => {
     const existing = Array.from({ length: MAX_SCOUT_TAGS }, (_, i) => `t${i}`);
-    expect(withScoutTagsAdded(existing, ["extra"])).toBeNull();
+    expect(withScoutTagsAdded(existing, ["extra"])).toEqual({
+      tags: null,
+      overCap: true,
+    });
+  });
+
+  it("adds nothing when only some additions would fit", () => {
+    // Partially applying a paste and clearing the input would drop the rest
+    // with no sign it hadn't taken.
+    const existing = Array.from(
+      { length: MAX_SCOUT_TAGS - 1 },
+      (_, i) => `t${i}`,
+    );
+    expect(withScoutTagsAdded(existing, ["fits", "does-not"])).toEqual({
+      tags: null,
+      overCap: true,
+    });
+  });
+
+  it("fills the last slot exactly without reporting an overflow", () => {
+    const existing = Array.from(
+      { length: MAX_SCOUT_TAGS - 1 },
+      (_, i) => `t${i}`,
+    );
+    const result = withScoutTagsAdded(existing, ["last"]);
+    expect(result.overCap).toBe(false);
+    expect(result.tags).toHaveLength(MAX_SCOUT_TAGS);
+  });
+
+  it("does not count an already-present tag against the cap", () => {
+    const existing = Array.from({ length: MAX_SCOUT_TAGS }, (_, i) => `t${i}`);
+    expect(withScoutTagsAdded(existing, ["t0"])).toEqual({
+      tags: null,
+      overCap: false,
+    });
   });
 });
 
