@@ -269,18 +269,56 @@ def clamp_to_source_floor(
     return clamped, changes
 
 
+def clamp_to_bounds(
+    target: timedelta, *, source_floor: timedelta, consumer_ceiling: timedelta | None = None
+) -> timedelta:
+    """The nearest schedulable bucket to `target` that the node's [floor, ceiling] bounds allow.
+
+    Snap a non-bucket cadence down to a finer bucket (fresher honors "no older than X"), coarsen to
+    the ceiling a downstream consumer imposes, then coarsen to the source floor if the sources
+    cannot deliver that fast. The floor wins on an inverted range, because serving a consumer faster
+    than its inputs change is impossible while running slower than it asked is merely stale.
+
+    The counterpart to `validate_declared_target`: clamp a cadence the system picked, validate one
+    the user picked.
+    """
+    bucket = nearest_schedulable_bucket_at_most(target)
+    if consumer_ceiling is not None and is_coarser_than(bucket, consumer_ceiling):
+        bucket = nearest_schedulable_bucket_at_most(consumer_ceiling)
+    if is_finer_than(bucket, source_floor):
+        bucket = nearest_schedulable_bucket_at_least(source_floor)
+    return bucket
+
+
 def normalize_seed_target(seed: timedelta, source_floor: timedelta) -> timedelta:
     """Round a raw v1 seed cadence to a schedulable, satisfiable declared target.
 
-    Snap a non-bucket seed down to a finer bucket (fresher honors "no older than X"), then coarsen
-    to the source floor if the source cannot deliver that fast. So a go-live backfill persists a
-    target that equals what the scheduler will run, rather than an unschedulable (45min) or
-    unsatisfiable (finer than the source) one that reconcile would have to clamp anyway.
+    So a go-live backfill persists a target that equals what the scheduler will run, rather than an
+    unschedulable (45min) or unsatisfiable (finer than the source) one that reconcile would have to
+    clamp anyway. A seed carries no consumer ceiling: seeding runs before any target is declared.
     """
-    bucket = nearest_schedulable_bucket_at_most(seed)
-    if is_finer_than(bucket, source_floor):
-        return nearest_schedulable_bucket_at_least(source_floor)
-    return bucket
+    return clamp_to_bounds(seed, source_floor=source_floor)
+
+
+def clamp_declared_target(
+    *,
+    node_id: str,
+    target: timedelta,
+    edges: list[tuple[str, str]],
+    declared_targets: dict[str, timedelta],
+    source_intervals: dict[str, timedelta],
+) -> timedelta:
+    """`target` adjusted to fit this node's bounds, for cadences the system chose rather than the user.
+
+    Same arguments as `validate_declared_target`, and the two are the only ways a target should
+    reach a node: an explicit user choice must be validated and the rejection surfaced, while a
+    default the user never saw should bend to the graph instead of failing the request.
+    """
+    return clamp_to_bounds(
+        target,
+        source_floor=all_source_floors(edges, source_intervals).get(node_id, STREAMING),
+        consumer_ceiling=all_consumer_ceilings(edges, declared_targets).get(node_id),
+    )
 
 
 def validate_declared_target(

@@ -12,6 +12,7 @@ from products.data_modeling.backend.logic.freshness import (
     UnsupportedFrequencyTargetError,
     all_consumer_ceilings,
     all_source_floors,
+    clamp_to_bounds,
     clamp_to_source_floor,
     compute_effective_cadences,
     find_invalid_targets,
@@ -26,6 +27,7 @@ M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
+WEEK = timedelta(days=7)
 DAY30 = timedelta(days=30)
 DAY45 = timedelta(days=45)
 
@@ -237,6 +239,27 @@ class TestNormalizeSeedTarget(TestCase):
     )
     def test_normalize(self, _name, seed, source_floor, expected):
         self.assertEqual(normalize_seed_target(seed, source_floor), expected)
+
+
+class TestClampToBounds(TestCase):
+    @parameterized.expand(
+        [
+            # a ceiling coarser than the default leaves the default alone
+            ("weekly_consumer_keeps_daily", DAY, STREAMING, WEEK, DAY),
+            ("monthly_consumer_keeps_daily", DAY, STREAMING, DAY30, DAY),
+            # a consumer needing fresher data than the default drags the default down to it
+            ("quarter_hourly_consumer_wins", DAY, STREAMING, M15, M15),
+            # sources that cannot deliver daily push the default up to what they can
+            ("weekly_source_floor_coarsens", DAY, WEEK, None, WEEK),
+            # inverted range: the floor wins, because outrunning the sources is impossible
+            ("floor_beats_ceiling", DAY, WEEK, M15, WEEK),
+            ("non_bucket_snaps_down", M45, STREAMING, None, M30),
+        ]
+    )
+    def test_clamp(self, _name, target, source_floor, consumer_ceiling, expected):
+        self.assertEqual(
+            clamp_to_bounds(target, source_floor=source_floor, consumer_ceiling=consumer_ceiling), expected
+        )
 
 
 class TestBatchBounds(TestCase):

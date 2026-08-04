@@ -58,6 +58,7 @@ from products.data_modeling.backend.logic.freshness import (
     ClampedCadence,
     InvalidTarget,
     UnsupportedFrequencyTargetError,
+    clamp_declared_target,
     clamp_to_source_floor,
     compute_effective_cadences,
     find_invalid_targets,
@@ -234,6 +235,29 @@ def apply_saved_query_frequency_target(
         if reconcile:
             maybe_reconcile_dag(node.dag)
     return written
+
+
+def default_frequency_target(saved_query: "DataWarehouseSavedQuery", target: timedelta) -> timedelta:
+    """`target` adjusted to fit the bounds of the node backing this saved query.
+
+    For the enable-materialization default, which the user never chose: a view whose consumer needs
+    15min data, or whose sources only deliver weekly, would otherwise have the default rejected with
+    no way to accept it from that button. Falls back to `target` when the query has no DAG node —
+    v1 teams and queries not wired into the graph have no bounds to honor.
+    """
+    node = (
+        Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team").first()
+    )
+    if node is None or node.dag is None:
+        return target
+    graph = build_frequency_graph(node.dag)
+    return clamp_declared_target(
+        node_id=str(node.id),
+        target=target,
+        edges=graph.edges,
+        declared_targets=graph.declared_targets,
+        source_intervals=graph.source_intervals,
+    )
 
 
 def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> None:

@@ -293,3 +293,22 @@ def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> 
     nodes.update(type=type)
     for dag in dags:
         maybe_reconcile_dag(dag)
+
+
+def promote_view_nodes_to_matview(saved_query: "DataWarehouseSavedQuery") -> None:
+    """Retype nodes the DAG still treats as ephemeral views, now that a table backs the query.
+
+    `revert_materialization` types a node VIEW, and only the `materialize` action ever typed it
+    back — so a query rematerialized any other way (a manual run, an endpoint enable) kept a VIEW
+    node over a live table. `get_dag_structure` calls every VIEW node ephemeral, so each scheduled
+    run then reported success for it without materializing and without writing a job row.
+
+    Only VIEW nodes are touched: ENDPOINT nodes are materializing types already and must keep
+    their type. No reconcile follows, because tier membership keys off the node's frequency
+    target, not its type.
+    """
+    if saved_query.table_id is None:
+        return
+    Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query, type=NodeType.VIEW).update(
+        type=NodeType.MAT_VIEW
+    )
