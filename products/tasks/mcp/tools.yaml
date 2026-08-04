@@ -385,9 +385,26 @@ tools:
                 - internal
                 - created_at
                 - updated_at
-    tasks-message-parent-create:
+    tasks-notify-parent:
         operation: tasks_message_parent_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Notify parent task
+        description: >
+            Send a message to and wake the parent task. Use this for progress updates, questions, or results. Calling
+            this tool does not complete or stop the child. The platform identifies the calling child automatically, so
+            this tool only works from inside a running cloud task.
+        include_params:
+            - message
+        param_overrides:
+            message:
+                input_schema: TaskParentMessageSchema
+        feature_flag: tasks-orchestration
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
