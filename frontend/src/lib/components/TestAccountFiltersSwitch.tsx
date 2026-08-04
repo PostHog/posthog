@@ -61,12 +61,15 @@ export function TestAccountFilterSwitch({
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
+                    {/* New tab: this switch renders inside editors (insights, scanner wizard) where
+                        same-tab navigation would discard unsaved work. */}
                     <LemonButton
                         icon={<IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"
                         to={urls.settings('environment-customization', 'internal-user-filtering')}
+                        targetBlank
                     />
                 </div>
             }

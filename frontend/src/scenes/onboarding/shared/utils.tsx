@@ -14,6 +14,7 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconGear,
     IconGraph,
     IconLive,
@@ -61,6 +62,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconGear,
     IconGraph,
     IconLive,
@@ -83,6 +85,11 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
     IconWarning,
 }
 
+// Billable products without an onboarding entry, mapped to the icon the app uses for them.
+const EXTRA_PRODUCT_ICONS: Partial<Record<string, string>> = {
+    [ProductKey.REPLAY_VISION]: 'IconEye',
+}
+
 export function getProductIcon(
     iconKey?: string | null,
     { iconColor, className, productType }: { iconColor?: string; className?: string; productType?: string | null } = {}
@@ -92,7 +99,8 @@ export function getProductIcon(
     const onboardingProduct = productType
         ? (availableOnboardingProducts as Partial<Record<string, OnboardingProduct>>)[productType]
         : undefined
-    const resolvedIconKey = onboardingProduct?.icon ?? iconKey
+    const resolvedIconKey =
+        onboardingProduct?.icon ?? (productType ? EXTRA_PRODUCT_ICONS[productType] : undefined) ?? iconKey
     const IconComponent = resolvedIconKey ? ICON_MAP[resolvedIconKey] : undefined
     if (IconComponent) {
         return <IconComponent className={className} color={iconColor} />
