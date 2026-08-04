@@ -64,7 +64,8 @@ from posthog.plugins.plugin_server_api import (
     rerun_hog_invocations,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -104,6 +105,14 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.services.account_audience import (
+    ACCOUNT_BATCH_SIZE,
+    get_account_audience_count,
+    get_account_audience_page,
+    get_account_group_type_name,
+    is_account_audience,
+    parse_account_audience_filters,
+)
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -775,6 +784,10 @@ class HogFlowActionSerializer(serializers.Serializer):
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
             "to reference a cohort. "
+            "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
+            "audience fans out one run per customer analytics account and takes account filters instead: "
+            "properties entries of type 'account_custom_property' (key = definition id), plus "
+            "tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -901,9 +914,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
                 if strict and isinstance(filters, dict):
-                    # The audience targets who a person is (properties / cohort membership), not what they did.
-                    # Event/action filters are silently dropped by the person-based blast radius (resolving to
-                    # "everyone"), so reject them outright — same rejection as a behavioral cohort below.
+                    audience_type = filters.get("audience_type")
+                    if audience_type not in (None, "persons", "accounts"):
+                        raise serializers.ValidationError(
+                            {"filters": {"audience_type": "Must be 'persons' or 'accounts'."}}
+                        )
+                    # The audience targets who a person/account is (properties / cohort membership), not what
+                    # they did. Event/action filters are silently dropped by the person-based blast radius
+                    # (resolving to "everyone"), so reject them outright — same rejection as a behavioral
+                    # cohort below.
                     if filters.get("events") or filters.get("actions"):
                         raise serializers.ValidationError(
                             {
@@ -914,7 +933,35 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 )
                             }
                         )
-                    self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+                    if audience_type == "accounts":
+                        team = self.context["get_team"]()
+                        if get_account_group_type_name(team) is None:
+                            raise serializers.ValidationError(
+                                {
+                                    "filters": (
+                                        "Configure a customer analytics account group type before using "
+                                        "an account audience."
+                                    )
+                                }
+                            )
+                        # Resolution runs under a service principal, so account access is
+                        # enforced here, when a person configures the audience.
+                        request = self.context.get("request")
+                        user = getattr(request, "user", None)
+                        if (
+                            user is not None
+                            and user.is_authenticated
+                            and not isinstance(user, SyntheticUser)
+                            and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                                "account", "viewer"
+                            )
+                        ):
+                            raise serializers.ValidationError(
+                                {"filters": "You do not have access to customer analytics accounts."}
+                            )
+                        parse_account_audience_filters(filters)
+                    else:
+                        self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             elif data.get("config", {}).get("type") == "schedule":
                 # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
                 # resolves the same offline audience as batch — guard its cohort refs the same way.
@@ -3448,6 +3495,24 @@ class HogFlowViewSet(
         group_type_index = params.get("group_type_index")
         dedupe_key = params.get("dedupe_key")
 
+        if is_account_audience(filters):
+            # Account audiences never touch person data or flag conditions; the parse inside
+            # the count rejects anything but account filters. Sizing the audience reads account
+            # data, so it requires the same access the audience editor requires.
+            if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
+                raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": get_account_audience_count(self.team, filters),
+                        "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
+                        "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                        "dedupe_key": None,
+                        "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
+                    }
+                ).data
+            )
+
         reject_flag_conditions_in_audience(self.team, filters)
 
         # Preview matches the actual send: with dedup active, "affected" is the number of
@@ -4095,6 +4160,43 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_account_audience(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for the Node batch resolver to page an account audience.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        filters = request.data.get("filters") or {}
+        if not is_account_audience(filters):
+            return Response({"error": "Filters must declare audience_type 'accounts'"}, status=400)
+        group_type = get_account_group_type_name(team)
+        if group_type is None:
+            return Response({"error": "No customer analytics account group type configured"}, status=400)
+
+        cursor = request.data.get("cursor")
+        try:
+            accounts = get_account_audience_page(team, filters, cursor)
+            return Response(
+                {
+                    "accounts": accounts,
+                    "cursor": accounts[-1] if accounts else None,
+                    "has_more": len(accounts) == ACCOUNT_BATCH_SIZE,
+                    "group_type": group_type,
+                }
+            )
+        except exceptions.ValidationError as e:
+            return Response({"error": _validation_error_message(e)}, status=400)
+        except Exception as e:
+            logger.exception("Error in internal_account_audience", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
 
     def internal_process_due_schedules(self, request: Request, **kwargs) -> Response:

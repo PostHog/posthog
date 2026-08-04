@@ -152,21 +152,29 @@ Lower priority: `issuing/*`, `treasury/*`, `terminal/*`, `identity/*`, `financia
 `country_specs`, `exchange_rates`, `radar/value_lists`, `billing_portal/configurations`,
 `payment_method_configurations`, `payment_method_domains`, `invoice_rendering_templates`.
 
-### Google Ads — needs confirmation
+### Google Ads — spec-verified
 
-21 tables and the best-covered source we have.
-Remaining gaps are mostly breakdown views and account-config resources.
+Diffed against the [Google Ads API v25 field reference](https://developers.google.com/google-ads/api/fields/v25/overview)
+on 2026-08-04, using each resource's attributed/segmenting resource lists and the per-field
+"selectable with" lists to check every field, segment and metric combination.
+35 tables and the best-covered source we have.
 
-- [ ] `campaign_budget` — budgets and budget pacing.
-- [ ] `age_range_view`, `gender_view` — demographic breakdowns.
-- [ ] `detail_placement_view`, `landing_page_view` — where ads actually ran and landed.
-- [ ] `change_event` — audit of who changed what in the account.
-- [ ] `user_location_view` / `location_view` — distinct from the existing `geographic_stats`.
-- [ ] `audience`, `bidding_strategy`, `label`, `recommendation`.
-- [ ] `product_group_view` — Shopping campaign structure beyond `shopping_performance_view`.
-- [ ] `asset` — individual asset performance, complements `asset_group`.
-- [ ] Device segmentation and hourly segmentation on the existing stats views.
-- [ ] Conversion stats segmented by `conversion_action` (we have the actions but not their stats).
+- [x] `campaign_budget` — budgets and budget pacing.
+- [x] `age_range_view`, `gender_view` — demographic breakdowns.
+- [x] `detail_placement_view`, `landing_page_view` — where ads actually ran and landed.
+- [ ] `change_event` — audit of who changed what in the account. (skipped: GAQL requires a mandatory
+      `LIMIT` of at most 10,000 rows and a `change_date_time` filter inside a 30-day window, neither of
+      which the shared query composer or the page-token pagination loop can express)
+- [x] `user_location_view` / `location_view` — distinct from the existing `geographic_stats`.
+- [x] `audience`, `bidding_strategy`, `label`. (`recommendation` skipped: recommendations are ephemeral
+      suggestions that vanish once applied or dismissed and have no stable ID, so a merge-only table
+      would accumulate rows that no longer exist)
+- [x] `product_group_view` — Shopping campaign structure beyond `shopping_performance_view`.
+- [x] `asset` — asset metadata, complements `asset_group`. Per-asset performance would need
+      `ad_group_ad_asset_view` or `asset_field_type_view` and is still open.
+- [x] Hourly segmentation, as `campaign_hourly_stats`. (device segmentation was already there — every
+      existing `*_stats` table selects `segments.device`)
+- [x] Conversion stats segmented by `conversion_action` (we have the actions but not their stats).
 
 ### Meta Ads — needs confirmation
 
@@ -188,26 +196,45 @@ while in here.
 
 ### GitHub — spec-verified
 
-Diffed against [github/rest-api-description](https://github.com/github/rest-api-description).
-Ten tables focused on code and CI.
-The gaps make review-latency and issue-lifecycle analysis impossible, which is the main
-engineering-analytics use case.
+Re-diffed 2026-08-04 against [github/rest-api-description](https://github.com/github/rest-api-description)
+`descriptions/api.github.com/api.github.com.2022-11-28.json`, the description for the API version the
+source pins.
+The original ten tables have grown to 54, so everything the first audit flagged now ships except
+Discussions, and the remaining gaps are narrow.
 
-- [ ] `issues/comments` and `pulls/comments` — no comment data at all, so review latency and discussion volume are unavailable.
-- [ ] `issues/events` — labeled, assigned, closed, reopened transitions. Needed for time-in-state.
-- [ ] Repository metadata itself. There is no `repositories` table, so stars/forks/language/visibility per repo are unavailable even though the source is repo-scoped.
-- [ ] `branches`, `tags`.
-- [ ] `contributors`, `collaborators`.
-- [ ] `labels`, `milestones`.
-- [ ] `deployments`, `environments`.
-- [ ] `traffic/views`, `traffic/clones`, plus referrers and popular paths.
-- [ ] `stats/contributors`, `stats/commit_activity`, `stats/participation`, `stats/code_frequency`.
-- [ ] Check runs and commit statuses — CI signal at commit granularity, complementing `workflow_runs`.
-- [ ] `actions/workflows`, `actions/artifacts`, `actions/runners`, `actions/caches`.
-- [ ] `code-scanning/alerts`, `dependabot/alerts`, `secret-scanning/alerts` — security posture over time.
-- [ ] `forks`, `subscribers` (watchers), `topics`.
-- [ ] `rulesets`, `security-advisories`, `hooks`, `languages`, `community/profile`, `dependency-graph/sbom`.
-- [ ] Discussions.
+Have: `issues`, `issue_comments`, `issue_events`, `issue_types`, `labels`, `milestones`,
+`pull_requests`, `pull_request_comments`, `reviews`, `commits`, `commit_comments`,
+`commit_statuses`, `check_runs`, `branches`, `tags`, `forks`, `stargazers`, `subscribers`,
+`contributors`, `collaborators`, `teams`, `team_members`, `repository_teams`, `repository`,
+`repository_activity`, `topics`, `languages`, `community_profile`, `releases`, `workflows`,
+`workflow_runs`, `workflow_jobs`, `artifacts`, `runners`, `actions_caches`, `deployments`,
+`deployment_statuses`, `environments`, `code_scanning_alerts`, `dependabot_alerts`,
+`secret_scanning_alerts`, `security_advisories`, `dependency_sbom`, `rulesets`, `hooks`,
+`traffic_views`, `traffic_clones`, `traffic_referrers`, `traffic_paths`, `contributor_stats`,
+`commit_activity_stats`, `participation_stats`, `code_frequency_stats`, `punch_card_stats`.
+
+- [x] `issues/comments` and `pulls/comments` — no comment data at all, so review latency and discussion volume are unavailable.
+- [x] `issues/events` — labeled, assigned, closed, reopened transitions. Needed for time-in-state.
+- [x] Repository metadata itself. There is no `repositories` table, so stars/forks/language/visibility per repo are unavailable even though the source is repo-scoped.
+- [x] `branches`, `tags`.
+- [x] `contributors`, `collaborators`.
+- [x] `labels`, `milestones`.
+- [x] `deployments`, `environments`.
+- [x] `traffic/views`, `traffic/clones`, plus referrers and popular paths.
+- [x] `stats/contributors`, `stats/commit_activity`, `stats/participation`, `stats/code_frequency`.
+- [x] Check runs and commit statuses — CI signal at commit granularity, complementing `workflow_runs`.
+- [x] `actions/workflows`, `actions/artifacts`, `actions/runners`, `actions/caches`.
+- [x] `code-scanning/alerts`, `dependabot/alerts`, `secret-scanning/alerts` — security posture over time.
+- [x] `forks`, `subscribers` (watchers), `topics`.
+- [x] `rulesets`, `security-advisories`, `hooks`, `languages`, `community/profile`, `dependency-graph/sbom`.
+- [ ] Discussions (skipped: GraphQL only. The 2026-08-04 description carries no discussion path at all — repository Discussions have never had a REST endpoint, and the old team-discussion endpoints are gone from both the spec and the REST reference. Reaching them means a second transport, a point-metered rate limit the egress limiter does not model, and a GitHub App permission every existing installation would have to re-accept.)
+- [x] `repos/{repo}/activity` — pushes, force pushes, merges, branch creations and deletions. The only record that a force push or branch deletion happened, since both rewrite the history `commits` reads.
+- [x] `repos/{repo}/comments` — commit comments, the third comment surface next to issue and review comments.
+- [x] `repos/{repo}/issue-types` — lookup for the type an issue carries, which `issues` otherwise stores as an opaque nested object.
+- [x] `repos/{repo}/teams` — the teams granted access to the repository, for ownership analysis without the org grant.
+- [x] `stats/punch_card` — commit counts per weekday and hour, completing the statistics family.
+- [ ] `code-quality/findings` and `pulls/stacks` (skipped: both back GitHub features that are still rolling out, and neither endpoint returns anything on an account without the feature enabled, so they would ship as tables that stay empty or error for nearly everyone. Worth revisiting once the features are generally available).
+- [ ] `repos/{repo}/events` (skipped: GitHub caps this feed at 300 events over 90 days and it restates what `repository_activity`, `issues`, and `pull_requests` already carry).
 
 ### HubSpot — our side code-verified, vendor side needs confirmation
 
@@ -228,16 +255,18 @@ Two small additions would unblock most real analysis.
 - [ ] Workflows.
 - [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build.
 
-### LinkedIn Ads — needs confirmation
+### LinkedIn Ads — spec-verified
 
-Seven tables, and the only ad platform that already ships `creatives`.
+Spec: <https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting> (version 202607), diffed 2026-08-04.
 
-- [ ] Member-demographic pivots: `MEMBER_COMPANY`, `MEMBER_INDUSTRY`, `MEMBER_SENIORITY`, `MEMBER_JOB_TITLE`, `MEMBER_COUNTRY_V2`, `MEMBER_COMPANY_SIZE`. This is the reason people advertise on LinkedIn and none of it is available.
-- [ ] Lead gen forms and form responses.
-- [ ] Conversions and conversion events.
-- [ ] Audiences / DMP segments.
-- [ ] Budget and bid data on campaigns.
-- [ ] Video ad analytics.
+Have: `accounts`, `campaigns`, `campaign_groups`, `creatives`, `conversions`, `campaign_stats`, `campaign_group_stats`, `creative_stats`, `member_company_stats`, `member_company_size_stats`, `member_country_stats`, `member_industry_stats`, `member_job_title_stats`, `member_seniority_stats`. The only ad platform that ships `creatives`.
+
+- [x] Member-demographic pivots: `MEMBER_COMPANY`, `MEMBER_INDUSTRY`, `MEMBER_SENIORITY`, `MEMBER_JOB_TITLE`, `MEMBER_COUNTRY_V2`, `MEMBER_COMPANY_SIZE`. This is the reason people advertise on LinkedIn and none of it is available.
+- [ ] Lead gen forms and form responses. (skipped: the Lead Sync API needs `r_marketing_leadgen_automation`, which is not in PostHog's LinkedIn OAuth app and belongs to a separate approval program)
+- [x] Conversions and conversion events. (conversion rules ship as `conversions`; the conversion-tracking reference documents no read finder for individual conversion events, so conversion counts stay available through the `externalWebsiteConversions` metric on the stats tables)
+- [ ] Audiences / DMP segments. (skipped: `dmpSegments` needs `rw_dmp_segments`, part of the Audiences program and not granted with the Marketing API program)
+- [ ] Budget and bid data on campaigns. (skipped: `dailyBudget`, `unitCost` and `costType` already sync on `campaigns` and `totalBudget` on `campaign_groups`; the remainder would mean adding columns to live tables)
+- [ ] Video ad analytics. (skipped: `videoViews` and `videoCompletions` already sync on the stats tables; the extra quartile metrics would mean adding columns to live tables)
 
 ### Google Search Console — needs confirmation
 
@@ -275,6 +304,29 @@ See patterns 1 and 2 above.
 - [ ] Breakdown dimensions (age, gender, geo, placement, device) on the report tables.
 - [ ] Ad account table (currency and timezone, without which spend is ambiguous).
 - [ ] Audiences and pixel / conversion event definitions.
+
+### Snapchat Ads — spec-verified
+
+Split out of the four-platform section above.
+Diffed against the [Snapchat Marketing API v1 reference](https://developers.snap.com/api/marketing-api)
+on 2026-08-04.
+Have: campaigns, ad_squads, ads, campaign_stats_daily, ad_squad_stats_daily, ad_stats_daily,
+ad_accounts, creatives, media, audience_segments, pixels, campaign_stats_daily_country,
+campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demographics.
+
+- [x] Creative metadata — `creatives` and `media`.
+- [x] Breakdown dimensions — `report_dimension` country and age/gender tables at campaign and ad level,
+      off by default because a breakdown row exists per dimension value per day.
+- [x] Ad account table — `ad_accounts`, carrying the currency and timezone every spend figure is in.
+- [x] Audiences — `audience_segments`.
+- [x] Pixel definitions — `pixels`.
+- [ ] Custom conversion definitions (skipped: `/pixels/{pixel_id}/custom_conversions` only lists per
+      pixel, and this source has no parent fan-out path yet).
+- [ ] Region, DMA, device make, OS, and lifestyle-category breakdowns (skipped: Snapchat documents the
+      dimension names but not the column each returns, so the primary key would be a guess; region, DMA
+      and make also return no conversion metrics).
+- [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
+      scoped to an organization ID this source does not collect).
 
 ### Linear — needs confirmation
 
