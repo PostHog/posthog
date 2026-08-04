@@ -13317,7 +13317,6 @@ export namespace Schemas {
       readonly pinned: boolean;
       /** @nullable */
       readonly pinned_at: string | null;
-      readonly is_home: boolean;
       /**
          * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
          * @nullable
@@ -13522,8 +13521,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
-      /** Create the canvas as the channel's home board (at most one per channel). */
-      is_home?: boolean;
     }
 
     /**
@@ -77917,10 +77914,6 @@ export namespace Schemas {
      * Only return canvases in this channel.
      */
     channel?: string;
-    /**
-     * Filter by channel-home status.
-     */
-    is_home?: boolean;
     /**
      * Number of results to return per page.
      */
