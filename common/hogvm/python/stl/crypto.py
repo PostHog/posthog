@@ -36,7 +36,7 @@ def sha1(data: str | None, encoding: Literal["hex", "base64", "base64url", "bina
     if data is None:
         return None
     # SHA-1 is only here because vendors sign webhooks with it. Never pick it for new work.
-    # nosemgrep: python.lang.security.insecure-hash-algorithms-sha1.insecure-hash-algorithm-sha1
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     digest = hashlib.sha1(data.encode()).digest()
 
     return encode_digest(encoding, digest)
