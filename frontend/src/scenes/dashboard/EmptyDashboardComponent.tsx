@@ -194,7 +194,7 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
     if (loading) {
         return (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 py-4" aria-label="Loading dashboard">
-                {[0, 1, 2, 3].map((index) => (
+                {Array.from({ length: 8 }, (_, index) => (
                     <div key={index} className="border rounded bg-surface-primary p-4 min-h-64">
                         <div className="flex items-center justify-between gap-4 mb-6">
                             <LemonSkeleton className="h-4 w-2/5" />
