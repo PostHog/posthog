@@ -245,9 +245,9 @@ function BatchExportSceneContentInner({
     id: string | null
     service: BatchExportService['type'] | null
 }): JSX.Element {
-    const { batchExportConfig, loading } = useValues(batchExportConfigFormLogic)
+    const { batchExportConfig, batchExportConfigLoading } = useValues(batchExportConfigFormLogic)
 
-    if (loading && !batchExportConfig) {
+    if (id && batchExportConfigLoading && !batchExportConfig) {
         return (
             <div className="flex flex-col gap-4">
                 <LemonSkeleton className="w-full h-12" />

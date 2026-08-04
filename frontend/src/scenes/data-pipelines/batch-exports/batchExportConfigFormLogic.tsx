@@ -29,6 +29,11 @@ export interface BatchExportConfigFormLogicProps {
     id: string | null
 }
 
+// Destinations without a `DestinationTest` implementation on the backend
+// (see products/batch_exports/backend/api/destination_tests/__init__.py) — requesting
+// a test config for these always 404s, so we skip the request entirely.
+const SERVICES_WITHOUT_DESTINATION_TEST = new Set<BatchExportService['type']>(['Redshift', 'Postgres', 'HTTP'])
+
 // Fields that exist on the form but are not part of destination.config
 const TOP_LEVEL_FORM_FIELDS = new Set([
     'name',
@@ -797,7 +802,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             null as BatchExportConfigurationTest | null,
             {
                 loadBatchExportConfigTest: async () => {
-                    if (props.service) {
+                    if (props.service && !SERVICES_WITHOUT_DESTINATION_TEST.has(props.service)) {
                         try {
                             return await api.batchExports.test(props.service)
                         } catch {
@@ -807,7 +812,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     return null
                 },
                 updateBatchExportConfigTest: async (service) => {
-                    if (service) {
+                    if (service && !SERVICES_WITHOUT_DESTINATION_TEST.has(service)) {
                         try {
                             return await api.batchExports.test(service)
                         } catch {

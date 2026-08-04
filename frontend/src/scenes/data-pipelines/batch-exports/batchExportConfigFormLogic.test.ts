@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -408,6 +409,28 @@ describe('batchExportConfigFormLogic', () => {
                     prefix: 'posthog-events/',
                 }),
             })
+        })
+    })
+
+    // Regression: the backend has no `DestinationTest` for these services (only a GET request
+    // that always 404s), so `loadBatchExportConfigTest` used to fire it anyway on every load,
+    // and the create page waited on it before rendering the form.
+    describe('destinations without a backend destination test', () => {
+        it.each(['Redshift', 'Postgres', 'HTTP'] as const)('skips the test request for %s', async (service) => {
+            const testSpy = jest.spyOn(api.batchExports, 'test')
+
+            await initLogic({ service, id: null })
+
+            expect(testSpy).not.toHaveBeenCalled()
+            await expectLogic(logic).toMatchValues({ batchExportConfigTest: null, batchExportConfigTestLoading: false })
+        })
+
+        it('still requests the test for a service that has one', async () => {
+            const testSpy = jest.spyOn(api.batchExports, 'test')
+
+            await initLogic({ service: 'S3', id: null })
+
+            expect(testSpy).toHaveBeenCalledWith('S3')
         })
     })
 
