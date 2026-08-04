@@ -37,8 +37,8 @@ against real load and re-fit if needed (the process-global backstop holds either
 from __future__ import annotations
 
 import os
-import asyncio
 import logging
+import threading
 import contextlib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -280,12 +280,21 @@ class Admission:
 
 
 class MemoryGovernor:
-    """Process-wide admission control for deltalite upserts. Construct one per process."""
+    """Process-wide admission control for deltalite upserts. Construct one per process.
+
+    State is guarded by a ``threading.Lock``, not an ``asyncio.Lock``, on purpose: the V3 loader
+    runs concurrent ``process_message`` calls in worker threads, each driving ``DeltaWriter.write``
+    through ``async_to_sync`` on its own short-lived event loop. An ``asyncio.Lock`` binds to the
+    first loop that touches it and is not thread-safe, so a governor singleton shared across those
+    per-thread loops would error or race. The critical sections here are tiny and fully synchronous
+    (a few arithmetic ops, no ``await`` inside, and the lock is never held across the ``yield``), so
+    a plain thread lock is both correct across loops and effectively uncontended.
+    """
 
     def __init__(self, config: GovernorConfig | None = None, pod: PodMemory | None = None) -> None:
         self.config = config or GovernorConfig.from_env()
         self.pod = pod or PodMemory(limit_override_mb=self.config.limit_override_mb)
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
         self._reserved_mb = 0.0
         self._inflight = 0
 
@@ -328,7 +337,7 @@ class MemoryGovernor:
 
         admitted = False
         current_at_admit: float | None = None
-        async with self._lock:
+        with self._lock:
             if self.config.mode == "enforce":
                 self._reserved_mb += plan.predicted_peak_mb
                 self._inflight += 1
@@ -347,7 +356,7 @@ class MemoryGovernor:
             yield adm
         finally:
             if admitted:
-                async with self._lock:
+                with self._lock:
                     self._reserved_mb -= plan.predicted_peak_mb
                     self._inflight -= 1
                 # Best-effort predicted-vs-actual: how much did cgroup usage actually rise?

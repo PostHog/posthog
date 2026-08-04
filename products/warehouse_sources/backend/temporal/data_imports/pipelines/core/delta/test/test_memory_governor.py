@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import patch
 
@@ -174,6 +176,23 @@ class TestGovernorSizing:
         async with gov.admit(source_bytes=50 * MB) as adm:
             pass
         assert adm.observed_delta_mb == 300.0
+
+    def test_usable_across_separate_event_loops(self):
+        # Regression: the V3 loader drives the governor via async_to_sync in worker threads, each on
+        # its own short-lived event loop. A loop-bound asyncio.Lock would raise "bound to a different
+        # event loop" on the second loop; the threading.Lock the governor uses does not. Two
+        # asyncio.run() calls reproduce two distinct loops.
+        gov = _governor("enforce")
+
+        async def _once() -> float | None:
+            async with gov.admit(source_bytes=50 * MB) as adm:
+                assert gov._inflight == 1
+                return adm.predicted_peak_mb
+
+        first = asyncio.run(_once())
+        second = asyncio.run(_once())  # different loop — would fail with an asyncio.Lock
+        assert first == second
+        assert gov._inflight == 0 and gov._reserved_mb == 0.0
 
 
 class TestConfigFromEnv:
