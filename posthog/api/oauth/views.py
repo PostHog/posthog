@@ -453,8 +453,10 @@ class OAuthValidator(OAuth2Validator):
 
         The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
         using the required/optional split can request its optional scopes too.
-        Resolution lives in `clamp_scopes_to_ceiling` so `/authorize` and the
-        hand-rolled provisioning mint paths share one implementation.
+        Resolution lives in `clamp_scopes_to_ceiling`. The agentic-provisioning mint
+        paths still reject out-of-ceiling scopes via `scopes_within_ceiling`: they mint
+        for a partner against scopes that partner declared, so a mismatch there is a
+        misconfiguration worth failing on, not a client with a stale pinned list.
 
         A request naming scopes outside the ceiling is granted the part that is
         inside rather than rejected outright, so one ungrantable scope no longer

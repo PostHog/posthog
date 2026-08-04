@@ -366,9 +366,10 @@ def scopes_within_ceiling(
 ) -> bool:
     """Whether every requested scope is grantable under an app's scope ceiling.
 
-    The single source of truth for ceiling resolution: `/authorize`
-    (`OAuthValidator.validate_scopes`) and the hand-rolled agentic-provisioning
-    mint paths both call this so they enforce identical rules.
+    The ceiling-resolution rule for callers that reject rather than clamp: the
+    hand-rolled agentic-provisioning mint paths. `/authorize` resolves the same
+    ceiling through `clamp_scopes_to_ceiling` instead, dropping ungrantable scopes
+    rather than failing the request.
 
     - OIDC + introspection (`ALWAYS_ALLOWED_SCOPES`) are always granted.
     - An explicit `app_scopes` ceiling is an exhaustive allow-list: anything

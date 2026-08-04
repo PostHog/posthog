@@ -2634,19 +2634,46 @@ class TestOAuthAPI(APIBaseTest):
         body = {**self.base_authorization_post_body, "scope": scope}
         return self.client.post("/oauth/authorize/", body)
 
-    @patch("posthog.api.oauth.views.render_template")
-    def test_authorize_drops_scope_outside_app_ceiling(self, mock_render):
-        # A scope outside the ceiling is dropped rather than failing the authorization.
-        # Nothing here is grantable, so the grant is identity-only and the client will
-        # 403 on resource calls, which still beats being unable to sign in at all.
-        mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
-        self._set_ceiling("experiment:read")
+    def test_authorize_drops_scope_outside_app_ceiling(self):
+        # The consent-screen path, which first-party apps skip. Asserts on the minted
+        # grant rather than the rendered ceiling: grantable_scopes is derived from the
+        # app alone, so asserting on it would pass even if clamping stopped working.
+        self._set_ceiling("experiment:read", "dashboard:read")
+        self.confidential_application.optional_scopes = ["dashboard:read"]
+        self.confidential_application.save()
 
-        response = self.client.get(f"{self.base_authorization_url}&scope=experiment:write")
+        response = self._authorize_post("experiment:read dashboard:read insight:write")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        grantable = mock_render.call_args.kwargs["context"]["oauth_application"]["grantable_scopes"]
-        self.assertNotIn("experiment:write", grantable)
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+        granted = set(OAuthGrant.objects.get(code=code).scope.split())
+        self.assertNotIn("insight:write", granted)
+        self.assertEqual(granted, {"experiment:read", "dashboard:read"})
+
+    def test_token_response_reports_the_clamped_scope(self):
+        # RFC 6749 section 3.3: when the granted scope differs from the request the token
+        # response MUST report what was actually granted. Silent clamping is only safe
+        # because a client can read the real set back here.
+        self._set_ceiling("experiment:read")
+
+        response = self._authorize_post("experiment:read insight:write")
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_confidential_client_id",
+                "client_secret": "test_confidential_client_secret",
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("insight:write", token_response.json()["scope"].split())
+        self.assertIn("experiment:read", token_response.json()["scope"].split())
 
     def test_authorize_accepts_full_grant_of_app_ceiling(self):
         # Without optional_scopes every ceiling scope is required, so a grant that
@@ -2758,7 +2785,13 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         clamped = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_scopes_clamped"]
         self.assertEqual(len(clamped), 1)
-        self.assertEqual(clamped[0].kwargs["properties"]["dropped_scopes"], ["insight:write"])
+        props = clamped[0].kwargs["properties"]
+        self.assertEqual(props["dropped_scopes"], ["insight:write"])
+        self.assertEqual(props["app_id"], str(self.confidential_application.pk))
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
 
     def test_authorize_within_ceiling_captures_no_clamping_event(self):
         self._set_ceiling("experiment:read")
