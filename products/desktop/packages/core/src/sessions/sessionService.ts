@@ -87,6 +87,7 @@ import {
   formatPermissionAnswerPrompt,
   type PermissionSelectionPlan,
   planPermissionResponse,
+  resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
 import {
   convertStoredEntriesToEvents,
@@ -7135,23 +7136,11 @@ export class SessionService {
     });
   }
 
-  public resolveAllowAlwaysUpgradeMode(
-    modeOption: SessionConfigOption | undefined,
-  ): string | undefined {
-    if (modeOption?.type !== "select") return undefined;
-    const availableIds = new Set(
-      flattenSelectOptions(modeOption.options).map((opt) => opt.value),
-    );
-    if (availableIds.has("acceptEdits")) return "acceptEdits";
-    if (availableIds.has("auto")) return "auto";
-    return undefined;
-  }
-
   public applyAllowAlwaysUpgrade(
     taskId: string,
     modeOption: SessionConfigOption | undefined,
   ): void {
-    const upgradeMode = this.resolveAllowAlwaysUpgradeMode(modeOption);
+    const upgradeMode = resolveAllowAlwaysUpgradeMode(modeOption);
     if (!upgradeMode) return;
     this.setSessionConfigOptionByCategory(taskId, "mode", upgradeMode);
   }

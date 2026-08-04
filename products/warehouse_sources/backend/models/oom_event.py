@@ -51,6 +51,11 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
     def recent_count(cls, schema: "ExternalDataSchema", *, days: int) -> int:
         """Number of OOM occurrences recorded for this schema within the last `days`.
 
+        Every retry attempt that follows an OOM'd one counts, including repeats within a single job.
+        Each is a separate attempt at the same merge, rescheduled onto whichever worker picks it up, so
+        a job that OOMs on attempt after attempt is a table failing deterministically, which is the
+        clearest evidence of a memory problem this log carries.
+
         `days` is required (no default) so it stays sourced from `DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS`
         at the call site rather than duplicating that window here where the two could silently diverge.
 

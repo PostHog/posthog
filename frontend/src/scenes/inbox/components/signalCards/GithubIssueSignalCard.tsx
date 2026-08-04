@@ -1,7 +1,6 @@
 import { IconLock } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { GithubIssueSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -53,20 +52,12 @@ export function GithubIssueSignalCard({ signal }: SignalCardProps): JSX.Element 
         </>
     )
 
-    const footerLeft = (
-        <span>
-            Opened {humanFriendlyDetailedTime(extra.created_at)}
-            {extra.updated_at !== extra.created_at && ` · Updated ${humanFriendlyDetailedTime(extra.updated_at)}`}
-        </span>
-    )
-
     return (
         <ExternalSignalCard
             signal={signal}
             title={<span className="font-medium">#{extra.number}</span>}
             statePill={statePillFromState(extra.state)}
             metaChips={metaChips}
-            footerLeft={footerLeft}
             link={{ to: extra.html_url, label: 'View on GitHub' }}
         >
             {signal.content}
