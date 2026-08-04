@@ -787,6 +787,10 @@ class TaskSpawnRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class TaskParentMessageRequestSerializer(serializers.Serializer):
+    message = serializers.CharField(allow_blank=False, trim_whitespace=True)
+
+
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     output = serializers.JSONField(
         help_text="Output data from the run. Validated against the task's json_schema if one is set."

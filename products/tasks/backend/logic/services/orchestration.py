@@ -98,3 +98,21 @@ def notify_parent_of_child_event(child_run: TaskRun | str, event: ChildEvent) ->
         return
 
     _queue_wake(delivery_run, child_run, event, message)
+
+
+def send_child_message_to_parent(child_run: TaskRun, message: str) -> None:
+    state = child_run.state if isinstance(child_run.state, dict) else {}
+    parent_task_id = state.get("parent_task_id")
+    parent_run_id = state.get("parent_run_id")
+    if not parent_task_id or not parent_run_id:
+        raise ValueError("Calling run is not an orchestrated child")
+
+    parent_run = (
+        TaskRun.objects.filter(id=parent_run_id, task_id=parent_task_id, team_id=child_run.team_id)
+        .filter(status__in=_NON_TERMINAL_STATUSES)
+        .first()
+    )
+    if parent_run is None:
+        raise ValueError("Parent run is not available")
+
+    signal_task_followup_message(parent_run.workflow_id, message, [], source=FOLLOWUP_SOURCE_CHILD)

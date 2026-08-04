@@ -1273,6 +1273,65 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
         self.assertTrue(child.deleted)
 
 
+class TestTaskParentMessageAPI(BaseTaskAPITest):
+    url = "/api/projects/@current/tasks/message-parent/"
+
+    def _runs(self) -> tuple[TaskRun, TaskRun]:
+        parent_task = self.create_task()
+        parent_run = parent_task.create_run(mode="background")
+        parent_run.status = TaskRun.Status.IN_PROGRESS
+        parent_run.save(update_fields=["status", "updated_at"])
+
+        child_task = self.create_task()
+        child_run = child_task.create_run(
+            mode="background",
+            extra_state={
+                "parent_task_id": str(parent_task.id),
+                "parent_run_id": str(parent_run.id),
+                "wake_on": [],
+            },
+        )
+        child_run.status = TaskRun.Status.IN_PROGRESS
+        child_run.save(update_fields=["status", "updated_at"])
+        return parent_run, child_run
+
+    @patch("products.tasks.backend.logic.services.orchestration.signal_task_followup_message")
+    def test_child_can_send_multiple_messages_to_parent(self, signal):
+        parent_run, child_run = self._runs()
+
+        for message in ("First update", "Second update"):
+            response = self.client.post(
+                self.url, {"message": message}, format="json", HTTP_X_POSTHOG_TASK_RUN_ID=str(child_run.id)
+            )
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+
+        self.assertEqual([call.args[1] for call in signal.call_args_list], ["First update", "Second update"])
+        self.assertTrue(all(call.args[0] == parent_run.workflow_id for call in signal.call_args_list))
+
+    @patch("products.tasks.backend.logic.services.orchestration.signal_task_followup_message")
+    def test_non_child_run_is_rejected(self, signal):
+        independent_run = self.create_task().create_run(mode="background")
+
+        response = self.client.post(
+            self.url, {"message": "Update"}, format="json", HTTP_X_POSTHOG_TASK_RUN_ID=str(independent_run.id)
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        signal.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.orchestration.signal_task_followup_message")
+    def test_sending_message_does_not_change_child_status(self, _signal):
+        _, child_run = self._runs()
+
+        response = self.client.post(
+            self.url, {"message": "Still working"}, format="json", HTTP_X_POSTHOG_TASK_RUN_ID=str(child_run.id)
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        child_run.refresh_from_db()
+        self.assertEqual(child_run.status, TaskRun.Status.IN_PROGRESS)
+
+
 class TestTaskAPI(BaseTaskAPITest):
     def test_pin_state_is_persisted_per_user(self):
         task = self.create_task()
