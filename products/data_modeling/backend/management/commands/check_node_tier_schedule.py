@@ -20,6 +20,7 @@ from asgiref.sync import async_to_sync
 from posthog.temporal.common.client import async_connect
 
 from products.data_modeling.backend.logic.tier_membership import (
+    EPHEMERAL_SKIPPED,
     STALE_NEEDS_RECONCILE,
     UNSUPPORTED_TARGET,
     LiveTier,
@@ -94,6 +95,7 @@ class Command(BaseCommand):
                     live_tiers=live_by_dag.get(str(node.dag_id), []),
                     expected_interval=expected,
                     reconcile_blocked=blocked_by_dag.get(str(node.dag_id), False),
+                    has_backing_table=node.saved_query is not None and node.saved_query.table_id is not None,
                 )
             )
 
@@ -125,11 +127,13 @@ class Command(BaseCommand):
             return []
         if options["dag_id"]:
             qs = qs.filter(dag_id=options["dag_id"])
-        return list(qs.select_related("dag"))
+        return list(qs.select_related("dag", "saved_query"))
 
     def _dag_nodes(self, team_id: int, dag_id: str) -> list[Node]:
         return list(
-            Node.objects.filter(team_id=team_id, dag_id=dag_id).exclude(type=NodeType.TABLE).select_related("dag")
+            Node.objects.filter(team_id=team_id, dag_id=dag_id)
+            .exclude(type=NodeType.TABLE)
+            .select_related("dag", "saved_query")
         )
 
     @staticmethod
@@ -166,9 +170,11 @@ class Command(BaseCommand):
             expected = (
                 format_interval(status.expected_interval) if status.expected_interval is not None else "none (opt-out)"
             )
-            marker = " ⚠️" if status.verdict in (STALE_NEEDS_RECONCILE, UNSUPPORTED_TARGET) else ""
+            marker = " ⚠️" if status.verdict in (STALE_NEEDS_RECONCILE, UNSUPPORTED_TARGET, EPHEMERAL_SKIPPED) else ""
             if status.verdict == UNSUPPORTED_TARGET:
                 marker += " — reconcile would REFUSE this whole DAG; fix the non-bucket target first"
+            if status.verdict == EPHEMERAL_SKIPPED:
+                marker += " — typed view over a live table; every tier run SKIPS it. Reconcile will not fix this"
             self.stdout.write(
                 f"{status.name} [{status.node_type}] {status.node_id}\n"
                 f"    live tier: {live} | reconcile would schedule: {expected} | verdict: {status.verdict}{marker}"
