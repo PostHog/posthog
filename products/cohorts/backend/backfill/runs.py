@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models.functions import Now
 from django.utils import timezone as django_timezone
 
@@ -75,7 +75,7 @@ def has_behavioral_filters(cohort: Cohort) -> bool:
     return any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties))
 
 
-def has_pinnable_person_filters(cohort: Cohort) -> bool:
+def _has_pinnable_person_filters(cohort: Cohort) -> bool:
     properties = (cohort.filters or {}).get("properties")
     return any(
         leaf.get("type") == "person" and leaf.get("conditionHash") is not None
@@ -88,7 +88,9 @@ def _contains_person_metadata_leaf(cohort: Cohort) -> bool:
     return any(leaf.get("type") == "person_metadata" for leaf in walk_filter_leaves(properties))
 
 
-def _person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
+def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
+    """The single person-run eligibility predicate, shared by the creators, the management command,
+    and the dispatch receiver so none of them can judge a cohort backfillable that another refuses."""
     if cohort.cohort_type != CohortType.REALTIME:
         return "not realtime"
     if cohort.is_static:
@@ -97,7 +99,7 @@ def _person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
         return "deleted"
     if _contains_person_metadata_leaf(cohort):
         return "contains person_metadata filters"
-    if not has_pinnable_person_filters(cohort):
+    if not _has_pinnable_person_filters(cohort):
         return "has no person filter with a condition hash"
     return None
 
@@ -127,53 +129,88 @@ def _active_participation_cohort_ids(team_id: int, cohort_ids: Iterable[int], *,
     )
 
 
+def _has_active_cohort_run(team_id: int, cohort_id: int, *, kind: CohortBackfillKind) -> bool:
+    """Mirror of the ``cohort_bfr_active_cohort_kind_uq`` predicate. The participation check above
+    misses a run whose participation the seeder already superseded (``record_participation_partial``)
+    while the run itself stays active and so still holds the per-cohort uniqueness slot."""
+    return (
+        CohortBackfillRun.objects.for_team(team_id)
+        .filter(cohort_id=cohort_id, backfill_kind=kind, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
+        .exists()
+    )
+
+
+def _has_active_team_run(team_id: int, *, kind: CohortBackfillKind) -> bool:
+    """Mirror of the ``cohort_bfr_active_team_kind_uq`` predicate, for the same divergent state as
+    ``_has_active_cohort_run``: a team run whose participations are all superseded is invisible to
+    the participation check but still violates the constraint."""
+    return (
+        CohortBackfillRun.objects.for_team(team_id)
+        .filter(scope=CohortBackfillScope.TEAM, backfill_kind=kind, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
+        .exists()
+    )
+
+
 def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: str) -> CohortBackfillRun | None:
     if not is_realtime_cohort_team(team_id):
         return None
 
-    with transaction.atomic():
-        cohort = (
-            Cohort.objects.select_for_update(of=("self",))
-            .select_related("team")
-            .filter(id=cohort_id, team_id=team_id)
-            .first()
-        )
-        if (
-            cohort is None
-            or cohort.cohort_type != CohortType.REALTIME
-            or cohort.is_static
-            or cohort.deleted
-            or not has_behavioral_filters(cohort)
-        ):
-            return None
-        if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.BEHAVIORAL):
-            return None
+    try:
+        with transaction.atomic():
+            cohort = (
+                Cohort.objects.select_for_update(of=("self",))
+                .select_related("team")
+                .filter(id=cohort_id, team_id=team_id)
+                .first()
+            )
+            if (
+                cohort is None
+                or cohort.cohort_type != CohortType.REALTIME
+                or cohort.is_static
+                or cohort.deleted
+                or not has_behavioral_filters(cohort)
+            ):
+                return None
+            if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.BEHAVIORAL):
+                return None
+            if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.BEHAVIORAL):
+                return None
 
-        filters_shape_hash = ensure_filters_shape_hash(cohort)
-        behavioral_filters_shape_hash = cohort.behavioral_filters_shape_hash or ""
-        preconditions, missing = check_run_preconditions()
-        status, blocked_reason = _run_status(missing)
-        run = CohortBackfillRun.objects.for_team(team_id).create(
+            filters_shape_hash = ensure_filters_shape_hash(cohort)
+            behavioral_filters_shape_hash = cohort.behavioral_filters_shape_hash or ""
+            preconditions, missing = check_run_preconditions()
+            status, blocked_reason = _run_status(missing)
+            run = CohortBackfillRun.objects.for_team(team_id).create(
+                team_id=team_id,
+                cohort=cohort,
+                backfill_kind=CohortBackfillKind.BEHAVIORAL,
+                trigger_kind=trigger_kind,
+                scope=CohortBackfillScope.COHORT,
+                status=status,
+                timezone=cohort.team.timezone,
+                pinned=_pinned_payload([cohort]),
+                preconditions=preconditions,
+                blocked_reason=blocked_reason,
+            )
+            CohortBackfillRunCohort.objects.for_team(team_id).create(
+                run=run,
+                team_id=team_id,
+                cohort=cohort,
+                filters_shape_hash=filters_shape_hash,
+                behavioral_filters_shape_hash=behavioral_filters_shape_hash,
+                pinned_filters=cohort.filters,
+            )
+            return run
+    except IntegrityError:
+        # A writer this transaction could not see won the unique-constraint race after the conflict
+        # checks passed. Refusing is this creator's contract, so return None rather than raise.
+        logger.warning(
+            "cohort_backfill_run_conflict_race",
             team_id=team_id,
-            cohort=cohort,
+            cohort_id=cohort_id,
             backfill_kind=CohortBackfillKind.BEHAVIORAL,
-            trigger_kind=trigger_kind,
-            scope=CohortBackfillScope.COHORT,
-            status=status,
-            timezone=cohort.team.timezone,
-            pinned=_pinned_payload([cohort]),
-            preconditions=preconditions,
-            blocked_reason=blocked_reason,
         )
-        CohortBackfillRunCohort.objects.for_team(team_id).create(
-            run=run,
-            team_id=team_id,
-            cohort=cohort,
-            filters_shape_hash=filters_shape_hash,
-            behavioral_filters_shape_hash=behavioral_filters_shape_hash,
-            pinned_filters=cohort.filters,
-        )
-        return run
+        return None
 
 
 def _validate_boundary_at(trigger_kind: str, boundary_at: datetime | None) -> datetime | None:
@@ -223,6 +260,8 @@ def create_team_backfill_run(
         )
         if conflicting_ids:
             raise ValueError(f"Cohorts already have active backfill runs: {sorted(conflicting_ids)}")
+        if _has_active_team_run(team_id, kind=CohortBackfillKind.BEHAVIORAL):
+            raise ValueError(f"Team {team_id} already has an active team backfill run (behavioral)")
 
         hashes: dict[int, str] = {}
         behavioral_hashes: dict[int, str] = {}
@@ -291,59 +330,72 @@ def create_person_backfill_run_for_cohort(
         )
         return None
 
-    with transaction.atomic():
-        cohort = (
-            Cohort.objects.select_for_update(of=("self",))
-            .select_related("team")
-            .filter(id=cohort_id, team_id=team_id)
-            .first()
-        )
-        if cohort is None or _person_backfill_ineligibility_reason(cohort) is not None:
-            return None
-        if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.PERSON_PROPERTY):
-            return None
-
-        try:
-            pinned = pin_person_conditions_for_cohorts(
-                [cohort],
-                max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
+    try:
+        with transaction.atomic():
+            cohort = (
+                Cohort.objects.select_for_update(of=("self",))
+                .select_related("team")
+                .filter(id=cohort_id, team_id=team_id)
+                .first()
             )
-        except PersonPinningCapExceeded:
-            logger.warning(
-                "cohort_person_backfill_pinning_cap_exceeded",
+            if cohort is None or person_backfill_ineligibility_reason(cohort) is not None:
+                return None
+            if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.PERSON_PROPERTY):
+                return None
+            if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.PERSON_PROPERTY):
+                return None
+
+            try:
+                pinned = pin_person_conditions_for_cohorts(
+                    [cohort],
+                    max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
+                )
+            except PersonPinningCapExceeded:
+                logger.warning(
+                    "cohort_person_backfill_pinning_cap_exceeded",
+                    team_id=team_id,
+                    cohort_id=cohort_id,
+                    max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
+                )
+                return None
+
+            filters_shape_hash = ensure_filters_shape_hash(cohort)
+            person_filters_shape_hash = cohort.person_filters_shape_hash or ""
+            preconditions, missing = check_person_run_preconditions(requires_sizing_attestation=False)
+            status, blocked_reason = _run_status(missing)
+            person_scan_since = django_timezone.now() - timedelta(days=horizon_days)
+            run = CohortBackfillRun.objects.for_team(team_id).create(
                 team_id=team_id,
-                cohort_id=cohort_id,
-                max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
+                cohort=cohort,
+                backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
+                trigger_kind=trigger_kind,
+                scope=CohortBackfillScope.COHORT,
+                status=status,
+                timezone=cohort.team.timezone,
+                person_scan_since=person_scan_since,
+                pinned={**pinned, "person_horizon_days": horizon_days},
+                preconditions=preconditions,
+                blocked_reason=blocked_reason,
             )
-            return None
-
-        filters_shape_hash = ensure_filters_shape_hash(cohort)
-        person_filters_shape_hash = cohort.person_filters_shape_hash or ""
-        preconditions, missing = check_person_run_preconditions(requires_sizing_attestation=False)
-        status, blocked_reason = _run_status(missing)
-        person_scan_since = django_timezone.now() - timedelta(days=horizon_days)
-        run = CohortBackfillRun.objects.for_team(team_id).create(
+            CohortBackfillRunCohort.objects.for_team(team_id).create(
+                run=run,
+                team_id=team_id,
+                cohort=cohort,
+                filters_shape_hash=filters_shape_hash,
+                person_filters_shape_hash=person_filters_shape_hash,
+                pinned_filters=cohort.filters,
+            )
+            return run
+    except IntegrityError:
+        # A writer this transaction could not see won the unique-constraint race after the conflict
+        # checks passed. Refusing is this creator's contract, so return None rather than raise.
+        logger.warning(
+            "cohort_backfill_run_conflict_race",
             team_id=team_id,
-            cohort=cohort,
+            cohort_id=cohort_id,
             backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
-            trigger_kind=trigger_kind,
-            scope=CohortBackfillScope.COHORT,
-            status=status,
-            timezone=cohort.team.timezone,
-            person_scan_since=person_scan_since,
-            pinned={**pinned, "person_horizon_days": horizon_days},
-            preconditions=preconditions,
-            blocked_reason=blocked_reason,
         )
-        CohortBackfillRunCohort.objects.for_team(team_id).create(
-            run=run,
-            team_id=team_id,
-            cohort=cohort,
-            filters_shape_hash=filters_shape_hash,
-            person_filters_shape_hash=person_filters_shape_hash,
-            pinned_filters=cohort.filters,
-        )
-        return run
+        return None
 
 
 def _person_cohorts_for_team(team_id: int, requested_ids: set[int] | None, *, lock: bool) -> list[Cohort]:
@@ -361,7 +413,7 @@ def _person_cohorts_for_team(team_id: int, requested_ids: set[int] | None, *, lo
     if requested_ids is not None:
         queryset = queryset.filter(id__in=requested_ids)
     candidates = list(queryset.order_by("id"))
-    cohorts = [cohort for cohort in candidates if _person_backfill_ineligibility_reason(cohort) is None]
+    cohorts = [cohort for cohort in candidates if person_backfill_ineligibility_reason(cohort) is None]
 
     if requested_ids is not None and {cohort.id for cohort in cohorts} != requested_ids:
         invalid_ids = sorted(requested_ids - {cohort.id for cohort in cohorts})
@@ -423,6 +475,8 @@ def create_person_team_backfill_run(
         )
         if conflicting_ids:
             raise ValueError(f"Cohorts already have active person-property backfill runs: {sorted(conflicting_ids)}")
+        if _has_active_team_run(team_id, kind=CohortBackfillKind.PERSON_PROPERTY):
+            raise ValueError(f"Team {team_id} already has an active team backfill run (person_property)")
 
         hashes: dict[int, str] = {}
         person_hashes: dict[int, str] = {}
@@ -479,10 +533,23 @@ def supersede_active_runs(team_id: int, cohort_ids: Iterable[int], *, kind: Coho
             )
             .values_list("id", "run_id", "run__scope")
         )
-        if not targets:
+        # Cohort-scoped runs are also targeted through the run's own cohort column: a seeder partial
+        # outcome (`record_participation_partial`) supersedes the participation while the run stays
+        # active, and an active run holds the per-cohort uniqueness slot whether or not its
+        # participation is already terminal.
+        cohort_run_ids = set(
+            CohortBackfillRun.objects.for_team(team_id)
+            .filter(
+                cohort_id__in=cohort_id_set,
+                backfill_kind=kind,
+                status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+            )
+            .values_list("id", flat=True)
+        )
+        cohort_run_ids.update(run_id for _, run_id, scope in targets if scope == CohortBackfillScope.COHORT)
+        if not targets and not cohort_run_ids:
             return 0
 
-        cohort_run_ids = [run_id for _, run_id, scope in targets if scope == CohortBackfillScope.COHORT]
         if cohort_run_ids:
             CohortBackfillRun.objects.for_team(team_id).filter(id__in=cohort_run_ids).update(
                 status=CohortBackfillRunStatus.SUPERSEDED,

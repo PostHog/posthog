@@ -267,6 +267,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
+    # Transient save() state, not columns: _maintain_filter_shape_hashes sets these so the post_save
+    # backfill receivers, which get this same instance, can tell which leaf shapes the save moved.
+    _leaf_shape_changed: bool = False
+    _person_shape_changed: bool = False
+
     objects = CohortManager()  # type: ignore
 
     class Meta:

@@ -44,4 +44,8 @@ def is_realtime_cohort_team(team_id: int) -> bool:
 
 def is_cohort_backfill_trigger_team(team_id: int) -> bool:
     """Whether saving a cohort in ``team_id`` should enqueue backfill runs for it."""
+    if not settings.COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST.strip():
+        # No Rust service parses this setting, so it can fail closed on empty where the realtime
+        # allowlist cannot: a set-but-empty value means no teams, not every team.
+        return False
     return _team_in_allowlist(settings.COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST, team_id)

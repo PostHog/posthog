@@ -377,6 +377,37 @@ class TestPersonBackfillRuns(BaseTest):
 
     @parameterized.expand(
         [
+            ("behavioral", create_backfill_run_for_cohort, CohortBackfillKind.BEHAVIORAL),
+            ("person_property", create_person_backfill_run_for_cohort, CohortBackfillKind.PERSON_PROPERTY),
+        ]
+    )
+    def test_seeder_partial_outcome_does_not_wedge_the_cohort(
+        self, _name: str, creator, kind: CohortBackfillKind
+    ) -> None:
+        # The seeder's record_participation_partial supersedes the participation but leaves the run
+        # active, so the run still holds the cohort_bfr_active_cohort_kind_uq slot. The creator has
+        # to refuse on the run, not only the participation, or it raises IntegrityError; and
+        # supersession has to target the run directly, or nothing ever frees the slot while the
+        # finalizer's person gate is closed.
+        cohort = self._cohort()
+        run = creator(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run=run).update(
+            superseded_at=datetime.now(UTC), error="stage 2 hash mismatch"
+        )
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING
+        )
+
+        self.assertIsNone(creator(self.team.id, cohort.id, "cohort_edited"))
+
+        supersede_active_runs(self.team.id, [cohort.id], kind=kind)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(creator(self.team.id, cohort.id, "cohort_edited"))
+
+    @parameterized.expand(
+        [
             ("behavioral_only", {"filters": None}),
             ("static", {"is_static": True}),
             ("deleted", {"deleted": True}),

@@ -274,13 +274,14 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_created")
 
-    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
     def test_edit_touching_both_leaf_kinds_enqueues_one_task_per_kind(self) -> None:
         # The kinds seed different stores, so one save that moves both shapes owes a task to each, on
-        # keys that cannot debounce one another.
+        # keys that cannot debounce one another. The cohort is created before the trigger allowlist
+        # opens, so the create dispatches nothing real behind the edit's mocks.
         cohort = self._cohort(7, person_hash="person-a")
         redis = self._redis()
         with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
             mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
         ):
@@ -290,11 +291,11 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_edited")
 
     @parameterized.expand(TRIGGER_KINDS)
-    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
     def test_two_edits_share_one_debounce_key(self, _name: str, kind: CohortBackfillKind, edits) -> None:
         cohort = self._cohort(7, person_hash="person-a")
         redis = self._redis(True, False)
         with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
             mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
         ):
@@ -310,6 +311,64 @@ class TestBehavioralBackfillDependencies(BaseTest):
             [call.args[0] for call in redis.set.call_args_list],
             [f"cohort_backfill_{kind.value}_pending:{cohort.id}"] * 2,
         )
+
+    @parameterized.expand(
+        [
+            ("static", {"is_static": True}),
+            ("non_realtime_type", {"cohort_type": None}),
+        ]
+    )
+    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
+    def test_ineligible_create_enqueues_nothing(self, _name: str, overrides: dict) -> None:
+        # Creates skip the shape-changed flags and dispatch straight off kwargs["created"], so the
+        # type guard in _backfill_trigger_kind is all that keeps every ordinary (static or
+        # non-realtime) cohort create in an opted-in team from firing tasks the creators refuse.
+        redis = self._redis()
+        params: dict = {
+            "team": self.team,
+            "cohort_type": CohortType.REALTIME,
+            "filters": self._filters(7, person_hash="person-a"),
+            **overrides,
+        }
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            Cohort.objects.create(**params)
+
+        enqueue.assert_not_called()
+        redis.set.assert_not_called()
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="999999999", COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
+    def test_trigger_allowlisted_but_non_realtime_team_enqueues_nothing(self) -> None:
+        # The trigger allowlist opts a team in on top of realtime membership. Without the receivers'
+        # realtime gate, this misconfiguration would debounce a task on every create that the
+        # creators are guaranteed to refuse, forever, with nothing pointing at the cause.
+        redis = self._redis()
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            self._cohort(7, person_hash="person-a")
+
+        enqueue.assert_not_called()
+        redis.set.assert_not_called()
+
+    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
+    def test_failed_enqueue_releases_the_debounce_lock(self) -> None:
+        # If the broker rejects the publish after the lock is claimed, the lock has to be released,
+        # or every save in the next window is swallowed with no task behind the key.
+        redis = self._redis()
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch(
+                "posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async",
+                side_effect=Exception("broker down"),
+            ),
+        ):
+            cohort = self._cohort(7)
+
+        redis.delete.assert_called_once_with(f"cohort_backfill_behavioral_pending:{cohort.id}")
 
     def test_hashing_failure_in_maintain_shape_does_not_break_save(self) -> None:
         # _maintain_filter_shape_hashes swallows hashing errors so a hashing bug can't take down every

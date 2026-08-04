@@ -17,12 +17,14 @@ from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
-from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
+from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team, is_realtime_cohort_team
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
 COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
-COHORT_BACKFILL_REDIS_TTL_SECONDS = 300  # matches countdown; task reads fresh state at execution time
+# The lock expiring exactly as the task fires is what closes the lost-dispatch window: a TTL longer
+# than the countdown would swallow a save that lands after the task already read its state.
+COHORT_BACKFILL_REDIS_TTL_SECONDS = COHORT_BACKFILL_DEBOUNCE_SECONDS
 
 # Prometheus metrics for cache hit/miss tracking
 COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
@@ -315,11 +317,13 @@ def _on_cohort_changed(cohort: Cohort, always_invalidate: bool = False):
 def _has_backfillable_filters(cohort: Cohort, kind: CohortBackfillKind) -> bool:
     from products.cohorts.backend.backfill.runs import (  # noqa: PLC0415 — avoids a model-load cycle
         has_behavioral_filters,
-        has_pinnable_person_filters,
+        person_backfill_ineligibility_reason,
     )
 
     if kind == CohortBackfillKind.PERSON_PROPERTY:
-        return has_pinnable_person_filters(cohort)
+        # The creator's own predicate, so this cannot judge backfillable a cohort the creator will
+        # permanently refuse (for example one that also carries a person_metadata leaf).
+        return person_backfill_ineligibility_reason(cohort) is None
     return has_behavioral_filters(cohort)
 
 
@@ -434,7 +438,7 @@ def cohort_behavioral_shape_changed_supersede(sender, instance, **kwargs):
     `_leaf_shape_changed` is only set for allowlisted realtime, non-static, non-deleted cohorts on a
     real `filters` change, so it is the whole guard.
     """
-    if not getattr(instance, "_leaf_shape_changed", False):
+    if not instance._leaf_shape_changed:
         return
 
     COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="leaf_state_key_changed").inc()
@@ -454,7 +458,7 @@ def cohort_person_shape_changed_supersede(sender, instance, **kwargs):
     `_person_shape_changed` is only set for allowlisted realtime, non-static, non-deleted cohorts on
     a real `filters` change, so it is the whole guard.
     """
-    if not getattr(instance, "_person_shape_changed", False):
+    if not instance._person_shape_changed:
         return
 
     COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="person_condition_hash_changed").inc()
@@ -470,13 +474,15 @@ def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
     creating a replacement run costs a ClickHouse history replay, so it stays behind the narrower
     `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST`. Keeping them apart means the expensive half can be off
     for a team while the cheap half still runs.
+
+    The trigger allowlist opts a team in on top of realtime membership, which the creators require:
+    without the realtime check here, a team listed only in the trigger allowlist would debounce a
+    task on every create that the creators are guaranteed to refuse, with nothing naming the cause.
     """
     try:
-        if not is_cohort_backfill_trigger_team(instance.team_id):
+        if not is_cohort_backfill_trigger_team(instance.team_id) or not is_realtime_cohort_team(instance.team_id):
             return
-        trigger_kind = _backfill_trigger_kind(
-            instance, kwargs, shape_changed=getattr(instance, "_leaf_shape_changed", False)
-        )
+        trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._leaf_shape_changed)
         if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.BEHAVIORAL):
             return
 
@@ -499,11 +505,9 @@ def cohort_person_shape_changed_backfill(sender, instance, **kwargs):
     different stores and stamp different readiness columns.
     """
     try:
-        if not is_cohort_backfill_trigger_team(instance.team_id):
+        if not is_cohort_backfill_trigger_team(instance.team_id) or not is_realtime_cohort_team(instance.team_id):
             return
-        trigger_kind = _backfill_trigger_kind(
-            instance, kwargs, shape_changed=getattr(instance, "_person_shape_changed", False)
-        )
+        trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._person_shape_changed)
         if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.PERSON_PROPERTY):
             return
 

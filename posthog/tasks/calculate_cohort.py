@@ -23,7 +23,12 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
-from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort, create_person_backfill_run_for_cohort
+from products.cohorts.backend.backfill.runs import (
+    check_person_run_preconditions,
+    check_run_preconditions,
+    create_backfill_run_for_cohort,
+    create_person_backfill_run_for_cohort,
+)
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -34,6 +39,7 @@ from products.cohorts.backend.models.util import (
     get_clickhouse_query_stats,
     sort_cohorts_topologically,
 )
+from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -841,19 +847,50 @@ def collect_cohort_query_stats(
         raise
 
 
-@shared_task(ignore_result=True, max_retries=3)
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind: str, backfill_kind: str) -> None:
     """Create the run a debounced cohort save asked for, reading the cohort's current definition.
 
     The creators re-check eligibility under a row lock, so a cohort that was edited again, deleted,
     or made static during the debounce window returns None here. That is a normal outcome, not a
     failure, and must not raise: a raise burns the task's retries re-deciding the same refusal.
+
+    A missing operator attestation is the same kind of outcome on this path. The creators record a
+    `blocked` row when called directly, which is right for operator-driven runs, but a blocked row
+    holds the per-cohort uniqueness slot and nothing ever advances it, so the signal path skips
+    instead of parking one on every cohort a freshly allowlisted team saves.
     """
     try:
-        if backfill_kind == CohortBackfillKind.PERSON_PROPERTY:
-            run = create_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
-        else:
-            run = create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        if not is_cohort_backfill_trigger_team(team_id):
+            # The enqueue-side check ran up to the debounce countdown ago; re-checking here makes
+            # shrinking the allowlist stop tasks already in flight, not only new enqueues.
+            logger.info(
+                "skipping_cohort_backfill_run_task_team_not_allowlisted",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                trigger_kind=trigger_kind,
+                backfill_kind=backfill_kind,
+            )
+            return
+        person = backfill_kind == CohortBackfillKind.PERSON_PROPERTY
+        _, missing = (
+            check_person_run_preconditions(requires_sizing_attestation=False) if person else check_run_preconditions()
+        )
+        if missing:
+            logger.info(
+                "skipping_cohort_backfill_run_task_missing_attestations",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                trigger_kind=trigger_kind,
+                backfill_kind=backfill_kind,
+                missing=missing,
+            )
+            return
+        run = (
+            create_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+            if person
+            else create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        )
         if run is None:
             logger.info(
                 "skipping_cohort_backfill_run_task",

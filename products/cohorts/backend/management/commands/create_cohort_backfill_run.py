@@ -15,13 +15,13 @@ from products.cohorts.backend.backfill.pinning import (
     pin_person_conditions_for_cohorts,
 )
 from products.cohorts.backend.backfill.runs import (
-    _person_backfill_ineligibility_reason,
     _validate_boundary_at,
     check_person_run_preconditions,
     check_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
     has_behavioral_filters,
+    person_backfill_ineligibility_reason,
 )
 from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRunCohort, CohortBackfillTrigger
@@ -191,11 +191,11 @@ class Command(BaseCommand):
         requested_ids = set(cohort_ids) if cohort_ids is not None else None
         # Deliberately wider than `_person_cohorts_for_team`, which narrows the SQL-expressible half
         # of eligibility away before it locks: the dry run's whole job is naming *why* each cohort was
-        # refused, and it takes no locks. Both sides decide with `_person_backfill_ineligibility_reason`.
+        # refused, and it takes no locks. Both sides decide with `person_backfill_ineligibility_reason`.
         queryset = Cohort.objects.filter(team_id=team_id)
         if requested_ids is not None:
             queryset = queryset.filter(id__in=requested_ids)
-        candidates = [(cohort, _person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
+        candidates = [(cohort, person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
 
         refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
         if requested_ids is not None:
