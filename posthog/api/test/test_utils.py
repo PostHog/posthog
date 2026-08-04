@@ -366,6 +366,9 @@ class TestUtils(BaseTest):
     ) -> None:
         assert hostname_in_allowed_url_list(allowlist, hostname) == expected
 
+    def test_hostname_in_allowed_url_list_skips_unparseable_entry(self) -> None:
+        assert hostname_in_allowed_url_list(["http://[", "https://example.com"], "example.com") is True
+
     @parameterized.expand(
         [
             ("no wildcards", ["https://example.com"], False),
@@ -374,7 +377,7 @@ class TestUtils(BaseTest):
             ("only one entry is over the cap", ["https://example.com", "https://*.*.*.*.*.*.com"], True),
             ("wildcards in the path are not counted", ["https://example.com/*/*/*/*/*/*/*/*"], False),
             ("entry with no parseable host", ["*.*.*.*.*.*.*.example.com"], False),
-            ("entry that cannot be parsed at all", ["http://["], False),
+            ("entry that cannot be parsed at all", ["http://["], True),
         ]
     )
     def test_validate_authorized_url_wildcards(self, _name: str, urls: list[str], expect_error: bool) -> None:

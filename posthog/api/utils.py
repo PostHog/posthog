@@ -545,7 +545,12 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
     permitted_domains = []
     if allowed_url_list:
         for url in allowed_url_list:
-            host = parse_domain(url)
+            try:
+                host = parse_domain(url)
+            except ValueError:
+                # Entries stored before write-time validation can still be unparseable, and
+                # one of them must not take down every allowlist check the team makes.
+                continue
             if host:
                 permitted_domains.append(host)
 
@@ -579,8 +584,10 @@ def validate_authorized_url_wildcards(urls: list[str]) -> None:
         try:
             host = parse_domain(url)
         except ValueError:
-            # An entry we cannot parse never yields a match pattern, so leave it alone.
-            continue
+            # urlparse raises on an unterminated IPv6 bracket, and every later allowlist
+            # check re-parses the stored entry, so accepting one here turns each of those
+            # checks into a 500 for the whole team.
+            raise ValidationError("One of these URLs can't be parsed. Check for a typo, like an unclosed bracket.")
         if host and host.count("*") > MAX_WILDCARDS_PER_AUTHORIZED_URL:
             raise ValidationError(
                 f"Each URL can include up to {MAX_WILDCARDS_PER_AUTHORIZED_URL} wildcards. "
