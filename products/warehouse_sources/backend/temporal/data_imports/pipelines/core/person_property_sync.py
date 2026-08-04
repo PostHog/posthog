@@ -46,9 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     record_person_property_sync_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-    delta_storage_options,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
 
 logger = structlog.get_logger(__name__)
 

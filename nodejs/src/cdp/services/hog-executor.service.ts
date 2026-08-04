@@ -256,11 +256,12 @@ export type HogExecutorExecuteOptions = {
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
     maxFetchRetries?: number
-    // When true, emails are sent inline via EmailService instead of being routed to
-    // the dedicated email queue. Used by the test panel — the test endpoint executes
-    // in-process and never enqueues to cyclotron, so routing would leave the job
-    // unworked.
-    sendEmailsInline?: boolean
+    // Set only by the editor's test panel ("Run test"), marking this invocation as a test send. Two
+    // effects: emails run inline via EmailService instead of routing to the email queue (the test
+    // endpoint executes in-process and never enqueues to cyclotron, so routing would leave the job
+    // unworked), and messaging channels skip metrics/assets so a test doesn't pollute the workflow's
+    // Metrics and Assets tabs.
+    isTest?: boolean
 }
 
 export class HogExecutorService {
@@ -488,20 +489,19 @@ export class HogExecutorService {
                         result = await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'sendPushNotification') {
-                    result = await this.pushNotificationService.executeSendPushNotification(nextInvocation)
+                    result = await this.pushNotificationService.executeSendPushNotification(
+                        nextInvocation,
+                        options?.isTest ?? false
+                    )
                 } else if (queueParamsType === 'email') {
-                    // Route to the email queue only if we're not already there and the
-                    // caller hasn't asked for inline-only execution (e.g. the test panel).
-                    const routeToEmailQueue = invocation.queue !== 'email' && !options?.sendEmailsInline
+                    // Route to the email queue unless this is a test run: tests execute in-process and
+                    // never enqueue, so routing would leave the job unworked.
+                    const routeToEmailQueue = invocation.queue !== 'email' && !options?.isTest
                     if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
-                        // `sendEmailsInline` is only set by the test panel, so it doubles as the
-                        // "this is a test send" signal — propagated into the email's tracking code.
-                        result = await this.emailService.executeSendEmail(
-                            nextInvocation,
-                            options?.sendEmailsInline ?? false
-                        )
+                        // isTest is forwarded so a test send stays out of the email's engagement tracking.
+                        result = await this.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)

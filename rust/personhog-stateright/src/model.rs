@@ -618,6 +618,7 @@ impl Model for HandoffModel {
                                     router_name: router_name(r),
                                     partition: p as u32,
                                     acked_at: 0,
+                                    acked_at_ms: 0,
                                     handoff_id: id.to_string(),
                                 })
                             })
@@ -654,6 +655,7 @@ impl Model for HandoffModel {
                                     pod_name: pod_name(x),
                                     partition: p as u32,
                                     acked_at: 0,
+                                    acked_at_ms: 0,
                                     handoff_id: id.to_string(),
                                 })
                             })
@@ -671,6 +673,7 @@ impl Model for HandoffModel {
                                     pod_name: pod_name(x),
                                     partition: p as u32,
                                     acked_at: 0,
+                                    acked_at_ms: 0,
                                     handoff_id: id.to_string(),
                                 })
                             })

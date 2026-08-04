@@ -54,7 +54,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.event_usage import EventSource, get_event_source, report_user_action
+from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
@@ -64,7 +64,8 @@ from posthog.plugins.plugin_server_api import (
     rerun_hog_invocations,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -75,9 +76,13 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius,
     get_user_blast_radius_persons,
 )
+from products.messaging.backend.api.design_operations import apply_design_operations
+from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.api.message_templates import DesignOperationSerializer
+from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.action_redirects import compute_action_redirects
-from products.workflows.backend.api.graph_operations import apply_graph_operations
+from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from products.workflows.backend.api.message_assets import (
@@ -100,6 +105,14 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.services.account_audience import (
+    ACCOUNT_BATCH_SIZE,
+    get_account_audience_count,
+    get_account_audience_page,
+    get_account_group_type_name,
+    is_account_audience,
+    parse_account_audience_filters,
+)
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -771,6 +784,10 @@ class HogFlowActionSerializer(serializers.Serializer):
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
             "to reference a cohort. "
+            "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
+            "audience fans out one run per customer analytics account and takes account filters instead: "
+            "properties entries of type 'account_custom_property' (key = definition id), plus "
+            "tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -897,9 +914,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
                 if strict and isinstance(filters, dict):
-                    # The audience targets who a person is (properties / cohort membership), not what they did.
-                    # Event/action filters are silently dropped by the person-based blast radius (resolving to
-                    # "everyone"), so reject them outright — same rejection as a behavioral cohort below.
+                    audience_type = filters.get("audience_type")
+                    if audience_type not in (None, "persons", "accounts"):
+                        raise serializers.ValidationError(
+                            {"filters": {"audience_type": "Must be 'persons' or 'accounts'."}}
+                        )
+                    # The audience targets who a person/account is (properties / cohort membership), not what
+                    # they did. Event/action filters are silently dropped by the person-based blast radius
+                    # (resolving to "everyone"), so reject them outright — same rejection as a behavioral
+                    # cohort below.
                     if filters.get("events") or filters.get("actions"):
                         raise serializers.ValidationError(
                             {
@@ -910,7 +933,35 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 )
                             }
                         )
-                    self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+                    if audience_type == "accounts":
+                        team = self.context["get_team"]()
+                        if get_account_group_type_name(team) is None:
+                            raise serializers.ValidationError(
+                                {
+                                    "filters": (
+                                        "Configure a customer analytics account group type before using "
+                                        "an account audience."
+                                    )
+                                }
+                            )
+                        # Resolution runs under a service principal, so account access is
+                        # enforced here, when a person configures the audience.
+                        request = self.context.get("request")
+                        user = getattr(request, "user", None)
+                        if (
+                            user is not None
+                            and user.is_authenticated
+                            and not isinstance(user, SyntheticUser)
+                            and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                                "account", "viewer"
+                            )
+                        ):
+                            raise serializers.ValidationError(
+                                {"filters": "You do not have access to customer analytics accounts."}
+                            )
+                        parse_account_audience_filters(filters)
+                    else:
+                        self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             elif data.get("config", {}).get("type") == "schedule":
                 # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
                 # resolves the same offline audience as batch — guard its cohort refs the same way.
@@ -2009,6 +2060,138 @@ class HogFlowGraphUpdateSerializer(serializers.Serializer):
     )
 
 
+class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
+    base_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored "
+            "workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit."
+        ),
+    )
+    operations = serializers.ListField(
+        child=DesignOperationSerializer(),
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "Ordered design edits applied atomically to this step's email design - the same operations as "
+            "the email template patch. The result is re-rendered to HTML server-side, so the sent email "
+            "always matches the patched design."
+        ),
+    )
+    email_patch = serializers.JSONField(
+        required=False,
+        help_text=(
+            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
+            "preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is "
+            "always re-rendered from it."
+        ),
+    )
+
+    def validate_email_patch(self, value: Any) -> dict:
+        if not isinstance(value, dict) or not value:
+            raise serializers.ValidationError("email_patch must be a non-empty object")
+        blocked = [key for key in ("design", "html") if key in value]
+        if blocked:
+            raise serializers.ValidationError(
+                f"email_patch can't set {', '.join(blocked)}: edit the design via operations, and html is "
+                "re-rendered from the design on every change."
+            )
+        return value
+
+    def validate(self, data: Any) -> Any:
+        if not data.get("operations") and not data.get("email_patch"):
+            raise serializers.ValidationError("Provide operations and/or email_patch.")
+        return data
+
+
+def _locate_action_email_value(actions: list[dict], action_id: str) -> dict:
+    target = next((a for a in actions if isinstance(a, dict) and a.get("id") == action_id), None)
+    if target is None:
+        raise exceptions.ValidationError({"action_id": f"Action '{action_id}' not found in this workflow."})
+    if target.get("type") != "function_email":
+        raise exceptions.ValidationError(
+            {
+                "action_id": f"Action '{action_id}' is a '{target.get('type')}' step. "
+                "Only function_email steps carry an email."
+            }
+        )
+    inputs = (target.get("config") or {}).get("inputs")
+    email_input = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    if not isinstance(value, dict):
+        raise exceptions.ValidationError(
+            {
+                "action_id": f"Action '{action_id}' has no email content yet. Set the full "
+                "config.inputs.email.value with a graph update_action first."
+            }
+        )
+    return value
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _RenderedActionEmailDesign:
+    # The design the ops were applied to, kept so the in-lock apply can detect a concurrent edit.
+    base_design: dict
+    design: dict
+    html: str
+
+
+def _render_action_email_operations(
+    actions: list[dict], action_id: str, operations: list[dict]
+) -> _RenderedActionEmailDesign:
+    # The design half of an email edit: ops applied to the step's design and the result rendered to
+    # HTML. Split from _apply_action_email_edit because rendering is a synchronous Unlayer HTTP call
+    # (up to 30s) that must run before the caller takes the row lock, never under it.
+    value = _locate_action_email_value(actions, action_id)
+    design = value.get("design")
+    if not isinstance(design, dict):
+        raise exceptions.ValidationError(
+            {
+                "operations": "This step's email has no editable design JSON to patch. Set the full "
+                "config.inputs.email.value.design with a graph update_action first, then use surgical "
+                "operations."
+            }
+        )
+    new_design = apply_design_operations(design, operations)
+    for warning in validate_design(new_design):
+        logger.info("hog_flow_action_email_design_warning", warning=warning, action_id=action_id)
+    try:
+        html = render_design_html(new_design)
+    except UnlayerNotConfiguredError:
+        raise exceptions.ValidationError(
+            {
+                "operations": "Design rendering is not configured on this instance - an administrator "
+                "must set UNLAYER_API_KEY to enable design editing."
+            }
+        )
+    except UnlayerRenderError as e:
+        raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
+    return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
+
+
+def _apply_action_email_edit(
+    actions: list[dict], action_id: str, email_patch: dict, rendered: Optional[_RenderedActionEmailDesign]
+) -> list[dict]:
+    # Twin of apply_graph_operations for one email step: returns a new actions list with the step's
+    # email value patched (the pre-rendered design installed, then the field merge).
+    new_actions = deepcopy(actions)
+    value = _locate_action_email_value(new_actions, action_id)
+
+    if rendered is not None:
+        # The render ran before the caller took the row lock, against the state read back then. A
+        # design that moved in between means the ops were applied to a stale tree, so conflict and
+        # let the caller re-read rather than silently overwrite the concurrent edit.
+        if value.get("design") != rendered.base_design:
+            raise StaleWorkflowUpdateError()
+        value["design"] = rendered.design
+        value["html"] = rendered.html
+
+    if email_patch:
+        _deep_merge(value, email_patch)
+
+    return new_actions
+
+
 class HogFlowInvocationSerializer(serializers.Serializer):
     configuration = HogFlowSerializer(
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
@@ -2230,13 +2413,6 @@ def mint_publish_confirm_token(hog_flow: HogFlow) -> str:
 AUDIENCE_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
 _AUDIENCE_CONFIRM_SALT = "hogflow-batch-audience"
 
-# Surfaces where an LLM drives the request through a managed channel (classification is stamped by
-# the harness, not self-reported by the model). These get the audience-confirm gate; the web builder
-# has its own confirm UI, and headless callers (raw API keys, Terraform) dispatch in one call.
-AGENT_EVENT_SOURCES = frozenset(
-    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
-)
-
 
 def _audience_confirm_value(
     team_id: int, filters: dict, group_type_index: Optional[int] = None, dedupe_key: Optional[str] = None
@@ -2302,6 +2478,7 @@ class HogFlowViewSet(
         "bulk_delete",
         "rerun",
         "graph",
+        "action_email",
         "publish",
         "discard_draft",
         "restore_revision",
@@ -2818,6 +2995,113 @@ class HogFlowViewSet(
 
         return Response(self.get_serializer(locked).data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "action_id", str, OpenApiParameter.PATH, description="Id of the function_email step to edit."
+            )
+        ],
+        request=HogFlowActionEmailUpdateSerializer,
+        responses={200: HogFlowSerializer},
+    )
+    @action(detail=True, methods=["PATCH"], url_path=r"actions/(?P<action_id>[^/.]+)/email")
+    def action_email(self, request: Request, *args, **kwargs):
+        # Surgical email editing for one step: the library template patch's design ops applied to the
+        # email embedded in a workflow action, with html re-rendered server-side so the design and the
+        # sent content can't diverge. Rides the graph endpoint's draft/staleness/revision machinery.
+        op_serializer = HogFlowActionEmailUpdateSerializer(data=request.data)
+        op_serializer.is_valid(raise_exception=True)
+        operations = op_serializer.validated_data.get("operations") or []
+        email_patch = op_serializer.validated_data.get("email_patch") or {}
+        action_id = kwargs["action_id"]
+
+        # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
+        instance = self.get_object()
+
+        # Resolved before the write transaction: the flag check can hit the network and must not
+        # extend the select_for_update row-lock hold.
+        revisions_enabled = use_workflows_revisions(self.team)
+
+        # A doomed request must fail here, before the expensive render below, not under the lock.
+        # The locked section re-checks and stays authoritative if the status flips in between.
+        if self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE and not revisions_enabled:
+            raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+
+        # Rendering is a synchronous Unlayer HTTP call, so it also runs before the transaction,
+        # against the unlocked row. Draft routing is predicted the same way the locked section
+        # decides it; if the routing or the design moves before the lock, the apply conflicts.
+        rendered: Optional[_RenderedActionEmailDesign] = None
+        if operations:
+            predicts_draft = self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE
+            if predicts_draft and instance.draft:
+                render_base = list(instance.draft.get("actions") or [])
+            else:
+                render_base = list(instance.actions or [])
+            rendered = _render_action_email_operations(render_base, action_id, operations)
+
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+
+            route_to_draft = False
+            if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
+                if not revisions_enabled:
+                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                route_to_draft = True
+
+            # Same staleness contract as /graph: draft edits race against other draft edits, so the
+            # baseline is the draft's timestamp once one exists.
+            base_updated_at_raw = request.data.get("base_updated_at")
+            base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
+            if base_updated_at is not None and timezone.is_naive(base_updated_at):
+                base_updated_at = timezone.make_aware(base_updated_at)
+            guard_timestamp = locked.updated_at
+            if route_to_draft and locked.draft_updated_at:
+                guard_timestamp = locked.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
+                raise StaleWorkflowUpdateError()
+
+            # Draft edits compose on the staged draft, not on live - a second patch must see the first.
+            if route_to_draft and locked.draft:
+                base_actions = list(locked.draft.get("actions") or [])
+            else:
+                base_actions = list(locked.actions or [])
+
+            new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
+
+            serializer = self.get_serializer(locked, data={"actions": new_actions}, partial=True)
+            serializer.context["enforce_graph_structure"] = True
+            serializer.is_valid(raise_exception=True)
+
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
+            if route_to_draft:
+                self._write_draft(locked, locked, serializer.validated_data)
+            else:
+                bump = self._stage_revision_bump(
+                    locked, before_update, serializer.validated_data, enabled=revisions_enabled
+                )
+                # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
+                serializer.save()
+                if bump:
+                    self._append_revisions(locked, before_update)
+
+        # Unlike /graph, no action-redirect refresh or timing reschedule: an email edit can't delete
+        # steps or change timing config.
+        log_activity_from_viewset(self, locked, activity="updated", name=locked.name, previous=before_update)
+        self._emit_resource_edited(locked)
+        self._report_workflow_action(
+            "hog_flow_action_email_updated",
+            locked,
+            {
+                "operations_count": len(operations),
+                "merged_fields": sorted(email_patch.keys()),
+                "routed_to_draft": route_to_draft,
+            },
+        )
+
+        return Response(self.get_serializer(locked).data)
+
     def _maybe_reschedule_timing_edits(self, before: Optional[HogFlow], after: HogFlow) -> None:
         """Kick off a reschedule sweep of parked runs when a go-live config change could move
         their wake times earlier or change what they resolve to (issue #66380): shortened
@@ -3203,6 +3487,24 @@ class HogFlowViewSet(
         filters = params["filters"]
         group_type_index = params.get("group_type_index")
         dedupe_key = params.get("dedupe_key")
+
+        if is_account_audience(filters):
+            # Account audiences never touch person data or flag conditions; the parse inside
+            # the count rejects anything but account filters. Sizing the audience reads account
+            # data, so it requires the same access the audience editor requires.
+            if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
+                raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": get_account_audience_count(self.team, filters),
+                        "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
+                        "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                        "dedupe_key": None,
+                        "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
+                    }
+                ).data
+            )
 
         reject_flag_conditions_in_audience(self.team, filters)
 
@@ -3851,6 +4153,43 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_account_audience(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for the Node batch resolver to page an account audience.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        filters = request.data.get("filters") or {}
+        if not is_account_audience(filters):
+            return Response({"error": "Filters must declare audience_type 'accounts'"}, status=400)
+        group_type = get_account_group_type_name(team)
+        if group_type is None:
+            return Response({"error": "No customer analytics account group type configured"}, status=400)
+
+        cursor = request.data.get("cursor")
+        try:
+            accounts = get_account_audience_page(team, filters, cursor)
+            return Response(
+                {
+                    "accounts": accounts,
+                    "cursor": accounts[-1] if accounts else None,
+                    "has_more": len(accounts) == ACCOUNT_BATCH_SIZE,
+                    "group_type": group_type,
+                }
+            )
+        except exceptions.ValidationError as e:
+            return Response({"error": _validation_error_message(e)}, status=400)
+        except Exception as e:
+            logger.exception("Error in internal_account_audience", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
 
     def internal_process_due_schedules(self, request: Request, **kwargs) -> Response:

@@ -310,7 +310,7 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     activity_environment,
     data_interval_start,
     data_interval_end,
-    minio_client,
+    object_storage_client,
     ateam,
     clickhouse_client,
     model: BatchExportModel,
@@ -357,7 +357,7 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -367,7 +367,9 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     assert len(keys) == 1
     key = keys[0]
 
-    file_response = await minio_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
+    file_response = await object_storage_client.get_object(
+        Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key
+    )
     file_bytes = await file_response["Body"].read()
     offsets = await record_batch_end_offsets(file_bytes)
     assert len(offsets) > 1, "test needs a multi-record-batch file to exercise resume"
