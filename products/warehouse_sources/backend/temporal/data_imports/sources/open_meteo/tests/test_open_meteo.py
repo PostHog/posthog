@@ -283,6 +283,12 @@ class TestNormalizeRows:
     def test_missing_block_yields_no_rows(self, payload: dict[str, Any]) -> None:
         assert normalize_rows(OPEN_METEO_ENDPOINTS["weather_archive_hourly"], payload, LONDON) == []
 
+    @pytest.mark.parametrize("payload", [{}, {"current": None}, {"current": {"temperature_2m": 4.2}}])
+    def test_current_block_without_a_timestamp_yields_no_rows(self, payload: dict[str, Any]) -> None:
+        # `time_utc` is the partition key, so a row without one is unusable. Dropping it matches the
+        # hourly/daily path rather than raising a `KeyError` out of the middle of a sync.
+        assert normalize_rows(OPEN_METEO_ENDPOINTS["weather_current"], payload, LONDON) == []
+
 
 class TestFetch:
     def test_maps_401_to_the_permanent_api_key_error(self) -> None:
@@ -347,6 +353,23 @@ class TestFetch:
         # The original, unredacted exception must not ride along as the chained cause either.
         assert excinfo.value.__cause__ is None
         assert excinfo.value.__context__ is None or excinfo.value.__suppress_context__
+
+    def test_a_subclass_that_cannot_be_rebuilt_still_has_the_key_stripped(self) -> None:
+        # Some `RequestException` subclasses take a stricter signature than a single message
+        # (`JSONDecodeError`, for one). Losing the exact class is acceptable; leaking the key is not.
+        class StrictError(requests.RequestException):
+            def __init__(self, message: str, code: int) -> None:
+                super().__init__(message)
+                self.code = code
+
+        session = mock.MagicMock()
+        session.get.side_effect = StrictError("failed for url: /v1/forecast?apikey=super-secret", 7)
+
+        with pytest.raises(requests.RequestException) as excinfo:
+            _fetch(session, "https://customer-api.open-meteo.com/v1/forecast?apikey=super-secret")
+
+        assert "super-secret" not in str(excinfo.value)
+        assert "apikey=REDACTED" in str(excinfo.value)
 
 
 class TestResolveArchiveRange:

@@ -284,8 +284,13 @@ def normalize_rows(
     base = _base_row(payload, location)
 
     if endpoint.block == "current":
+        # A `current` block without `time` has no partition key, so it is dropped rather than
+        # raising, matching how a missing `time` array is handled for the hourly/daily blocks below.
+        timestamp = block.get("time")
+        if timestamp is None:
+            return []
         row = {**base, **block}
-        row["time_utc"] = parse_time(str(block["time"]))
+        row["time_utc"] = parse_time(str(timestamp))
         return [row]
 
     times = block.get("time")
