@@ -341,8 +341,8 @@ tools:
         title: List dataset item versions
         description: >
             List every immutable version of a dataset item, newest first. The response includes version metadata only.
-            To retrieve a version's content, call `llma-dataset-item-get` with the item ID and its
-            `dataset_revision` as `revision`.
+            To retrieve a version's content, call `llma-dataset-item-get` with the item ID and its `dataset_revision` as
+            `revision`.
         feature_flag: llm-analytics-datasets
         response:
             include:
