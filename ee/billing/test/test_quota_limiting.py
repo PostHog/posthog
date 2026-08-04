@@ -2902,6 +2902,29 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
 
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_stale_concurrent_refresh_cannot_lower_usage_or_unpause(self, _feature_enabled, _capture) -> None:
+        # Two refreshes can overlap when two PRs land close together; the one that counted usage
+        # before the newer PR can finish last. Its stale, lower count must not overwrite the
+        # fresher value and momentarily reopen the gates for an over-limit org.
+        self._set_self_driving_usage(3000, todays_usage=1500)
+        replace_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: 1750323600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=100):
+            refresh_org_self_driving_quota(str(self.organization.id))
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
     def test_refresh_is_a_noop_without_self_driving_usage(self) -> None:
         self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}
         self.organization.save()

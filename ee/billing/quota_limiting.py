@@ -7,7 +7,7 @@ from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
@@ -741,21 +741,36 @@ def refresh_org_self_driving_quota(organization_id: str) -> None:
     `update_org_billing_quotas` reads the `todays_usage` value patched by the last quota cron tick,
     which by definition predates the PR that just landed — the cron (every 15 minutes) remains the
     backstop for orgs that cross the limit without a PR event.
+
+    Concurrent refreshes for one org (two PRs landing close together) are serialized on the org
+    row, and this path only ever raises `todays_usage`: it fires exclusively because a PR landed,
+    so a slower refresh that counted usage before a newer PR must not overwrite the fresher value
+    and momentarily unpause the org. Decreases (refunds, cron corrections) stay the cron's job.
     """
     organization = Organization.objects.filter(id=organization_id).first()
     if organization is None or not organization.usage:
         return
-    resource_usage = organization.usage.get(QuotaResource.SIGNALS_CREDITS.value)
-    if not resource_usage:
+    if not organization.usage.get(QuotaResource.SIGNALS_CREDITS.value):
         return
 
+    # The billing count runs outside the lock so the hot organization row is locked only for
+    # the compare-and-patch; the monotonic guard below makes a stale count harmless.
     period_start, period_end = get_current_day()
     todays_credits = get_self_driving_credits_used_in_period_for_org(organization.id, period_start, period_end)
-    if resource_usage.get("todays_usage") != todays_credits:
-        resource_usage["todays_usage"] = todays_credits
-        _patch_organization_usage_jsonb(
-            organization, [([QuotaResource.SIGNALS_CREDITS.value, "todays_usage"], todays_credits)]
-        )
+
+    with transaction.atomic():
+        organization = Organization.objects.select_for_update().get(id=organization_id)
+        resource_usage = (organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
+        if not resource_usage:
+            return
+        if todays_credits > (resource_usage.get("todays_usage") or 0):
+            resource_usage["todays_usage"] = todays_credits
+            _patch_organization_usage_jsonb(
+                organization, [([QuotaResource.SIGNALS_CREDITS.value, "todays_usage"], todays_credits)]
+            )
+    # Evaluate from the freshest committed usage, not this task's snapshot: a newer concurrent
+    # refresh may have written a higher value while we held or waited on the lock.
+    organization.refresh_from_db(fields=["usage"])
     update_org_billing_quotas(organization)
 
 
