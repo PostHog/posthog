@@ -548,6 +548,78 @@ const llmaEvaluationConfigSetActiveKey = (): ToolBase<
     },
 })
 
+const LlmaEvaluationCreateSchema = EvaluationsCreateBody
+
+const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Schemas.Evaluation> => ({
+    name: 'llma-evaluation-create',
+    schema: LlmaEvaluationCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.directory_id !== undefined) {
+            body['directory_id'] = params.directory_id
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.evaluation_type !== undefined) {
+            body['evaluation_type'] = params.evaluation_type
+        }
+        if (params.evaluation_config !== undefined) {
+            body['evaluation_config'] = params.evaluation_config
+        }
+        if (params.output_type !== undefined) {
+            body['output_type'] = params.output_type
+        }
+        if (params.output_config !== undefined) {
+            body['output_config'] = params.output_config
+        }
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
+        if (params.model_configuration !== undefined) {
+            body['model_configuration'] = params.model_configuration
+        }
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        const result = await context.api.request<Schemas.Evaluation>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationDeleteSchema = EvaluationsDestroyParams.omit({ project_id: true })
+
+const llmaEvaluationDelete = (): ToolBase<typeof LlmaEvaluationDeleteSchema, Schemas.Evaluation> => ({
+    name: 'llma-evaluation-delete',
+    schema: LlmaEvaluationDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Evaluation>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
+            body: { deleted: true },
+        })
+        return result
+    },
+})
+
 const LlmaEvaluationDirectoryCreateSchema = EvaluationDirectoriesCreateBody
 
 const llmaEvaluationDirectoryCreate = (): ToolBase<
@@ -643,78 +715,6 @@ const llmaEvaluationDirectoryUpdate = (): ToolBase<
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_directories/${encodeURIComponent(String(params.id))}/`,
             body,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationCreateSchema = EvaluationsCreateBody
-
-const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Schemas.Evaluation> => ({
-    name: 'llma-evaluation-create',
-    schema: LlmaEvaluationCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.directory_id !== undefined) {
-            body['directory_id'] = params.directory_id
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.evaluation_type !== undefined) {
-            body['evaluation_type'] = params.evaluation_type
-        }
-        if (params.evaluation_config !== undefined) {
-            body['evaluation_config'] = params.evaluation_config
-        }
-        if (params.output_type !== undefined) {
-            body['output_type'] = params.output_type
-        }
-        if (params.output_config !== undefined) {
-            body['output_config'] = params.output_config
-        }
-        if (params.conditions !== undefined) {
-            body['conditions'] = params.conditions
-        }
-        if (params.target !== undefined) {
-            body['target'] = params.target
-        }
-        if (params.target_config !== undefined) {
-            body['target_config'] = params.target_config
-        }
-        if (params.model_configuration !== undefined) {
-            body['model_configuration'] = params.model_configuration
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        const result = await context.api.request<Schemas.Evaluation>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationDeleteSchema = EvaluationsDestroyParams.omit({ project_id: true })
-
-const llmaEvaluationDelete = (): ToolBase<typeof LlmaEvaluationDeleteSchema, Schemas.Evaluation> => ({
-    name: 'llma-evaluation-delete',
-    schema: LlmaEvaluationDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Evaluation>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
         })
         return result
     },
@@ -2321,13 +2321,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-dataset-update': llmaDatasetUpdate,
     'llma-evaluation-config-get': llmaEvaluationConfigGet,
     'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
+    'llma-evaluation-create': llmaEvaluationCreate,
+    'llma-evaluation-delete': llmaEvaluationDelete,
     'llma-evaluation-directory-create': llmaEvaluationDirectoryCreate,
     'llma-evaluation-directory-delete': llmaEvaluationDirectoryDelete,
     'llma-evaluation-directory-get': llmaEvaluationDirectoryGet,
     'llma-evaluation-directory-list': llmaEvaluationDirectoryList,
     'llma-evaluation-directory-update': llmaEvaluationDirectoryUpdate,
-    'llma-evaluation-create': llmaEvaluationCreate,
-    'llma-evaluation-delete': llmaEvaluationDelete,
     'llma-evaluation-get': llmaEvaluationGet,
     'llma-evaluation-judge-models': llmaEvaluationJudgeModels,
     'llma-evaluation-list': llmaEvaluationList,
