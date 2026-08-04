@@ -86,6 +86,10 @@ nothing registers it as a global HogQL view.
 
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_number_expr
 
+# The source PR of a merge-queue gate branch, corroborated against the run's actor so a
+# contributor-named branch can't re-key someone else's runs onto their PR (see logic.merge_queue).
+_MERGE_QUEUE_PR_NUMBER = source_pr_number_expr("head_branch", queue_actor_column="JSONExtractString(actor, 'login')")
+
 # The run's PR association, narrowed to PRs based in the run's OWN repo (see module docstring).
 # ``> 0`` guards the both-missing case: JSONExtractInt yields 0 for an absent key, so a malformed
 # entry would otherwise "match" a run whose ``repository`` JSON never landed.
@@ -169,7 +173,11 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
                 conclusion,
                 run_attempt,
                 JSONExtractInt({_OWN_REPO_PR}, 'number') AS association_pr_number,
-                {source_pr_number_expr("head_branch")} AS merge_queue_pr_number,
+                -- ``actor`` is read inline, not via an alias: an alias defined later in this same
+                -- SELECT is not reliably resolvable as another expression's input (see the two-layer
+                -- note above). It is the account GitHub recorded as triggering the run, which whoever
+                -- pushed the branch cannot set — that is what makes it usable as corroboration.
+                {_MERGE_QUEUE_PR_NUMBER} AS merge_queue_pr_number,
                 {_MESSAGE_PR_NUMBER} AS message_pr_number,
                 splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
                 ifNull(JSONExtractString(repository, 'default_branch'), '') AS default_branch,

@@ -42,7 +42,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     BrokenTestsResult,
     BrokenTestState,
 )
-from products.engineering_analytics.backend.logic.merge_queue import merge_queue_branch_expr
+from products.engineering_analytics.backend.logic.merge_queue import looks_like_merge_queue_branch_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.views import ci_failures
 
@@ -221,8 +221,10 @@ def query_broken_tests(
         )
 
     failures_source = f"({ci_failures.build_query()})"
+    # Shape-only: the failure-lines view carries no actor to corroborate against, and a false
+    # positive here can only mis-rank one fingerprint — it drops and re-keys nothing.
     fingerprints_sql = _FINGERPRINTS_SELECT.replace(
-        "__MERGE_QUEUE_BRANCH__", merge_queue_branch_expr("branch")
+        "__MERGE_QUEUE_BRANCH__", looks_like_merge_queue_branch_expr("branch")
     ).replace("__FAILURES_SOURCE__", failures_source)
     logs_placeholders: dict[str, ast.Expr] = {
         "default_branches": ast.Constant(value=_DEFAULT_BRANCHES),

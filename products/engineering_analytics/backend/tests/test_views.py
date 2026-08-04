@@ -99,6 +99,17 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "2026-01-13 10:00:00",
                     head_ref="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
                 ),
+                # Same branch shape, ordinary author: branch names are contributor-controlled, so
+                # dropping on the shape alone would let anyone delete their own PR from every surface
+                # here (or someone else's runs onto a PR of their choosing).
+                _pr_row(
+                    14,
+                    "mallory",
+                    "open",
+                    0,
+                    "2026-01-14 10:00:00",
+                    head_ref="trunk-merge/pr-10/deadbeef-0000-0000-0000-000000000000",
+                ),
             ],
         )
 
@@ -128,8 +139,10 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert by_number[12][7] == 1
         assert by_number[12][9] is None
         # A merge-queue gate branch is a CI artifact, not a PR — dropped here so no PR surface
-        # (list, cards, medians) has to remember to exclude it.
+        # (list, cards, medians) has to remember to exclude it. Only when the queue bot authored it:
+        # PR 14 wears the same branch shape but a human's name, and must survive.
         assert 13 not in by_number
+        assert 14 in by_number
 
     def test_workflow_runs_view_maps_columns(self) -> None:
         table_name = self._create_table(
@@ -153,6 +166,21 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     # and cost, and files it under a PR no surface shows.
                     pr_number=9001,
                     head_branch="trunk-merge/pr-44/cabec75e-5181-4429-aea5-0501a52d0688",
+                    actor="trunk-io[bot]",
+                ),
+                # Same branch shape, ordinary actor. Branch names are contributor-controlled, so on
+                # the shape alone this would re-key a stranger's runs and CI cost onto PR 44.
+                _run_row(
+                    2005,
+                    "CI",
+                    "sha5",
+                    "completed",
+                    "success",
+                    "2026-01-27 10:00:00",
+                    "2026-01-27 10:20:00",
+                    pr_number=9002,
+                    head_branch="trunk-merge/pr-44/deadbeef-0000-0000-0000-000000000000",
+                    actor="mallory",
                 ),
             ],
         )
@@ -168,6 +196,8 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[1][3] == 2700
         assert rows[2][:6] == ("Deploy", "in_progress", None, None, "PostHog", "posthog")
         assert rows[3][6:] == (44, 1)
+        # Spoofed shape without the queue actor: attribution stays on the run's own association.
+        assert rows[4][6:] == (9002, 0)
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
@@ -191,20 +221,24 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     def test_workflow_runs_view_handles_null_pull_requests(self) -> None:
         # The real source lands pull_requests as Nullable(String), so it can be NULL (a run with no
         # PR association). The builder's ifNull(pull_requests, '[]') guard must carry that NULL to
-        # pr_number = 0 (unattributed), never letting JSONExtractArrayRaw see a Nullable. Driven
-        # through an inline constant source (nullIf('', '') is a typed NULL) so it exercises the
-        # guard whether or not object storage is available — unlike the table-backed tests, which
-        # skip without it.
+        # pr_number = 0 (unattributed), never letting JSONExtractArrayRaw see a Nullable. ``actor``
+        # is Nullable the same way, and it gates the merge-queue branch parse — a NULL there must
+        # read as "not the queue", not poison the whole expression to NULL. Driven through an inline
+        # constant source (nullIf('', '') is a typed NULL) so it exercises the guards whether or not
+        # object storage is available — unlike the table-backed tests, which skip without it.
         repo_json = '{"full_name": "PostHog/posthog"}'
         raw = (
-            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'main' AS head_branch, 'completed' AS status, "
+            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, "
+            "'trunk-merge/pr-44/cabec75e' AS head_branch, 'completed' AS status, "
             "'success' AS conclusion, 1 AS run_attempt, nullIf('', '') AS pull_requests, "
-            f"'{repo_json}' AS repository, nullIf('', '') AS head_commit, "
+            f"'{repo_json}' AS repository, nullIf('', '') AS head_commit, nullIf('', '') AS actor, "
             "'2026-01-20 10:00:00' AS run_started_at, '2026-01-20 10:30:00' AS updated_at, "
             "'2026-01-20 10:00:00' AS created_at)"
         )
-        rows = self._select(f"SELECT pr_number, repo_owner, repo_name FROM ({workflow_runs.build_query(raw)}) AS r")
-        assert rows[0] == (0, "PostHog", "posthog")
+        rows = self._select(
+            f"SELECT pr_number, repo_owner, repo_name, is_merge_queue FROM ({workflow_runs.build_query(raw)}) AS r"
+        )
+        assert rows[0] == (0, "PostHog", "posthog", 0)
 
     def test_workflow_runs_view_attributes_only_own_repo_prs_and_falls_back_to_the_merge_commit(self) -> None:
         # GitHub's pull_requests association lists every PR in the fork network sharing the run's

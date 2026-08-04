@@ -222,6 +222,7 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                     _ago(1),
                     pr_number=9001,
                     head_branch="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
+                    actor="trunk-io[bot]",
                 ),
             ],
         )

@@ -13,6 +13,9 @@ global HogQL view, so the product stays off the per-query catalog hot path.
 Merge-queue gate branches are filtered out here (see ``logic.merge_queue``). A queue opens a
 draft PR per merge attempt — a third of this repo's PR rows — and those are CI artifacts, not
 units of work: they carry no diff of their own, never merge, and no PR surface can act on one.
+The filter pairs the branch shape with the PR's author, because a branch name is contributor-
+controlled: on the shape alone, opening a PR from a branch named ``trunk-merge/pr-123/x`` would
+delete it from every surface here.
 Dropping them at the builder is deliberately unlike the bot/draft rule, which stays a per-read
 default so bot-impact analysis can still see bots (SPEC §6). Nothing is lost for attribution:
 the gate branch's *runs* stay in the runs substrate, re-keyed to the PR they were landing.
@@ -93,5 +96,5 @@ def build_query(table_name: str) -> str:
                 parseDateTimeBestEffort(closed_at) AS closed_at
             FROM {table_name}
         )
-        WHERE NOT {merge_queue_branch_expr("head_branch")}
+        WHERE NOT {merge_queue_branch_expr("head_branch", queue_actor_column="author_handle")}
     """

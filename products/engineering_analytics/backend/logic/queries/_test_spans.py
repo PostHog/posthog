@@ -35,7 +35,9 @@ from products.engineering_analytics.backend.logic.merge_queue import source_pr_s
 # the throwaway PR the queue opened rather than the PR being landed. Every blast-radius read here
 # counts distinct PRs, so left alone one test failing across N merge attempts looks like N separate
 # PRs hitting it — the branch is what names the real one (see ``logic.merge_queue``).
-_SPAN_PR_NUMBER = source_pr_string_expr("resource_attributes['ci.branch']")
+_SPAN_PR_NUMBER = source_pr_string_expr(
+    "resource_attributes['ci.branch']", queue_actor_column="resource_attributes['ci.actor']"
+)
 
 # Only test spans carry test.outcome (job-root and setup spans don't), and only these
 # outcomes are flaky signal. Plain 'skipped' spans never reach any aggregation; 'passed'
