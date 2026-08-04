@@ -15,6 +15,7 @@ from posthog.temporal.ai.slack_app import derive_mention_workflow_id, slack_app_
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
+    PostHogCodeFollowupIntent,
     PostHogCodeRepoCascadeOutcome,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
@@ -99,6 +100,14 @@ def _fake_activities(rec: _Recorder) -> list:
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
     ) -> list[dict[str, str]]:
         return [{"user": "U1", "text": inputs.event["text"]}]
+
+    @activity.defn(name="classify_posthog_code_followup_request_activity")
+    async def classify_scheduled_followup(
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        event_text: str,
+        thread_messages: list[dict[str, str]],
+    ) -> PostHogCodeFollowupIntent:
+        return PostHogCodeFollowupIntent(intent="none")
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
@@ -214,6 +223,7 @@ def _fake_activities(rec: _Recorder) -> list:
         classify_followup,
         forward,
         collect,
+        classify_scheduled_followup,
         cascade,
         needs_repo,
         discover,
