@@ -3108,7 +3108,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 startDateTime: values.sessionPlayerMetaData?.start_time,
                 url: values.currentURL,
             }
-            localStorage.setItem(key, JSON.stringify(data))
+            try {
+                localStorage.setItem(key, JSON.stringify(data))
+            } catch {
+                lemonToast.error(
+                    'This recording is too large to use as a heatmap background. Try a different recording.'
+                )
+                return
+            }
             const modalLogic = sessionPlayerModalLogic.findMounted()
             if (modalLogic?.values.modalContext?.type === 'heatmap-background-selection') {
                 modalLogic.actions.completeHeatmapBackgroundSelection(key)

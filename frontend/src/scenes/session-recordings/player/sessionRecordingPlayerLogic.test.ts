@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -24,6 +26,7 @@ import {
     overrideSessionRecordingMocks,
     recordingMetaJson,
     setupSessionRecordingTest,
+    snapshotsAsJSONLines,
 } from './__mocks__/test-setup'
 import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
@@ -1416,6 +1419,65 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(startReplayExportSpy).toHaveBeenCalledTimes(1)
             expect(startReplayExportSpy.mock.calls[0]?.[5]?.skip_inactivity).toBe(false)
             startReplayExportSpy.mockRestore()
+        })
+    })
+
+    describe('openHeatmap', () => {
+        // meta snapshot in the mocked recording carries this timestamp and a resolution
+        const META_SNAPSHOT_TIMESTAMP = 1682952380877
+        const WINDOW_ID = '187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0'
+
+        beforeEach(() => {
+            // seed processed snapshots directly (bypassing network loading) so the test
+            // doesn't depend on fake timers left installed by earlier tests in this file
+            const snapshots = JSON.parse(snapshotsAsJSONLines().split('\n')[0]).data.map((data: unknown) => ({
+                ...(data as object),
+                windowId: WINDOW_ID,
+            }))
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(snapshots)
+            logic.actions.setCurrentTimestamp(META_SNAPSHOT_TIMESTAMP + 5000)
+
+            // contentWindow is only populated for iframes connected to the document
+            const rootFrame = document.createElement('div')
+            document.body.appendChild(rootFrame)
+            logic.actions.setRootFrame(rootFrame)
+            const iframe = document.createElement('iframe')
+            rootFrame.appendChild(iframe)
+            iframe.contentWindow!.document.open()
+            iframe.contentWindow!.document.write('<html><body>big page</body></html>')
+            iframe.contentWindow!.document.close()
+        })
+
+        afterEach(() => {
+            document.body.innerHTML = ''
+        })
+
+        it('shows a toast and does not navigate when localStorage is full', () => {
+            const setItemSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+                throw new DOMException('exceeded quota', 'QuotaExceededError')
+            })
+            const errorToastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const pushSpy = jest.spyOn(router.actions, 'push')
+
+            expect(() => logic.actions.openHeatmap()).not.toThrow()
+
+            expect(errorToastSpy).toHaveBeenCalledTimes(1)
+            expect(pushSpy).not.toHaveBeenCalled()
+
+            setItemSpy.mockRestore()
+            errorToastSpy.mockRestore()
+            pushSpy.mockRestore()
+        })
+
+        it('navigates to the heatmap scene when the write succeeds', () => {
+            const pushSpy = jest.spyOn(router.actions, 'push')
+
+            logic.actions.openHeatmap()
+
+            expect(pushSpy).toHaveBeenCalledTimes(1)
+            expect(pushSpy.mock.calls[0]?.[0]).toContain('heatmaps')
+
+            pushSpy.mockRestore()
         })
     })
 })
