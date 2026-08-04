@@ -3,6 +3,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.conf import settings
 
 from social_django.models import UserSocialAuth
@@ -31,6 +32,7 @@ from products.signals.backend.slack_inbox_notifications import (
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
 )
+from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
 
 from ee.models.rbac.access_control import AccessControl
@@ -116,6 +118,50 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     assert buttons[0]["text"]["text"] == "Review in PostHog"
     assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
     assert text == "Report (P1): Checkout errors spiked"
+
+
+def test_build_message_blocks_orders_pr_posthog_and_dismiss_buttons() -> None:
+    report = SignalReport(id="report-uuid", team_id=42, title="Checkout errors spiked")
+    dismiss_value = '{"integration_id": 2, "report_id": "report-uuid", "team_id": 42}'
+    blocks, _ = _build_message_blocks(
+        report,
+        priority="P1",
+        source_products=["error_tracking"],
+        reviewer_mentions=["<@U123>"],
+        implementation_pr_url="https://github.com/org/repo/pull/42",
+        dismiss_button_value=dismiss_value,
+    )
+
+    buttons = blocks[3]["elements"]
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Review in PostHog", "Dismiss"]
+    assert buttons[0]["url"] == "https://github.com/org/repo/pull/42"
+    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
+    dismiss = buttons[-1]
+    # action_id is the wire contract with the handler in products/slack_app/backend/api.py.
+    assert dismiss["action_id"] == "signals_dismiss_report"
+    assert dismiss["value"] == dismiss_value
+    assert "url" not in dismiss
+    assert dismiss["confirm"]["confirm"]["text"] == "Dismiss"
+    assert dismiss["confirm"]["deny"]["text"] == "Cancel"
+
+
+@pytest.mark.parametrize(
+    "pr_url",
+    [None, "", "javascript:alert(1)", "https://github.com/org/repo/pull/1|evil"],
+)
+def test_build_message_blocks_omits_pr_button_for_missing_or_unsafe_url(pr_url: str | None) -> None:
+    # An unusable URL must cost only the button — Slack rejects the whole chat_postMessage otherwise.
+    report = SignalReport(id="report-uuid", team_id=42, title="No PR yet")
+    blocks, _ = _build_message_blocks(
+        report,
+        priority=None,
+        source_products=[],
+        reviewer_mentions=[],
+        implementation_pr_url=pr_url,
+    )
+
+    buttons = next(block for block in blocks if block["type"] == "actions")["elements"]
+    assert [b["text"]["text"] for b in buttons] == ["Review in PostHog"]
 
 
 def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
@@ -287,6 +333,33 @@ def _make_ready_report(
             content=json.dumps([{"github_login": login} for login in suggested_logins]),
         )
     return report
+
+
+def _create_implementation_task_with_run(
+    team: Team,
+    report: SignalReport,
+    *,
+    pr_url: str | None = None,
+) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    task = Task.objects.create(
+        team=team,
+        title="Implementation task",
+        description="Fix the bug",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+    )
+    record_implementation_task(
+        team_id=team.id,
+        report_id=str(report.id),
+        task_id=str(task.id),
+    )
+    TaskRun.objects.create(
+        team=team,
+        task=task,
+        status=TaskRun.Status.COMPLETED,
+        output={"pr_url": pr_url},
+    )
 
 
 @pytest.mark.django_db
@@ -604,6 +677,41 @@ def test_dispatch_includes_repository_from_repo_selection_artefact(org_and_team)
     assert sent == 1
     blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
     assert "PostHog/posthog" in blocks[1]["text"]["text"]
+
+
+@pytest.mark.django_db
+def test_dispatch_links_pr_of_implementation_task_and_routes_dismiss(org_and_team):
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-pr@example.com", "pr-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["pr-bot"])
+    _create_implementation_task_with_run(team, report, pr_url="https://github.com/org/repo/pull/99")
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value=None,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    buttons = fake_client.chat_postMessage.call_args.kwargs["blocks"][3]["elements"]
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Review in PostHog", "Dismiss"]
+    assert buttons[0]["url"] == "https://github.com/org/repo/pull/99"
+    assert json.loads(buttons[-1]["value"]) == {
+        "integration_id": integration.id,
+        "report_id": str(report.id),
+        "team_id": team.id,
+    }
 
 
 @pytest.mark.django_db

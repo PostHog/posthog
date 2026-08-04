@@ -3606,7 +3606,7 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-# Handles the Dismiss button on inbox notifications delivered before that button was removed.
+# Wire contract with products/signals/backend/slack_inbox_notifications.py (SIGNALS_DISMISS_REPORT_ACTION_ID).
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
 
@@ -3720,11 +3720,9 @@ def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user
     else:
         text = "This report could not be dismissed — it may already be resolved or removed."
 
-    # keep_link_buttons=False: historical dismiss-capable messages carried "Review PR"/"Open in
-    # PostHog" link buttons in the same actions block as Dismiss (see the pre-removal
-    # slack_inbox_notifications.py block construction), so dropping the whole block here matches
-    # existing behavior rather than the default.
-    _replace_message_stripping_actions(payload, text, keep_link_buttons=False)
+    # A dismissed report is still worth opening, so the default keeps the "Review PR" and "Review in
+    # PostHog" links and only Dismiss itself is replaced by the context line.
+    _replace_message_stripping_actions(payload, text)
 
 
 # Snoozes an insight alert from the button on its firing Slack message.
