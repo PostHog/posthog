@@ -1097,19 +1097,38 @@ class TestRecalculationAnalytics(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, exc, expected_error_type, expected_delay_seconds) — backpressure uses the explicit
-            # concurrency delay; a generic transient on attempt 2 follows the policy backoff (5 * 2^1).
-            ("backpressure", ConcurrencyLimitExceeded("quota"), "rate_limited", 60),
-            ("generic_transient", RuntimeError("kaboom"), "server_error", 10),
+            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
+            # the explicit concurrency delay; a generic transient on attempt 2 follows the policy backoff
+            # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
+            # (which can embed the executed query, warehouse secrets included) never reaches analytics.
+            (
+                "backpressure",
+                ConcurrencyLimitExceeded("quota"),
+                "rate_limited",
+                60,
+                "The query was deferred because the cluster is at capacity.",
+            ),
+            (
+                "generic_transient",
+                RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
+                "server_error",
+                10,
+                "The query failed with a server error.",
+            ),
         ]
     )
     def test_non_final_failure_emits_retry_event(
-        self, name: str, exc: Exception, expected_error_type: str, expected_delay_seconds: int
+        self,
+        name: str,
+        exc: Exception,
+        expected_error_type: str,
+        expected_delay_seconds: int,
+        expected_message: str,
     ):
         # A non-final attempt re-raises for Temporal to retry. It emits 'experiment metric retry' (not
         # 'experiment metric error', which is reserved for the terminal attempt) so retries that later
-        # succeed are still countable. Guards against dropping the retry emit or double-counting a
-        # non-terminal failure as an error.
+        # succeed are still countable. Guards against dropping the retry emit, double-counting a
+        # non-terminal failure as an error, and leaking the raw exception (secrets included) into analytics.
         exp = self._experiment(flag_key=f"an-retry-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -1125,6 +1144,8 @@ class TestRecalculationAnalytics(BaseTest):
         assert captured[0]["event"] == "experiment metric retry"
         props = captured[0]["properties"]
         assert props["error_type"] == expected_error_type
+        assert props["error_message"] == expected_message
+        assert "AKIAFAKESECRET" not in props["error_message"]
         assert props["attempt"] == 2
         assert props["max_attempts"] == MAX_METRIC_ATTEMPTS
         assert props["next_retry_delay_seconds"] == expected_delay_seconds

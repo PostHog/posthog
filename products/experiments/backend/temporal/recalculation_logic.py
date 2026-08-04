@@ -748,12 +748,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
             else:
                 # Exact, not estimated: this branch sets the delay explicitly via next_retry_delay.
                 error_type = classify_experiment_query_error(e)
+                safe_message = _safe_retry_message(e, error_type)
                 _record_retry(
                     recalculation_id,
                     metric_uuid,
                     attempt,
                     error_type,
-                    _safe_retry_message(e, error_type),
+                    safe_message,
                     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
                 )
                 _capture_experiment_metric_event(
@@ -765,7 +766,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     {
                         "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
                         "error_type": error_type,
-                        "error_message": message,
+                        "error_message": safe_message,
                         "attempt": attempt,
                         "max_attempts": MAX_METRIC_ATTEMPTS,
                         "next_retry_delay_seconds": CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
@@ -827,12 +828,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 _clear_retry(recalculation_id, metric_uuid)
             else:
                 retry_delay_seconds = _estimated_retry_delay_seconds(attempt)
+                safe_message = _safe_retry_message(e, error_type)
                 _record_retry(
                     recalculation_id,
                     metric_uuid,
                     attempt,
                     error_type,
-                    _safe_retry_message(e, error_type),
+                    safe_message,
                     retry_delay_seconds,
                 )
                 _capture_experiment_metric_event(
@@ -844,7 +846,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     {
                         "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
                         "error_type": error_type,
-                        "error_message": message,
+                        "error_message": safe_message,
                         "attempt": attempt,
                         "max_attempts": MAX_METRIC_ATTEMPTS,
                         "next_retry_delay_seconds": retry_delay_seconds,
