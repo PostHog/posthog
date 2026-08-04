@@ -38,6 +38,21 @@ describe('TimeSeriesBarChart', () => {
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
         })
 
+        it('rotates rendered ticks when xAxis.tickLabelRotation is set', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesBarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xAxis: { tickLabelRotation: -45 } }}
+                />
+            )
+            const ticks = chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-x"]')
+
+            expect(ticks.length).toBeGreaterThan(0)
+            expect(Array.from(ticks).every((tick) => tick.style.transform === 'rotate(-45deg)')).toBe(true)
+        })
+
         it('builds an auto date formatter from xAxis.timezone + xAxis.interval', () => {
             const labels = ['2024-06-10', '2024-06-11', '2024-06-12']
             const { chart } = renderHogChart(
