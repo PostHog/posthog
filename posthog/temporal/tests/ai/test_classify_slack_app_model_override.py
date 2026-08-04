@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_slack_app_model_override
 
-from products.slack_app.backend.services.model_override import ModelChoice
+from products.slack_app.backend.services.model_catalogue import ModelChoice
 
 CHOICES = (
     ModelChoice("claude", "claude-opus-5", "Claude Opus 5", ("low", "medium", "high", "max")),

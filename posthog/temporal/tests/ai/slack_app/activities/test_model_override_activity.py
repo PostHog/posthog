@@ -17,7 +17,7 @@ from posthog.models.user import User
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_slack_app_model_override_activity
 from posthog.temporal.ai.slack_app.types import SlackAppModelOverride, SlackAppModelOverrideInput
 
-from products.slack_app.backend.services.model_override import ModelChoice
+from products.slack_app.backend.services.model_catalogue import ModelChoice
 
 CATALOGUE = (ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high")),)
 
@@ -64,7 +64,7 @@ class TestClassifySlackAppModelOverrideActivity:
         with (
             patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=flag_on),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=catalogue),
-            patch(f"{ACTIVITY_MODULE}.mentions_model_choice", side_effect=lambda t: "fable" in t),
+            patch(f"{ACTIVITY_MODULE}.mentions_model_choice", side_effect=lambda t, _choices: "fable" in t),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override") as classify,
         ):
             assert classify_slack_app_model_override_activity(_input(integration, user, text)) is None

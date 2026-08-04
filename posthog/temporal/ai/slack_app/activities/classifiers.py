@@ -19,6 +19,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.slack_app.backend.facade.slack_settings import (
     ModelChoice,
     available_model_choices,
+    find_model_choice,
     is_slack_app_model_classifier_enabled,
     mentions_model_choice,
 )
@@ -392,29 +393,23 @@ def classify_slack_app_model_override(
     if not reply.override:
         return None
 
-    allowed = {choice.model.lower(): choice.model for choice in choices}
-    model = allowed.get((reply.model or "").strip().lower())
-    if reply.model and model is None:
+    choice = find_model_choice(reply.model, choices)
+    if reply.model and choice is None:
         # The classifier was told to copy an id from the list; anything else is a
         # hallucination or a model we can't drive. Either way, don't act on it.
         logger.info("slack_app_model_override_unknown_model", requested_model=reply.model)
 
+    # Only a syntactic check — whether the model the run lands on supports this effort
+    # is settled by `apply_model_override`.
+    known_efforts = {e for c in choices for e in c.supported_efforts}
     effort = (reply.reasoning_effort or "").strip().lower() or None
-    if effort and effort not in _known_effort_values():
+    if effort and effort not in known_efforts:
         logger.info("slack_app_model_override_unknown_effort", requested_effort=reply.reasoning_effort)
         effort = None
 
-    if model is None and effort is None:
+    if choice is None and effort is None:
         return None
-    return SlackAppModelOverride(model=model, reasoning_effort=effort)
-
-
-def _known_effort_values() -> frozenset[str]:
-    """Effort values the tasks product accepts. A syntactic gate only — whether the
-    chosen model supports the effort is settled by ``apply_model_override``."""
-    from products.tasks.backend.facade.run_config import PUBLIC_REASONING_EFFORTS
-
-    return frozenset(effort.value for effort in PUBLIC_REASONING_EFFORTS)
+    return SlackAppModelOverride(model=choice.model if choice else None, reasoning_effort=effort)
 
 
 @activity.defn
@@ -425,8 +420,22 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     Runs as its own activity rather than inside task creation so the choice is
     recorded in workflow history once: task creation retries, and re-running a
     classifier there could hand the second attempt a different model.
+
+    Gates run cheapest-first: most mentions name no model, and the catalogue lookup
+    that decides so is one cache read, against two Postgres queries and a remote
+    flag evaluation for the rest.
     """
-    integration = Integration.objects.select_related("team", "team__organization").get(
+    choices = available_model_choices()
+    if not choices:
+        # The gateway is the source of truth for what can run; with no catalogue we
+        # cannot validate a request, and guessing is worse than doing nothing.
+        logger.info("slack_app_model_override_empty_catalogue", integration_id=input.integration_id)
+        return None
+
+    if not mentions_model_choice(input.event_text, choices):
+        return None
+
+    integration = Integration.objects.select_related("team").get(
         id=input.integration_id,
         kind="slack",
         integration_id=input.slack_team_id,
@@ -438,16 +447,6 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
         return None
 
     if not is_slack_app_model_classifier_enabled(user, integration):
-        return None
-
-    if not mentions_model_choice(input.event_text):
-        return None
-
-    choices = available_model_choices()
-    if not choices:
-        # The gateway is the source of truth for what can run; with no catalogue we
-        # cannot validate a request, and guessing is worse than doing nothing.
-        logger.info("slack_app_model_override_empty_catalogue", integration_id=input.integration_id)
         return None
 
     override = classify_slack_app_model_override(input.event_text, choices)

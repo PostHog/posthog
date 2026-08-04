@@ -2,33 +2,35 @@ import pytest
 from unittest.mock import patch
 
 from products.slack_app.backend.services import model_override
+from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices
 from products.slack_app.backend.services.model_override import (
-    ModelChoice,
     apply_model_override,
-    available_model_choices,
     describe_preferences,
     mentions_model_choice,
 )
-from products.slack_app.backend.services.slack_app_home import PickerAdapter, PickerEffort, PickerModel
 from products.slack_app.backend.services.slack_settings import AIPreferences
 
+# Real model ids with their real effort support: `apply_model_override` validates
+# efforts against the tasks catalogue (the authority on what a model accepts), not
+# against these tuples, so inventing ids here would make the fixture lie.
 CATALOGUE = (
-    ModelChoice("claude", "claude-opus-5", "Claude Opus 5", ("low", "medium", "high", "max")),
-    ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high")),
+    ModelChoice("claude", "claude-sonnet-4-6", "Claude Sonnet 4.6", ("low", "medium", "high")),
+    ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high", "xhigh", "max")),
     ModelChoice("claude", "moonshotai/kimi-k3", "Moonshotai Kimi K3", ()),
-    ModelChoice("codex", "gpt-5.6-sol", "gpt-5.6-sol", ("low", "medium", "high", "max")),
+    ModelChoice("codex", "gpt-5.6-sol", "gpt-5.6-sol", ("low", "medium", "high", "xhigh", "max")),
 )
 
-DEFAULT = AIPreferences(runtime_adapter="claude", model="claude-opus-5", reasoning_effort="medium")
+DEFAULT = AIPreferences(runtime_adapter="claude", model="claude-sonnet-4-6", reasoning_effort="medium")
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def catalogue():
+    """`apply_model_override` reads the catalogue itself, so patch the name it resolves."""
     with patch.object(model_override, "available_model_choices", return_value=CATALOGUE):
         yield
 
 
-class TestModelOverride:
+class TestApplyModelOverride:
     @pytest.mark.parametrize(
         "requested_model,requested_effort,expected",
         [
@@ -36,7 +38,7 @@ class TestModelOverride:
             # than carrying a mismatched pair into the run.
             ("claude-fable-5", None, AIPreferences("claude", "claude-fable-5", None)),
             # An effort on its own applies to whatever model the run was already using.
-            (None, "high", AIPreferences("claude", "claude-opus-5", "high")),
+            (None, "high", AIPreferences("claude", "claude-sonnet-4-6", "high")),
             ("claude-fable-5", "high", AIPreferences("claude", "claude-fable-5", "high")),
             # Crossing runtimes derives the adapter from the model, never from the request.
             ("gpt-5.6-sol", None, AIPreferences("codex", "gpt-5.6-sol", None)),
@@ -44,17 +46,19 @@ class TestModelOverride:
             # Nothing on offer matches, so the run keeps its resolved preferences.
             ("gemini-3-pro", None, DEFAULT),
             (None, None, DEFAULT),
-            # `max` is real for Opus but not for Fable, so it is dropped on the swap.
-            ("claude-fable-5", "max", AIPreferences("claude", "claude-fable-5", None)),
+            # `xhigh` is real for Fable but not for Sonnet 4.6, so it is dropped.
+            ("claude-sonnet-4-6", "xhigh", AIPreferences("claude", "claude-sonnet-4-6", None)),
             # A model that exposes no effort setting at all takes none.
             ("moonshotai/kimi-k3", "high", AIPreferences("claude", "moonshotai/kimi-k3", None)),
-            # An effort the current model can't do leaves the run untouched.
-            (None, "xhigh", AIPreferences("claude", "claude-opus-5", None)),
+            # An effort the run's current model can't do is dropped too.
+            (None, "xhigh", AIPreferences("claude", "claude-sonnet-4-6", None)),
         ],
     )
-    def test_apply_model_override(self, requested_model, requested_effort, expected):
+    def test_merges_onto_the_resolved_preferences(self, catalogue, requested_model, requested_effort, expected):
         assert apply_model_override(DEFAULT, requested_model, requested_effort) == expected
 
+
+class TestMentionsModelChoice:
     @pytest.mark.parametrize(
         "text,expected",
         [
@@ -71,39 +75,35 @@ class TestModelOverride:
             ("ship the solution we discussed", False),
         ],
     )
-    def test_mentions_model_choice(self, text, expected):
-        assert mentions_model_choice(text) is expected
+    def test_pre_filter(self, text, expected):
+        assert mentions_model_choice(text, CATALOGUE) is expected
 
+
+class TestDescribePreferences:
     @pytest.mark.parametrize(
         "preferences,expected",
         [
             (AIPreferences("claude", "claude-fable-5", "high"), "*Claude Fable 5* · Reasoning: *High*"),
             (AIPreferences("claude", "claude-fable-5", None), "*Claude Fable 5*"),
-            # `ultracode` is a newer effort; an unmapped value must still render.
             (AIPreferences("claude", "claude-opus-5", "ultracode"), "*Claude Opus 5* · Reasoning: *Ultracode*"),
         ],
     )
-    def test_describe_preferences(self, preferences, expected):
+    def test_renders_the_shared_phrasing(self, preferences, expected):
         assert describe_preferences(preferences) == expected
 
 
 class TestAvailableModelChoices:
-    def test_flattens_the_picker_tree(self):
-        picker = (
-            PickerAdapter(
-                value="claude",
-                label="Claude (Anthropic)",
-                models=(
-                    PickerModel(
-                        value="claude-fable-5",
-                        label="Claude Fable 5",
-                        supported_efforts=(PickerEffort(value="high", label="High"),),
-                    ),
-                ),
-            ),
+    def test_drops_providers_we_cannot_route(self):
+        """The gateway serves models under providers the tasks product has no runtime
+        for; offering one would produce a run the gateway rejects."""
+        from products.slack_app.backend.services.llm_models import GatewayModel
+
+        gateway = (
+            GatewayModel(id="claude-fable-5", owned_by="anthropic", context_window=200000),
+            GatewayModel(id="titan-express", owned_by="bedrock", context_window=8000),
         )
         with patch(
-            "products.slack_app.backend.services.slack_app_home.get_picker_choices",
-            return_value=picker,
+            "products.slack_app.backend.services.llm_models.list_slack_app_models",
+            return_value=gateway,
         ):
-            assert available_model_choices() == (ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("high",)),)
+            assert [c.model for c in available_model_choices()] == ["claude-fable-5"]

@@ -1,6 +1,7 @@
 import re
 import uuid
 import textwrap
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from django.db import models
@@ -678,11 +679,7 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.slack_settings import (
-        AIPreferences,
-        apply_model_override,
-        resolve_ai_preferences,
-    )
+    from products.slack_app.backend.facade.slack_settings import apply_model_override, resolve_ai_preferences
 
     ai_prefs = resolve_ai_preferences(integration, slack_user_id)
 
@@ -690,14 +687,16 @@ def create_posthog_code_task_for_repo_activity(
     # so falling back on both keeps the pair consistent — a saved personal or
     # workspace choice wins, otherwise the Slack bot defaults to Opus 5. A model
     # named in the mention itself then overrides that for this one task.
-    base_prefs = AIPreferences(
+    base_prefs = replace(
+        ai_prefs,
         runtime_adapter=ai_prefs.runtime_adapter or _SLACK_DEFAULT_RUNTIME_ADAPTER,
         model=ai_prefs.model or _SLACK_DEFAULT_MODEL,
-        reasoning_effort=ai_prefs.reasoning_effort,
     )
-    run_prefs = base_prefs
-    if model_override is not None:
-        run_prefs = apply_model_override(base_prefs, model_override.model, model_override.reasoning_effort)
+    run_prefs = (
+        apply_model_override(base_prefs, model_override.model, model_override.reasoning_effort)
+        if model_override
+        else base_prefs
+    )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
