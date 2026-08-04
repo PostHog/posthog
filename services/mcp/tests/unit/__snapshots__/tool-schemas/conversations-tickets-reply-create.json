@@ -5,6 +5,17 @@
             "description": "The ticket's UUID or its numeric ticket number.",
             "type": "string"
         },
+        "idempotency_key": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Client-generated UUID that makes this reply retry-safe. Generate one per composed reply and reuse it on every retry: if the first request already posted the reply but its response was lost, the retry returns that original message with status 200 instead of posting a duplicate to the customer. Unique per project."
+        },
         "is_private": {
             "default": false,
             "description": "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel.",
