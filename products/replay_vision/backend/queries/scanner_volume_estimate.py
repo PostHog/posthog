@@ -49,6 +49,7 @@ def estimate_scanner_session_volume(
     query: RecordingsQuery,
     sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
     max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
+    ch_user: ClickHouseUser = ClickHouseUser.APP,
 ) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over the last 30 days, for the scanner cost preview.
 
@@ -113,7 +114,7 @@ def estimate_scanner_session_volume(
         team=team,
         query_type="ReplayVisionScannerEstimateQuery",
         settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
-        ch_user=ClickHouseUser.REPLAY_VISION,
+        ch_user=ch_user,
     )
     results = response.results or []
     matched = int(results[0][0]) if results else 0
@@ -131,7 +132,10 @@ def project_monthly_observations(estimate: ScannerVolumeEstimate, sampling_rate:
 
 
 def refresh_scanner_estimate(
-    scanner: ReplayScanner, *, max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS
+    scanner: ReplayScanner,
+    *,
+    max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
+    ch_user: ClickHouseUser = ClickHouseUser.APP,
 ) -> None:
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
     estimate = estimate_scanner_session_volume(
@@ -139,6 +143,7 @@ def refresh_scanner_estimate(
         query=scanner.recordings_query(),
         sampling_mode=scanner.sampling_mode,
         max_execution_seconds=max_execution_seconds,
+        ch_user=ch_user,
     )
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
