@@ -2730,7 +2730,16 @@ def serialize_fields(
                     )
                 )
         elif isinstance(field, LazyJoin):
-            resolved_table = field.resolve_table(context)
+            try:
+                resolved_table = field.resolve_table(context)
+            except (QueryError, ResolutionError) as e:
+                # e.g. a join onto a warehouse table the user's access controls deny — keep
+                # serializing the rest of the schema instead of aborting it entirely.
+                logger.warning(
+                    f"Failed to resolve lazy join '{field_key}' in table chain {table_chain}: {str(e)}",
+                    exc_info=True,
+                )
+                continue
 
             if isinstance(resolved_table, SavedQuery):
                 type = DatabaseSerializedFieldType.VIEW
@@ -2745,8 +2754,8 @@ def serialize_fields(
                     hogql_value=hogql_value,
                     type=type,
                     schema_valid=schema_valid,
-                    table=field.resolve_table(context).to_printed_hogql(),
-                    fields=list(field.resolve_table(context).fields.keys()),
+                    table=resolved_table.to_printed_hogql(),
+                    fields=list(resolved_table.fields.keys()),
                     id=id or field_key,
                 )
             )

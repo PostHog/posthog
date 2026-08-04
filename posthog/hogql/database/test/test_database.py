@@ -1636,6 +1636,37 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select e.some_field.key from event_view as e"
         prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
+    def test_database_warehouse_joins_to_access_denied_table_does_not_break_serialization(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="stripe_customer",
+            joining_table_key="id",
+            field_name="stripe_customer",
+        )
+
+        sources = Database._fetch_sources(team=self.team)
+        # Userless AC fails closed, so this reproduces a user whose access control denies the join target.
+        sources.is_hogql_warehouse_access_control_enabled = True
+        database = Database._build_from_sources(sources)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+
+        serialized = database.serialize(context)
+
+        persons_table = serialized["persons"]
+        assert "stripe_customer" not in persons_table.fields
+        assert "properties" in persons_table.fields
+
     def test_selecting_from_persons_ignores_future_persons(self):
         db = Database.create_for(team=self.team)
         context = HogQLContext(
