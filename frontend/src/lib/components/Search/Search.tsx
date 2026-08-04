@@ -42,7 +42,7 @@ import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
-import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
+import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
 // Constants
@@ -68,8 +68,6 @@ const PLACEHOLDER_OPTIONS = [
 ]
 
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
-
-const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
 
 const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
 
@@ -195,22 +193,6 @@ const getIconForItem = (item: SearchItem): ReactNode => {
         )
     }
     return null
-}
-
-/**
- * Cmd/Ctrl activation means "open in a new tab", so it only applies to items that navigate.
- * Items that run an action instead (log out, theme toggle) have nothing to open, and firing
- * their action on a new-tab request would be surprising — or destructive.
- */
-const canOpenInNewTab = (item: SearchItem): boolean => {
-    if (!item.href || item.onSelect) {
-        return false
-    }
-    if (item.id === SETTINGS_THEME_ITEM_ID) {
-        const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
-        return !record?.themeMode && !record?.toggleTheme
-    }
-    return true
 }
 
 const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
@@ -531,6 +513,7 @@ function SearchRoot({
                     category: item.category,
                     item_type: item.itemType ?? null,
                     result_position: position >= 0 ? position : null,
+                    opened_in_new_tab: openInNewTab,
                 })
             }
             if (item.id === SETTINGS_THEME_ITEM_ID) {
@@ -935,8 +918,12 @@ function SearchResults({
                                                         <Autocomplete.Item
                                                             value={item}
                                                             onClick={(e) => {
+                                                                // A modifier click never reaches this handler, because
+                                                                // LinkPrimitive returns early on metaKey/ctrlKey. That
+                                                                // leaves the anchor's native new-tab behavior in charge,
+                                                                // which is what we want for a mouse-driven new tab.
                                                                 e.preventDefault()
-                                                                handleItemClick(item, e.metaKey || e.ctrlKey)
+                                                                handleItemClick(item)
                                                             }}
                                                             render={(props) => {
                                                                 const isHighlighted =
@@ -1054,7 +1041,7 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
     const { searchValue } = useSearchContext()
 
     return (
-        <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none flex items-center gap-1">
+        <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none flex flex-wrap items-center gap-1">
             {children ?? (
                 <>
                     {filteredItems.length > 1 && (
