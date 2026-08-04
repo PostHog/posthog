@@ -1204,49 +1204,6 @@ const AssistantLifecycleQuery = z.object({
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 
-const AssistantTracesQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
-    filterTestAccounts: z.coerce
-        .boolean()
-        .describe('Exclude internal and test users by applying the respective filters.')
-        .default(true)
-        .optional(),
-    groupKey: z.string().describe('Filter traces by group key. Requires `groupTypeIndex` to be set.').optional(),
-    groupTypeIndex: integer.describe('Group type index when filtering by group.').optional(),
-    kind: z.literal('TracesQuery').default('TracesQuery'),
-    limit: integer.describe('Maximum number of traces to return.').default(100).optional(),
-    offset: integer.describe('Number of traces to skip for pagination.').default(0).optional(),
-    personId: z.string().describe('Filter traces by a specific person UUID.').optional(),
-    properties: z
-        .array(AssistantPropertyFilter)
-        .describe(
-            'Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces.'
-        )
-        .default([])
-        .optional(),
-    randomOrder: z.coerce
-        .boolean()
-        .describe(
-            'Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.'
-        )
-        .default(false)
-        .optional(),
-})
-
-const AssistantTraceQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    kind: z.literal('TraceQuery').default('TraceQuery'),
-    properties: z
-        .array(AssistantPropertyFilter)
-        .describe('Property filters to narrow events within the trace.')
-        .default([])
-        .optional(),
-    traceId: z
-        .string()
-        .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
-})
-
 const AssistantTrendsActorsQuery = z.object({
     breakdown: z
         .array(z.string())
@@ -1518,18 +1475,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-    }),
-    'query-llm-traces-list': createQueryWrapper({
-        name: 'query-llm-traces-list',
-        schema: AssistantTracesQuery,
-        kind: 'TracesQuery',
-        outputFormat: 'json',
-    }),
-    'query-llm-trace': createQueryWrapper({
-        name: 'query-llm-trace',
-        schema: AssistantTraceQuery,
-        kind: 'TraceQuery',
-        outputFormat: 'json',
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
