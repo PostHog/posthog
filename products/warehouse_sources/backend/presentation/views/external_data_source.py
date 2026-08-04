@@ -2213,6 +2213,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Source type '{source_type}' does not support schema discovery."},
             )
+        except Exception as e:
+            # Credentials can still fail here even after passing live validation above (e.g. a
+            # BigQuery service account key rotated/revoked in the moment between the two calls).
+            # Classify via the source's own non-retryable-error map, same as `database_schema` and
+            # `refresh_schemas`, so an expected source error returns a clean 400 instead of the
+            # uncaught 500 this would otherwise raise, and roll back the row so it doesn't linger
+            # half-created.
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": error_message},
+            )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,

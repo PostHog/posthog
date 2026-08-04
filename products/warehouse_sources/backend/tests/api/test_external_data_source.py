@@ -2063,6 +2063,61 @@ class TestExternalDataSource(APIBaseTest):
         assert "'private_key'" in response.json()["message"]
         assert "'private_key_id'" in response.json()["message"]
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    def test_create_external_data_source_bigquery_returns_400_on_credentials_rejected_during_schema_discovery(
+        self, mock_capture_exception
+    ):
+        # Credentials can pass the live validation above and still be rejected moments later when
+        # `get_schemas` opens its own BigQuery connection (e.g. a key rotated/revoked in between).
+        # That used to escape `_create_external_data_source` as an uncaught 500 and leave the row
+        # behind; it must now return a clean 400 with the row rolled back, without flooding error
+        # tracking for this expected, already-classified source error.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+            BIGQUERY_CREDENTIALS_REJECTED_ERROR,
+            BigQueryCredentialsRejectedError,
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                # Mirrors the real message `get_columns` raises: it keeps the `invalid_grant` marker
+                # inline so `get_non_retryable_errors` ("invalid_grant" -> BIGQUERY_CREDENTIALS_REJECTED_ERROR)
+                # still matches it, unlike the plain BIGQUERY_CREDENTIALS_REJECTED_ERROR constant.
+                side_effect=BigQueryCredentialsRejectedError(
+                    "Your BigQuery service account credentials were rejected by Google (invalid_grant). "
+                    "The key may have been rotated or revoked, or the service account deleted. "
+                    "Please upload a new Google Cloud JSON key file."
+                ),
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "BigQuery",
+                    "created_via": "web",
+                    "payload": {
+                        "schemas": [],
+                        "dataset_id": "my_project.my_dataset",
+                        "key_file": {
+                            "project_id": "my_project",
+                            "private_key": "my_private_key",
+                            "private_key_id": "my_private_key_id",
+                            "token_uri": "https://google.com",
+                            "client_email": "test@posthog.com",
+                        },
+                    },
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == BIGQUERY_CREDENTIALS_REJECTED_ERROR
+        assert ExternalDataSource.objects.count() == 0
+        mock_capture_exception.assert_not_called()
+
     def test_list_external_data_source_query_count_does_not_scale_with_sources(self):
         # N+1 regression guard: created_by, revenue_analytics_config, schemas and the latest job are
         # all fetched up front, so listing must cost the same number of queries regardless of how many
