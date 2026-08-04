@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -234,8 +234,6 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
                     )}
                 </div>
             </div>
-
-            <GatewayRulesSection />
         </div>
     )
 }
@@ -305,53 +303,6 @@ function GatewayServerAccessRow({
                     }
                 }}
             />
-        </div>
-    )
-}
-
-function GatewayRulesSection(): JSX.Element {
-    const { ruleEnabledLoadingIds, rules, rulesLoading } = useValues(mcpGatewayLogic)
-    const { toggleRuleEnabled } = useActions(mcpGatewayLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            <h3 className="mb-0">Organization rules</h3>
-            <div className="text-sm text-secondary">
-                Guardrails are evaluated before any scope policy. A matching enabled rule locks the tool for its
-                audience. No scope can make it less restrictive.
-            </div>
-            <div className="border rounded divide-y overflow-hidden">
-                {rulesLoading && rules.length === 0 ? (
-                    <div className="p-4 text-sm text-secondary flex items-center justify-center gap-2">
-                        <Spinner /> Loading organization rules
-                    </div>
-                ) : rules.length === 0 ? (
-                    <div className="p-3 text-sm text-secondary">No organization rules yet.</div>
-                ) : (
-                    rules.map((rule) => {
-                        const ruleLoading = ruleEnabledLoadingIds.has(rule.id)
-                        const enabled = rule.enabled ?? true
-                        return (
-                            <div key={rule.id} className="flex items-center gap-3 p-3">
-                                <div className="flex-1">
-                                    <div className="font-semibold">{rule.name}</div>
-                                    <div className="text-xs text-secondary">{rule.description}</div>
-                                </div>
-                                <LemonSwitch
-                                    checked={enabled}
-                                    loading={ruleLoading}
-                                    aria-label={`${enabled ? 'Disable' : 'Enable'} ${rule.name}`}
-                                    onChange={(checked) => {
-                                        if (!ruleLoading) {
-                                            toggleRuleEnabled(rule.id, checked)
-                                        }
-                                    }}
-                                />
-                            </div>
-                        )
-                    })
-                )}
-            </div>
         </div>
     )
 }
