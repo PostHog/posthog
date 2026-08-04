@@ -289,6 +289,50 @@ class TestLoginPrecheckAPI(APIBaseTest):
             response = self.client.post("/api/login/precheck", {"email": "enumerate-30@posthog.com"})
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    def test_login_precheck_is_not_rate_limited_for_the_callers_own_email(self):
+        # The time-sensitive re-auth modal prechecks the logged-in user's own email on a timer, and it
+        # tells them nothing they don't already have.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.client.force_login(self.user)
+
+        with self.settings(E2E_TESTING=False):
+            for i in range(35):
+                response = self.client.post("/api/login/precheck", {"email": self.user.email.upper()})
+                self.assertEqual(response.status_code, status.HTTP_200_OK, f"request {i} was throttled")
+
+    def test_login_precheck_is_rate_limited_for_an_authenticated_caller_probing_other_emails(self):
+        # Being signed in with any account must not buy unlimited enumeration of other people's
+        # sign-in methods — the endpoint is `AllowAny` and has no ownership check.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.client.force_login(self.user)
+
+        with self.settings(E2E_TESTING=False):
+            for i in range(30):
+                response = self.client.post("/api/login/precheck", {"email": f"victim-{i}@posthog.com"})
+                self.assertEqual(response.status_code, status.HTTP_200_OK, f"request {i} was throttled early")
+
+            response = self.client.post("/api/login/precheck", {"email": "victim-30@posthog.com"})
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_login_precheck_prefers_the_exact_case_match_like_login_does(self):
+        # `User.email` is only unique case-*sensitively*, so variations can coexist. Precheck must
+        # describe the same account login would authenticate — an exact-case match wins.
+        User.objects.create_and_join(self.organization, "casey@posthog.com", None)
+        with_password = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
+        # `create_user` normalizes the address to lowercase, so write the variation in directly — the
+        # accounts this guards against predate that normalization.
+        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com")
+
+        response = self.client.post("/api/login/precheck", {"email": "Casey@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+
+        response = self.client.post("/api/login/precheck", {"email": "casey@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], False)
+
 
 class TestLoginAPI(APIBaseTest):
     """

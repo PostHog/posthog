@@ -44,6 +44,13 @@ export interface PrecheckResponseType {
     social_providers?: SSOProvider[]
     // The email this precheck resolved for, used to dedupe redundant prechecks.
     email?: string
+    /**
+     * Client-side only: the request failed, so the fields above are permissive defaults rather than
+     * server truth. Such a result is never deduped against — the next precheck for the same email
+     * retries, so a transient 429 can't hide this account's real SSO/SAML/passkey options for the
+     * rest of the page session.
+     */
+    precheckFailed?: boolean
 }
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
@@ -55,6 +62,7 @@ function precheckFallback(email: string): PrecheckResponseType {
         password_login_available: true,
         social_providers: [],
         email,
+        precheckFailed: true,
     }
 }
 
@@ -406,8 +414,13 @@ export const loginLogic = kea<loginLogicType>([
 
                     // The autofill effect and the email field's onBlur can both fire for the same
                     // value — skip the redundant network call (and the duplicate passkey trigger it
-                    // would cause) when we've already resolved this email.
-                    if (email === values.precheckResponse.email && values.precheckResponse.status === 'completed') {
+                    // would cause) when we've already *successfully* resolved this email. A failed
+                    // precheck is never cached, so re-blurring or pressing Enter retries it.
+                    if (
+                        email === values.precheckResponse.email &&
+                        values.precheckResponse.status === 'completed' &&
+                        !values.precheckResponse.precheckFailed
+                    ) {
                         return values.precheckResponse
                     }
 

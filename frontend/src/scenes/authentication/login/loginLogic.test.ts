@@ -240,6 +240,25 @@ describe('loginLogic', () => {
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             expect(precheckHandler).toHaveBeenCalledTimes(2)
         })
+
+        it('retries a failed precheck instead of caching its fallback for the page session', async () => {
+            precheckHandler.mockImplementationOnce(() => [429, { detail: 'Request was throttled.' }])
+
+            logic.actions.precheck({ email: 'a@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+            // The fallback keeps the form usable, but doesn't know about this account's real options.
+            expect(logic.values.precheckResponse).toMatchObject({ status: 'completed', precheckFailed: true })
+            expect(logic.values.precheckResponse.sso_enforcement).toBeUndefined()
+
+            precheckHandler.mockImplementationOnce(() => [
+                200,
+                { saml_available: false, sso_enforcement: 'google-oauth2' },
+            ])
+            logic.actions.precheck({ email: 'a@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+            expect(precheckHandler).toHaveBeenCalledTimes(2)
+            expect(logic.values.precheckResponse.sso_enforcement).toEqual('google-oauth2')
+        })
     })
 
     describe('available login methods', () => {

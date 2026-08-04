@@ -52,6 +52,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -431,7 +432,10 @@ class LoginPrecheckSerializer(serializers.Serializer):
         must never be a dead end, and it keeps the account-existence signal limited to accounts
         that are genuinely passwordless.
         """
-        user = User.objects.filter(is_active=True, email__iexact=email).first()
+        # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
+        # describe a different account than the one a password would authenticate: exact case first,
+        # then case-insensitive, and deterministic (last logged in) if case variations coexist.
+        user = EmailLookupHandler.get_user_by_email(email)
         if user is None:
             return {"password_login_available": True, "social_providers": []}
 

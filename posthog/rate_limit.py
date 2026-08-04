@@ -368,10 +368,12 @@ class LoginPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
     def allow_request(self, request, view):
-        # The time-sensitive re-auth modal prechecks for already-logged-in users. They learn nothing
-        # they don't already have, and exempting them keeps shared corporate egress IPs (where every
-        # logged-in user shares one bucket) from locking anyone out of the login form.
-        if request.user.is_authenticated:
+        # The time-sensitive re-auth modal prechecks the logged-in user's *own* email, and that tells
+        # them nothing they don't already have — so exempt exactly that. The endpoint is `AllowAny`
+        # with no ownership check, so a broader exemption would let anyone with a throwaway account
+        # enumerate other people's sign-in methods for free.
+        email = request.data.get("email", "") if isinstance(request.data, dict) else ""
+        if request.user.is_authenticated and email and email.casefold() == (request.user.email or "").casefold():
             return True
         return super().allow_request(request, view)
 
