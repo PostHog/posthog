@@ -5815,47 +5815,8 @@ database "posthog" {
     patch_column "inserted_at" {
       codec = "DoubleDelta, ZSTD(1)"
     }
-    patch_column "distinct_id" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "session_id" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "device_id" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "flag_key" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "request_id" {
-      codec = "ZSTD(1)"
-    }
     patch_column "evaluated_at" {
       codec = "DoubleDelta, ZSTD(1)"
-    }
-    patch_column "error" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "current_url" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "pathname" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "group_0" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "group_1" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "group_2" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "group_3" {
-      codec = "ZSTD(1)"
-    }
-    patch_column "group_4" {
-      codec = "ZSTD(1)"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"

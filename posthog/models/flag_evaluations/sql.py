@@ -55,24 +55,27 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # writable_flag_evaluations would store epoch instead of the sharded table's
 # fallback.
 #
-# CODECs go on the sharded table alone. A Distributed table stores nothing, so a
-# CODEC there is inert metadata that only invites the two column lists to drift.
+# Only the timestamps carry a CODEC, and only on the sharded table. The server
+# already compresses every column with ZSTD, so a per-column CODEC(ZSTD(1)) buys
+# nothing — DoubleDelta does, on monotonic DateTime64. A Distributed table stores
+# nothing at all, so a CODEC there is inert metadata that only invites the two
+# column lists to drift.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     team_id Int64,
     uuid UUID,
     timestamp DateTime64(6, 'UTC'){dt_codec},
     inserted_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
-    distinct_id String{codec},
-    session_id String{codec},
-    device_id String{codec},
-    flag_key String{codec},
+    distinct_id String,
+    session_id String,
+    device_id String,
+    flag_key String,
     response LowCardinality(String),
     flag_id UInt64,
     flag_version UInt32,
     reason LowCardinality(String),
-    request_id String{codec},
+    request_id String,
     evaluated_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
-    error String{codec},
+    error String,
     locally_evaluated Bool,
     lib LowCardinality(String),
     lib_version LowCardinality(String),
@@ -80,29 +83,25 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     os LowCardinality(String),
     os_version LowCardinality(String),
     app_version LowCardinality(String),
-    current_url String{codec},
-    pathname String{codec},
+    current_url String,
+    pathname String,
     country_code LowCardinality(String),
     subdivision_1_code LowCardinality(String),
-    group_0 String{codec},
-    group_1 String{codec},
-    group_2 String{codec},
-    group_3 String{codec},
-    group_4 String{codec}
+    group_0 String,
+    group_1 String,
+    group_2 String,
+    group_3 String,
+    group_4 String
 """.strip()
 
-FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="", codec="", dt_codec="")
+FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="", dt_codec="")
 
 _FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
-    ts_default=" DEFAULT timestamp", codec="", dt_codec=""
+    ts_default=" DEFAULT timestamp", dt_codec=""
 )
 
-# ZSTD on the plain String columns and DoubleDelta on the timestamps;
-# LowCardinality columns compress well on their own.
 _FLAG_EVALUATIONS_STORAGE_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
-    ts_default=" DEFAULT timestamp",
-    codec=" CODEC(ZSTD(1))",
-    dt_codec=" CODEC(DoubleDelta, ZSTD(1))",
+    ts_default=" DEFAULT timestamp", dt_codec=" CODEC(DoubleDelta, ZSTD(1))"
 )
 
 
