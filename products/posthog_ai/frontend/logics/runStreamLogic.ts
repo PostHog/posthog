@@ -2867,7 +2867,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
         },
         cancelRun: async ({ run }) => {
-            // Cancel a run through the generic tasks relay — the same command PostHog Code issues. The
+            // Cancel a run through the generic tasks relay — the same command PostHog Desktop issues. The
             // SSE then receives a terminal task_run_state; cancellation telemetry is emitted server-side
             // by the relay. `run` defaults to the streamed run; a warm Run (not streamed) is passed in.
             // Fire-and-forget: a failure leaves the run alive for a retry.

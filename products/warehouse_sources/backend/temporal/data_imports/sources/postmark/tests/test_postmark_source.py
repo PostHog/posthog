@@ -1,5 +1,7 @@
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -68,7 +70,7 @@ class TestPostmarkSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source.validate_postmark_credentials"
     )
     def test_validate_credentials_success(self, mock_validate):
-        mock_validate.return_value = True
+        mock_validate.return_value = (True, 200)
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
@@ -76,16 +78,26 @@ class TestPostmarkSource:
         assert error_message is None
         mock_validate.assert_called_once_with(self.config.server_token)
 
+    @parameterized.expand(
+        [
+            ("invalid_token_401", 401, "Invalid Postmark server API token"),
+            ("missing_permissions_403", 403, "doesn't have the required permissions"),
+            ("unreachable_none", None, "Couldn't reach Postmark"),
+            ("server_error_500", 500, "Couldn't reach Postmark"),
+            ("rate_limited_429", 429, "Couldn't reach Postmark"),
+        ]
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source.validate_postmark_credentials"
     )
-    def test_validate_credentials_failure(self, mock_validate):
-        mock_validate.return_value = False
+    def test_validate_credentials_failure_maps_status(self, _name, status, expected_substring, mock_validate):
+        mock_validate.return_value = (False, status)
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error_message == "Invalid Postmark server API token"
+        assert error_message is not None
+        assert expected_substring in error_message
 
     def test_get_resumable_source_manager(self):
         inputs = mock.MagicMock()

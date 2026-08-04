@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { FormContext } from 'kea-forms'
 import { useContext, useEffect, useMemo, useRef } from 'react'
 
-import { LemonInput, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -113,6 +114,19 @@ function IntegrationAccountSelectorInner({
 
 function captionHelp(caption?: string): JSX.Element | undefined {
     return caption ? <LemonMarkdown className="text-xs">{caption}</LemonMarkdown> : undefined
+}
+
+/** Re-run OAuth for the connected integration in place, so a failed account load is recoverable
+ *  without hunting for the disconnect/reconnect action elsewhere on the page. */
+function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.Element {
+    return (
+        <Link
+            disableClientSideRouting
+            to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
+        >
+            Reconnect
+        </Link>
+    )
 }
 
 function AccountTextField({
@@ -338,6 +352,7 @@ function MultiAccountFieldInner({
 
 function IntegrationAccountFieldWithDropdown({
     integrationId,
+    integrationKind,
     sourceType,
     fieldName,
     fieldLabel,
@@ -398,11 +413,15 @@ function IntegrationAccountFieldWithDropdown({
                             emptyMessage="No accounts accessible by this integration."
                             loadingMessage="Loading accounts…"
                         />
-                        {accountsError && <p className="m-0 text-xs text-warning">{accountsError}</p>}
+                        {accountsError && (
+                            <p className="m-0 text-xs text-warning">
+                                {accountsError} <ReconnectLink integrationKind={integrationKind} />
+                            </p>
+                        )}
                         {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
                             <p className="m-0 text-xs text-warning">
                                 No accounts are accessible for this connection. Check that the connected account has the
-                                right permissions, then reconnect the integration.
+                                right permissions, then <ReconnectLink integrationKind={integrationKind} />.
                             </p>
                         )}
                         {savedValueMissing && (

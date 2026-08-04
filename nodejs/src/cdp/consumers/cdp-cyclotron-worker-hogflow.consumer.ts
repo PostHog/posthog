@@ -62,10 +62,34 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // rather than relying on event.distinct_id being empty so future changes to the
                 // synthetic event shape don't accidentally re-enable the lookup.
                 const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
-                const personIdOrDistinctId = isWarehouseRow
-                    ? undefined
-                    : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
-                const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
+                // Account-audience batch invocations carry the account's group key as
+                // event.distinct_id; resolving it as a person distinct_id would attach an
+                // unrelated person to the run. Accounts have no person — skip the lookup.
+                // The state stamp wins over the live trigger, which may have been edited to a
+                // person audience while these children were queued; the trigger check remains
+                // as a fallback for jobs enqueued before the stamp existed.
+                const isAccountAudience =
+                    hogFlowInvocationState.accountAudience === true ||
+                    (hogFlow.trigger?.type === 'batch' && hogFlow.trigger.filters?.audience_type === 'accounts')
+                // A person merge repointed this job's distinct_id and re-keyed personId onto the survivor.
+                // Resolve by that personId so the step reads the merged person — resolving by the repointed
+                // distinct_id would hit its stale ~1min cache entry (the pre-merge person) and e.g. drop an email.
+                const resolveByRepointedPerson =
+                    hogFlowInvocationState.personIdRepointed === true && !!hogFlowInvocationState.personId
+                // One-shot: consume the flag on this wake-resolution only. Later steps fall back to normal
+                // distinct_id-first resolution, which self-heals to the latest survivor if the distinct_id is
+                // repointed again (a second merge onto a non-wait step is out of processMoveBatch's scope).
+                if (resolveByRepointedPerson) {
+                    delete hogFlowInvocationState.personIdRepointed
+                }
+                const personIdOrDistinctId =
+                    isWarehouseRow || isAccountAudience
+                        ? undefined
+                        : resolveByRepointedPerson
+                          ? hogFlowInvocationState.personId
+                          : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
+                const kind =
+                    resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId

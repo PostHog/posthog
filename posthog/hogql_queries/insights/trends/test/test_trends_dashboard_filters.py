@@ -452,6 +452,31 @@ class TestTrendsDashboardFilters(BaseTest):
         )
         assert query_runner.query.trendsFilter is None
 
+    @parameterized.expand(
+        [
+            (
+                "null breakdown inherits the insight breakdown",
+                None,
+                BreakdownFilter(breakdown="abc", breakdown_limit=5),
+            ),
+            ("empty breakdown clears the insight breakdown", BreakdownFilter(), BreakdownFilter()),
+        ]
+    )
+    def test_breakdown_override_null_inherits_empty_clears(self, _name, override_breakdown, expected_breakdown):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            breakdown=BreakdownFilter(breakdown="abc", breakdown_limit=5),
+        )
+
+        query_runner.apply_dashboard_filters(DashboardFilter(breakdown_filter=override_breakdown, date_from="-14d"))
+
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "-14d"
+        assert query_runner.query.breakdownFilter == expected_breakdown
+
     def test_compare_is_removed_for_all_time_range(self):
         query_runner = self._create_query_runner(
             "2024-07-07",

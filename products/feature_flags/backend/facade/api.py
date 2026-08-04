@@ -34,16 +34,21 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
+def _serializer_context(team: Team, user: Any, request: Any | None, *, method: str = "POST") -> dict:
     """Build the DRF serializer context for a gated flag write.
 
     Callers without a real request (internal service paths) fall back to a minimal
     request shim carrying the acting user — FeatureFlagSerializer needs request.user.
     ``user=None`` makes this a system write (see module docstring); the shim declares
     it explicitly via ``is_system``, the only signal the approval gate skips on.
+    ``method`` is the HTTP method the shim reports — the serializer branches on it
+    (create-only validation runs on "POST"), so updates must pass "PATCH". Supplied
+    ``ServiceRequest`` shims are rebuilt with it; real HTTP requests pass through
+    untouched.
 
     Pass BOTH get_team and get_organization so the approval gate resolves the policy
     from context rather than falling back to instance derivation.
@@ -53,7 +58,10 @@ def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
     # goes to request.user) — reject the contradiction instead.
     if user is None and request_has_user:
         raise ValueError("user=None is a system write; do not pass a user-bearing request with it")
-    flag_request = request if request_has_user else ServiceRequest(user, is_system=user is None)
+    if isinstance(request, ServiceRequest):
+        # Caller-built shims default to POST — align the method with this write.
+        request.method = method
+    flag_request = request if request_has_user else ServiceRequest(user, is_system=user is None, method=method)
     return {
         "request": flag_request,
         "team_id": team.id,
@@ -74,16 +82,47 @@ def create_flag(data: dict, *, team: Team, user: Any, request: Any | None = None
     return serializer.save()
 
 
+def _redact_unchanged_encrypted_payloads(flag: FeatureFlag, data: dict) -> dict:
+    """Facade callers derive update filters from ``flag.get_filters()``, which stores
+    encrypted payload values as ciphertext. Ciphertext echoed back through the serializer
+    fails its JSON payload validation (and must never be re-encrypted), so values
+    byte-identical to the stored ones are swapped for the redacted placeholder, which the
+    serializer preserves. Genuinely new payload values pass through and are encrypted."""
+    filters = data.get("filters")
+    if not flag.has_encrypted_payloads or not isinstance(filters, dict):
+        return data
+    stored = (flag.filters or {}).get("payloads") or {}
+    incoming = filters.get("payloads")
+    if not isinstance(incoming, dict):
+        return data
+    redacted = {k: REDACTED_PAYLOAD_VALUE if k in stored and v == stored[k] else v for k, v in incoming.items()}
+    if redacted == incoming:
+        return data
+    return {**data, "filters": {**filters, "payloads": redacted}}
+
+
 def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request: Any | None = None) -> FeatureFlag:
     """Gated partial update: routes through FeatureFlagSerializer so @approval_gate,
     validation, and activity logging apply. ``data`` is a partial flag write payload
     (fields it omits are untouched) applied as-is — nothing is silently dropped.
     Raises ApprovalRequired when a policy requires approval; the flag is left untouched.
     ``user=None`` is a system write (see module docstring): ``last_modified_by`` is
-    cleared, activity is logged as system, the approval gate is skipped."""
-    serializer = FeatureFlagSerializer(flag, data=data, partial=True, context=_serializer_context(team, user, request))
+    cleared, activity is logged as system, the approval gate is skipped.
+
+    Encrypted payload values carried over unchanged from ``flag.get_filters()`` are
+    preserved as-is, never re-validated or re-encrypted."""
+    data = _redact_unchanged_encrypted_payloads(flag, data)
+    serializer = FeatureFlagSerializer(
+        flag, data=data, partial=True, context=_serializer_context(team, user, request, method="PATCH")
+    )
     serializer.is_valid(raise_exception=True)
-    return serializer.save()
+    saved = serializer.save()
+    if saved.has_encrypted_payloads:
+        # The serializer swaps the saved ciphertext for its response form (redacted or
+        # decrypted) on the in-memory instance; reload so a subsequent write of this
+        # instance cannot persist the placeholder over the stored ciphertext.
+        saved.refresh_from_db(fields=["filters"])
+    return saved
 
 
 def set_flag_active(

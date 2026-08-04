@@ -54,6 +54,7 @@ from products.experiments.backend.hogql_queries.error_handling import experiment
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
+    resolve_exposure_config_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -446,7 +447,9 @@ class ExperimentQueryRunner(QueryRunner):
             exposure_config,
             multiple_variant_handling,
             filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+        ) = get_exposure_config_params_for_builder(
+            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -730,20 +733,18 @@ class ExperimentQueryRunner(QueryRunner):
         """
         variants_seen = [v.key for _, v in variants]
 
-        has_breakdown = (
-            self.metric.breakdownFilter is not None
-            and self.metric.breakdownFilter.breakdowns
-            and len(self.metric.breakdownFilter.breakdowns) > 0
-        )
+        # Fan out over the breakdown combinations actually present in the results, not over the
+        # metric's breakdown config: a metric can declare breakdowns and still come back with no
+        # rows at all (no data yet), and there is then nothing to fan out over — fall back to the
+        # single breakdown-less zero row so the baseline variant still exists.
+        breakdown_tuples = {bv for bv, _ in variants if bv is not None}
 
         # Type annotation required for empty list so mypy knows the expected element type:
         # list of tuples containing (breakdown_values, stats) where breakdown_values can be None
         variants_missing: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
         for key in self.variants:
             if key not in variants_seen:
-                if has_breakdown:
-                    # Extract all breakdown value combinations that exist in the results
-                    breakdown_tuples = {bv for bv, _ in variants if bv is not None}
+                if breakdown_tuples:
                     # Use extend to add MULTIPLE tuples - one for each breakdown combination
                     # Each missing variant needs to appear across ALL breakdown values to maintain consistency
                     variants_missing.extend(
@@ -848,21 +849,14 @@ class ExperimentQueryRunner(QueryRunner):
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         if self.actors_query.exposureConfig is not None:
-            exposure_config = self.actors_query.exposureConfig
-        elif self.experiment.exposure_criteria and self.experiment.exposure_criteria.get("exposure_config"):
-            from products.experiments.backend.hogql_queries.experiment_query_builder import (
-                normalize_to_exposure_criteria,
+            exposure_config = resolve_exposure_config_for_builder(
+                self.actors_query.exposureConfig, self.team, self.experiment.start_date
             )
-
-            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
-            if criteria and criteria.exposure_config:
-                exposure_config = criteria.exposure_config
-            else:
-                # Default to $feature_flag_called
-                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
         else:
-            # Default to $feature_flag_called
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            # Same resolution as the main experiment query, so the actor list matches the counts.
+            exposure_config, _, _ = get_exposure_config_params_for_builder(
+                self.experiment.exposure_criteria, self.team, self.experiment.start_date
+            )
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:

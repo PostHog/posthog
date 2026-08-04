@@ -26,10 +26,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
+import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType } from '~/types'
@@ -39,6 +41,8 @@ import {
     businessKnowledgeGapSuggestionsDismissCreate,
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
+import { signalsReportsList } from 'products/signals/frontend/generated/api'
+import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import type { UserType } from '../../../../../frontend/src/types'
@@ -171,6 +175,7 @@ export function getEmailReplyBlockedReason(
 export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
+    availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     assignee: TicketAssignee
@@ -190,6 +195,8 @@ export interface supportTicketSceneLogicValues {
     knowledgeGaps: KnowledgeGapSuggestion[]
     knowledgeGapsLoading: boolean
     latestAiMessage: ChatMessage | null
+    linkedReports: SignalReportApi[]
+    linkedReportsLoading: boolean
     messageSending: boolean
     messages: CommentType[]
     messagesLoading: boolean
@@ -200,6 +207,7 @@ export interface supportTicketSceneLogicValues {
     previousTicketsLoading: boolean
     priority: TicketPriority | null
     replyRecipientDescription: string
+    sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
@@ -214,6 +222,7 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    loadTags: () => any // tagsModel
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -237,6 +246,27 @@ export interface supportTicketSceneLogicActions {
         }
     ) => {
         knowledgeGaps: KnowledgeGapSuggestion[]
+        payload?: {
+            value: true
+        }
+    }
+    loadLinkedReports: () => {
+        value: true
+    }
+    loadLinkedReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLinkedReportsSuccess: (
+        linkedReports: SignalReportApi[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        linkedReports: SignalReportApi[]
         payload?: {
             value: true
         }
@@ -410,6 +440,7 @@ export interface supportTicketSceneLogicMeta {
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        sidePanelContext: (ticket: Ticket | null) => SidePanelSceneContext | null
     }
 }
 
@@ -425,7 +456,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        actions: [supportTicketsSceneLogic, ['loadTickets']],
+        actions: [supportTicketsSceneLogic, ['loadTickets'], tagsModel, ['loadTags']],
         values: [
             teamLogic,
             ['currentTeam'],
@@ -435,6 +466,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['user'],
             assigneeSelectLogic,
             ['resolveAssignee'],
+            tagsModel,
+            ['tags as availableTags'],
         ],
     })),
     actions({
@@ -478,6 +511,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+        loadLinkedReports: true,
 
         // Knowledge gap suggestions
         loadKnowledgeGaps: true,
@@ -525,6 +559,29 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
             },
         ],
+        linkedReports: [
+            [] as SignalReportApi[],
+            {
+                loadLinkedReports: async (): Promise<SignalReportApi[]> => {
+                    const ticketUuid = values.ticket?.id
+                    if (!ticketUuid) {
+                        return []
+                    }
+                    try {
+                        const response = await signalsReportsList(getCurrentTeamId().toString(), {
+                            source_id: ticketUuid,
+                            source_product: 'conversations',
+                            include_all_statuses: true,
+                        })
+                        return response.results || []
+                    } catch (error) {
+                        // Supplementary context: a signals or ClickHouse hiccup must not break the ticket.
+                        console.error('Failed to load linked reports:', error)
+                        return []
+                    }
+                },
+            },
+        ],
         previousTickets: [
             [] as Ticket[],
             {
@@ -536,9 +593,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return []
                     }
 
+                    // Widen the match to email only when the current ticket's identity was positively
+                    // attested (e.g. SPF-authenticated email). email_from is attacker-controllable on
+                    // unverified tickets, and person.properties.email is customer-controlled analytics
+                    // data with no trusted mapping — trusting either would let a spoofed sender pull a
+                    // real customer's ticket history into their own ticket view.
+                    const emails = new Set<string>()
+                    if (values.ticket?.identity_verified === true && values.ticket.email_from) {
+                        emails.add(values.ticket.email_from)
+                    }
+
                     try {
                         const response = await api.conversationsTickets.list({
                             distinct_ids: person.distinct_ids.join(','),
+                            ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
                         })
                         const allTickets = response.results || []
 
@@ -901,6 +969,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return null
             },
         ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): SidePanelSceneContext | null => {
+                return ticket?.id
+                    ? {
+                          access_control_resource: 'ticket',
+                          access_control_resource_id: `${ticket.id}`,
+                      }
+                    : null
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadTicket: async () => {
@@ -930,6 +1009,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Load session context data
                 actions.loadPerson()
                 actions.loadKnowledgeGaps()
+                actions.loadLinkedReports()
 
                 // Refresh the unread count since viewing a ticket marks it as read
                 supportTicketCounterLogic.findMounted()?.actions.refreshCount()
@@ -990,6 +1070,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
+                // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
+                if (values.tags.some((tag) => !values.availableTags.includes(tag))) {
+                    actions.loadTags()
+                }
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error

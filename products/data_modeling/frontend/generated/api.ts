@@ -16,6 +16,7 @@ import type {
     DataModelingNodesListParams,
     EdgeApi,
     NodeApi,
+    NodeResumeApi,
     PaginatedDAGListApi,
     PaginatedEdgeListApi,
     PaginatedNodeListApi,
@@ -359,6 +360,28 @@ export const dataModelingNodesMaterializeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(nodeApi),
+    })
+}
+
+export const getDataModelingNodesResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/resume/`
+}
+
+/**
+ * Resume a node suspended after repeated failed materializations.
+ *
+ * Scheduled runs skip a suspended node and its descendants, so it cannot succeed its way back
+ * on its own. Resuming also gives it a fresh failure window rather than re-suspending on the
+ * next failure.
+ */
+export const dataModelingNodesResumeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeResumeApi> => {
+    return apiMutator<NodeResumeApi>(getDataModelingNodesResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

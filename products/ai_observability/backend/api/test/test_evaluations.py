@@ -176,7 +176,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.json()["target"], "trace")
         evaluation = Evaluation.objects.get(name="Trace target")
         self.assertEqual(evaluation.target, "trace")
-        self.assertEqual(evaluation.target_config, {"window_seconds": 30 * 60})
+        self.assertEqual(evaluation.target_config, {"strategy": "fixed_window", "window_seconds": 30 * 60})
         self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
 
     def test_trace_target_accepts_custom_window(self):
@@ -196,7 +196,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["target_config"], {"window_seconds": 120})
+        self.assertEqual(response.json()["target_config"], {"strategy": "fixed_window", "window_seconds": 120})
 
     def test_rejects_window_below_minimum(self):
         response = self.client.post(
@@ -254,6 +254,64 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "target_config")
+
+    def test_create_trace_evaluation_with_inactivity_strategy(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Inactivity eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return true"},
+                "output_type": "boolean",
+                "target": "trace",
+                "target_config": {"strategy": "inactivity", "quiet_period_seconds": 120},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(
+            response.json()["target_config"],
+            {"strategy": "inactivity", "quiet_period_seconds": 120, "max_age_seconds": 7200},
+        )
+
+    def test_inactivity_strategy_rejects_max_age_below_quiet_period(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Bad inactivity eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return true"},
+                "output_type": "boolean",
+                "target": "trace",
+                "target_config": {"strategy": "inactivity", "quiet_period_seconds": 600, "max_age_seconds": 300},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "target_config")
+
+    def test_switching_strategy_replaces_settle_config(self):
+        evaluation = Evaluation.objects.create(
+            name="Trace target",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            target="trace",
+            target_config={"strategy": "fixed_window", "window_seconds": 30 * 60},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"target_config": {"strategy": "inactivity"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["target_config"],
+            {"strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 7200},
+        )
 
     def test_rejects_invalid_target(self):
         response = self.client.post(
@@ -950,6 +1008,21 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.data["conditions"][0]["rollout_percentage"], rollout_percentage)
 
+    @parameterized.expand([(["a", "b"],), ("trace",), (5,)])
+    def test_non_dict_target_config_returns_400(self, bad_config):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Bad config eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return true"},
+                "output_type": "boolean",
+                "target": "trace",
+                "target_config": bad_config,
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class TestTestHogEndpoint(APIBaseTest):
     EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
@@ -980,8 +1053,9 @@ class TestTestHogEndpoint(APIBaseTest):
             columns=["uuid", "event", "properties", "distinct_id", "timestamp", *HEAVY_COLUMN_NAMES],
         )
 
+    @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_test_hog_loads_ai_input_and_output(self, mock_query):
+    def test_test_hog_loads_ai_input_and_output(self, mock_query, mock_report_user_action):
         mock_query.return_value = self._mock_hogql_response(2)
 
         response = self.client.post(
@@ -999,6 +1073,8 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(len(results), 2)
         for r in results:
             self.assertIn("event_uuid", r)
+            self.assertEqual(r["sample_id"], r["event_uuid"])
+            self.assertEqual(r["sample_type"], "generation")
             self.assertIn("result", r)
             self.assertIn("reasoning", r)
             self.assertIn("error", r)
@@ -1011,6 +1087,7 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(query.select_from.table.chain, ["posthog", "ai_events"])
         self.assertEqual(query.select[4].chain, ["timestamp"])
         self.assertEqual([field.chain for field in query.select[5:]], [[name] for name in HEAVY_COLUMN_NAMES])
+        self.assertFalse(mock_report_user_action.call_args.args[2]["no_events"])
 
     def test_test_hog_compilation_error(self):
         response = self.client.post(
@@ -1067,6 +1144,58 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertFalse(results[0]["result"])
         self.assertIsNone(results[0]["error"])
+
+    @patch("products.ai_observability.backend.api.evaluations.run_hog_eval_over_recent_traces")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_test_hog_trace_target_evaluates_whole_traces(self, mock_query, mock_run_over_traces):
+        # A trace-target request must run the trace path (whole-trace globals), not the
+        # generation query — the gap this endpoint used to have.
+        from posthog.temporal.ai_observability.run_trace_evaluation import TraceHogTestResult
+
+        mock_run_over_traces.return_value = [
+            TraceHogTestResult(
+                trace_id="trace-1",
+                verdict=True,
+                reasoning="ok",
+                error=None,
+                input_preview="hello",
+                output_preview="world",
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {
+                "source": "return target.type == 'trace'",
+                "target": "trace",
+                "target_config": {"window_seconds": 120},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_run_over_traces.call_args.kwargs["window_seconds"], 120)
+        # The generation query path must not run for a trace target.
+        mock_query.assert_not_called()
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["sample_id"], "trace-1")
+        self.assertEqual(results[0]["sample_type"], "trace")
+        self.assertIsNone(results[0]["event_uuid"])
+        self.assertEqual(results[0]["trace_id"], "trace-1")
+        self.assertTrue(results[0]["result"])
+
+    @patch("products.ai_observability.backend.api.evaluations.run_hog_eval_over_recent_traces")
+    def test_test_hog_trace_target_no_traces(self, mock_run_over_traces):
+        mock_run_over_traces.return_value = []
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true", "target": "trace"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertIn("traces", response.json()["message"])
 
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):

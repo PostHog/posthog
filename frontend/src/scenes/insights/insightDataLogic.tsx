@@ -87,7 +87,7 @@ import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
-import { compareQuery } from './utils/queryUtils'
+import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
 export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
     sceneLogic.values.activeSceneId === Scene.Insight &&
@@ -706,7 +706,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, cache, values, props }) => ({
         persistDisplayOptions: async ({ query }, breakpoint) => {
             // Never auto-persist while the user is editing this insight in the insight scene.
             // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
@@ -818,14 +818,32 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
             }
 
+            // a draft that only differs from the type's default in cosmetic ways (or that the
+            // editor marks as changed by construction) is noise when resurfaced as "unsaved insight"
+            if (!isDraftQueryWorthSaving(query, values.filterTestAccountsDefault)) {
+                // reverting a meaningful edit supersedes the draft this editor persisted — but an
+                // editor that never persisted one must not delete a draft from an earlier session
+                if (cache.persistedDraftQuery) {
+                    cache.persistedDraftQuery = false
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
+                return
+            }
+
             if (isQueryTooLarge(query)) {
-                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                // same gating as above: only supersede a draft this editor persisted itself
+                if (cache.persistedDraftQuery) {
+                    cache.persistedDraftQuery = false
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
+                return
             }
 
             localStorage.setItem(
                 `draft-query-${values.currentTeamId}`,
                 crushDraftQueryForLocalStorage(query, Date.now())
             )
+            cache.persistedDraftQuery = true
         },
     })),
     propsChanged(({ actions, props, values }, oldProps) => {

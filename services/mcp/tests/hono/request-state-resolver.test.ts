@@ -10,6 +10,23 @@ vi.mock('@/lib/posthog/flags', () => ({
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
+vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
+    McpSessionRedisStore: class {
+        async resolve(requestContext: Record<string, unknown>): Promise<Record<string, unknown>> {
+            const keys = ['mcpClientName', 'mcpClientVersion', 'mcpProtocolVersion', 'mcpConsumer', 'mcpVendorClient']
+            const resolved = Object.fromEntries(
+                keys.map((key) => [key, mockSessionStore.get(key) ?? requestContext[key]])
+            )
+            for (const key of keys) {
+                if (!mockSessionStore.has(key) && requestContext[key] !== undefined) {
+                    mockSessionStore.set(key, requestContext[key])
+                }
+            }
+            return resolved
+        }
+    },
+}))
+
 vi.mock('@/hono/request-context', () => {
     type MockCache = {
         get: (key: string) => Promise<unknown>
@@ -40,16 +57,9 @@ vi.mock('@/hono/request-context', () => {
     })
 
     return {
-        RequestContext: vi.fn().mockImplementation(function (_redis, _env, props: { mcpSessionId?: string } = {}) {
-            const sessionCache = makeCache(mockSessionStore)
+        RequestContext: vi.fn().mockImplementation(function () {
             return {
                 tokenCache: makeCache(mockTokenStore),
-                get sessionCache() {
-                    if (!props.mcpSessionId) {
-                        throw new Error('Session ID is required to use the session cache')
-                    }
-                    return sessionCache
-                },
                 getContext: vi.fn(async () => ({
                     stateManager: {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
@@ -69,9 +79,8 @@ vi.mock('@/hono/request-context', () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
-import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { Env } from '@/tools/types'
 
@@ -99,9 +108,6 @@ function makeResolver(): RequestStateResolver {
 
 describe('RequestStateResolver MCP client contexts', () => {
     beforeEach(() => {
-        vi.clearAllMocks()
-        vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
-        vi.mocked(resolveFeatureFlagOverrides).mockReturnValue({})
         mockSessionStore.clear()
         mockTokenStore.clear()
     })
@@ -307,19 +313,6 @@ describe('RequestStateResolver MCP client contexts', () => {
         const result = await makeResolver().resolve(props)
 
         expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
-    })
-
-    it('evaluates the exec skills flag independently of generated tool flags', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
-
-        const result = await makeResolver().resolve(makeProps())
-
-        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
-            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
-            'distinct-id',
-            undefined
-        )
-        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
     })
 
     it('captures consumer from a later request when initialize omitted the header', async () => {

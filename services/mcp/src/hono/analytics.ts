@@ -10,9 +10,8 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import { getToolCategory } from '@/tools/toolDefinitions'
+import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -105,7 +104,8 @@ export async function trackToolCall(
     isError: boolean,
     state: ResolvedState,
     extraProperties?: Record<string, unknown>,
-    intentMeta?: ToolCallIntentMeta
+    intentMeta?: ToolCallIntentMeta,
+    servedDescription?: string
 ): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
@@ -118,6 +118,16 @@ export async function trackToolCall(
         // (it never maps tool→category itself). Omitted when unknown (e.g. the `exec`
         // wrapper), which the dashboard buckets as "Uncategorized".
         const toolCategory = getToolCategory(toolName)
+        // The description the agent saw when it picked this tool, clipped. Powers the
+        // tool-detail Descriptions table and description-vs-intent fit in MCP
+        // analytics. Callers pass servedDescription when the advertised text differs
+        // from the catalog (execute-sql's is formatted per request); otherwise the
+        // catalog text is what was served. Inner exec calls reach here with the
+        // resolved inner tool name, so the fallback lands on the inner tool's own
+        // description.
+        const toolDescription = servedDescription
+            ? servedDescription.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+            : getToolDescription(toolName)
 
         // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
         // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
@@ -137,6 +147,7 @@ export async function trackToolCall(
                 ...properties,
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
                 ...extraProperties,
             },
         })
@@ -216,38 +227,6 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
-            },
-        })
-    } catch {
-        // never break the request for analytics
-    }
-}
-
-/**
- * Captures `skill invoked` when a skill's content is consumed through exec `learn`,
- * whichever read kind delivered it (full load, file read, file search, line range) —
- * the consumption counterpart of the authoring `llma skill *` events emitted by
- * `products/skills`. The caller dedupes per skill identifier per request, so a
- * command that reads one skill several ways still counts once. Keep property keys
- * additive: they feed the same LLMA skills adoption dashboards.
- */
-export async function trackSkillInvoked(state: ResolvedState, invocation: SkillInvocation): Promise<void> {
-    try {
-        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
-        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
-        const { properties, groups } = buildBaseProperties(state, analyticsContext)
-
-        getPostHogClient().capture({
-            distinctId: state.distinctId,
-            event: 'skill invoked',
-            groups,
-            properties: {
-                ...properties,
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
-                skill_source: invocation.source,
-                skill_name: invocation.skill,
-                skill_identifier: `${invocation.source}:${invocation.skill}`,
-                skill_read_kind: invocation.readKind,
             },
         })
     } catch {

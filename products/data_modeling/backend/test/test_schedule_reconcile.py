@@ -186,6 +186,33 @@ class TestReconcileDagSchedules(BaseTest):
         create.assert_not_called()
         delete.assert_not_called()
 
+    def test_sweeps_legacy_schedule_when_dag_has_no_schedulable_nodes(self):
+        # a DAG holding only source tables has nothing to seed, so the unseeded-conversion
+        # guard must not apply: its legacy schedule just fires no-op execute-dag runs forever
+        dag = DAG.get_or_create_default(self.team)
+        _table_node(self.team, dag, "events", {"origin": "posthog"})
+
+        legacy_id = str(dag.id)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(legacy_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            reconcile_dag_schedules(dag)
+
+        create.assert_not_called()
+        delete.assert_called_once_with(temporal, schedule_id=legacy_id)
+
     def test_winds_down_tier_schedules_when_all_targets_cleared(self):
         # reverting/clearing the last target leaves empty desired tiers; once tier schedules exist
         # that is a deliberate wind-down, so the stale tier must be torn down rather than left

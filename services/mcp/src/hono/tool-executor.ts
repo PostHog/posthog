@@ -7,6 +7,7 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import {
+    ExecCommandError,
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -28,8 +29,6 @@ import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
-import type { SkillCatalogService } from './skill-catalog-service'
-import { buildSkillsSessionState } from './skills-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -46,16 +45,10 @@ interface ExecMetricState {
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
-    private readonly skillCatalogService: SkillCatalogService | undefined
 
-    constructor(
-        catalog: ToolCatalog,
-        instructionsBuilder: InstructionsBuilder,
-        skillCatalogService?: SkillCatalogService
-    ) {
+    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
-        this.skillCatalogService = skillCatalogService
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
@@ -148,6 +141,18 @@ export class ToolExecutor {
         )
     }
 
+    // execute-sql is the one tool whose advertised description is formatted per
+    // request (the schema-discovery splice varies by feature flag) instead of served
+    // from the catalog, on both the native tools/list path and exec's `info` output.
+    // trackToolCall stamps the catalog text by default, so it needs the served text
+    // for this tool or $mcp_tool_description records words the agent never saw.
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
+        if (toolName === EXECUTE_SQL_TOOL_NAME) {
+            return this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags)
+        }
+        return undefined
+    }
+
     // Pull the agent's stated intent off the injected `context` arg and strip it so
     // tool schemas/handlers never see it (validation is `.strict()` in places). The
     // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
@@ -231,7 +236,8 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -256,7 +262,8 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -332,16 +339,19 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(execToolName(), state)
             )
 
             return response
         } catch (error: unknown) {
             const metricTool = execToolName()
-            if (!execMetrics.innerToolName) {
-                toolCallsTotal.inc({ tool: 'exec', status: 'error' })
-            }
             const classification = classifyToolError(error, metricTool)
+            if (!execMetrics.innerToolName) {
+                // Match the inner-tool path, which labels rejected input `validation_error`.
+                const status = classification.errorType === 'validation' ? 'validation_error' : 'error'
+                toolCallsTotal.inc({ tool: 'exec', status })
+            }
 
             void trackToolCall(
                 metricTool,
@@ -349,7 +359,8 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(metricTool, state)
             )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -414,20 +425,14 @@ export class ToolExecutor {
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(state),
+            this.instructionsBuilder.buildExecToolDescription(),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
-                learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
-                    state,
-                    this.skillCatalogService?.getCatalog()
-                ),
-                skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
-                    ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
-                    : undefined,
+                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
             }
         )
 
@@ -530,6 +535,12 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
             ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
         }
     }
+    // Agent-recoverable command mistakes, so keep them out of the `internal` rate
+    // ops alerts on. `missing_scope` is the exception: no input the agent sends
+    // fixes it, the connection has to be reauthorized.
+    if (error instanceof ExecCommandError) {
+        return { errorType: error.reason === 'missing_scope' ? 'permission' : 'validation' }
+    }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
@@ -587,6 +598,11 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     // Documented value-free: offending field paths + issue codes, never input values.
     if (error instanceof ToolInputValidationError) {
         return error.message
+    }
+    // Value-free: the reason enum only. The dispatcher's human message can echo the
+    // caller's tool name or a JSON-parser fragment, so it's never captured.
+    if (error instanceof ExecCommandError) {
+        return `Exec command rejected: ${error.reason}`
     }
     if (error instanceof Error && error.name === 'TimeoutError') {
         return 'Tool call timed out'

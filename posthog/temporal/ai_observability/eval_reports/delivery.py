@@ -14,6 +14,7 @@ from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
+    METRICS_UNAVAILABLE_MESSAGE,
     Citation,
     EvalReportContent,
     EvalReportMetrics,
@@ -185,12 +186,21 @@ def _format_boolean_pass_rate_value(metrics: EvalReportMetrics) -> str:
     return f"{value} ({arrow} {abs(diff):.2f}pp vs previous)"
 
 
-def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
+def _render_metrics_block_html(
+    metrics: EvalReportMetrics | None,
+    *,
+    period_start: str = "",
+    period_end: str = "",
+) -> str:
     """Render trusted outcome counts and rates as an HTML table.
 
     Lives at the top of the email body so the reader sees the trusted numbers
     before reading the agent's analysis.
     """
+    if metrics is None:
+        period = f"{_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
+        notice = _inline_email_styles(f"<p><strong>{METRICS_UNAVAILABLE_MESSAGE}</strong></p>")
+        return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{notice}\n'
     period = f"{_format_period_for_display(metrics.period_start)} → {_format_period_for_display(metrics.period_end)}"
     outcome_labels = _OUTCOME_LABELS[metrics.output_type]
     headers = "".join(f"<th>{label}</th>" for _, label in outcome_labels)
@@ -203,8 +213,10 @@ def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
     return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{table}\n'
 
 
-def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
+def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict]:
     """Render the metrics block as a compact, output-type-neutral Slack dashboard."""
+    if metrics is None:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": METRICS_UNAVAILABLE_MESSAGE}}]
     outcome_lines = [
         f"{label}: {_format_outcome_value(metrics, outcome)}" for outcome, label in _OUTCOME_LABELS[metrics.output_type]
     ]
@@ -256,7 +268,7 @@ def deliver_email_report(
     errors: list[str] = []
 
     # Metrics block first, then each section
-    body_parts = [_render_metrics_block_html(content.metrics)]
+    body_parts = [_render_metrics_block_html(content.metrics, period_start=period_start, period_end=period_end)]
     for section in content.sections:
         body_parts.append(_render_section_html(section.title, section.content, project_id, citation_map))
     body_html = "\n".join(body_parts)

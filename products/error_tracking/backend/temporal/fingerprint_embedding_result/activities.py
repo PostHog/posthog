@@ -4,9 +4,6 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
-import posthoganalytics
-from temporalio import activity
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -16,7 +13,6 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.temporal.common.utils import close_db_connections
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.error_tracking.backend.models import (
@@ -310,16 +306,3 @@ def merge_similar_fingerprints(
             workflow_name=workflow_name,
         )
         raise
-
-
-@activity.defn
-@posthoganalytics.scoped()
-@close_db_connections
-def merge_similar_fingerprints_activity(
-    inputs: FingerprintEmbeddingResultInputs,
-) -> FingerprintEmbeddingMergeResult:
-    return merge_similar_fingerprints(
-        inputs,
-        activity_name="merge_similar_fingerprints_activity",
-        workflow_name="error-tracking-fingerprint-embedding-result",
-    )

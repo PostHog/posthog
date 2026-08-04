@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import NamedTuple, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
 
 class ResolvedSourceLocation(NamedTuple):

@@ -1,3 +1,4 @@
+use std::fs;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -9,12 +10,23 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:50053")]
     pub grpc_address: SocketAddr,
 
-    /// In-memory cache capacity in number of entries
-    #[envconfig(default = "100000")]
-    pub cache_memory_capacity: usize,
+    /// Per-partition person-cache capacity in bytes. Entries are weighed
+    /// by their approximate serialized size, so this bounds memory, not
+    /// entry count. Sized against full ownership: a lone survivor owns
+    /// every partition, so the worst-case cache footprint is this value
+    /// times the partition count — 16 MiB × 16 partitions = 256 MiB —
+    /// and in-memory size can run a small multiple of serialized weight
+    /// for key-dense documents.
+    #[envconfig(default = "16777216")]
+    pub cache_memory_capacity_bytes: usize,
 
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
+
+    /// Maximum concurrent partition warms. Warms are broker-bound reads
+    /// on MSK, so this can sit well above the S3-era default of 4.
+    #[envconfig(default = "8")]
+    pub warm_concurrency: usize,
 
     // ── gRPC server ──────────────────────────────────────────────
     /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
@@ -196,6 +208,14 @@ pub struct Config {
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
+    /// Table the fallback reads. Must be the table the writer maintains
+    /// (its PG_TARGET_TABLE): the dirty index treats an unmarked person's
+    /// PG row as current, which is only true of the writer's own target.
+    /// Prod pairs posthog_person on both sides; the dev validation stack
+    /// pairs personhog_person_tmp on both — flip them together at cutover.
+    #[envconfig(default = "posthog_person")]
+    pub fallback_table: String,
+
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,
 
@@ -214,6 +234,26 @@ pub struct Config {
     /// Pod name for etcd registration (typically set from K8s downward API)
     #[envconfig(default = "leader-0")]
     pub pod_name: String,
+
+    /// Pod IP from the K8s downward API (`status.podIP`), injected by the
+    /// chart. Used to derive the advertised gRPC address when binding a
+    /// wildcard. Unset in local runs, which bind a concrete address.
+    #[envconfig(default = "")]
+    pub pod_ip: String,
+
+    /// Enable K8s awareness: at startup the leader discovers its owning
+    /// controller (Deployment) and generation (pod-template-hash) and
+    /// registers them, so the coordinator can steer placement away from
+    /// old-generation pods during rollouts instead of handing partitions
+    /// to pods that are about to be replaced. Requires RBAC to read
+    /// pods, replicasets, and deployments in the pod's namespace.
+    #[envconfig(default = "false")]
+    pub k8s_awareness_enabled: bool,
+
+    /// Kubernetes namespace for controller discovery. If empty,
+    /// auto-reads from the service account mount.
+    #[envconfig(default = "")]
+    pub k8s_namespace: String,
 
     #[envconfig(default = "30")]
     pub lease_ttl: i64,
@@ -257,5 +297,65 @@ impl Config {
 
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
+    }
+
+    /// Resolve the K8s namespace from config or the service account mount.
+    pub fn resolve_k8s_namespace(&self) -> Result<String, String> {
+        if !self.k8s_namespace.is_empty() {
+            return Ok(self.k8s_namespace.clone());
+        }
+        fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+            .map(|s| s.trim().to_string())
+            .map_err(|e| {
+                format!("k8s_namespace not set and failed to read from service account: {e}")
+            })
+    }
+}
+
+/// Derive the `host:port` this leader should advertise for routing.
+///
+/// The advertised port is always the serving port (taken from the bind
+/// address), so it cannot drift from reality. The host is the bind host
+/// when it is concrete (local runs bind `127.0.0.1:<port>`), or POD_IP
+/// when binding a wildcard (deployments bind `0.0.0.0`). Wildcard with no
+/// POD_IP fails closed: a leader that cannot say where it is reachable
+/// must not register and claim partitions.
+pub fn derive_advertise_address(
+    grpc_address: &std::net::SocketAddr,
+    pod_ip: &str,
+) -> Result<String, String> {
+    if !grpc_address.ip().is_unspecified() {
+        return Ok(grpc_address.to_string());
+    }
+    if pod_ip.is_empty() {
+        return Err(format!(
+            "cannot derive an advertise address: GRPC_ADDRESS binds the wildcard \
+             {grpc_address} and POD_IP is not set — routers would have nowhere to dial"
+        ));
+    }
+    Ok(format!("{pod_ip}:{}", grpc_address.port()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_advertise_address;
+
+    #[test]
+    fn advertise_address_prefers_concrete_bind_and_requires_pod_ip_for_wildcards() {
+        let concrete = "127.0.0.1:50060".parse().unwrap();
+        assert_eq!(
+            derive_advertise_address(&concrete, "").unwrap(),
+            "127.0.0.1:50060"
+        );
+
+        let wildcard = "0.0.0.0:50053".parse().unwrap();
+        assert_eq!(
+            derive_advertise_address(&wildcard, "10.1.2.3").unwrap(),
+            "10.1.2.3:50053"
+        );
+        assert!(derive_advertise_address(&wildcard, "").is_err());
+
+        let wildcard6 = "[::]:50053".parse().unwrap();
+        assert!(derive_advertise_address(&wildcard6, "").is_err());
     }
 }

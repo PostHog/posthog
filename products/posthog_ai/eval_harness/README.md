@@ -3,9 +3,6 @@
 These evals run the real coding agent inside a real sandbox against a seeded Hedgebox project, then score what it did.
 Each eval case gets its own isolated org/team/user, so cases never see each other's state.
 
-The harness builds product skills from the current checkout and uses native bundled skills by default.
-`--skill-delivery exec` instead packages those skills for MCP distribution, enables the exec skill prompt, and removes native skills from every sandbox so the two paths cannot satisfy the same case.
-
 Unlike `ee/hogai/eval/ci/`, this tree does **not** run under pytest.
 It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, LLM gateway, MCP server, Temporal) and then runs every selected suite concurrently.
 See [`harness/README.md`](harness/README.md) for how that works internally.
@@ -63,46 +60,32 @@ python -m products.posthog_ai.eval_harness.harness --provider modal
 python -m products.posthog_ai.eval_harness.harness --list
 ```
 
-| Flag                              | Meaning                                                                          |
-| --------------------------------- | -------------------------------------------------------------------------------- |
-| `--eval <substr>`                 | Only run cases whose name contains the substring.                                |
-| `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                           |
-| `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                               |
-| `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
-| `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                               |
-| `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.    |
-| `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                    |
-| `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
-| `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
-| `--create-db`                     | Rebuild the eval test database instead of reusing it.                            |
-| `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.        |
-| `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
-| `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
-| `--list`                          | Print the discovered suite ids (with their kinds) and exit.                      |
+| Flag                             | Meaning                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `--eval <substr>`                | Only run cases whose name contains the substring.                                |
+| `--provider {docker,modal}`      | Where sandboxes run. Default `docker`.                                           |
+| `--max-sandboxes N`              | Cap concurrently live sandboxes across all suites.                               |
+| `--agent-model <model>`          | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
+| `--agent-runtime {claude,codex}` | Agent runtime serving the model. Default `claude`.                               |
+| `--reasoning-effort <effort>`    | Agent reasoning effort; valid values depend on runtime+model.                    |
+| `--keep-sandbox-containers`      | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
+| `--rebuild-sandbox-image`        | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
+| `--create-db`                    | Rebuild the eval test database instead of reusing it.                            |
+| `--case-timeout <seconds>`       | Agent-run budget (minimum 1 second), started after the case's team setup.        |
+| `--trials N`                     | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
+| `--fail-under <fraction>`        | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
+| `--list`                         | Print the discovered suite ids (with their kinds) and exit.                      |
 
-Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
+Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
-
-### Comparing skill delivery
-
-MCP instructions are configured once for the whole harness process, so bundled and exec skill delivery must run separately.
-Use the same suite, model, runtime, provider, case filter, and trial count in both commands:
-
-```bash
-hogli evals eval_skill_distribution --skill-delivery bundled --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
-hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
-```
-
-Both runs use the same six prompts and Braintrust history key.
-The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment records `agent_runtime`, `agent_model`, and `skill_delivery` in its metadata, so compare cross-run scores within one runtime and delivery mode.
+Experiment names don't change with the runtime — each Braintrust experiment records `agent_runtime` and `agent_model` in its metadata instead — so compare cross-run scores within one runtime.
 
 ## Providers
 
@@ -120,14 +103,14 @@ When npm is unreachable the check warns and reuses the existing image instead of
 (The modal DEBUG image is rebuilt by Modal whenever the Dockerfile or build context changes, but a new `@posthog/agent` publish alone does not invalidate it — a known limitation.)
 
 **modal** runs sandboxes remotely.
-Modal's network cannot reach `localhost`, so the harness starts ngrok tunnels itself and points the sandbox at the public URLs.
+Modal's network cannot reach `localhost`, so the harness exposes the host services via Tailscale Funnel itself and points the sandbox at the public URLs.
 Eval sandboxes run in the dedicated `posthog-sandbox-evals` Modal app, separate from production and local development sandboxes.
 The manual tunnel setup in [`docs/internal/sandboxes-setup-guide.md`](../../../../docs/internal/sandboxes-setup-guide.md) is therefore not needed for evals.
 The first modal run pays a one-time remote image build; later runs reuse the cached image until the skills or build context change.
 
 Modal prerequisites, all checked by preflight before anything boots:
 
-- `ngrok` on `PATH`, plus an authtoken (`NGROK_AUTHTOKEN`, or `ngrok config add-authtoken <token>`). Three simultaneous tunnels need a paid ngrok plan; Cloudflare Tunnel is the free alternative.
+- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the LLM gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
 - Modal credentials: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or a `~/.modal.toml` from `modal token new`.
 - `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`; the harness auto-loads it from `.env`.
 

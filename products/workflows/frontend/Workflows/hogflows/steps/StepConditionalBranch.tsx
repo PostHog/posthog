@@ -21,7 +21,7 @@ export function StepConditionalBranchConfiguration({
     node: Node<Extract<HogFlowAction, { type: 'conditional_branch' }>>
 }): JSX.Element {
     const action = node.data
-    const { conditions } = action.config
+    const conditions = action.config.conditions ?? []
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)

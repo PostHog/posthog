@@ -1,3 +1,4 @@
+mod attribution;
 mod error_status;
 mod fan_out;
 mod filtering;
@@ -19,11 +20,20 @@ use tracing::{debug, instrument, warn, Span};
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
+use crate::ingestion_warnings::otel::{
+    emit_no_ai_spans_warning, emit_otel_parse_warning, emit_span_cap_warning, SpanCapStage,
+};
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
 
+use self::attribution::otel_request_context;
+
 pub const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024; // 4MB
+
+/// Route this handler serves. Stamped onto warnings so a reader of the v2 table
+/// can tell which endpoint produced them.
+const OTEL_PATH: &str = "/i/v0/ai/otel";
 
 /// Maximum AI spans accepted after filtering. SDKs receive a 400 (non-retryable)
 /// if this is exceeded, so callers must batch sensibly.
@@ -65,7 +75,7 @@ pub async fn otel_handler(
         OTEL_BODY_SIZE,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
-        "/i/v0/ai/otel",
+        OTEL_PATH,
     )
     .await
     .map_err(|e| {
@@ -121,6 +131,14 @@ pub async fn otel_handler(
 
     let request = ingestion::parse_request(&body, &headers, OTEL_BODY_SIZE).map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_parsing");
+        // No parsed request to attribute from: the SDK identity lives inside the
+        // body we couldn't read.
+        emit_otel_parse_warning(
+            state.ingestion_warning_emitter.as_deref(),
+            &otel_request_context(token, OTEL_PATH, None),
+            &e,
+            format,
+        );
         e.into_response()
     })?;
 
@@ -139,6 +157,13 @@ pub async fn otel_handler(
             "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_SPANS_PER_REQUEST}"
         ));
         report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
+        emit_span_cap_warning(
+            state.ingestion_warning_emitter.as_deref(),
+            &otel_request_context(token, OTEL_PATH, Some(&request)),
+            SpanCapStage::Raw,
+            raw_span_count,
+            MAX_RAW_SPANS_PER_REQUEST,
+        );
         return Err(err.into_response());
     }
 
@@ -155,6 +180,15 @@ pub async fn otel_handler(
     }
 
     if span_count == 0 {
+        // Reached only with raw_span_count > 0 (the zero-span export returned
+        // above), so the customer sent spans and none of them landed. The OTLP
+        // contract has no way to say that in the response, which is why this
+        // 200 gets a warning and the mixed-batch case above does not.
+        emit_no_ai_spans_warning(
+            state.ingestion_warning_emitter.as_deref(),
+            &otel_request_context(token, OTEL_PATH, Some(&request)),
+            raw_span_count,
+        );
         counter!("capture_ai_otel_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
@@ -163,6 +197,13 @@ pub async fn otel_handler(
             "Too many AI spans: {span_count} exceeds limit of {MAX_SPANS_PER_REQUEST}"
         ));
         report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
+        emit_span_cap_warning(
+            state.ingestion_warning_emitter.as_deref(),
+            &otel_request_context(token, OTEL_PATH, Some(&request)),
+            SpanCapStage::Ai,
+            span_count,
+            MAX_SPANS_PER_REQUEST,
+        );
         return Err(err.into_response());
     }
 

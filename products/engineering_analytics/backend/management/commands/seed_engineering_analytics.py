@@ -26,6 +26,8 @@ Usage:
 
 import csv
 import json
+import zlib
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -45,7 +47,7 @@ from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
-from products.engineering_analytics.backend.logic.queries._test_spans import CI_SERVICE_NAME
+from products.engineering_analytics.backend.logic.queries._test_spans import PYTEST_CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
@@ -85,7 +87,8 @@ DEFAULT_PREFIX = "eng_analytics_seed"
 
 def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
     return {
-        **{key: pr[key] for key in PULL_REQUESTS_COLUMNS if key not in ("user", "head", "base", "labels", "draft")},
+        # .get() tolerates a pre-existing fixture captured before merge_commit_sha was kept.
+        **{key: pr.get(key) for key in PULL_REQUESTS_COLUMNS if key not in ("user", "head", "base", "labels", "draft")},
         "draft": int(bool(pr["draft"])),
         "user": json.dumps(pr["user"]),
         "head": json.dumps(pr["head"]),
@@ -94,14 +97,29 @@ def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _synthetic_repo_id(full_name: str) -> int:
+    """A stable stand-in for GitHub's numeric repo id, derived from ``owner/name``."""
+    return zlib.crc32(full_name.encode())
+
+
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     json_keys = ("repository", "pull_requests", "head_commit")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
+    # A run is attributed to a PR only when the PR's base repo id equals the run's own — that's what
+    # keeps the fork network's PRs out (see logic/views/workflow_runs). Snapshots captured before
+    # those ids were kept, and the synthetic demo rows below, carry neither, so stamp both ends with
+    # one synthetic id rather than seeding data that attributes nothing.
+    repository = {**run["repository"]}
+    repository.setdefault("id", _synthetic_repo_id(repository["full_name"]))
+    associations = [
+        {**pr, "base": {"repo": {"id": pr.get("base", {}).get("repo", {}).get("id", repository["id"])}}}
+        for pr in run.get("pull_requests") or []
+    ]
     return {
         # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
-        "repository": json.dumps(run["repository"]),
-        "pull_requests": json.dumps(run.get("pull_requests", [])),
+        "repository": json.dumps(repository),
+        "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
     }
 
@@ -217,9 +235,15 @@ _MASTER_WORKFLOWS = ("Backend CI", "Frontend CI", "Rust CI", "E2E Tests", "Lint"
 # Co-windowed with the merge spread: a day with merges but no seeded job cost would chart as $0/merge.
 _MASTER_DAYS = _MERGE_SPREAD_DAYS
 _MASTER_COMMITS_PER_DAY = 18
+# Each master push carries a downstream fork's open "sync from upstream" PR, because that is what
+# GitHub really sends: the association lists every PR in the fork network sharing the run's head SHA.
+# Seeding it keeps the demo honest about what a master run is never attributable by, which is the
+# association (SPEC §6, "two PR keys").
+_FORK_REPO_ID = 778592526
+_FORK_PR_NUMBER = 1379
 
 
-def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
+def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     def iso(dt: datetime) -> str:
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -231,6 +255,22 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
         age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
         commit_time = anchor - timedelta(minutes=age_minutes)
         sha = f"aa57e2{commit_index:04d}" + "e" * 30
+        # Cite a PR that is really in the seeded snapshot, so following the run's PR link lands on a
+        # PR page instead of dead-ending on "may not exist in the connected GitHub source". Cycling
+        # through the merged set is enough: the demo needs the link to resolve, not a faithful
+        # commit-to-merge history.
+        pr = merged_prs[commit_index % len(merged_prs)] if merged_prs else None
+        subject = f"feat: seeded master commit {commit_index}"
+        if pr is not None:
+            # The first commit to cite a PR owns its merge commit, so that run resolves through the
+            # merge_commit_sha join; later citations reuse the number and exercise the message
+            # fallback. Every tenth join-backed commit drops the (#NNNN) suffix too, seeding the
+            # merge-commit landing that only the join can attribute.
+            joins_via_merge_sha = not pr.get("merge_commit_sha")
+            if joins_via_merge_sha:
+                pr["merge_commit_sha"] = sha
+            if not (joins_via_merge_sha and commit_index % 10 == 3):
+                subject += f" (#{pr['number']})"
         red_commit = commit_index % 9 == 4  # an occasional broken master push
         cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
         for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
@@ -259,7 +299,11 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
                     "updated_at": iso(start) if running else iso(start + duration),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
-                    "pull_requests": [],
+                    "pull_requests": [{"number": _FORK_PR_NUMBER, "base": {"repo": {"id": _FORK_REPO_ID}}}],
+                    "head_commit": {
+                        "message": subject,
+                        "author": {"name": "PostHog Bot", "email": "bot@posthog.com"},
+                    },
                 }
             )
     return demo_runs
@@ -710,7 +754,7 @@ def _seed_trace_spans(team: Team) -> int:
                     rows.append(
                         f"('{_SPAN_TRACE_PREFIX}-{span_index:06d}', {team.pk}, "
                         f"'{_SPAN_TRACE_PREFIX}-trace-{span_index}', 'span-{span_index}', 'parent', "
-                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{CI_SERVICE_NAME}', "
+                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{PYTEST_CI_SERVICE_NAME}', "
                         f"map({', '.join(attr_pairs)}), map({', '.join(resource_pairs)}))"
                     )
 
@@ -889,7 +933,10 @@ class Command(BaseCommand):
         # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
         # every real duration to the baseline. PR-branch rows stay untouched.
         runs = [run for run in runs if run.get("head_branch") != "master"]
-        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs)))
+        # Passed as the PR rows, not just their numbers: seeding master stamps each cited PR's
+        # merge_commit_sha with the commit it landed, which is what the attribution join reads.
+        merged_prs = [pr for pr in prs if pr.get("merged_at")]
+        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_prs))
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)

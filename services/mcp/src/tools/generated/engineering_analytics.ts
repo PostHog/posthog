@@ -63,6 +63,7 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<typeof EngineeringAnalyticsF
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
                 repo: params.repo,
+                runner: params.runner,
                 source_id: params.source_id,
             },
         })

@@ -726,3 +726,61 @@ def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[s
     )
 
     return {row[0]: row[1] for row in (result.results or []) if row[0] and row[1]}
+
+
+def fetch_live_report_ids_for_source_ids(
+    team: Team, source_ids: list[str], source_product: str | None = None
+) -> dict[str, list[str]]:
+    """Map each `source_id` to every live report its signals grouped into, newest report first.
+
+    Sibling of `fetch_report_ids_for_source_ids`, which answers a different question: that one
+    collapses to the single latest report because a scout finding's re-emit is non-idempotent and
+    the older link is stale. A source record can legitimately produce several distinct signals over
+    time (a support ticket is re-snapshotted as its thread grows), and those can land in different
+    reports, so here every live link is a real answer rather than a stale one.
+
+    Dedup runs per `document_id` first, so each signal contributes its current report and deleted
+    state; only then are deleted and report-less signals dropped. Doing it in that order is what
+    keeps a superseded version of a signal from resurrecting an old link.
+    """
+    if not source_ids:
+        return {}
+
+    source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
+    product_filter = "AND source_product = {source_product}" if source_product is not None else ""
+    ch_query = f"""
+        SELECT source_id, groupArray(report_id) as report_ids
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'source_id') as source_id,
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'source_product') as source_product,
+                max(timestamp) as latest_timestamp
+            FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
+            GROUP BY source_id, report_id, is_deleted, source_product
+            ORDER BY latest_timestamp DESC
+        )
+        WHERE NOT is_deleted
+          AND source_id != ''
+          AND report_id != ''
+          {product_filter}
+        GROUP BY source_id
+    """
+
+    placeholders: dict[str, ast.Expr] = {
+        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+        "source_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in source_ids]),
+    }
+    if source_product is not None:
+        placeholders["source_product"] = ast.Constant(value=source_product)
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchLiveReportIdsForSourceIds",
+        query=ch_query,
+        team=team,
+        placeholders=placeholders,
+    )
+
+    return {row[0]: list(row[1]) for row in (result.results or []) if row[0] and row[1]}

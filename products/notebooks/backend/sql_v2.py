@@ -1,14 +1,14 @@
 """Helpers for the revamped-notebooks SQLV2 run flow (Journey 1).
 
 The backend dispatches a run to the in-sandbox kernel-server with a single HTTP
-POST (mirroring PostHog Code's agent-server). The kernel-server fetches the
+POST (mirroring PostHog Desktop's agent-server). The kernel-server fetches the
 node's capped result page from the data-plane endpoint (real ClickHouse data via
 HogQL) and POSTs the envelope back to the token-authed callback endpoint. The
 control plane (write_file / execute) is used only to deploy and launch the
 kernel-server package — never per run.
 
 The callback and data-plane tokens are stateless signed tokens for the slice;
-hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Code.
+hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Desktop.
 """
 
 import hmac

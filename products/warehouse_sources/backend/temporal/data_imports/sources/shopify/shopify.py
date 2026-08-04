@@ -9,9 +9,9 @@ from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
@@ -74,6 +74,18 @@ SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
     "Shopify returned 402 Payment Required — your Shopify store appears to be frozen due to "
     "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
     "the import will resume."
+)
+
+# 401 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint
+# above) — the token was accepted when minted but is no longer valid for the store, e.g. the
+# app was uninstalled or the token revoked mid-sync. Re-minting on retry can't fix that, so
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
+# per-store URL) to fail the job fast.
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
+    "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
+    "longer valid, likely because the app was uninstalled or access was revoked. Please "
+    "reconnect your Shopify integration."
 )
 
 

@@ -13,10 +13,10 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
-import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
+import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -88,16 +88,6 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 
 // ─── Resolver ───
 
-const SESSION_CONTEXT_KEYS = [
-    'mcpClientName',
-    'mcpClientVersion',
-    'mcpProtocolVersion',
-    'mcpConsumer',
-    'mcpVendorClient',
-] as const
-type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]
-type SessionContextCache = Pick<State, SessionContextKey>
-
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
@@ -112,12 +102,12 @@ export class RequestStateResolver {
     async resolve(props: RequestProperties): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
-        const sessionContext = await this.resolveSessionContext(reqCtx, requestContext)
-        const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
-
-        const context = await reqCtx.getContext()
 
         const { features, tools, organizationId, projectId, readOnly } = props
+        const contextPromise = reqCtx.getContext()
+        const pinnedSessionContextPromise = projectId
+            ? this.resolveSessionContext(requestContext, projectId)
+            : undefined
 
         await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
@@ -126,15 +116,20 @@ export class RequestStateResolver {
 
         let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
         if (!cachedProjectId) {
-            await context.stateManager.setDefaultOrganizationAndProject()
+            const contextForDefault = await contextPromise
+            await contextForDefault.stateManager.setDefaultOrganizationAndProject()
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
+        const [context, sessionContext] = await Promise.all([
+            contextPromise,
+            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext, cachedProjectId),
+        ])
+        const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+
         // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
         // section), not a tool, so the tool-definition scan can't discover it.
-        const allFlagKeys = [
-            ...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG]),
-        ]
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -235,32 +230,13 @@ export class RequestStateResolver {
     }
 
     private async resolveSessionContext(
-        reqCtx: RequestContext,
-        requestContext: MCPRequestContext
+        requestContext: MCPRequestContext,
+        projectId: string | undefined
     ): Promise<MCPSessionContext | null> {
         if (!requestContext.mcpSessionId) {
             return null
         }
-
-        const cachedEntries = await Promise.all(
-            SESSION_CONTEXT_KEYS.map(async (key) => [key, await reqCtx.sessionCache.get(key)] as const)
-        )
-        const cachedContext = Object.fromEntries(cachedEntries) as Partial<SessionContextCache>
-
-        const cacheUpdates: Partial<SessionContextCache> = {}
-        for (const key of SESSION_CONTEXT_KEYS) {
-            if (!cachedContext[key] && requestContext[key]) {
-                cacheUpdates[key] = requestContext[key]
-            }
-        }
-
-        if (Object.keys(cacheUpdates).length > 0) {
-            await reqCtx.sessionCache.setMany(cacheUpdates)
-        }
-
-        return Object.fromEntries(
-            SESSION_CONTEXT_KEYS.map((key) => [key, cachedContext[key] || requestContext[key] || undefined])
-        ) as MCPSessionContext
+        return new McpSessionRedisStore(this.redis, requestContext.mcpSessionId).resolve(requestContext, projectId)
     }
 
     private async resolveAllFlags(
@@ -272,9 +248,8 @@ export class RequestStateResolver {
             return {}
         }
         // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate (e.g. the agent-platform product DB) exist.
-        // The flags only hide those surfaces on prod until GA, so enable them all
-        // locally — the analytics flag-eval client is disabled in dev anyway.
+        // surfaces these flags gate exist. The flags only hide those surfaces on
+        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
         if (isLocalApi()) {
             return Object.fromEntries(flagKeys.map((key) => [key, true]))
         }

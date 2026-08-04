@@ -9,6 +9,9 @@ feature: managed_migrations
 url_prefix: /managed_migrations
 ui_apps: {}
 tools:
+    managed-migrations-aws-iam-setup-retrieve:
+        operation: managed_migrations_aws_iam_setup_retrieve
+        enabled: false
     managed-migrations-create:
         operation: managed_migrations_create
         enabled: false

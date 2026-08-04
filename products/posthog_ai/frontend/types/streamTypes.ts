@@ -2,7 +2,7 @@
  * Thread shapes for the sandbox agent runtime (`agent_runtime === 'sandbox'`).
  *
  * The sandbox path consumes the products/tasks SSE endpoint directly (the same endpoint
- * PostHog Code uses). `runStreamLogic` folds the raw wire frames (typed in
+ * PostHog Desktop uses). `runStreamLogic` folds the raw wire frames (typed in
  * `./wireTypes`) into `ToolInvocation` / `ThreadItem` stream state.
  */
 
