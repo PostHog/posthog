@@ -219,6 +219,17 @@ def _validate_payload_conditions(raw: Any) -> list[dict[str, Any]]:
             raise serializers.ValidationError(
                 {"filters": f"Payload condition path '{path}' must be dot-separated keys, like 'requested_team.slug'."}
             )
+        # Matching walks object keys only, so a list index would save fine and then never fire.
+        # Reject it here rather than let the trigger sit there silently doing nothing.
+        if any(segment.isdigit() for segment in segments):
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Payload condition path '{path}' indexes into a list. Conditions match object "
+                        "keys only, so this would never fire. To match labels, use the `labels` filter."
+                    )
+                }
+            )
 
         expected = condition.get("equals")
         values = [expected] if isinstance(expected, str) else expected

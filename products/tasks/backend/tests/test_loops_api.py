@@ -1072,6 +1072,8 @@ class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
             ("missing_path", {"payload": [{"equals": "team-security"}]}),
             ("empty_path", {"payload": [{"path": "  ", "equals": "team-security"}]}),
             ("path_with_empty_segment", {"payload": [{"path": "requested_team..slug", "equals": "x"}]}),
+            # Saves fine and then never fires: matching walks objects, not lists.
+            ("path_indexing_into_a_list", {"payload": [{"path": "pull_request.labels.0.name", "equals": "x"}]}),
             ("too_many_path_segments", {"payload": [{"path": ".".join("abcdefghi"), "equals": "x"}]}),
             ("missing_equals", {"payload": [{"path": "requested_team.slug"}]}),
             ("empty_equals", {"payload": [{"path": "requested_team.slug", "equals": []}]}),
