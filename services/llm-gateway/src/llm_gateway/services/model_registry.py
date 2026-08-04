@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, is_baseten_configured
+from llm_gateway.baseten import BASETEN_EXCLUSIVE_MODELS, is_baseten_configured
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
 from llm_gateway.modal import (
@@ -13,7 +13,7 @@ from llm_gateway.modal import (
     is_modal_configured,
     is_modal_model_configured,
 )
-from llm_gateway.products.config import get_product_config
+from llm_gateway.products.config import get_product_config, is_model_restricted_for_product
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 
@@ -24,7 +24,7 @@ from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostSer
 # and silently fall back to their default.
 _CLOUDFLARE_PROVIDER: Final[str] = "cloudflare"
 _CLOUDFLARE_DEFAULT_CONTEXT_WINDOW: Final[int] = 128_000
-_BASETEN_INTERNAL_PRODUCTS: Final[frozenset[str]] = frozenset({"review_hog"})
+_BASETEN_DEFAULT_CONTEXT_WINDOW: Final[int] = 1_048_000
 
 
 @dataclass(frozen=True)
@@ -161,16 +161,16 @@ class ModelRegistryService:
             model = self.get_model(model_id)
             if model is not None:
                 models.append(model)
-        if (
-            product in _BASETEN_INTERNAL_PRODUCTS
-            and is_baseten_configured(get_settings())
-            and (allowed_models is None or _model_matches_allowlist(BASETEN_DEEPSEEK_PUBLIC_MODEL, allowed_models))
-        ):
+        for model_id in BASETEN_EXCLUSIVE_MODELS:
+            if is_model_restricted_for_product(model_id, product) or not is_baseten_configured(get_settings()):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
             models.append(
                 ModelInfo(
-                    id=BASETEN_DEEPSEEK_PUBLIC_MODEL,
+                    id=model_id,
                     provider="baseten",
-                    context_window=1_048_000,
+                    context_window=_BASETEN_DEFAULT_CONTEXT_WINDOW,
                     supports_streaming=True,
                     supports_vision=False,
                 )
@@ -194,8 +194,8 @@ class ModelRegistryService:
         if _model_matches_allowlist(model_id, MODAL_ALLOWED_MODELS):
             return is_modal_model_configured(model_id, get_settings())
 
-        if model_id == BASETEN_DEEPSEEK_PUBLIC_MODEL:
-            return product in _BASETEN_INTERNAL_PRODUCTS and is_baseten_configured(get_settings())
+        if model_id in BASETEN_EXCLUSIVE_MODELS:
+            return not is_model_restricted_for_product(model_id, product) and is_baseten_configured(get_settings())
 
         model = self.get_model(model_id)
         if model is None:

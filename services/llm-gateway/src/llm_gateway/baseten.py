@@ -22,6 +22,8 @@ BASETEN_MODELS = {
     BASETEN_PUBLIC_MODEL: BASETEN_GLM_MODEL,
     BASETEN_DEEPSEEK_PUBLIC_MODEL: BASETEN_DEEPSEEK_MODEL,
 }
+# Models with no Cloudflare/Modal fallback — always routed to Baseten.
+BASETEN_EXCLUSIVE_MODELS: frozenset[str] = frozenset({BASETEN_DEEPSEEK_PUBLIC_MODEL})
 
 
 def is_baseten_configured(settings: Settings) -> bool:

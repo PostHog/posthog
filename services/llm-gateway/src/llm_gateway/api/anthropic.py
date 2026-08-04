@@ -20,7 +20,6 @@ from llm_gateway.api.handler import (
     handle_llm_request,
     normalize_litellm_model_name,
 )
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
 from llm_gateway.bedrock import (
     count_tokens_with_bedrock,
     count_tokens_with_bedrock_mantle,
@@ -36,7 +35,7 @@ from llm_gateway.cloudflare import (
 )
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
-from llm_gateway.inference_routing import send_inference_anthropic_messages
+from llm_gateway.inference_routing import is_inference_routed_model, send_inference_anthropic_messages
 from llm_gateway.metrics.prometheus import (
     ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
     BEDROCK_COUNT_TOKENS_ERRORS,
@@ -528,14 +527,13 @@ async def _handle_anthropic_messages(
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     # Models backed by our inference providers route by model id, just as the chat/completions and
-    # responses handlers do. The
-    # agent harness derives the provider header from the runtime (`claude`->anthropic,
-    # `codex`->openai) and never sends "cloudflare", so a claude-runtime scout on a CF-served model
-    # (e.g. GLM) arrives here as provider="anthropic". Without the id check it would fall through to
-    # the real Anthropic API and 404. Unlike the Responses path, this route serves tools fine:
-    # litellm's Anthropic->chat/completions adapter translates Anthropic tools into OpenAI function
-    # tools that both backends' OpenAI-compatible endpoints accept.
-    if provider == "cloudflare" or is_cloudflare_model(body.model) or body.model == BASETEN_DEEPSEEK_PUBLIC_MODEL:
+    # responses handlers do. The agent harness derives the provider header from the runtime
+    # (`claude`->anthropic, `codex`->openai) and never sends "cloudflare", so a claude-runtime scout
+    # on a CF-served model (e.g. GLM) arrives here as provider="anthropic". Without the id check it
+    # would fall through to the real Anthropic API and 404. Unlike the Responses path, this route
+    # serves tools fine: litellm's Anthropic->chat/completions adapter translates Anthropic tools
+    # into OpenAI function tools that both backends' OpenAI-compatible endpoints accept.
+    if provider == "cloudflare" or is_inference_routed_model(body.model):
         return await send_inference_anthropic_messages(data, user, body.stream or False, product)
 
     if is_modal_served_model(body.model):

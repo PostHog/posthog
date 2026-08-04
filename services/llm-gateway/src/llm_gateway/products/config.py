@@ -6,6 +6,7 @@ from typing import Final
 
 from fastapi import HTTPException
 
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
 from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
 
@@ -105,9 +106,10 @@ UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
 
 # Models reserved for a specific internal evaluation product must stay restricted even when a
 # product otherwise allows every model (`allowed_models=None`). This is an authorization boundary,
-# not merely a model-registry advertising filter.
-_RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
-    "deepseek-ai/deepseek-v4-flash-0731": frozenset({"review_hog"}),
+# not merely a model-registry advertising filter; the registry also derives its advertising from it
+# so the two can't drift. Keys must be lowercase.
+RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"review_hog"}),
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
@@ -448,6 +450,12 @@ def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
     return [m for m in model_ids if _model_matches_product_allowlist(m, free_models, settings=settings)]
 
 
+def is_model_restricted_for_product(model: str, product: str) -> bool:
+    """Whether `model` is reserved for other products — see RESTRICTED_MODEL_PRODUCTS."""
+    allowed_products = RESTRICTED_MODEL_PRODUCTS.get(model.lower())
+    return allowed_products is not None and resolve_product_alias(product) not in allowed_products
+
+
 def check_product_access(
     product: str,
     auth_method: str,
@@ -493,9 +501,8 @@ def check_product_access(
     ):
         return False, f"Product '{product}' requires a server-minted credential"
 
-    if model and (allowed_products := _RESTRICTED_MODEL_PRODUCTS.get(model.lower())):
-        if resolved_product not in allowed_products:
-            return False, f"Model '{model}' not allowed for product '{product}'"
+    if model and is_model_restricted_for_product(model, resolved_product):
+        return False, f"Model '{model}' not allowed for product '{product}'"
 
     if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(

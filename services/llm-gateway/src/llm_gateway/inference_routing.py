@@ -28,7 +28,7 @@ from llm_gateway.api.handler import (
 )
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.baseten import (
-    BASETEN_DEEPSEEK_PUBLIC_MODEL,
+    BASETEN_EXCLUSIVE_MODELS,
     BASETEN_PUBLIC_MODEL,
     ensure_baseten_configured,
     is_baseten_configured,
@@ -40,6 +40,7 @@ from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
     is_cloudflare_configured,
+    is_cloudflare_model,
     make_cloudflare_anthropic_call,
     make_cloudflare_completion_call,
     make_cloudflare_responses_call,
@@ -59,6 +60,11 @@ from llm_gateway.modal_routing import send_modal_request
 LlmCall = Callable[..., Awaitable[Any]]
 
 GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
+
+
+def is_inference_routed_model(model: str) -> bool:
+    """Whether this model id is served by the inference-routing layer rather than a native provider."""
+    return is_cloudflare_model(model) or model in BASETEN_EXCLUSIVE_MODELS
 
 
 def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:
@@ -87,7 +93,7 @@ async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, set
 async def _route_to_baseten(model: str, user: AuthenticatedUser, settings: Settings) -> bool:
     if not is_baseten_configured(settings):
         return False
-    if model == BASETEN_DEEPSEEK_PUBLIC_MODEL:
+    if model in BASETEN_EXCLUSIVE_MODELS:
         return True
     if model != BASETEN_PUBLIC_MODEL:
         return False
@@ -172,7 +178,7 @@ async def send_inference_anthropic_messages(
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
-    if request_data["model"] == BASETEN_PUBLIC_MODEL:
+    if request_data["model"] not in BASETEN_EXCLUSIVE_MODELS:
         request_data = normalize_glm_anthropic_request(request_data, product=product)
 
     return await _send_inference_request(

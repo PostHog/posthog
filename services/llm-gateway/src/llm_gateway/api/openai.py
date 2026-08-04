@@ -11,10 +11,12 @@ from llm_gateway.api.handler import (
     handle_llm_request,
     normalize_litellm_model_name,
 )
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
-from llm_gateway.cloudflare import is_cloudflare_model
 from llm_gateway.dependencies import RateLimitedUser
-from llm_gateway.inference_routing import send_inference_chat_completions, send_inference_responses
+from llm_gateway.inference_routing import (
+    is_inference_routed_model,
+    send_inference_chat_completions,
+    send_inference_responses,
+)
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.modal_routing import send_modal_chat_completions, send_modal_responses
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
@@ -39,7 +41,7 @@ async def _handle_chat_completions(
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
 
-    if is_cloudflare_model(body.model) or body.model == BASETEN_DEEPSEEK_PUBLIC_MODEL:
+    if is_inference_routed_model(body.model):
         return await send_inference_chat_completions(data, user, body.stream or False, product)
 
     if is_modal_served_model(body.model):
@@ -68,7 +70,7 @@ async def _handle_responses(
     """
     data = body.model_dump(exclude_none=True)
 
-    if is_cloudflare_model(body.model) or body.model == BASETEN_DEEPSEEK_PUBLIC_MODEL:
+    if is_inference_routed_model(body.model):
         # OpenAI-compatible backends can't use the native OpenAI Responses path below: it would prefix
         # `openai/` and call the real OpenAI Responses API. Route through the selected inference
         # provider's endpoint via litellm's Responses->chat/completions bridge instead (see
