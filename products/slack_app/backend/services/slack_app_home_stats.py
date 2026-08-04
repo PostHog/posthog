@@ -3,8 +3,12 @@
 This module is deliberately free of Block Kit: it answers "what did this workspace ship
 with @PostHog over the last N days" and returns plain dataclasses. The renderer in
 `slack_app_home.py` decides how much of that fits into Slack's chart and table limits,
-because those caps (12 pie segments, 20 chart points, 20-character labels) are
-presentation constraints rather than facts about the data.
+because caps like the 12 pie segments and 20-character labels are presentation
+constraints rather than facts about the data.
+
+Two caps are the exception and live here, because they change what gets *computed* rather
+than what gets drawn: `MAX_TREND_POINTS` picks daily-vs-weekly bucketing, and
+`_MAX_PEOPLE_ROWS` bounds the leaderboard so the cached aggregate stays small.
 
 Everything is scoped to the tasks a Slack workspace started *and* the caller can already
 see: the mapping query filters on `team_id__in=accessible_team_ids`, which the caller
@@ -47,9 +51,10 @@ STATS_MAX_TASKS = 2000
 # so the same aggregate is recomputed far more often than the underlying data changes.
 _STATS_CACHE_TTL_SECONDS = 300
 
-# Below this the trend is bucketed by day; at or above it, by week. Keeps every window
-# under Slack's 20-points-per-series cap while still giving a 7-day window daily detail.
-_DAILY_BUCKET_MAX_DAYS = 20
+# Slack rejects a chart series carrying more than 20 points. The trend is bucketed by day
+# while a window fits under that, and by week beyond it, so the cap is enforced where the
+# buckets are chosen rather than by truncating a too-long series at render time.
+MAX_TREND_POINTS = 20
 
 # The leaderboard is a top-N, not a directory — bounding it here also keeps the cached
 # aggregate small on workspaces with hundreds of people.
@@ -61,6 +66,14 @@ OUTCOME_FAILED = "Failed"
 OUTCOME_CANCELLED = "Cancelled"
 OUTCOME_RUNNING = "In progress"
 _OUTCOME_ORDER: tuple[str, ...] = (OUTCOME_DONE, OUTCOME_FAILED, OUTCOME_CANCELLED, OUTCOME_RUNNING)
+
+# Terminal run statuses get their own bucket; everything else — including a task with no
+# run row yet — is still in flight.
+_TERMINAL_OUTCOMES: dict[str, str] = {
+    "completed": OUTCOME_DONE,
+    "failed": OUTCOME_FAILED,
+    "cancelled": OUTCOME_CANCELLED,
+}
 
 
 @dataclass(frozen=True)
@@ -106,9 +119,9 @@ class PersonRow:
 class StatsState:
     """Everything the stats card renders, already aggregated.
 
-    ``tasks_with_pr`` counts tasks whose latest PR-bearing run produced a pull request,
-    matching how ``tasks_merged`` is counted, so the two describe the same runs and the
-    merge rate between them is meaningful.
+    ``tasks_with_pr`` and ``tasks_merged`` are both counted off each task's latest
+    *PR-bearing* run, so they describe the same runs and the merge rate between them
+    cannot exceed 100%.
     """
 
     window_days: int = DEFAULT_STATS_WINDOW_DAYS
@@ -143,7 +156,7 @@ def coerce_window_days(raw: str | int | None) -> int:
     return days if days in _VALID_WINDOW_DAYS else DEFAULT_STATS_WINDOW_DAYS
 
 
-def resolve_stats_state(
+def build_stats_state(
     *,
     slack_workspace_id: str,
     accessible_team_ids: Iterable[int],
@@ -160,21 +173,16 @@ def resolve_stats_state(
         return StatsState(window_days=window_days)
 
     cache_key = _cache_key(slack_workspace_id, team_ids, window_days)
-    if not force_refresh:
-        cached = cache.get(cache_key)
-        if isinstance(cached, StatsState):
-            return cached
+    cached = _cache_get(cache_key) if not force_refresh else None
+    if cached is not None:
+        return cached
 
     state = _compute_stats_state(
         slack_workspace_id=slack_workspace_id,
         team_ids=team_ids,
         window_days=window_days,
     )
-    try:
-        cache.set(cache_key, state, _STATS_CACHE_TTL_SECONDS)
-    except Exception:
-        # A cache backend outage should slow the Home tab down, not break it.
-        logger.warning("slack_app_home_stats_cache_write_failed", slack_workspace_id=slack_workspace_id)
+    _cache_set(cache_key, state)
     return state
 
 
@@ -183,12 +191,31 @@ def _cache_key(slack_workspace_id: str, team_ids: list[int], window_days: int) -
     return f"slack_app_home_stats:{slack_workspace_id}:{window_days}:{teams}"
 
 
+def _cache_get(cache_key: str) -> StatsState | None:
+    # A cache backend outage should slow the Home tab down, not make the card vanish, so
+    # both sides of the cache swallow their errors.
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        logger.warning("slack_app_home_stats_cache_read_failed", cache_key=cache_key)
+        return None
+    return cached if isinstance(cached, StatsState) else None
+
+
+def _cache_set(cache_key: str, state: StatsState) -> None:
+    try:
+        cache.set(cache_key, state, _STATS_CACHE_TTL_SECONDS)
+    except Exception:
+        logger.warning("slack_app_home_stats_cache_write_failed", cache_key=cache_key)
+
+
 def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window_days: int) -> StatsState:
     # Deferred to keep the tasks facade off this module's import path, matching how the
     # rest of the Home tab reaches it.
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
     now = django_timezone.now()
+    refreshed_at_epoch = int(now.timestamp())
     cutoff = now - timedelta(days=window_days)
 
     # One extra row tells us the cap was hit without a second COUNT query.
@@ -204,7 +231,7 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
     truncated = len(rows) > STATS_MAX_TASKS
     rows = rows[:STATS_MAX_TASKS]
     if not rows:
-        return StatsState(window_days=window_days, refreshed_at_epoch=int(now.timestamp()))
+        return StatsState(window_days=window_days, refreshed_at_epoch=refreshed_at_epoch)
 
     # A task is mapped once per thread, but dedupe anyway so a task can't be double-counted.
     first_row_by_task: dict[str, Mapping[str, Any]] = {}
@@ -213,6 +240,10 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
 
     task_ids = list(first_row_by_task)
     runs_by_task = tasks_facade.get_latest_run_by_task(task_ids)
+    # `get_latest_pr_url_by_task` and `get_merged_pr_task_ids` resolve the same run for a
+    # given task, so "opened a PR" and "merged" always describe one run. The latest run
+    # overall — which carries the status and model — may well be a later, PR-less one.
+    pr_urls_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids)
     merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids)
 
     outcome_counts: dict[str, int] = defaultdict(int)
@@ -223,7 +254,7 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
     merged_by_bucket: dict[date, int] = defaultdict(int)
     tasks_with_pr = 0
 
-    bucket_by_week = window_days >= _DAILY_BUCKET_MAX_DAYS
+    bucket_by_week = window_days > MAX_TREND_POINTS
 
     for task_id, mapping_row in first_row_by_task.items():
         run = runs_by_task.get(task_id)
@@ -239,8 +270,7 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
 
         tasks_by_person[person] += 1
 
-        has_pr = bool(run and run.pr_url)
-        if has_pr:
+        if task_id in pr_urls_by_task:
             tasks_with_pr += 1
             opened_by_bucket[bucket] += 1
         if task_id in merged_task_ids:
@@ -268,7 +298,7 @@ def _compute_stats_state(*, slack_workspace_id: str, team_ids: list[int], window
         ),
         people=_build_people(tasks_by_person, merged_by_person, slack_workspace_id),
         truncated=truncated,
-        refreshed_at_epoch=int(now.timestamp()),
+        refreshed_at_epoch=refreshed_at_epoch,
     )
 
 
@@ -279,21 +309,13 @@ def _outcome_label(status: str | None) -> str:
     every task started in the window has to land in exactly one bucket for the outcome
     counts to add up to the headline total.
     """
-    if status == "completed":
-        return OUTCOME_DONE
-    if status == "failed":
-        return OUTCOME_FAILED
-    if status == "cancelled":
-        return OUTCOME_CANCELLED
-    return OUTCOME_RUNNING
+    return _TERMINAL_OUTCOMES.get(status or "", OUTCOME_RUNNING)
 
 
-def _bucket_start(when: datetime | None, *, by_week: bool) -> date:
+def _bucket_start(when: datetime, *, by_week: bool) -> date:
     """The day, or the Monday of the week, a task belongs to."""
-    day = (when or django_timezone.now()).date()
-    if not by_week:
-        return day
-    return day - timedelta(days=day.weekday())
+    day = when.date()
+    return day - timedelta(days=day.weekday()) if by_week else day
 
 
 def _build_trend(
@@ -341,12 +363,14 @@ def _build_people(
 
     # The cache is per-integration and a workspace can be connected to several projects,
     # so match on the workspace and keep the first profile found for each Slack user.
+    # Name precedence matches `slack_messages`, so one person reads the same on the
+    # leaderboard as in forwarded thread context.
     names: dict[str, str] = {}
     for profile in SlackUserProfileCache.objects.filter(
         integration__integration_id=slack_workspace_id,
         slack_user_id__in=slack_user_ids,
     ).values("slack_user_id", "real_name", "display_name"):
-        name = profile["real_name"] or profile["display_name"]
+        name = profile["display_name"] or profile["real_name"]
         if name:
             names.setdefault(profile["slack_user_id"], name)
 

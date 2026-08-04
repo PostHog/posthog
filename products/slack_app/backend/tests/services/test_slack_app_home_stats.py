@@ -21,8 +21,8 @@ from products.slack_app.backend.services.slack_app_home_stats import (
     PersonRow,
     StatsState,
     TrendBucket,
+    build_stats_state,
     coerce_window_days,
-    resolve_stats_state,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
 
@@ -200,17 +200,15 @@ class TestStatsCardRendering:
         pie = next(c for c in _blocks_of_type(view, "data_visualization") if c["chart"]["type"] == "pie")
         assert all(len(s["label"]) <= MAX_LABEL_CHARS for s in pie["chart"]["segments"])
 
-    def test_trend_chart_is_capped_to_the_slack_point_limit(self):
-        trend = tuple(TrendBucket(label=f"Day {i:02d}", opened=1, merged=1) for i in range(40))
-        view = _render(StatsState(tasks_started=40, tasks_with_pr=40, trend=trend))
+    def test_every_trend_series_carries_a_point_per_axis_category(self):
+        trend = tuple(TrendBucket(label=f"Day {i:02d}", opened=1, merged=1) for i in range(4))
+        view = _render(StatsState(tasks_started=4, tasks_with_pr=4, trend=trend))
 
         bar = next(c for c in _blocks_of_type(view, "data_visualization") if c["chart"]["type"] == "bar")
         categories = bar["chart"]["axis_config"]["categories"]
 
-        assert len(categories) <= MAX_CHART_POINTS
         for series in bar["chart"]["series"]:
-            assert len(series["data"]) == len(categories)
-            # Slack requires every series to carry a point for each axis category.
+            # Slack rejects a series that skips any axis category.
             assert [p["label"] for p in series["data"]] == categories
 
     def test_trend_chart_omitted_when_the_window_produced_no_prs(self):
@@ -237,18 +235,47 @@ class TestResolveStatsState:
         _mk_task_with_run(team=team, integration=slack_integration, thread_ts="1.2", pr_url="u/2", pr_merged=False)
         _mk_task_with_run(team=team, integration=slack_integration, thread_ts="1.3", pr_url=None)
 
-        state = resolve_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
 
         assert state.tasks_started == 3
         assert state.tasks_with_pr == 2
         assert state.tasks_merged == 1
         assert state.merge_rate_percent == 50
 
+    def test_merge_rate_survives_a_later_run_that_produced_no_pr(self, slack_integration):
+        team = slack_integration.team
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        mapping = _mk_task_with_run(
+            team=team, integration=slack_integration, pr_url="u/1", pr_merged=True, status="completed"
+        )
+        # A follow-up run on the same task that never opened a PR. Counting "opened a PR"
+        # off the latest run of any kind would drop this task from the denominator while
+        # the merge helper still counts it, pushing the rate above 100%.
+        TaskRun.objects.create(team=team, task=mapping.task, status="failed", output={}, state={})
+
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
+
+        assert state.tasks_with_pr == 1
+        assert state.tasks_merged == 1
+        assert state.merge_rate_percent == 100
+
+    def test_model_usage_is_aggregated_from_the_latest_run_state(self, slack_integration):
+        team = slack_integration.team
+        for index, model in enumerate(["claude-opus-5", "claude-opus-5", "gpt-5-codex"]):
+            _mk_task_with_run(team=team, integration=slack_integration, thread_ts=f"1.{index}", model=model)
+
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
+
+        assert [(usage.model, usage.value) for usage in state.models] == [
+            ("claude-opus-5", 2),
+            ("gpt-5-codex", 1),
+        ]
+
     def test_merge_rate_is_none_when_nothing_opened_a_pr(self, slack_integration):
         team = slack_integration.team
         _mk_task_with_run(team=team, integration=slack_integration, pr_url=None)
 
-        state = resolve_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
 
         assert state.tasks_with_pr == 0
         assert state.merge_rate_percent is None
@@ -265,7 +292,7 @@ class TestResolveStatsState:
         _mk_task_with_run(team=slack_integration.team, integration=slack_integration, thread_ts="1.1")
         _mk_task_with_run(team=other_team, integration=other_integration, thread_ts="2.1", channel="C2")
 
-        state = resolve_stats_state(
+        state = build_stats_state(
             slack_workspace_id=WORKSPACE,
             accessible_team_ids={slack_integration.team_id},
         )
@@ -282,21 +309,16 @@ class TestResolveStatsState:
             created_at=timezone.now() - timedelta(days=45),
         )
 
-        state = resolve_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id}, window_days=30)
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id}, window_days=30)
 
         assert state.tasks_started == 1
 
-    @pytest.mark.parametrize("window_days", [7, 30, 90])
-    def test_every_started_task_lands_in_exactly_one_outcome_bucket(self, slack_integration, window_days):
+    def test_every_started_task_lands_in_exactly_one_outcome_bucket(self, slack_integration):
         team = slack_integration.team
         for index, status in enumerate(["completed", "failed", "cancelled", "in_progress", "queued"]):
             _mk_task_with_run(team=team, integration=slack_integration, thread_ts=f"1.{index}", status=status)
 
-        state = resolve_stats_state(
-            slack_workspace_id=WORKSPACE,
-            accessible_team_ids={team.id},
-            window_days=window_days,
-        )
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
 
         assert sum(outcome.value for outcome in state.outcomes) == state.tasks_started
 
@@ -305,7 +327,7 @@ class TestResolveStatsState:
         team = slack_integration.team
         _mk_task_with_run(team=team, integration=slack_integration, pr_url="u/1", pr_merged=True)
 
-        state = resolve_stats_state(
+        state = build_stats_state(
             slack_workspace_id=WORKSPACE,
             accessible_team_ids={team.id},
             window_days=window_days,
@@ -323,7 +345,7 @@ class TestResolveStatsState:
         _mk_task_with_run(team=team, integration=slack_integration, thread_ts="1.1", pr_url="u/1", pr_merged=True)
         _mk_task_with_run(team=team, integration=slack_integration, thread_ts="1.2", slack_user_id="U_UNKNOWN")
 
-        state = resolve_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids={team.id})
 
         by_name = {person.name: person for person in state.people}
         assert by_name["Vojta Bartos"].tasks == 1
@@ -334,29 +356,35 @@ class TestResolveStatsState:
     def test_no_accessible_teams_yields_an_empty_card(self, slack_integration):
         _mk_task_with_run(team=slack_integration.team, integration=slack_integration)
 
-        state = resolve_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids=set())
+        state = build_stats_state(slack_workspace_id=WORKSPACE, accessible_team_ids=set())
 
         assert not state.has_data
 
 
 class TestStatsCardGating:
-    def _published_view(self, mock_slack_client) -> dict:
-        handle_app_home_opened({"user": SLACK_USER}, WORKSPACE)
-        return mock_slack_client.views_publish.call_args.kwargs["view"]
-
-    def test_admin_sees_the_card(self, slack_integration, mock_slack_client, flag_on, admin_user):
-        assert "Workspace activity" in str(self._published_view(mock_slack_client))
-
-    def test_non_admins_never_see_the_card(self, slack_integration, mock_slack_client, flag_on):
-        with patch(
-            "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
-            return_value=False,
+    @pytest.mark.parametrize(
+        "is_admin, stats_flag_on, expected_visible",
+        [
+            (True, True, True),
+            (False, True, False),
+            (True, False, False),
+            (False, False, False),
+        ],
+    )
+    def test_card_needs_both_admin_and_its_own_flag(
+        self, slack_integration, mock_slack_client, flag_on, is_admin, stats_flag_on, expected_visible
+    ):
+        with (
+            patch(
+                "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
+                return_value=is_admin,
+            ),
+            patch(
+                "products.slack_app.backend.services.slack_app_home.is_slack_app_home_stats_enabled",
+                return_value=stats_flag_on,
+            ),
         ):
-            assert "Workspace activity" not in str(self._published_view(mock_slack_client))
+            handle_app_home_opened({"user": SLACK_USER}, WORKSPACE)
 
-    def test_card_is_dark_when_its_own_flag_is_off(self, slack_integration, mock_slack_client, flag_on, admin_user):
-        with patch(
-            "products.slack_app.backend.services.slack_app_home.is_slack_app_home_stats_enabled",
-            return_value=False,
-        ):
-            assert "Workspace activity" not in str(self._published_view(mock_slack_client))
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        assert ("Workspace activity" in str(view)) is expected_visible

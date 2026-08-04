@@ -15,6 +15,10 @@ class Migration(migrations.Migration):
     operations = [
         SafeAddIndexConcurrently(
             model_name="slackthreadtaskmapping",
-            index=models.Index(fields=["slack_workspace_id", "created_at"], name="slack_thr_map_ws_created_idx"),
+            index=models.Index(
+                fields=["slack_workspace_id", "created_at"],
+                include=["team_id"],
+                name="slack_thr_map_ws_created_idx",
+            ),
         ),
     ]
