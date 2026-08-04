@@ -167,6 +167,20 @@ class TestButtondownTransport:
 
         assert not [key for key in wired.params[0] if key.endswith("__start")]
 
+    @pytest.mark.parametrize("endpoint", ["subscribers", "emails", "survey_responses"])
+    @pytest.mark.parametrize("watermark", [None, "not-a-date"], ids=["missing", "unparseable"])
+    def test_incremental_without_a_usable_watermark_sends_no_date_filter(self, endpoint: str, watermark: Any) -> None:
+        # The first incremental run has no stored cursor, and a bad cursor converts to None. Either
+        # way the filter must be dropped so the request backfills instead of asking for `__start=None`.
+        _, wired, _, _ = _run(
+            endpoint,
+            [_response([{"id": "a"}])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert not [key for key in wired.params[0] if key.endswith("__start")]
+
     @pytest.mark.parametrize("endpoint", sorted(BUTTONDOWN_ENDPOINTS))
     def test_ordering_param_matches_the_endpoint_config(self, endpoint: str) -> None:
         config = BUTTONDOWN_ENDPOINTS[endpoint]
