@@ -455,6 +455,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
         },
+        "$conversation_private_message_sent": {
+            "label": "Conversation private message sent",
+            "description": "Fires when a team member sends a private note in a support conversation.",
+        },
         "$conversation_message_received": {
             "label": "Conversation message received",
             "description": "Fires when a message is received in a support conversation.",
