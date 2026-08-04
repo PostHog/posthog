@@ -14,8 +14,9 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -32,7 +33,24 @@ from products.workflows.backend.api.hog_flow import (
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
+from ee.models.rbac.access_control import AccessControl
+
 webhook_template = MOCK_NODE_TEMPLATES[0]
+
+
+class _StubAccountAudienceProvider:
+    def __init__(self, group_type: str | None):
+        self.group_type = group_type
+
+    def count_accounts(self, team, filters) -> int:
+        return 0
+
+    def list_account_external_ids(self, team, filters, *, cursor, limit) -> list[str]:
+        return []
+
+    def get_account_group_type_name(self, team) -> str | None:
+        return self.group_type
+
 
 _REVISIONS_FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_revisions"
 _SECRET_TEMPLATE_ID = "template-secret-webhook"
@@ -2116,6 +2134,169 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
+
+    def _post_batch_flow(self, filters: dict, status: str = "active"):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "batch", "filters": filters},
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+    def _account_audience_provider(self, group_type: str | None = "account"):
+        return patch(
+            "products.workflows.backend.services.account_audience._provider",
+            _StubAccountAudienceProvider(group_type),
+        )
+
+    def test_hog_flow_batch_trigger_accounts_audience_saves(self):
+        with self._account_audience_provider():
+            response = self._post_batch_flow(
+                {
+                    "audience_type": "accounts",
+                    "properties": [
+                        {
+                            "key": "7b0d4a12-8f0e-4c39-9a5f-52dd8f2f7a11",
+                            "type": "account_custom_property",
+                            "operator": "exact",
+                            "value": ["Enterprise"],
+                        }
+                    ],
+                    "tag_names": ["vip"],
+                }
+            )
+        assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            ("person_property", [{"key": "email", "type": "person", "operator": "icontains", "value": "@x.com"}]),
+            ("cohort", [{"key": "id", "type": "cohort", "value": 1, "operator": "in"}]),
+        ]
+    )
+    def test_hog_flow_batch_trigger_accounts_audience_rejects_non_account_filters(self, _name, properties):
+        with self._account_audience_provider():
+            response = self._post_batch_flow({"audience_type": "accounts", "properties": properties})
+        assert response.status_code == 400, response.json()
+        assert "account custom property" in response.json()["detail"]
+
+    def test_hog_flow_batch_trigger_accounts_audience_rejects_event_filters(self):
+        with self._account_audience_provider():
+            response = self._post_batch_flow(
+                {"audience_type": "accounts", "properties": [], "events": [{"id": "$pageview", "type": "events"}]}
+            )
+        assert response.status_code == 400, response.json()
+        assert "event" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_accounts_audience_requires_configured_group_type(self):
+        with self._account_audience_provider(group_type=None):
+            response = self._post_batch_flow({"audience_type": "accounts", "properties": []})
+        assert response.status_code == 400, response.json()
+        assert "account group type" in response.json()["detail"]
+
+    def test_hog_flow_batch_trigger_accounts_audience_requires_account_access(self):
+        # Resolution runs under a service principal, so authoring is where account access is enforced.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        # Resource-level checks on "account" resolve through its parent resource.
+        AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
+
+        with self._account_audience_provider():
+            response = self._post_batch_flow({"audience_type": "accounts", "properties": []})
+        assert response.status_code == 400, response.json()
+        assert "access" in response.json()["detail"]
+
+    def test_hog_flow_batch_trigger_rejects_unknown_audience_type(self):
+        response = self._post_batch_flow({"audience_type": "bogus", "properties": []})
+        assert response.status_code == 400, response.json()
+        assert "audience_type" in json.dumps(response.json())
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_pages_accounts(self):
+        with (
+            self._account_audience_provider(),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_account_audience_page", return_value=["a1", "a2"]
+            ) as mock_page,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                {"filters": {"audience_type": "accounts", "properties": []}, "cursor": "a0"},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {
+            "accounts": ["a1", "a2"],
+            "cursor": "a2",
+            "has_more": False,
+            "group_type": "account",
+        }
+        mock_page.assert_called_once()
+
+    def test_internal_account_audience_requires_internal_secret(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+            {"filters": {"audience_type": "accounts"}},
+            format="json",
+        )
+        assert response.status_code in (401, 403), response.content
+
+    @parameterized.expand(
+        [
+            ("persons_filters", {"filters": {"properties": []}}),
+            ("missing_filters", {}),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_rejects_non_account_filters(self, _name, body):
+        with self._account_audience_provider():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                body,
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+        assert response.status_code == 400, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_requires_configured_group_type(self):
+        with self._account_audience_provider(group_type=None):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                {"filters": {"audience_type": "accounts", "properties": []}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+        assert response.status_code == 400, response.json()
+
+    def test_user_blast_radius_accounts_audience_counts_accounts(self):
+        with (
+            self._account_audience_provider(),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_account_audience_count", side_effect=[3, 10]
+            ) as mock_count,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"audience_type": "accounts", "properties": []}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["affected"] == 3
+        assert data["total"] == 10
+        assert data["dedupe_key"] is None
+        assert data["confirm_token"]
+        assert mock_count.call_count == 2
 
     def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None) -> Cohort:
         if behavioral:
