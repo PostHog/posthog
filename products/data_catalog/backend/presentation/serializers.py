@@ -188,6 +188,11 @@ class CertificationSerializer(serializers.ModelSerializer):
     status = serializers.CharField(
         read_only=True, help_text="proposed, certified (prefer this source), or deprecated (avoid this source)."
     )
+    proposed_status = serializers.CharField(
+        read_only=True,
+        help_text="The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' "
+        "(avoid this source). Informational once the mark is settled.",
+    )
     target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
     target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
     certified_by = UserBasicSerializer(
@@ -203,6 +208,7 @@ class CertificationSerializer(serializers.ModelSerializer):
             "target_type",
             "target_name",
             "status",
+            "proposed_status",
             "notes",
             "certified_by",
             "certified_at",
@@ -214,6 +220,7 @@ class CertificationSerializer(serializers.ModelSerializer):
             "table",
             "saved_query",
             "status",
+            "proposed_status",
             "certified_by",
             "certified_at",
             "created_by",
@@ -240,6 +247,13 @@ class CertificationCreateSerializer(serializers.Serializer):
     table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
     view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")
+    proposed_status = serializers.ChoiceField(
+        choices=["certified", "deprecated"],
+        required=False,
+        default="certified",
+        help_text="Intent of the proposal: 'certified' to propose trusting this source, "
+        "'deprecated' to propose avoiding it (e.g. a stale or wrong source).",
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogRelationshipProposal")
