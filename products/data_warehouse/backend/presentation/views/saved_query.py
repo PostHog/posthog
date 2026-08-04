@@ -1241,11 +1241,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
 
-        from products.data_modeling.backend.facade.api import default_frequency_target
-
-        sync_frequency_interval = default_frequency_target(
-            saved_query, sync_frequency_to_sync_frequency_interval("24hour")
-        )
+        sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
 
         should_unpause = saved_query.sync_frequency_interval is None
         previous_interval = saved_query.sync_frequency_interval

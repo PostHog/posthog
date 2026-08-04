@@ -276,41 +276,6 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query.is_materialized is False
         assert saved_query.sync_frequency_interval is None
 
-    def test_materialize_uses_a_cadence_the_nodes_bounds_allow(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
-                },
-            },
-        )
-        assert response.status_code == 201
-        saved_query_id = response.data["id"]
-
-        # A downstream consumer needing 15min data caps this view at 15min, so the hardcoded
-        # 24h default would be rejected and the view could never be materialized from this action.
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.default_frequency_target",
-                return_value=timedelta(minutes=15),
-            ),
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
-            )
-
-        assert response.status_code == 200
-        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-        assert saved_query.sync_frequency_interval == timedelta(minutes=15)
-
     def test_materialize_action_with_managed_viewset_fails(self):
         """Test that materializing a managed viewset query fails"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
