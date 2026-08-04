@@ -1638,9 +1638,17 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
+    # updated_at is auto_now, which QuerySet.update() skips, so it has to be set by hand here to
+    # stay in step with last_run_at.
+    cancelled_at = dt.datetime.now(dt.UTC)
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED, rows_materialized=0, last_run_at=dt.datetime.now(dt.UTC))
+    )(
+        status=DataModelingJob.Status.CANCELLED,
+        rows_materialized=0,
+        last_run_at=cancelled_at,
+        updated_at=cancelled_at,
+    )
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )
