@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -12,6 +13,20 @@ from products.workflows.backend.services.batch_audience import (
 )
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
+
+COOLDOWN_PROPERTY = "last_workflow_email_sent_at"
+
+
+def _cooldown_filters(properties_operator: str | None) -> dict:
+    filters: dict = {
+        "properties": [
+            {"key": COOLDOWN_PROPERTY, "type": "person", "operator": "is_not_set", "value": "is_not_set"},
+            {"key": COOLDOWN_PROPERTY, "type": "person", "operator": "is_date_before", "value": "-2d"},
+        ]
+    }
+    if properties_operator is not None:
+        filters["properties_operator"] = properties_operator
+    return filters
 
 
 def _uuid(index: int) -> str:
@@ -90,6 +105,34 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 cursor = page[-1]
 
         assert collected == [_uuid(i) for i in expected_indices]
+
+    @parameterized.expand(
+        [
+            ("defaults_to_matching_every_condition", None, []),
+            ("explicit_and_matches_every_condition", "AND", []),
+            ("or_matches_either_condition", "OR", [1, 2]),
+        ]
+    )
+    def test_properties_operator_joins_audience_conditions(self, _name, properties_operator, expected_indices):
+        # An email cooldown reads "never emailed OR last emailed before the cooldown". Both conditions
+        # sit on one property, so AND can never match anyone: an unset value can't also be a date in
+        # the past. Only the OR join returns the two people who are eligible to be emailed.
+        for i, sent_at in enumerate([None, "2026-01-01T00:00:00Z", "2026-01-10T00:00:00Z"], start=1):
+            properties = {"email": f"user-{i}@x.com"}
+            if sent_at is not None:
+                properties[COOLDOWN_PROPERTY] = sent_at
+            _create_person(team=self.team, distinct_ids=[f"user-{i}"], uuid=_uuid(i), properties=properties)
+        flush_persons_and_events()
+
+        filters = _cooldown_filters(properties_operator)
+        with freeze_time("2026-01-10T12:00:00Z"):
+            person_ids = get_batch_audience_person_ids(self.team, filters, dedupe_key="email")
+            # The count is what the confirm token signs, so it has to resolve the same audience the
+            # send does, not the AND-joined one.
+            count = get_batch_audience_count(self.team, filters, dedupe_key="email")
+
+        assert sorted(person_ids) == [_uuid(i) for i in expected_indices]
+        assert count == len(expected_indices)
 
     def test_use_flag_defaults_off_when_feature_enabled_raises(self):
         # Batch sends are a critical path — a Redis/HyperCache blip that makes

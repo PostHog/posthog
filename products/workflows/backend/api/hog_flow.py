@@ -114,8 +114,11 @@ from products.workflows.backend.services.account_audience import (
     parse_account_audience_filters,
 )
 from products.workflows.backend.services.batch_audience import (
+    MATCH_ANY_PROPERTIES,
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
+    SUPPORTED_PROPERTIES_OPERATORS,
+    audience_filters_for_query,
     get_batch_audience_count,
     get_batch_audience_person_ids,
     use_workflows_batch_audience_query,
@@ -437,6 +440,32 @@ def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
     property_groups = Filter(data=filters or {}, team=team).property_groups
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
+
+
+def validate_audience_properties_operator(filters: dict) -> None:
+    """Reject a join between audience conditions that the resolver wouldn't apply.
+
+    An unrecognized operator would silently fall back to AND at query time, which is the
+    opposite of what a caller asking for OR wants from a mass send, so it fails at write time.
+    """
+    properties_operator = filters.get("properties_operator")
+    if properties_operator is None:
+        return
+    if properties_operator not in SUPPORTED_PROPERTIES_OPERATORS:
+        raise serializers.ValidationError(
+            {"filters": {"properties_operator": f"Must be one of: {', '.join(SUPPORTED_PROPERTIES_OPERATORS)}."}}
+        )
+    if properties_operator == MATCH_ANY_PROPERTIES and filters.get("audience_type") == "accounts":
+        raise serializers.ValidationError(
+            {
+                "filters": {
+                    "properties_operator": (
+                        "Account audiences always require every condition to match. Use 'AND', or switch the "
+                        "audience to people."
+                    )
+                }
+            }
+        )
 
 
 def _validation_error_message(error: exceptions.ValidationError) -> str:
@@ -784,6 +813,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
             "to reference a cohort. "
+            "batch and schedule triggers may set filters.properties_operator: 'AND' (default, a person must "
+            "match every condition) or 'OR' (a person matching any one condition is included). "
             "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
             "audience fans out one run per customer analytics account and takes account filters instead: "
             "properties entries of type 'account_custom_property' (key = definition id), plus "
@@ -914,6 +945,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
                 if strict and isinstance(filters, dict):
+                    validate_audience_properties_operator(filters)
                     audience_type = filters.get("audience_type")
                     if audience_type not in (None, "persons", "accounts"):
                         raise serializers.ValidationError(
@@ -968,6 +1000,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if strict:
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
+                        validate_audience_properties_operator(filters)
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             elif data.get("config", {}).get("type") == "data-warehouse-table":
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
@@ -3520,7 +3553,7 @@ class HogFlowViewSet(
             affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
             applied_dedupe_key = dedupe_key
         else:
-            result = get_user_blast_radius(self.team, filters, group_type_index)
+            result = get_user_blast_radius(self.team, audience_filters_for_query(filters), group_type_index)
             affected, total = result.affected, result.total
 
         return Response(
@@ -4091,7 +4124,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            result = get_user_blast_radius(team, filters, group_type_index)
+            result = get_user_blast_radius(team, audience_filters_for_query(filters), group_type_index)
             return Response(
                 BlastRadiusSerializer(
                     {
@@ -4140,7 +4173,9 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 )
                 batch_size = WORKFLOWS_PERSON_BATCH_SIZE
             else:
-                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+                users_affected = get_user_blast_radius_persons(
+                    team, audience_filters_for_query(filters), group_type_index, cursor
+                )
                 batch_size = PERSON_BATCH_SIZE
             return Response(
                 {

@@ -26,6 +26,10 @@ PERSON_BATCH_SIZE = 500
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
 
+MATCH_ALL_PROPERTIES = "AND"
+MATCH_ANY_PROPERTIES = "OR"
+SUPPORTED_PROPERTIES_OPERATORS = (MATCH_ALL_PROPERTIES, MATCH_ANY_PROPERTIES)
+
 WORKFLOWS_BATCH_AUDIENCE_QUERY_FLAG = "workflows-batch-audience-query"
 
 
@@ -59,6 +63,23 @@ def use_workflows_batch_audience_query(team: Team) -> bool:
         return False
 
 
+def audience_filters_for_query(filters: dict) -> dict:
+    """Rewrite an audience whose conditions are OR'd into the shape ``Filter`` understands.
+
+    A flat ``properties`` list always parses as an AND group, so ``properties_operator: 'OR'``
+    only takes effect once the list is wrapped in an explicit OR property group. Every path that
+    turns audience filters into a query goes through here, so the previewed count and the
+    dispatched send resolve the same people. The stored trigger config keeps ``properties`` flat,
+    which is what the audience editor, the account resolver and the cohort checks read.
+    """
+    properties = filters.get("properties")
+    if filters.get("properties_operator") != MATCH_ANY_PROPERTIES:
+        return filters
+    if not isinstance(properties, list) or not properties:
+        return filters
+    return {**filters, "properties": {"type": MATCH_ANY_PROPERTIES, "values": properties}}
+
+
 def get_batch_audience_person_ids(
     team: Team,
     filters: dict,
@@ -73,6 +94,8 @@ def get_batch_audience_person_ids(
     the smallest UUID, so an email address receives a given batch send only once. Persons
     without an email are never collapsed.
     """
+    filters = audience_filters_for_query(filters)
+
     if group_type_index is not None:
         # Group keys are already unique; the flags-owned group query needs no dedup.
         return get_user_blast_radius_persons(team, filters, group_type_index, cursor)
@@ -106,7 +129,7 @@ def get_batch_audience_count(
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
     with unevaluable_filters_as_validation_errors():
-        cleaned_filter = replace_proxy_properties(team, filters)
+        cleaned_filter = replace_proxy_properties(team, audience_filters_for_query(filters))
 
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(

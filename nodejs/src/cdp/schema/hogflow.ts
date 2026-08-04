@@ -68,6 +68,8 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             // 'accounts' fans out one run per customer analytics account instead of per person
             audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
+            // 'OR' includes anyone matching a single condition; 'AND' (the default) requires all of them
+            properties_operator: z.enum(['AND', 'OR']).optional(),
             filter_test_accounts: z.boolean().optional(),
             tag_names: z.array(z.string()).optional(),
             assigned_to_user_ids: z.array(z.number()).optional(),

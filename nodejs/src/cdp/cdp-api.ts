@@ -1133,6 +1133,8 @@ export class CdpApi {
                     // Fallback covers callers that predate the snapshot.
                     audience_type: audienceType,
                     properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
+                    properties_operator:
+                        req.body.filters?.properties_operator ?? hogFlow.trigger.filters.properties_operator,
                     filter_test_accounts:
                         req.body.filters?.filter_test_accounts ??
                         (hogFlow.trigger.filters.filter_test_accounts || false),

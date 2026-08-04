@@ -2217,6 +2217,24 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "audience_type" in json.dumps(response.json())
 
+    @parameterized.expand([("unknown_operator", "XOR"), ("wrong_case", "or")])
+    def test_hog_flow_batch_trigger_rejects_unsupported_properties_operator(self, _name, properties_operator):
+        # An operator the resolver doesn't recognize falls back to AND, which is the opposite of
+        # what a caller asking for OR wants out of a mass send.
+        response = self._post_batch_flow({"properties": [], "properties_operator": properties_operator})
+        assert response.status_code == 400, response.json()
+        assert "properties_operator" in json.dumps(response.json())
+
+    def test_hog_flow_batch_trigger_rejects_or_on_account_audience(self):
+        # The account resolver builds its own query where every filter must match, so an OR here
+        # would be accepted and then silently ignored.
+        with self._account_audience_provider():
+            response = self._post_batch_flow(
+                {"audience_type": "accounts", "properties": [], "properties_operator": "OR"}
+            )
+        assert response.status_code == 400, response.json()
+        assert "properties_operator" in json.dumps(response.json())
+
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_account_audience_pages_accounts(self):
         with (

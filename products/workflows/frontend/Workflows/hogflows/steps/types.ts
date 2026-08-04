@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
+import { FilterLogicalOperator } from '~/types'
+
 import { HogFlowAction } from '../types'
 
 export type HogFlowStepNodeProps = NodeProps & {
@@ -163,6 +165,9 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             // 'accounts' fans out one run per customer analytics account instead of per person
             audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
+            // How the conditions are joined: 'AND' (the default) requires every one of them,
+            // 'OR' includes a person matching any single condition.
+            properties_operator: z.nativeEnum(FilterLogicalOperator).optional(),
             tag_names: z.array(z.string()).optional(),
             assigned_to_user_ids: z.array(z.number()).optional(),
             all_roles_unassigned: z.boolean().optional(),

@@ -129,7 +129,9 @@ export function PropertyFilters({
                         return (
                             <React.Fragment key={displayedFilterIds[index]}>
                                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
-                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                                    <LogicalRowDivider
+                                        logicalOperator={propertyGroupType ?? FilterLogicalOperator.And}
+                                    />
                                 )}
                                 <FilterRow
                                     item={item}

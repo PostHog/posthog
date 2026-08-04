@@ -26,6 +26,11 @@ export const BatchResolverStateSchema = z.object({
         // Each property entry is an arbitrary record — keep loose so resolver
         // replays survive new filter-property fields the worker doesn't read.
         properties: z.array(z.record(z.string(), z.any())).optional(),
+        // How Django joins the property conditions: 'AND' (default) requires every
+        // condition, 'OR' includes anyone matching a single one. Frozen with the rest
+        // of the audience so a mid-run trigger edit can't flip a page's semantics.
+        // Optional so jobs written by older deploys keep parsing (they run as AND).
+        properties_operator: z.enum(['AND', 'OR']).optional(),
         filter_test_accounts: z.boolean().optional(),
         tag_names: z.array(z.string()).optional(),
         assigned_to_user_ids: z.array(z.number()).optional(),

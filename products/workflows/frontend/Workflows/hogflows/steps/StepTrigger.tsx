@@ -46,7 +46,8 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/Tes
 import { teamLogic } from 'scenes/teamLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { PropertyFilterType } from '~/types'
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import { accountsColumnConfigLogic } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
 import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_analytics/frontend/components/Accounts/accountsCustomPropertyFilters'
@@ -681,6 +682,7 @@ function StepTriggerConfigurationBatch({
         !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] &&
         currentTeam?.customer_analytics_config?.account_group_type_index != null
     const isAccountAudience = config.filters.audience_type === 'accounts'
+    const propertiesOperator = config.filters.properties_operator ?? FilterLogicalOperator.And
 
     return (
         <div className="flex flex-col gap-2 my-2 w-full">
@@ -709,6 +711,18 @@ function StepTriggerConfigurationBatch({
                 <StepTriggerBatchAccountFilters actionId={action.id} filters={config.filters} />
             ) : (
                 <div>
+                    {config.filters.properties.length > 1 && (
+                        <AndOrFilterSelect
+                            value={propertiesOperator}
+                            onChange={(properties_operator) =>
+                                partialSetWorkflowActionConfig(action.id, {
+                                    filters: { ...config.filters, properties_operator },
+                                })
+                            }
+                            prefix="Include people who match"
+                            suffix={['of these conditions', 'of these conditions']}
+                        />
+                    )}
                     <PropertyFilters
                         pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
                         propertyFilters={config.filters.properties}
@@ -719,9 +733,11 @@ function StepTriggerConfigurationBatch({
                         {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                         hideBehavioralCohorts
                         logicalRowDivider
+                        propertyGroupType={propertiesOperator}
                         onChange={(properties) =>
                             partialSetWorkflowActionConfig(action.id, {
                                 filters: {
+                                    ...config.filters,
                                     properties,
                                 },
                             })

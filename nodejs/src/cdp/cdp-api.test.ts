@@ -1019,6 +1019,7 @@ describe('CDP API', () => {
                                 type: 'person',
                             },
                         ],
+                        properties_operator: 'OR',
                     },
                 },
             })
@@ -1108,6 +1109,9 @@ describe('CDP API', () => {
                     hogFlowId: batchHogFlow.id,
                     filters: {
                         properties: (batchHogFlow as any).trigger.filters.properties,
+                        // Dropping this on the way to the resolver would silently turn an
+                        // "any of these conditions" audience back into "all of them".
+                        properties_operator: 'OR',
                         filter_test_accounts: true,
                     },
                     maxAudienceSize: 1234,
