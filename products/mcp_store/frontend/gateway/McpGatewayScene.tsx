@@ -49,7 +49,7 @@ export function McpGatewayScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="mx-auto w-full max-w-[1200px]">
             <SceneTitleSection
                 name={sceneConfigurations[Scene.McpGateway].name}
                 description="Every MCP server your team runs through the gateway. Route people and agents through one control plane."
