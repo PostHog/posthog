@@ -21,6 +21,9 @@ function makeDeps() {
     getRepositoryByRemoteUrl: vi.fn().mockResolvedValue(null),
     selectDirectory: vi.fn().mockResolvedValue(null),
     addFolder: vi.fn().mockResolvedValue(undefined),
+    getWorktreeLocation: vi.fn().mockResolvedValue("/worktrees"),
+    cloneRepository: vi.fn().mockResolvedValue(undefined),
+    addAdditionalDirectory: vi.fn().mockResolvedValue(undefined),
   };
 
   const dialog: LocalHandoffDialog = {
@@ -114,6 +117,7 @@ describe("LocalHandoffService.afterCommit", () => {
     expect(deps.sessionService.handoffToLocal).toHaveBeenCalledWith(
       "task-1",
       "/repo",
+      undefined,
     );
   });
 
@@ -161,6 +165,7 @@ describe("LocalHandoffService.start", () => {
     expect(deps.sessionService.handoffToLocal).toHaveBeenCalledWith(
       "task-1",
       "/repo",
+      { "https://example.com/repo.git": "/repo" },
     );
   });
 
@@ -180,7 +185,37 @@ describe("LocalHandoffService.start", () => {
 
     expect(deps.dialog.openDirtyTreeForPendingHandoff).toHaveBeenCalledWith(
       [{ path: "a.ts" }],
-      { taskId: "task-1", repoPath: "/repo", branchName: "main" },
+      {
+        taskId: "task-1",
+        repoPath: "/repo",
+        branchName: "main",
+        repositoryPaths: { "https://example.com/repo.git": "/repo" },
+      },
     );
+  });
+
+  // A task's repository is team-writable via the API, so an unsafe entry must
+  // never reach `git clone` (RCE via git's remote-ext transport) or escape the
+  // clone root through path traversal. The safe repo alongside it still clones.
+  it.each([
+    ["remote-ext RCE", "ext::sh -c 'touch pwned'/repo"],
+    ["path traversal", "../evil"],
+    ["absolute-ish scheme", "file:///etc/passwd/repo"],
+    ["trailing whitespace alias", "posthog/posthog-js "],
+    ["extra path segment", "posthog/posthog-js/../../evil"],
+  ])("rejects an unsafe repository entry (%s)", async (_label, malicious) => {
+    const deps = makeDeps();
+    deps.host.getRepositoryByRemoteUrl = vi.fn().mockResolvedValue(null);
+    deps.sessionService.preflightToLocal.mockResolvedValue({
+      canHandoff: true,
+    });
+
+    await deps.service.start("task-1", { repository: malicious } as Task);
+
+    expect(deps.host.cloneRepository).not.toHaveBeenCalled();
+    expect(deps.notifier.warn).toHaveBeenCalledWith(
+      expect.stringContaining(malicious),
+    );
+    expect(deps.sessionService.handoffToLocal).not.toHaveBeenCalled();
   });
 });

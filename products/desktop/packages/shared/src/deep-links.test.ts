@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildInboxDeeplink,
+  buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
   getDeeplinkProtocol,
@@ -94,6 +95,36 @@ describe("buildInboxDeeplink", () => {
         isDevBuild: false,
       }),
     ).toBe("posthog-code://inbox/abc-123/Hello-world");
+  });
+});
+
+describe("buildLoopDeeplink", () => {
+  it.each<{
+    name: string;
+    loopId: string;
+    isDevBuild: boolean;
+    expected: string;
+  }>([
+    {
+      name: "builds a production loop link",
+      loopId: "loop-abc-123",
+      isDevBuild: false,
+      expected: "posthog-code://loop/loop-abc-123",
+    },
+    {
+      name: "uses the dev scheme for dev builds",
+      loopId: "loop-abc-123",
+      isDevBuild: true,
+      expected: "posthog-code-dev://loop/loop-abc-123",
+    },
+    {
+      name: "encodes special characters in the loop id",
+      loopId: "id with spaces/&",
+      isDevBuild: false,
+      expected: "posthog-code://loop/id%20with%20spaces%2F%26",
+    },
+  ])("$name", ({ loopId, isDevBuild, expected }) => {
+    expect(buildLoopDeeplink(loopId, { isDevBuild })).toBe(expected);
   });
 });
 

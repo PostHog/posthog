@@ -380,6 +380,7 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
   private readonly evaluatedPrUrls = new Set<string>();
@@ -1574,6 +1575,7 @@ export class AgentServer {
         return null;
       }),
     ]);
+    this.taskRepositories = preTask?.repository ? [preTask.repository] : [];
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -3643,6 +3645,13 @@ When you create a non-code file the user should be able to download (such as a r
       : inboxReportUrl
         ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
         : `*${createdWith}*`;
+    const repositoryWorkspaceInstructions =
+      this.taskRepositories.length > 1
+        ? `The task workspace contains these repositories:
+${this.taskRepositories.map((repository) => `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`).join("\n")}
+
+Apply the repository workflow below separately in every repository you change. Keep branches, commits, diffs, and pull requests repository-specific.`
+        : "";
 
     if (prUrl) {
       if (!shouldAutoCreatePr) {
@@ -3681,7 +3690,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 `;
     }
 
-    if (!this.config.repositoryPath) {
+    if (!this.config.repositoryPath && this.taskRepositories.length === 0) {
       const publishInstructions =
         this.config.createPr === false
           ? `
@@ -3737,6 +3746,8 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
       return `${identityInstructions}
 # Cloud Task Execution
 
+${repositoryWorkspaceInstructions}
+
 Do the requested work, but stop with local changes ready for review.
 
 Important:
@@ -3753,6 +3764,8 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 
     return `${identityInstructions}
 # Cloud Task Execution
+
+${repositoryWorkspaceInstructions}
 
 If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
 
@@ -4677,7 +4690,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
   private async captureCheckpointState(
     localGitState?: HandoffLocalGitState,
   ): Promise<void> {
-    if (!this.session || !this.config.repositoryPath) {
+    if (!this.session) {
       return;
     }
     if (!this.posthogAPI) {
@@ -4686,38 +4699,57 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
       );
       return;
     }
+    const session = this.session;
 
-    const tracker = new HandoffCheckpointTracker({
-      repositoryPath: this.config.repositoryPath ?? "/tmp/workspace",
-      taskId: this.session.payload.task_id,
-      runId: this.session.payload.run_id,
-      apiClient: this.posthogAPI,
-      logger: this.logger.child("HandoffCheckpoint"),
-    });
+    const repositories =
+      this.taskRepositories.length > 1
+        ? this.taskRepositories.map((repository) => ({
+            repository,
+            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
+          }))
+        : this.config.repositoryPath
+          ? [
+              {
+                repository: this.taskRepositories[0],
+                path: this.config.repositoryPath,
+              },
+            ]
+          : [];
 
-    const checkpoint = await tracker.captureForHandoff(localGitState);
-    if (!checkpoint) return;
+    await Promise.all(
+      repositories.map(async ({ repository, path }) => {
+        const tracker = new HandoffCheckpointTracker({
+          repositoryPath: path,
+          taskId: session.payload.task_id,
+          runId: session.payload.run_id,
+          apiClient: this.posthogAPI,
+          logger: this.logger.child("HandoffCheckpoint"),
+        });
+        const checkpoint = await tracker.captureForHandoff(
+          repositories.length === 1 ? localGitState : undefined,
+        );
+        if (!checkpoint) return;
 
-    const checkpointWithDevice: GitCheckpointEvent = {
-      ...checkpoint,
-      device: this.session.deviceInfo,
-    };
-
-    const notification = {
-      jsonrpc: "2.0" as const,
-      method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-      params: checkpointWithDevice,
-    };
-
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
-    });
-
-    this.session.logWriter.appendRawLine(
-      this.session.payload.run_id,
-      JSON.stringify(notification),
+        const checkpointWithDevice: GitCheckpointEvent = {
+          ...checkpoint,
+          repository,
+          device: session.deviceInfo,
+        };
+        const notification = {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
+          params: checkpointWithDevice,
+        };
+        this.broadcastEvent({
+          type: "notification",
+          timestamp: new Date().toISOString(),
+          notification,
+        });
+        session.logWriter.appendRawLine(
+          session.payload.run_id,
+          JSON.stringify(notification),
+        );
+      }),
     );
   }
 

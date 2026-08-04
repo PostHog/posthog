@@ -25,7 +25,10 @@ import {
   type IAuthSessionStore,
   type IAuthTokenCipher,
 } from "@posthog/core/auth/identifiers";
-import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
+import {
+  canvasApplicationModule,
+  canvasCoreModule,
+} from "@posthog/core/canvas/canvas.module";
 import { taskThreadCoreModule } from "@posthog/core/canvas/taskThread.module";
 import type { CloudTaskService } from "@posthog/core/cloud-task/cloud-task";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
@@ -484,10 +487,11 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
 }));
 
 // ── Canvas / Channels: host-agnostic dashboard + freeform canvas services ──
-// They only need AuthService + fetch (they reach the PostHog desktop_file_system
-// API), so the web host binds them by loading the same core module desktop does;
-// the web host router forwards its canvas routers to these.
+// They only need AuthService + fetch (they reach the PostHog canvases and
+// task_channels APIs), so the web host binds them by loading the same core
+// module desktop does; the web host router forwards its canvas routers to these.
 container.load(canvasCoreModule);
+container.load(canvasApplicationModule);
 container.load(taskThreadCoreModule);
 
 // SessionService is built from host-agnostic deps (host tRPC client + UI
@@ -766,6 +770,10 @@ container.bind(LOCAL_HANDOFF_HOST).toConstantValue({
   selectDirectory: () => Promise.resolve(null),
   addFolder: () =>
     Promise.reject(new Error("Local handoff is not available on the web")),
+  getWorktreeLocation: () => Promise.resolve(""),
+  cloneRepository: () =>
+    Promise.reject(new Error("Local handoff is not available on the web")),
+  addAdditionalDirectory: () => Promise.resolve(),
 });
 container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
 container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);

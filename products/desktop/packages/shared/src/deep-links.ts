@@ -43,6 +43,18 @@ export function buildInboxDeeplink(
 }
 
 /**
+ * Build a canonical deep link to a loop's detail page
+ * (`<scheme>://loop/<loopId>`). The inbound side lives in the `loop` handler
+ * (`LoopLinkService`), which routes to `/code/loops/<loopId>`.
+ */
+export function buildLoopDeeplink(
+  loopId: string,
+  { isDevBuild }: { isDevBuild: boolean },
+): string {
+  return `${getDeeplinkProtocol(isDevBuild)}://loop/${encodeURIComponent(loopId)}`;
+}
+
+/**
  * Build a canonical deep link to a scout's detail page, optionally focused on a
  * specific finding (`<scheme>://scout/<skillSlug>?finding=<id>`).
  *

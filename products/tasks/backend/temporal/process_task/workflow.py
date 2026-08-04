@@ -1264,8 +1264,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
-        will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
+        repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
+        will_clone = bool(repositories_to_clone)
+        checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
+        will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
         boot_path = "overlap" if overlap else "classic"
@@ -1278,26 +1280,37 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         clone_ms: int | None = None
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            clone_output = await workflow.execute_activity(
-                clone_repository_in_sandbox,
-                CloneRepositoryInSandboxInput(
-                    context=self.context,
-                    sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
-                    github_token=prepared.github_token,
-                    shallow_clone=prepared.shallow_clone,
-                ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+            clone_outputs = await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        clone_repository_in_sandbox,
+                        CloneRepositoryInSandboxInput(
+                            context=self.context,
+                            sandbox_id=created.sandbox_id,
+                            repository=repository,
+                            github_token=prepared.github_token,
+                            shallow_clone=prepared.shallow_clone,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for repository in repositories_to_clone
+                )
             )
-            # Pre-rollout histories (and mocked tests) recorded a null result here.
-            clone_ms = getattr(clone_output, "clone_ms", None)
-            await self._emit_progress("clone", "completed", "Cloned repository", "setup")
+            clone_durations: list[int] = []
+            for clone_output in clone_outputs:
+                if (duration := getattr(clone_output, "clone_ms", None)) is not None:
+                    clone_durations.append(duration)
+            clone_ms = sum(clone_durations) if clone_durations else None
+            clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
+            await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         checkout_ms: int | None = None
         if will_checkout and not is_resume:
+            assert checkout_repository is not None
+            assert prepared.branch is not None
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -1306,7 +1319,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 CheckoutBranchInSandboxInput(
                     context=self.context,
                     sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
+                    repository=checkout_repository,
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
@@ -1693,6 +1706,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "credential_refresh_stopped_credentials_unavailable",
                 extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
             )
+        elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
+            workflow.logger.warning(
+                "task_rows_gone_detected",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
+            # Ends the main loop through the sandbox-gone event; the status update on that
+            # path then fails non-retryably (the rows are gone), failing the workflow instead
+            # of leaving it waiting on signals that can never arrive.
+            self._sandbox_gone = True
 
     def _mark_sandbox_gone(self) -> None:
         self._completion_status = "completed"
