@@ -159,11 +159,17 @@ def delta_proxy_storage_options() -> dict[str, str]:
     }
 
 
-def boto_proxy_config_kwargs() -> dict[str, object]:
+def boto_proxy_config_kwargs(*, endpoint_url: str | None = None) -> dict[str, object]:
     """botocore config overrides that keep the warehouse S3 clients off the egress proxy.
 
     Empty when the bypass is off, so callers can merge it unconditionally.
+
+    Gated on the absence of a caller-supplied endpoint_url. Without one the client can only reach
+    ``*.s3.<region>.amazonaws.com`` (bucket names can't escape the amazonaws.com zone), so dropping
+    the proxy leaves nothing for its private-IP block to catch. An endpoint_url puts the hostname
+    under the caller's control (a customer S3-compatible source could point at a private address), so
+    the bypass is withheld and that traffic keeps going through the proxy.
     """
-    if not _bypass_enabled():
+    if not _bypass_enabled() or endpoint_url:
         return {}
     return {"proxies": {}}

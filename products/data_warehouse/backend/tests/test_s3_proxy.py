@@ -106,6 +106,15 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
         with override_settings(**{**BYPASS_ON, **settings_override}), flag(flag_enabled):
             assert boto_proxy_config_kwargs() == expected
 
+    @override_settings(**BYPASS_ON)
+    def test_boto_bypass_is_withheld_when_the_caller_supplies_an_endpoint(self) -> None:
+        # A caller-supplied endpoint puts the host under the caller's control, so the proxy must stay
+        # in front of it even with the bypass on, or a private-address S3-compatible source would be
+        # dialed direct.
+        with flag(True):
+            assert boto_proxy_config_kwargs() == {"proxies": {}}
+            assert boto_proxy_config_kwargs(endpoint_url="http://10.0.0.5/") == {}
+
     # A flags-service outage must not reroute production traffic on its own.
     @override_settings(**BYPASS_ON)
     def test_flag_evaluation_failure_leaves_traffic_on_the_proxy(self) -> None:
