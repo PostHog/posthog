@@ -26,6 +26,9 @@ interface RelatedGroupsPanelProps {
     organizationId?: string | null
     // How organization_id was resolved ("person" or "slack_channel_account").
     organizationIdSource?: string | null
+    // When false, render just the related-groups content without the surrounding collapse — so it can
+    // sit inside another collapsible panel (e.g. the merged customer panel) rather than nesting one.
+    renderCollapse?: boolean
 }
 
 // Append the creation group as its own row only when it exists but isn't already in the person's live
@@ -149,6 +152,7 @@ export function RelatedGroupsPanel({
     personUuid,
     organizationId,
     organizationIdSource,
+    renderCollapse = true,
 }: RelatedGroupsPanelProps): JSX.Element | null {
     const fromChannelAccount = organizationIdSource === SLACK_CHANNEL_ACCOUNT_SOURCE
 
@@ -166,6 +170,10 @@ export function RelatedGroupsPanel({
     }
     if (!content) {
         return null
+    }
+
+    if (!renderCollapse) {
+        return content
     }
 
     return (
