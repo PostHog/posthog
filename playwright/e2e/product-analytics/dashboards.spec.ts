@@ -193,7 +193,7 @@ test.describe('Dashboards', () => {
             // editor can only substitute {variables.test_number} once that list has loaded.
             // Running the query before the reload returns sends the placeholder unresolved,
             // the backend errors with "Global variable not found: variables", and
-            // "Save as insight" never enables. Wait for the reload before using the variable.
+            // The insight save option never enables. Wait for the reload before using the variable.
             const variablesReloaded = page.waitForResponse(
                 (response) =>
                     response.url().includes('/insight_variables') &&
@@ -211,19 +211,22 @@ test.describe('Dashboards', () => {
             await page.keyboard.press('ControlOrMeta+a')
             // insertText() inserts the whole string at once, so Monaco's bracket
             // auto-close and autocomplete don't intercept the `{`/`}` mid-type and
-            // produce a malformed query that leaves "Save as insight" disabled.
+            // produce a malformed query that leaves the insight save option disabled.
             await page.keyboard.insertText('SELECT {variables.test_number}')
             await page.keyboard.press('Escape')
 
             // The editor attaches the variable to the query through a short debounce, so a
-            // fast first Run can execute before {variables.test_number} is substituted —
-            // the query then errors with "Global variable not found: variables" and leaves
-            // "Save as insight" disabled. Re-run until the variable resolves and the query
-            // succeeds (a successful run is the only thing that enables "Save as insight").
-            const saveAsInsight = page.getByRole('button', { name: 'Save as insight' })
+            // fast first Run can execute before {variables.test_number} is substituted.
+            // The query then errors with "Global variable not found: variables" and leaves
+            // the insight save option disabled. Re-run until the variable resolves and the query
+            // succeeds because a successful run is the only thing that enables saving.
+            const saveOptionsButton = page.getByTestId('sql-editor-save-options-button')
+            const saveAsInsight = page.getByRole('menuitem', { name: 'Save as insight' })
             await expect(async () => {
+                await page.keyboard.press('Escape')
                 await page.getByRole('button', { name: 'Run' }).click()
                 await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
+                await saveOptionsButton.click()
                 await expect(saveAsInsight).toBeEnabled({ timeout: 15000 })
             }).toPass({ timeout: 60000 })
             await saveAsInsight.click()

@@ -101,7 +101,7 @@ from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
     get_api_team_rate_limiter,
@@ -1384,6 +1384,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
     # cached response as raw JSON bytes in raw_cached_results_bytes instead of parsing it,
     # leaving a `results=[]` placeholder on the returned model.
@@ -1401,6 +1402,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         workload: Workload = Workload.DEFAULT,
         extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
         user: Optional[User] = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ):
         self.team = team
         self.user = user
@@ -1408,6 +1410,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
         self.workload = workload
+        self.ch_user = ch_user
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
