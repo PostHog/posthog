@@ -304,7 +304,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
-    emailAssets: MessageAssetRow[]
+    messageAssets: MessageAssetRow[]
     execResult?: unknown
 }
 

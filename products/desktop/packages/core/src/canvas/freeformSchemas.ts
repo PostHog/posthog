@@ -5,44 +5,6 @@ import { z } from "zod";
 // generation path can resolve the right system prompt.
 export const FREEFORM_TEMPLATE_ID = "freeform";
 
-// A single point in a freeform canvas's edit history. Every agent turn appends
-// one full-file snapshot (Q7: full-file rewrite); the user can revert to any of
-// them and the `currentVersionId` pointer is what publishes. We keep whole-file
-// snapshots rather than diffs because canvases are small and a snapshot can
-// never fail to reconstruct.
-export const freeformVersionSchema = z.object({
-  id: z.string(),
-  // The complete single-file React source for this version.
-  code: z.string(),
-  // The author-written context (markdown) passed to the agent, as it stood for
-  // this version. Snapshotted so reverting restores the context too. Absent on
-  // versions saved before the Context tab existed.
-  context: z.string().optional(),
-  // The user prompt that produced this version (absent for the seed/empty one,
-  // and for a version created by a context-only edit).
-  prompt: z.string().optional(),
-  // Epoch ms the version was created.
-  createdAt: z.number(),
-});
-export type FreeformVersion = z.infer<typeof freeformVersionSchema>;
-
-// The freeform-specific payload that rides in a canvas's file-system `meta` blob.
-export const freeformCanvasSchema = z.object({
-  // The currently-rendered source (mirrors the version pointed to by
-  // currentVersionId; duplicated so the renderer needs only this field).
-  code: z.string(),
-  // Full, ordered edit history (oldest first). Always contains >= 1 entry once
-  // the agent has produced anything.
-  versions: z.array(freeformVersionSchema).default([]),
-  // Which version is live. Undo/redo moves this pointer; a new agent turn
-  // truncates any "redo" tail (Q8: linear-discard) and appends.
-  currentVersionId: z.string().optional(),
-  // The live author-written context (markdown), mirrors the version pointed to by
-  // currentVersionId. Prepended to every agent turn so the build is anchored to it.
-  context: z.string().default(""),
-});
-export type FreeformCanvas = z.infer<typeof freeformCanvasSchema>;
-
 // ---------------------------------------------------------------------------
 // Canvas data avenue: the host-side query the postMessage `ph.query` shim calls.
 // Routed through PostHog's cached query runner (the same avenue insights use, so
@@ -63,11 +25,11 @@ export const canvasDataQueryInput = z
   .object({
     // A typed query node passed straight to the query runner. Opaque here (the
     // node schemas are large + product-owned); validated by the API on execution.
-    query: z.record(z.string(), z.unknown()).optional(),
+    query: z.record(z.string().max(256), z.unknown()).optional(),
     // Inline HogQL string (the escape hatch). Server wraps it as a HogQLQuery.
-    hogql: z.string().min(1).optional(),
+    hogql: z.string().min(1).max(20_000).optional(),
     // Reserved for bound parameters (Phase 3 named queries). Edit mode ignores it.
-    params: z.record(z.string(), z.unknown()).optional(),
+    params: z.record(z.string().max(128), z.unknown()).optional(),
   })
   .refine((v) => v.query != null || v.hogql != null, {
     message: "ph.query requires a query node or a HogQL string",
@@ -99,7 +61,7 @@ export type CanvasDataResult = z.infer<typeof canvasDataResultSchema>;
 // shape as `ph.query`.
 // ---------------------------------------------------------------------------
 export const canvasLoadInsightInput = z.object({
-  shortId: z.string().min(1),
+  shortId: z.string().min(1).max(128),
   dateRange: z
     .object({ date_from: z.string().nullish(), date_to: z.string().nullish() })
     .optional(),
@@ -111,8 +73,8 @@ export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
 // the private read token still never enters the iframe. `distinctId` is who the
 // event is attributed to; defaults host-side when omitted.
 export const canvasCaptureInput = z.object({
-  event: z.string().min(1),
-  distinctId: z.string().min(1).optional(),
+  event: z.string().min(1).max(200),
+  distinctId: z.string().min(1).max(200).optional(),
   properties: z.record(z.string(), z.unknown()).optional(),
 });
 export type CanvasCaptureInput = z.infer<typeof canvasCaptureInput>;
@@ -228,8 +190,8 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("data-request"),
-    id: z.string(),
-    method: z.string(),
+    id: z.string().min(1).max(128),
+    method: z.enum(["query", "loadInsight", "capture", "run"]),
     payload: z.unknown(),
   }),
   // A runtime/compile error from inside the iframe, surfaced so the host can
@@ -238,8 +200,8 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("error"),
-    message: z.string(),
-    stack: z.string().optional(),
+    message: z.string().max(10_000),
+    stack: z.string().max(50_000).optional(),
   }),
   // The canvas rendered successfully (clears any prior error state).
   z.object({
