@@ -255,10 +255,6 @@ interface SettingsStore {
   downloadUpdatesAutomatically: boolean;
   dismissibleUpdateBanners: boolean;
   lastSeenChangelogVersion: string | null;
-  // Renders the conversation with the new ChatX (quill) primitives instead of
-  // the virtualized ConversationView. Local A/B toggle while the rebuild bakes.
-  useNewChatThread: boolean;
-  setUseNewChatThread: (enabled: boolean) => void;
   setHedgehogMode: (enabled: boolean) => void;
   setSlotMachineMode: (enabled: boolean) => void;
   setBrainrotMode: (enabled: boolean) => void;
@@ -490,8 +486,6 @@ export const useSettingsStore = create<SettingsStore>()(
       downloadUpdatesAutomatically: true,
       dismissibleUpdateBanners: false,
       lastSeenChangelogVersion: null,
-      useNewChatThread: false,
-      setUseNewChatThread: (enabled) => set({ useNewChatThread: enabled }),
       setHedgehogMode: (enabled) => set({ hedgehogMode: enabled }),
       setSlotMachineMode: (enabled) => set({ slotMachineMode: enabled }),
       setBrainrotMode: (enabled) => set({ brainrotMode: enabled }),
@@ -628,7 +622,6 @@ export const useSettingsStore = create<SettingsStore>()(
         downloadUpdatesAutomatically: state.downloadUpdatesAutomatically,
         dismissibleUpdateBanners: state.dismissibleUpdateBanners,
         lastSeenChangelogVersion: state.lastSeenChangelogVersion,
-        useNewChatThread: state.useNewChatThread,
 
         // Onboarding hints
         hints: state.hints,
