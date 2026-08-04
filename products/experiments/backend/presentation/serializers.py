@@ -9,6 +9,8 @@ ViewSet remains in experiments.py.
 from copy import deepcopy
 from typing import Any, TypeGuard
 
+from django.utils import timezone
+
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
@@ -32,6 +34,7 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -375,6 +378,38 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conditions)."
         ),
     )
+    resolved_exposure_event = serializers.SerializerMethodField(
+        help_text=(
+            "The event exposures are actually counted on when the experiment doesn't configure a "
+            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
+            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
+            "clients display the same event the results queries read. For a draft, this is what the "
+            "experiment would resolve to if launched now."
+        ),
+    )
+    version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optimistic-concurrency token. Reads return the experiment's current version, bumped on "
+            "every update. Send the version you last read with an update to detect concurrent edits: "
+            "a stale update that only touches the metric collections is merged per metric uuid when "
+            "`original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip "
+            "the check."
+        ),
+    )
+    original_experiment = serializers.DictField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "The metric collections as the client last read them, used together with `version` to "
+            "resolve concurrent metric edits: changes made by other users are merged per metric uuid "
+            "where safe instead of failing. Relevant keys are metrics, metrics_secondary, and "
+            "saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails "
+            "with HTTP 409."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     flag_cleanup_task_id = serializers.UUIDField(
         read_only=True,
@@ -439,9 +474,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
             "update_feature_flag_params",
+            "version",
+            "original_experiment",
             "status",
             "is_legacy",
             "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
         read_only_fields = [
@@ -455,6 +493,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "saved_metrics",
             "status",
             "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
 
@@ -470,6 +509,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_can_freeze_exposure(self, obj: Experiment) -> bool:
         return obj.can_freeze_exposure
+
+    @extend_schema_field(serializers.CharField())
+    def get_resolved_exposure_event(self, obj: Experiment) -> str:
+        # A draft has no start_date yet, so resolve against now: that's the event it would get if
+        # launched today, which is what the setup UI needs to show.
+        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -757,6 +802,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Pop fields not needed for DTO but needed for validation
         validated_data.pop("update_feature_flag_params", None)
+        # Concurrency keys are update-only; ignore them on create so clients can share payload builders
+        validated_data.pop("version", None)
+        validated_data.pop("original_experiment", None)
 
         # Check for unexpected fields
         expected_fields = {

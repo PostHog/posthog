@@ -10,7 +10,6 @@ import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   showChannelList,
@@ -197,7 +196,7 @@ export function ChannelsSidebar() {
     // writes its channel and this later effect immediately overwrites it with
     // #me using the stale `currentChannelId` captured by that render.
     if (routeChannelId || autoScopedRef.current || currentChannelId) return;
-    const me = channels.find((c) => c.name === PERSONAL_CHANNEL_NAME);
+    const me = channels.find((c) => c.channelType === "personal");
     if (!me) return;
     autoScopedRef.current = true;
     setCurrentChannel(me.id);

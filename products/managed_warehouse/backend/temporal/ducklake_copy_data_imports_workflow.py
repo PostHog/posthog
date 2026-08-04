@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import time
 import uuid
@@ -35,6 +37,11 @@ from products.managed_warehouse.backend.common import (
     get_duckgres_server_for_organization,
     is_dev_mode,
 )
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseSourceJobStatus,
+    ManagedWarehouseSourceJobUpdate,
+    ManagedWarehouseSourceJobWorkflow,
+)
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -64,12 +71,96 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_copy_data_imports_verification_metric,
     record_ducklake_copy_data_imports_stage_duration,
 )
+from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG, is_duckgres_sink_team_member
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
 DUCKLAKE_COPY_DATA_IMPORTS_STAGE_DURATION_METRIC = "ducklake_copy_data_imports_stage_duration"
+_SOURCE_JOB_STATE_PATCH_ID = "ducklake-copy-source-job-state-2026-08"
+
+
+def _copy_source_job_update(
+    *,
+    inputs: DataImportsDuckLakeCopyInputs,
+    schema_ids: list[uuid.UUID],
+    status: ManagedWarehouseSourceJobStatus,
+    started_at: dt.datetime,
+    finished_at: dt.datetime | None = None,
+    latest_error: str | None = None,
+) -> ManagedWarehouseSourceJobUpdate:
+    workflow_id = None
+    workflow_run_id = None
+    if workflow.in_workflow():
+        workflow_info = workflow.info()
+        workflow_id = workflow_info.workflow_id
+        workflow_run_id = workflow_info.run_id
+    return ManagedWarehouseSourceJobUpdate(
+        team_id=inputs.team_id,
+        schema_ids=schema_ids,
+        source_job_id=inputs.job_id,
+        attempt_id=inputs.job_id,
+        workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+        status=status,
+        started_at=started_at,
+        finished_at=finished_at,
+        latest_error=latest_error,
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+    )
+
+
+async def _record_copy_source_job_state(
+    *,
+    inputs: DataImportsDuckLakeCopyInputs,
+    schema_ids: list[uuid.UUID],
+    status: ManagedWarehouseSourceJobStatus,
+    started_at: dt.datetime,
+    finished_at: dt.datetime | None = None,
+    latest_error: str | None = None,
+) -> None:
+    if not schema_ids:
+        return
+    await workflow.execute_activity(
+        record_managed_warehouse_source_job_activity,
+        _copy_source_job_update(
+            inputs=inputs,
+            schema_ids=schema_ids,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+            latest_error=latest_error,
+        ),
+        start_to_close_timeout=dt.timedelta(seconds=30),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+
+async def _record_copy_terminal_source_job_state(
+    *,
+    inputs: DataImportsDuckLakeCopyInputs,
+    schema_ids: list[uuid.UUID],
+    status: ManagedWarehouseSourceJobStatus,
+    started_at: dt.datetime,
+    finished_at: dt.datetime,
+) -> None:
+    try:
+        await _record_copy_source_job_state(
+            inputs=inputs,
+            schema_ids=schema_ids,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+    except Exception:
+        await _record_copy_source_job_state(
+            inputs=inputs,
+            schema_ids=schema_ids,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
 
 
 def _stage_timer(*, stage: str, team_id: int, schema_id: str | None = None) -> ExecutionTimeRecorder:
@@ -333,7 +424,7 @@ async def _prepare_data_imports_ducklake_metadata(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=ducklake_schema_name,
-                ducklake_table_name=duckgres_data_imports_table_name(schema),
+                ducklake_table_name=await database_sync_to_async(duckgres_data_imports_table_name)(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,
@@ -1097,17 +1188,40 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
             logger.info("DuckLake copy workflow disabled by feature flag")
             return
 
+        track_source_job_state = workflow.patched(_SOURCE_JOB_STATE_PATCH_ID)
         workflow_started_at = workflow.now()
         get_ducklake_copy_data_imports_started_metric(team_id=inputs.team_id).add(1)
         pending_staging_cleanup: list[DuckLakeDataImportsStagingCleanupInputs] = []
+        pending_schema_ids = set(inputs.schema_ids)
         status = "failed"
         try:
+            if track_source_job_state:
+                await _record_copy_source_job_state(
+                    inputs=inputs,
+                    schema_ids=inputs.schema_ids,
+                    status=ManagedWarehouseSourceJobStatus.RUNNING,
+                    started_at=workflow_started_at,
+                )
             model_list: list[DuckLakeCopyDataImportsMetadata] = await workflow.execute_activity(
                 prepare_data_imports_ducklake_metadata_activity,
                 inputs,
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+
+            schema_ids_by_value = {str(schema_id): schema_id for schema_id in inputs.schema_ids}
+            active_schema_ids = {schema_ids_by_value[model.source_schema_id] for model in model_list}
+            skipped_schema_ids = pending_schema_ids - active_schema_ids
+            if skipped_schema_ids:
+                pending_schema_ids.difference_update(skipped_schema_ids)
+                if track_source_job_state:
+                    await _record_copy_terminal_source_job_state(
+                        inputs=inputs,
+                        schema_ids=list(skipped_schema_ids),
+                        status=ManagedWarehouseSourceJobStatus.SKIPPED,
+                        started_at=workflow_started_at,
+                        finished_at=workflow.now(),
+                    )
 
             if not model_list:
                 status = "skipped"
@@ -1173,9 +1287,21 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                         schema_id=model.source_schema_id,
                         workload=copy_workload,
                     )
+                schema_finished_at = workflow.now()
                 get_ducklake_copy_data_imports_last_success_metric(
                     team_id=inputs.team_id, schema_id=model.source_schema_id
-                ).set(workflow.now().timestamp())
+                ).set(schema_finished_at.timestamp())
+
+                completed_schema_id = schema_ids_by_value[model.source_schema_id]
+                pending_schema_ids.remove(completed_schema_id)
+                if track_source_job_state:
+                    await _record_copy_terminal_source_job_state(
+                        inputs=inputs,
+                        schema_ids=[completed_schema_id],
+                        status=ManagedWarehouseSourceJobStatus.COMPLETED,
+                        started_at=workflow_started_at,
+                        finished_at=schema_finished_at,
+                    )
 
                 if cleanup_inputs is not None:
                     await workflow.execute_activity(
@@ -1187,6 +1313,17 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                     pending_staging_cleanup.remove(cleanup_inputs)
 
             status = "completed"
+        except Exception as error:
+            if track_source_job_state:
+                await _record_copy_source_job_state(
+                    inputs=inputs,
+                    schema_ids=list(pending_schema_ids),
+                    status=ManagedWarehouseSourceJobStatus.FAILED,
+                    started_at=workflow_started_at,
+                    finished_at=workflow.now(),
+                    latest_error=str(error),
+                )
+            raise
         finally:
             for cleanup_inputs in pending_staging_cleanup:
                 try:
