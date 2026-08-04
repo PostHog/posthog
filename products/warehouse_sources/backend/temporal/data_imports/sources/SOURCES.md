@@ -255,6 +255,7 @@ the row lists both.
 | fireworks_ai                     | HTTP                        | requests                                                        | ✅                          |
 | fleetio                          | HTTP                        | requests                                                        | ✅                          |
 | firehydrant                      | HTTP                        | requests                                                        | ✅                          |
+| first_promoter                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | flagsmith                        | HTTP                        | requests                                                        | ✅                          |
 | flexmail                         | HTTP                        | requests                                                        | ✅                          |
 | float_app                        | HTTP                        | requests                                                        | ✅                          |
@@ -934,7 +935,6 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
-- first_promoter
 - five9
 - flagsmith
 - flexera_cloud_cost
