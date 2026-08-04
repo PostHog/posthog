@@ -187,16 +187,36 @@ locals {
       error_budget = 0.01
       regions      = ["us", "eu"]
       daily_sql    = <<-SQL
+        -- Attribute outcomes to the day the delivery started. A started workflow
+        -- without a successful completion is a failed SLO operation, including a
+        -- workflow that crashes before the interceptor can emit completion.
+        WITH starts AS (
+            SELECT
+                toDate(timestamp) AS date,
+                properties.correlation_id AS correlation_id
+            FROM events
+            WHERE event = 'slo_operation_started'
+                AND properties.operation = 'subscription_delivery'
+                AND upper(properties.region) = upper('{{REGION}}')
+                AND timestamp >= now() - INTERVAL 30 DAY
+        ), completed AS (
+            SELECT
+                properties.correlation_id AS correlation_id,
+                max(properties.outcome = 'success') AS succeeded
+            FROM events
+            WHERE event = 'slo_operation_completed'
+                AND properties.operation = 'subscription_delivery'
+                AND upper(properties.region) = upper('{{REGION}}')
+                AND timestamp >= now() - INTERVAL 30 DAY
+            GROUP BY correlation_id
+        )
         SELECT
-            toDate(timestamp) AS date,
-            countIf(event = 'slo_operation_started') AS total,
-            countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures
-        FROM events
-        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
-            AND properties.operation = 'subscription_delivery'
-            AND upper(properties.region) = upper('{{REGION}}')
-            AND timestamp >= now() - INTERVAL 30 DAY
-        GROUP BY date
+            starts.date,
+            count() AS total,
+            countIf(coalesce(completed.succeeded, false) = false) AS failures
+        FROM starts
+        LEFT JOIN completed USING (correlation_id)
+        GROUP BY starts.date
       SQL
     }
 
