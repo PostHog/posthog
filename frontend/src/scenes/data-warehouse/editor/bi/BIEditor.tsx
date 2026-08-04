@@ -152,6 +152,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     title="Rows"
                     description="Group results by these fields"
                     icon={<IconTableChart />}
+                    itemCount={config.rows.length}
                     onDropField={addFieldToShelf}
                     onAddField={() => addBlankFieldToShelf('rows')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
@@ -171,6 +172,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     title="Columns"
                     description="Add a second grouping for charts that use one"
                     icon={<IconTableChart />}
+                    itemCount={config.columns.length}
                     onDropField={addFieldToShelf}
                     onAddField={() => addBlankFieldToShelf('columns')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
@@ -190,6 +192,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     title="Values"
                     description="Calculate the values shown in the chart"
                     icon={<IconCalculator />}
+                    itemCount={config.values.length}
                     onDropField={addFieldToShelf}
                     onAddField={() => addBlankFieldToShelf('values')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
@@ -246,6 +249,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     title="Filters"
                     description="Limit which rows are included"
                     icon={<IconFilter />}
+                    itemCount={config.filters.length}
                     onDropField={addFieldToShelf}
                     onAddField={() => addBlankFieldToShelf('filters')}
                     addFieldDisabledReason={!config.source ? 'Select a data source first' : undefined}
@@ -414,6 +418,7 @@ function Shelf({
     title,
     description,
     icon,
+    itemCount,
     children,
     onDropField,
     onAddField,
@@ -423,6 +428,7 @@ function Shelf({
     title: string
     description: string
     icon: ReactNode
+    itemCount: number
     children: ReactNode
     onDropField: (field: NonNullable<ReturnType<typeof parseBIField>>, shelf: BIShelf) => void
     onAddField: () => void
@@ -437,9 +443,12 @@ function Shelf({
     }
 
     return (
-        <LemonCard hoverEffect={false} className="flex min-h-28 flex-col gap-2 border-dashed p-3">
+        <LemonCard
+            hoverEffect={false}
+            className="flex min-h-28 max-h-64 flex-col gap-2 overflow-hidden border-dashed p-3"
+        >
             <div
-                className="flex min-h-full flex-1 flex-col gap-2"
+                className="flex min-h-0 flex-1 flex-col gap-2"
                 data-attr={`bi-editor-${shelf}-shelf`}
                 onDragOver={(event) => {
                     event.preventDefault()
@@ -450,7 +459,7 @@ function Shelf({
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 font-medium">
                         <span className="text-tertiary">{icon}</span>
-                        {title}
+                        {title} ({itemCount})
                     </div>
                     <LemonButton
                         icon={<IconPlus />}
@@ -464,8 +473,8 @@ function Shelf({
                         data-attr={`bi-editor-${shelf}-add-field`}
                     />
                 </div>
-                <span className="text-xs text-secondary">{description}</span>
-                <div className="flex flex-1 flex-col gap-2">{children}</div>
+                <span className="shrink-0 text-xs text-secondary">{description}</span>
+                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">{children}</div>
             </div>
         </LemonCard>
     )
