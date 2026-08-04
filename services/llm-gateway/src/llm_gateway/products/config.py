@@ -247,10 +247,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
         # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
-        # GLM 5.2 (evaluated as reviewer).
+        # GLM 5.2 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
                 "@cf/zai-org/glm-5.2",
+                "deepseek-ai/deepseek-v4-flash-0731",
                 "claude-sonnet-5",
                 "claude-opus-4-8",
                 "claude-opus-5",

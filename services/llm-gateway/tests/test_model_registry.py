@@ -136,6 +136,7 @@ def create_mock_settings(
     fireworks: bool = False,
     cloudflare: bool = False,
     modal: bool = False,
+    baseten: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
@@ -151,6 +152,8 @@ def create_mock_settings(
     settings.modal_kimi_api_base = "https://kimi.modal.test/v1" if modal else None
     settings.modal_key = "wk-test" if modal else None
     settings.modal_secret = "ws-test" if modal else None
+    settings.baseten_api_base = "https://baseten.test/v1" if baseten else None
+    settings.baseten_api_key = "baseten-test" if baseten else None
     return settings
 
 
@@ -375,6 +378,17 @@ class TestCloudflareModelAdvertising:
             return_value=create_mock_settings(cloudflare=False, modal=True),
         ):
             assert self._cf_ids("llm_gateway") == {"@cf/zai-org/glm-5.2"}
+
+
+class TestBasetenModelAdvertising:
+    def test_deepseek_is_internal_only(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(baseten=True),
+        ):
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "review_hog") is True
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "llm_gateway") is False
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "posthog_code") is False
 
 
 class TestModelMatchesAllowlist:

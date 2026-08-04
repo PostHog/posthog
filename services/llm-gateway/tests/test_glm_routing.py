@@ -16,6 +16,7 @@ from llm_gateway.glm_routing import (
 from llm_gateway.request_context import RequestContext, set_request_context
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
+DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
 KIMI_MODEL = "@cf/moonshotai/kimi-k2.6"
 PRODUCT = "posthog_code"
 
@@ -171,6 +172,20 @@ async def test_baseten_flag_routes_each_surface(send_fn: Any, endpoint: str) -> 
 
     assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
     evaluate.assert_awaited_once_with("tasks-glm-baseten-inference", "d-1")
+
+
+@pytest.mark.parametrize(
+    ("send_fn", "endpoint"), [(row[0], f"baseten_{row[2].removeprefix('cloudflare_')}") for row in SURFACES]
+)
+async def test_deepseek_routes_each_surface_directly_to_baseten(send_fn: Any, endpoint: str) -> None:
+    handle = AsyncMock(return_value={"ok": True})
+    request = {"model": DEEPSEEK_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+
+    _, evaluate = await _send(_settings(baseten_api_key="baseten-key"), handle, send_fn=send_fn, request_data=request)
+
+    assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
+    assert handle.call_args.kwargs["model"] == DEEPSEEK_MODEL
+    evaluate.assert_not_called()
 
 
 async def test_modal_flag_is_evaluated_without_baseten_credentials() -> None:

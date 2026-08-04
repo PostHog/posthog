@@ -28,6 +28,7 @@ from llm_gateway.api.handler import (
 )
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
     BASETEN_PUBLIC_MODEL,
     ensure_baseten_configured,
     is_baseten_configured,
@@ -84,7 +85,11 @@ async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, set
 
 
 async def _route_to_baseten(model: str, user: AuthenticatedUser, settings: Settings) -> bool:
-    if model != BASETEN_PUBLIC_MODEL or not is_baseten_configured(settings):
+    if not is_baseten_configured(settings):
+        return False
+    if model == BASETEN_DEEPSEEK_PUBLIC_MODEL:
+        return True
+    if model != BASETEN_PUBLIC_MODEL:
         return False
     return await evaluate_flag(GLM_BASETEN_FLAG, user.distinct_id) or False
 

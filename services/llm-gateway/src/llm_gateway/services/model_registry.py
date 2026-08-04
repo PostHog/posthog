@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, is_baseten_configured
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
 from llm_gateway.modal import (
@@ -23,6 +24,7 @@ from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostSer
 # and silently fall back to their default.
 _CLOUDFLARE_PROVIDER: Final[str] = "cloudflare"
 _CLOUDFLARE_DEFAULT_CONTEXT_WINDOW: Final[int] = 128_000
+_BASETEN_INTERNAL_PRODUCTS: Final[frozenset[str]] = frozenset({"review_hog"})
 
 
 @dataclass(frozen=True)
@@ -159,6 +161,20 @@ class ModelRegistryService:
             model = self.get_model(model_id)
             if model is not None:
                 models.append(model)
+        if (
+            product in _BASETEN_INTERNAL_PRODUCTS
+            and is_baseten_configured(get_settings())
+            and (allowed_models is None or _model_matches_allowlist(BASETEN_DEEPSEEK_PUBLIC_MODEL, allowed_models))
+        ):
+            models.append(
+                ModelInfo(
+                    id=BASETEN_DEEPSEEK_PUBLIC_MODEL,
+                    provider="baseten",
+                    context_window=128_000,
+                    supports_streaming=True,
+                    supports_vision=False,
+                )
+            )
         return models
 
     def is_model_available(self, model_id: str, product: str) -> bool:
@@ -177,6 +193,9 @@ class ModelRegistryService:
 
         if _model_matches_allowlist(model_id, MODAL_ALLOWED_MODELS):
             return is_modal_model_configured(model_id, get_settings())
+
+        if model_id == BASETEN_DEEPSEEK_PUBLIC_MODEL:
+            return product in _BASETEN_INTERNAL_PRODUCTS and is_baseten_configured(get_settings())
 
         model = self.get_model(model_id)
         if model is None:

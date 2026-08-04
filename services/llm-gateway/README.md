@@ -211,6 +211,8 @@ Which backend serves a request is a gateway-internal decision made in `src/llm_g
 
 The `tasks-glm-baseten-inference` feature flag routes matching users to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
 
+DeepSeek V4 Flash is served directly by Baseten under `deepseek-ai/deepseek-v4-flash-0731` and is allowlisted only for internal model evaluation.
+
 Two knobs opt traffic into Modal (OR semantics, both default off):
 
 - The `tasks-glm-modal-inference` feature flag, evaluated server-side against PostHog (`LLM_GATEWAY_POSTHOG_PROJECT_TOKEN`/`_HOST`) with a short per-user cache and a brief global backoff when evaluation fails. Caller-forwarded flag headers are not trusted for routing.

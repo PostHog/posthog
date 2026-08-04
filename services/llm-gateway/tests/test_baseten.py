@@ -5,6 +5,8 @@ import pytest
 from fastapi import HTTPException
 
 from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_MODEL,
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
     BASETEN_METRIC_MODEL,
     _inject_baseten_params,
     ensure_baseten_configured,
@@ -37,6 +39,21 @@ def test_inject_baseten_params_maps_model_and_pins_api_key() -> None:
     assert MODEL_COST_OVERRIDES[BASETEN_METRIC_MODEL]["cache_read_input_token_cost"] == 1.4e-07
     assert MODEL_COST_OVERRIDES[BASETEN_METRIC_MODEL]["output_cost_per_token"] == 4.4e-06
     assert normalize_metric_labels(BASETEN_MODEL, "openai") == ("baseten", "baseten/zai-org/glm-5.2")
+
+
+def test_inject_baseten_params_maps_deepseek_model_and_costs() -> None:
+    kwargs: dict[str, Any] = {"model": BASETEN_DEEPSEEK_PUBLIC_MODEL}
+
+    _inject_baseten_params(kwargs, "https://inference.baseten.co/v1", "test-key")
+
+    litellm_model = f"openai/{BASETEN_DEEPSEEK_MODEL}"
+    metric_model = "baseten/deepseek-ai/deepseek-v4-flash-0731"
+    assert kwargs["model"] == litellm_model
+    assert COST_ALIASES[litellm_model] == (metric_model, "openai")
+    assert MODEL_COST_OVERRIDES[metric_model]["input_cost_per_token"] == 1.3e-07
+    assert MODEL_COST_OVERRIDES[metric_model]["cache_read_input_token_cost"] == 2.8e-08
+    assert MODEL_COST_OVERRIDES[metric_model]["output_cost_per_token"] == 2.6e-07
+    assert normalize_metric_labels(litellm_model, "openai") == ("baseten", metric_model)
 
 
 def test_inject_baseten_params_forces_streaming_usage() -> None:

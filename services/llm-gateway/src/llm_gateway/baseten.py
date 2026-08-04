@@ -15,7 +15,13 @@ from llm_gateway.config import Settings
 BASETEN_PUBLIC_MODEL = "@cf/zai-org/glm-5.2"
 BASETEN_GLM_MODEL = "zai-org/GLM-5.2"
 BASETEN_METRIC_MODEL = "baseten/zai-org/glm-5.2"
-_BASETEN_LITELLM_MODEL = f"openai/{BASETEN_GLM_MODEL}"
+BASETEN_DEEPSEEK_PUBLIC_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
+BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
+BASETEN_DEEPSEEK_METRIC_MODEL = "baseten/deepseek-ai/deepseek-v4-flash-0731"
+BASETEN_MODELS = {
+    BASETEN_PUBLIC_MODEL: BASETEN_GLM_MODEL,
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: BASETEN_DEEPSEEK_MODEL,
+}
 
 
 def is_baseten_configured(settings: Settings) -> bool:
@@ -33,11 +39,12 @@ def ensure_baseten_configured(settings: Settings) -> tuple[str, str]:
 
 
 def _inject_baseten_params(kwargs: dict[str, Any], api_base: str, api_key: str) -> None:
+    model = kwargs["model"]
     kwargs["api_base"] = api_base
     kwargs["api_key"] = api_key
     kwargs.pop("headers", None)
     kwargs["extra_headers"] = {"Authorization": f"Api-Key {api_key}"}
-    kwargs["model"] = _BASETEN_LITELLM_MODEL
+    kwargs["model"] = f"openai/{BASETEN_MODELS[model]}"
     kwargs.setdefault("drop_params", True)
     if kwargs.get("stream"):
         stream_options = dict(kwargs.get("stream_options") or {})

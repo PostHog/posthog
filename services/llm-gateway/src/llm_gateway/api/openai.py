@@ -11,6 +11,7 @@ from llm_gateway.api.handler import (
     handle_llm_request,
     normalize_litellm_model_name,
 )
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
 from llm_gateway.cloudflare import is_cloudflare_model
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.glm_routing import send_glm_chat_completions, send_glm_responses
@@ -38,7 +39,7 @@ async def _handle_chat_completions(
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
 
-    if is_cloudflare_model(body.model):
+    if is_cloudflare_model(body.model) or body.model == BASETEN_DEEPSEEK_PUBLIC_MODEL:
         return await send_glm_chat_completions(data, user, body.stream or False, product)
 
     if is_modal_served_model(body.model):
@@ -67,8 +68,8 @@ async def _handle_responses(
     """
     data = body.model_dump(exclude_none=True)
 
-    if is_cloudflare_model(body.model):
-        # `@cf/`-served models can't use the native OpenAI Responses path below: it would prefix
+    if is_cloudflare_model(body.model) or body.model == BASETEN_DEEPSEEK_PUBLIC_MODEL:
+        # OpenAI-compatible backends can't use the native OpenAI Responses path below: it would prefix
         # `openai/` and call the real OpenAI Responses API. Route through the GLM backend's endpoint
         # via litellm's Responses->chat/completions bridge instead (see make_cloudflare_responses_call
         # / make_modal_responses_call).
@@ -76,9 +77,7 @@ async def _handle_responses(
             # The bridge rebuilds prior turns from litellm proxy spend logs; we run litellm as an
             # SDK (no proxy DB), so it would silently resolve to empty history and drop the
             # conversation. Reject explicitly rather than answer with lost context.
-            raise _invalid_request_error(
-                "previous_response_id is not supported for Cloudflare models on the Responses API"
-            )
+            raise _invalid_request_error("previous_response_id is not supported for this model on the Responses API")
         if data.get("tools"):
             # `tools` arrives as an extra field (ResponsesRequest allows extras). The
             # Responses->chat/completions bridge doesn't faithfully translate Responses-shaped
@@ -86,7 +85,7 @@ async def _handle_responses(
             # chat-completions-shaped function tools lose their name, so the backend's
             # chat/completions endpoint rejects the payload. Reject up front rather than hand it a
             # request that will fail once tools are advertised.
-            raise _invalid_request_error("tools are not yet supported for Cloudflare models on the Responses API")
+            raise _invalid_request_error("tools are not yet supported for this model on the Responses API")
         return await send_glm_responses(data, user, body.stream or False, product)
 
     if is_modal_served_model(body.model):
