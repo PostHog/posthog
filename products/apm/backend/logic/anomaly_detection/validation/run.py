@@ -97,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--models", nargs="*", default=None, help="subset of model names to run")
     parser.add_argument("--out", type=str, default=None)
     args = parser.parse_args(argv)
+    if args.weeks < 2 or not 1 <= args.eval_weeks < args.weeks:
+        parser.error("--eval-weeks must be >= 1 and smaller than --weeks (>= 2)")
 
     config = DetectionConfig.from_env()
     grid_length = args.weeks * BUCKETS_PER_WEEK
@@ -105,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Young services put cold-start and developing stages inside the eval
     # window; everything born at t=0 is mature by then.
-    young_births = (eval_start - 5 * BUCKETS_PER_DAY, eval_start - 3 * BUCKETS_PER_WEEK)
+    young_births = (max(0, eval_start - 5 * BUCKETS_PER_DAY), max(0, eval_start - 3 * BUCKETS_PER_WEEK))
     scenario = build_scenario(
         grid, grid_length, seed=args.seed, ephemeral_count=args.ephemerals, young_births=young_births
     )
@@ -114,6 +116,10 @@ def main(argv: list[str] | None = None) -> int:
 
     models = default_band_models(rate_floor=config.band_rate_floor, dispersion_floor=config.dispersion_floor)
     if args.models:
+        known = {m.name for m in models}
+        unknown = sorted(set(args.models) - known)
+        if unknown:
+            parser.error(f"unknown model(s): {', '.join(unknown)}; choose from: {', '.join(sorted(known))}")
         models = [m for m in models if m.name in args.models]
 
     out = [
