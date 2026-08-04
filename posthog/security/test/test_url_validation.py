@@ -135,6 +135,27 @@ class TestUrlValidation:
         assert ok and err is None
 
     @pytest.mark.parametrize(
+        "url",
+        [
+            "https://user%40corp.example:pass@example.com/path",
+            "https://user:p%2Fss@example.com/path",
+            "https://user:p%3Fss@example.com/path",
+            "https://user:p%23ss@example.com/path",
+        ],
+    )
+    def test_is_url_allowed_permits_percent_encoded_credentials(self, url, monkeypatch):
+        # Integrations and warehouse sources supply connection URLs with basic auth, and an
+        # email username or a password holding a reserved character has to percent-encode it.
+        # Every parser resolves these to example.com, so the fetch path takes the lenient
+        # rule. Swapping it for has_ambiguous_authority would break all of them.
+        def fake_resolve(host: str):
+            return {ipaddress.ip_address("93.184.216.34")}
+
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        ok, err = uv.is_url_allowed(url)
+        assert ok and err is None
+
+    @pytest.mark.parametrize(
         "url,blocked",
         [
             ("http://example.com", False),
