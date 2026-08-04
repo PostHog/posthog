@@ -28,9 +28,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { PropertyOperator } from '~/types'
-
-import { isLiveStreamFilter } from '../webAnalyticsFilterLogic'
+import { LIVE_STREAM_OPERATORS, isLiveStreamFilter } from '../webAnalyticsFilterLogic'
 import { WebAnalyticsDomainSelector, WebAnalyticsLiveDeviceToggle } from '../WebAnalyticsFilters'
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
@@ -120,7 +118,7 @@ const LiveDashboardFilterRow = ({
                     <PropertyFilters
                         disablePopover
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        operatorAllowlist={[PropertyOperator.Exact]}
+                        operatorAllowlist={LIVE_STREAM_OPERATORS}
                         onChange={(filters) => {
                             const nextLiveFilters = filters
                                 .filter(isWebAnalyticsPropertyFilter)
@@ -266,6 +264,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         hasActiveFilters,
         isLoading,
         recentEvents,
+        unstreamableTestAccountFilterCount,
     } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
     const { liveUserCount: allDomainsLiveUserCount } = useValues(
@@ -521,6 +520,14 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             >
                 We'd love to hear what you think about the live dashboard.
             </LemonBanner>
+
+            {unstreamableTestAccountFilterCount > 0 && (
+                <LemonBanner type="warning" className="mb-2" dismissKey="live-web-analytics-test-account-stream-limit">
+                    Test account filtering applies to the last 30 minutes of history, but not to events as they stream
+                    in. Your filter matches on person or cohort data, which isn't available until events are processed.
+                    To filter the realtime view too, add an event property filter.
+                </LemonBanner>
+            )}
 
             <DndContext
                 sensors={sensors}

@@ -41,7 +41,6 @@ import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/Que
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
-import { SessionResourcesBar } from "@posthog/ui/features/sessions/components/SessionResourcesBar";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
   isSubmittedContentUnchanged,
@@ -136,10 +135,10 @@ const DEFAULT_ERROR_MESSAGE =
  *
  * The gutter is a percentage of this box, and the thread's equivalent box sits
  * inside a scroller whose `scrollbar-gutter: stable` has already taken the
- * scrollbar's width off it. Without matching that reservation here the composer
- * centers on a wider box and its column lands half a scrollbar to the right of
- * the messages. Reserving it the same way keeps the browser's own measurement
- * as the single source of truth; a hard-coded width would drift per platform.
+ * scrollbar's width off it. Without the same reservation here, the composer
+ * centers on a wider box and its column lands half a scrollbar right of the
+ * messages. Reserving it rather than subtracting a constant keeps the browser's
+ * own measurement authoritative, since scrollbar width varies by platform.
  */
 /** Widest ring the composer paints outside its border box (quill's 3px focus outline). */
 const OUTLINE_BLEED = 4;
@@ -161,10 +160,10 @@ function ComposerWidth({
         paddingInline: CHAT_CONTENT_PADDING_INLINE,
         overflow: "hidden",
         scrollbarGutter: "stable",
-        // The composer's focus outline paints outside its border box, and this
-        // box's top edge sits flush against it, so the clip would slice the
-        // ring's top off. Buy it room and take the room back out of the layout.
-        // (The sides have the gutter, and the capped box's `pb-2` covers below.)
+        // `overflow: hidden` clips at this box's padding edge, which sits flush
+        // with the composer's top, so the focus ring painted outside its border
+        // box would lose its top. Buy the ring room and take it back out of the
+        // layout. The sides have the gutter and `pb-2` covers below.
         paddingBlockStart: OUTLINE_BLEED,
         marginBlockStart: -OUTLINE_BLEED,
       }}
@@ -256,7 +255,6 @@ export function SessionView({
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions } = useSettingsStore();
-  const useNewChatThread = useSettingsStore((s) => s.useNewChatThread);
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
@@ -733,8 +731,6 @@ export function SessionView({
                   scrollX={false}
                   promptRecallRef={promptRecallRef}
                 />
-
-                {!useNewChatThread && <SessionResourcesBar events={events} />}
 
                 <PlanStatusBar plan={latestPlan} />
 
