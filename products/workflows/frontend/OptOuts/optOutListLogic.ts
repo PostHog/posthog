@@ -306,6 +306,9 @@ export const optOutListLogic = kea<optOutListLogicType>([
             {
                 setCsvFile: (_, { file }) => file,
                 setShowImportCsvModal: () => null,
+                // Clear the picked file once an import produced a result, so the drop zone
+                // is ready for the next file; keep it when the file couldn't be read at all.
+                importCsvSuccess: (state, { csvImportResult }) => (csvImportResult ? null : state),
             },
         ],
         csvImportProgress: [
