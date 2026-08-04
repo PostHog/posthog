@@ -16,10 +16,14 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
+import { useQueries } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { type DragEvent, useMemo, useState } from "react";
+
+const WATCHED_TASK_POLL_INTERVAL_MS = 30_000;
 
 /**
  * A personal watch list: drag any task row onto the section (they all carry
@@ -43,6 +47,16 @@ export function WatchListSection() {
 
   // Anyone's task can be watched, so resolve against the full list.
   const { data: allTasks = [] } = useTasks({ showAllUsers: true });
+  // The list query misses tasks (its own filters and page), and a synthesized
+  // fallback row carries no live status — so each watched task also gets its
+  // own polled detail query, the same authoritative record the task views
+  // read. The status dot then agrees with the space lists.
+  const watchedTaskQueries = useQueries({
+    queries: watchList.map((entry) => ({
+      ...taskDetailQuery(entry.id),
+      refetchInterval: WATCHED_TASK_POLL_INTERVAL_MS,
+    })),
+  });
   const { channels: backendChannels } = useTaskChannels({ enabled: open });
   const { channels: folderChannels } = useChannels();
   const archivedTaskIds = useArchivedTaskIds();
@@ -55,9 +69,17 @@ export function WatchListSection() {
   // renders, from the reference captured at drop time.
   const items = useMemo<ChannelItemModel[]>(() => {
     const watched = new Set(watchList.map((entry) => entry.id));
+    // Detail records win over list copies: fresher, and they cover watched
+    // tasks the list query doesn't return at all.
+    const taskById = new Map(
+      allTasks.filter((t) => watched.has(t.id)).map((t) => [t.id, t]),
+    );
+    for (const query of watchedTaskQueries) {
+      if (query.data) taskById.set(query.data.id, query.data);
+    }
     const built = buildChannelItems({
       dashboards: [],
-      feedTasks: allTasks.filter((t) => watched.has(t.id)),
+      feedTasks: [...taskById.values()],
       archivedTaskIds,
       pinnedTaskIds,
       ownedBy: null,
@@ -80,7 +102,7 @@ export function WatchListSection() {
           task: null,
         },
     );
-  }, [watchList, allTasks, archivedTaskIds, pinnedTaskIds]);
+  }, [watchList, allTasks, watchedTaskQueries, archivedTaskIds, pinnedTaskIds]);
 
   // Each task's space: backend channel → display name → folder channel (which
   // the routes need). Unmapped tasks open under #me and carry no label.
@@ -222,7 +244,7 @@ export function WatchListSection() {
                   size="icon-sm"
                   aria-label="Remove from watch list"
                   onClick={() => removeFromWatchList(item.id)}
-                  className="-translate-y-1/2 absolute top-1/2 right-0.5 bg-chrome text-muted-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 group-hover/watch:opacity-100 hover:text-foreground"
+                  className="-translate-y-1/2 absolute top-1/2 right-0.5 bg-chrome text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/watch:opacity-100"
                 >
                   <XIcon size={13} weight="bold" />
                 </Button>

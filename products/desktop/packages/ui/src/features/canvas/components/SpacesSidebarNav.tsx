@@ -18,13 +18,21 @@ import { AllSpacesSection } from "@posthog/ui/features/canvas/components/AllSpac
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
 import { SpaceSection } from "@posthog/ui/features/canvas/components/SpaceSection";
 import { WatchListSection } from "@posthog/ui/features/canvas/components/WatchListSection";
-import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
+import {
+  useChannelStarMutations,
+  useChannelStars,
+} from "@posthog/ui/features/canvas/hooks/useChannelStars";
+import {
+  type Channel,
+  useChannels,
+} from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
+import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import type { RefCallback } from "react";
+import type { DragEvent, RefCallback } from "react";
 import { useMemo, useState } from "react";
 
 /**
@@ -81,6 +89,13 @@ export function SpacesSidebarNav() {
     ? searchText.trim().toLowerCase() || undefined
     : undefined;
 
+  // Dropping an All-spaces row into this region pins it (stars it), same as
+  // the directory's star but as one gesture.
+  const { channels } = useChannels();
+  const { starredRefToShortcutId } = useChannelStars();
+  const { star } = useChannelStarMutations();
+  const [isSpaceDropTarget, setIsSpaceDropTarget] = useState(false);
+
   const me = pinnedSpaces.find((c) => c.name === PERSONAL_CHANNEL_NAME);
   // The user's drag order over the starred set; spaces they've never dragged
   // keep their backend order after the ranked ones (sort is stable).
@@ -95,6 +110,41 @@ export function SpacesSidebarNav() {
         (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
     );
   }, [pinnedSpaces, spaceOrder]);
+
+  const handleSpaceDragOver = (e: DragEvent) => {
+    if (!e.dataTransfer.types.includes("text/x-space-id")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setIsSpaceDropTarget(true);
+  };
+  const handleSpaceDragLeave = (e: DragEvent) => {
+    // dragleave fires when crossing into children; only clear on a real exit.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsSpaceDropTarget(false);
+  };
+  const handleSpaceDrop = (e: DragEvent) => {
+    setIsSpaceDropTarget(false);
+    const spaceId = e.dataTransfer.getData("text/x-space-id");
+    if (!spaceId) return;
+    e.preventDefault();
+    const channel = channels.find((c) => c.id === spaceId);
+    if (!channel || starredRefToShortcutId.has(channel.path)) return;
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "star",
+      surface: "sidebar",
+      channel_id: channel.id,
+    });
+    star(channel).catch((error: unknown) =>
+      toast.error("Couldn't pin space", {
+        description: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    // Pins land at the bottom of the user's order, ready to drag into place.
+    setSpaceOrder([
+      ...orderedSpaces.map((c) => c.id).filter((id) => id !== spaceId),
+      spaceId,
+    ]);
+  };
 
   const handleDragEnd: DragDropEvents["dragend"] = (event) => {
     if (event.canceled) return;
@@ -201,8 +251,18 @@ export function SpacesSidebarNav() {
 
       {/* Pinned (starred) spaces; #me first and fixed, the rest reorderable.
           This region is the sidebar's one scroll container — spaces unfold
-          their full lists inside it, so there are no nested scrollbars. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          their full lists inside it, so there are no nested scrollbars. It
+          also accepts All-spaces rows dragged up from the directory below. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target for space drags; the directory's star is the keyboard path */}
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto px-2 pb-2 transition-colors",
+          isSpaceDropTarget && "bg-fill-hover",
+        )}
+        onDragOver={handleSpaceDragOver}
+        onDragLeave={handleSpaceDragLeave}
+        onDrop={handleSpaceDrop}
+      >
         <div className="flex flex-col gap-px">
           {me && <SpaceSection channel={me} query={query} />}
           {/* The handle doubles as the fold toggle, so a small pickup

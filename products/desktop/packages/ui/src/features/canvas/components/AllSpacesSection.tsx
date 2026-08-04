@@ -116,6 +116,13 @@ export function AllSpacesSection() {
                       label={channel.name}
                       isActive={isActive}
                       onClick={() => openSpace(channel)}
+                      // Dragging a directory row up into the pinned area pins
+                      // it — same result as the star, one gesture instead.
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/x-space-id", channel.id);
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
                       // Star well, so the name truncates clear of the star.
                       endContent={
                         <span aria-hidden className="size-5 shrink-0" />
