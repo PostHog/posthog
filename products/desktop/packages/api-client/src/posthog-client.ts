@@ -2454,6 +2454,32 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
+  async updateTaskChannelRepositories(
+    id: string,
+    githubIntegration: number | null,
+    repositories: string[],
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          github_integration: githubIntegration,
+          repositories,
+        }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update space repositories: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
   async deleteTaskChannel(id: string): Promise<void> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
