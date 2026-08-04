@@ -769,7 +769,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
         # `exception` on every occurrence, flooding error tracking with a self-recovering failure
         # (e.g. a cloud provider terminating a backend for maintenance or failover).
-        return {"terminating connection due to"}
+        # "the database system is shutting down" is the connect-time sibling of the same restart: a
+        # smart/fast shutdown refuses new connections while the source is going down, which the
+        # offset-chunking reconnect also retries in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS`
+        # in postgres.py) — this is the same whole-activity-retry fallback for when that budget is
+        # exhausted (e.g. a longer maintenance window).
+        return {"terminating connection due to", "the database system is shutting down"}
 
     def reconcile_schema_metadata(
         self,
