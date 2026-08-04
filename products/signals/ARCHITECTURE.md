@@ -1346,6 +1346,8 @@ products/signals/
 │       ├── signal_queries.py        # Canonical HogQL helpers for fetch/search/soft-delete/wait
 │       ├── summary.py               # SignalReportSummaryWorkflow + report state transition activities
 │       └── types.py                 # Shared dataclasses + signal rendering helpers
+├── dags/
+│   └── inbox_ranking/               # Dagster dags for the report-ranking model (daily modeling dataset) — see its README.md + AGENTS.md
 ├── skills/                          # Signals skills — see skills/AGENTS.md
 │   ├── AGENTS.md
 │   ├── signals/                     # Official PostHog skill (published via posthog_ai/dist): querying signals data
