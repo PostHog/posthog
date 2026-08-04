@@ -1,8 +1,24 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { StepDefinition } from '../steps'
+import { StepDefinition } from '../../steps'
 
-export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export interface OpenAICompatibleConfig {
+    /** Display name, e.g. 'DeepSeek' */
+    label: string
+    /** Example-repo slug, e.g. 'deepseek' */
+    slug: string
+    /** e.g. 'https://api.deepseek.com' */
+    baseUrl: string
+    /** e.g. '<deepseek_api_key>' */
+    apiKeyPlaceholder: string
+    /** e.g. 'deepseek-chat' */
+    defaultModel: string
+}
+
+export const getOpenAICompatibleSteps = (
+    ctx: OnboardingComponentsContext,
+    config: OpenAICompatibleConfig
+): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
@@ -13,13 +29,14 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
             badge: 'required',
             content: (
                 <>
-                    <CalloutBox type="fyi" icon="IconInfo" title="Full working examples">
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
                         <Markdown>
-                            See the complete
-                            [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-cloudflare-ai-gateway)
-                            and
-                            [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-cloudflare-ai-gateway)
-                            examples on GitHub.
+                            {dedent`
+                                See the complete
+                                [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-${config.slug}) and
+                                [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-${config.slug})
+                                examples on GitHub.
+                            `}
                         </Markdown>
                     </CalloutBox>
 
@@ -53,8 +70,7 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                 <>
                     <Markdown>
                         {dedent`
-                            Create a PostHog client, then swap in PostHog's OpenAI wrapper, pointed at your
-                            Cloudflare AI Gateway endpoint.
+                            Create a PostHog client, then swap in PostHog's OpenAI wrapper, pointed at ${config.label}.
                         `}
                     </Markdown>
 
@@ -71,11 +87,8 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                     posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
                                     client = OpenAI(
-                                        base_url="https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
-                                        api_key="<openai_api_key>",
-                                        default_headers={
-                                            "cf-aig-authorization": "Bearer <cf_aig_token>",
-                                        },
+                                        base_url="${config.baseUrl}",
+                                        api_key="${config.apiKeyPlaceholder}",
                                         posthog_client=posthog,
                                     )
                                 `,
@@ -90,11 +103,8 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                     const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
 
                                     const client = new OpenAI({
-                                      baseURL: 'https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat',
-                                      apiKey: '<openai_api_key>',
-                                      defaultHeaders: {
-                                        'cf-aig-authorization': 'Bearer <cf_aig_token>',
-                                      },
+                                      baseURL: '${config.baseUrl}',
+                                      apiKey: '${config.apiKeyPlaceholder}',
                                       posthog,
                                     })
                                 `,
@@ -105,14 +115,14 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
             ),
         },
         {
-            title: 'Call Cloudflare AI Gateway',
+            title: `Call ${config.label}`,
             badge: 'required',
             content: (
                 <>
                     <Markdown>
                         {dedent`
-                            When you use the wrapped client to call Cloudflare AI Gateway, PostHog automatically
-                            captures an \`$ai_generation\` event.
+                            When you use the wrapped client to call ${config.label}, PostHog automatically captures
+                            an \`$ai_generation\` event.
                         `}
                     </Markdown>
 
@@ -125,15 +135,14 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                     trace_id = str(uuid.uuid4())
 
                                     response = client.chat.completions.create(
-                                        model="openai/gpt-5-mini",
-                                        max_completion_tokens=1024,
+                                        model="${config.defaultModel}",
                                         messages=[{"role": "user", "content": "What's the weather in Paris?"}],
                                         tools=tools,
                                         posthog_distinct_id="user_123",
                                         posthog_trace_id=trace_id,
                                         posthog_properties={
                                             "$ai_session_id": "conversation-abc",
-                                            "$ai_provider": "cloudflare",
+                                            "$ai_provider": "${config.slug}",
                                         },
                                     )
                                 `,
@@ -145,15 +154,14 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                     const traceId = crypto.randomUUID()
 
                                     const response = await client.chat.completions.create({
-                                      model: 'openai/gpt-5-mini',
-                                      max_completion_tokens: 1024,
+                                      model: '${config.defaultModel}',
                                       messages: [{ role: 'user', content: "What's the weather in Paris?" }],
                                       tools,
                                       posthogDistinctId: 'user_123',
                                       posthogTraceId: traceId,
                                       posthogProperties: {
                                         $ai_session_id: 'conversation-abc',
-                                        $ai_provider: 'cloudflare',
+                                        $ai_provider: '${config.slug}',
                                       },
                                     })
                                 `,
@@ -225,11 +233,11 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                       const result = await runTool(call.function.name, JSON.parse(call.function.arguments))
 
                                       posthog.capture({
-                                        distinctId,
+                                        distinctId: 'user_123',
                                         event: '$ai_span',
                                         properties: {
                                           $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
+                                          $ai_session_id: 'conversation-abc',
                                           $ai_span_id: crypto.randomUUID(),
                                           $ai_span_name: call.function.name,
                                           $ai_input_state: call.function.arguments,
@@ -254,5 +262,3 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
         },
     ]
 }
-
-export const CloudflareAIGatewayInstallation = createInstallation(getCloudflareAIGatewaySteps)
