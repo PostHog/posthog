@@ -2925,6 +2925,41 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
 
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(self, _feature_enabled, _capture) -> None:
+        # The cron snapshots fleet usage before its org loop, so a push-refresh that fires while
+        # the loop runs (a PR landing) writes a fresher, higher todays_usage than the snapshot.
+        # Writing the snapshot back would unpause the over-limit org until the next tick; the
+        # cron must recount candidates live at decision time instead.
+        self._set_self_driving_usage(3000, todays_usage=1500)
+        # Score must be in the frozen clock's future: candidate selection reads the zset
+        # through `list_limited_team_attributes`, which drops expired entries.
+        replace_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: 1798761600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with (
+            patch(
+                "ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period",
+                return_value=[(self.team.id, 100)],
+            ),
+            patch(
+                "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
+            ) as live_mock,
+        ):
+            update_all_orgs_billing_quotas()
+
+        assert live_mock.call_args.args[0] == str(self.organization.id)
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
     def test_refresh_is_a_noop_without_self_driving_usage(self) -> None:
         self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}
         self.organization.save()

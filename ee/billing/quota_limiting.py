@@ -1232,6 +1232,16 @@ def update_all_orgs_billing_quotas(
                     org.refresh_from_db(fields=["usage", "customer_trust_scores", "never_drop_data"])
                     refresh_total_seconds += time() - refresh_call_start
                     refresh_count += 1
+                    if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
+                        # The queries-phase snapshot predates any push-refresh that fired during
+                        # this run (`refresh_org_self_driving_quota` raises `todays_usage` the
+                        # moment a PR lands); writing the older snapshot back would unpause an
+                        # over-limit org until the next tick. Recount live instead — as a count
+                        # of the current window it also keeps legitimate decreases (day
+                        # rollover, refunds) intact.
+                        todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
+                            org_id, period_start, period_end
+                        )
 
                 _patch_todays_usage(org, todays_report)
 
