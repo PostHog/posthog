@@ -7,28 +7,32 @@ import {
 } from "@posthog/quill";
 import { readAgentToolName } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
-import { memo } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
+import { summarize } from "../new-thread/buildThreadGroups";
 import { grouping } from "../new-thread/conversationThreadConfig";
 import { SessionUpdateView } from "../session-update/SessionUpdateView";
 import { iconForToolCall } from "../session-update/toolCallUtils";
 
-/** A contiguous run (≥2) of `tool_call` session-updates from one assistant turn. */
+type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
+
+/** A contiguous run of one assistant turn's work: ≥2 `tool_call` updates plus the thoughts between them. */
 export type ToolGroupItem = {
   type: "tool_group";
   id: string;
-  tools: Extract<ConversationItem, { type: "session_update" }>[];
+  /** Everything in the run, in order — what the body lists and what the summary counts. */
+  items: SessionUpdateItem[];
 };
 
 /** Pull the resolved ToolCall + agent tool name from a `tool_call` session-update item. */
-function resolveTool(item: ToolGroupItem["tools"][number]): {
+function resolveTool(item: SessionUpdateItem): {
   toolCall: ToolCall;
   toolName?: string;
 } {
-  const update = item.update as Extract<
-    ConversationItem,
-    { type: "session_update" }
-  >["update"] & { toolCallId?: string };
+  const update = item.update as SessionUpdateItem["update"] & {
+    toolCallId?: string;
+  };
   const mapped = update.toolCallId
     ? item.turnContext.toolCalls.get(update.toolCallId)
     : undefined;
@@ -46,7 +50,7 @@ function resolveTool(item: ToolGroupItem["tools"][number]): {
 }
 
 /** Identity used to decide if a group is "all the same tool". */
-function toolKey(item: ToolGroupItem["tools"][number]): string {
+function toolKey(item: SessionUpdateItem): string {
   const { toolCall, toolName } = resolveTool(item);
   return toolName ?? toolCall.kind ?? "tool";
 }
@@ -62,7 +66,7 @@ function friendlyName(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
-export function isToolActive(item: ToolGroupItem["tools"][number]): boolean {
+export function isToolActive(item: SessionUpdateItem): boolean {
   const { toolCall } = resolveTool(item);
   const incomplete =
     toolCall.status === "pending" || toolCall.status === "in_progress";
@@ -73,45 +77,89 @@ export function isToolActive(item: ToolGroupItem["tools"][number]): boolean {
   );
 }
 
+/** True while the run's last item is a thought still streaming — the agent is mid-reasoning. */
+function isThinking(items: SessionUpdateItem[]): boolean {
+  const last = items.at(-1);
+  return (
+    last?.update.sessionUpdate === "agent_thought_chunk" &&
+    last.thoughtComplete === false
+  );
+}
+
+/** Cross-fade between successive labels, so the row reads as one thing changing, not a new row. */
+const LABEL_MOTION = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+  transition: { duration: 0.18, ease: "easeOut" as const },
+};
+
 /**
- * Summary `ChatMarker` for a batch of consecutive tool calls. The trigger follows the most recent
- * call so a collapsed live turn still says exactly what the agent is doing: spinner, tool name,
- * short tool-provided context, and the `ChatMarker` chevron. The collapsible body holds each tool's
- * own marker via `SessionUpdateView` (which dispatches through `ToolCallBlock` → `ToolRow` →
- * `ChatMarker`). Tool groups always start collapsed, including while a turn is streaming.
+ * One row standing in for a whole stretch of work: the tool calls and the thoughts between them.
+ *
+ * While it runs the row narrates — spinner plus whatever is happening right now (the current tool,
+ * or "Thinking…" while the agent reasons between calls), cross-fading as that changes. Once the run
+ * settles it collapses to what it did ("Ran 3 commands, read a file"), tallied by the same
+ * `summarize` the legacy view uses. Opening it lists every step in order via `SessionUpdateView`.
  */
 export const ToolGroup = memo(function ToolGroup({
-  tools,
+  items,
   mayStillGrow = false,
 }: {
-  tools: ToolGroupItem["tools"];
+  items: SessionUpdateItem[];
   /**
    * True when this run is the turn's trailing content and the turn is still
-   * streaming — more tool calls may append to it. Keeps the label on "Using"
-   * through the gaps between calls (every tool settled, next one not yet
-   * issued), where the group's own status alone would flip it to "Used"
-   * mid-turn and read as stalled.
+   * streaming — more tool calls may append to it. Keeps the label live through
+   * the gaps between calls (every tool settled, next one not yet issued), where
+   * the group's own status alone would flip it to the done summary mid-turn and
+   * read as stalled.
    */
   mayStillGrow?: boolean;
 }) {
-  const isActive = tools.some(isToolActive) || mayStillGrow;
+  const reduceMotion = useReducedMotion();
+  // Derived, not passed: two arrays that have to agree can stop agreeing.
+  const tools = useMemo(
+    () => items.filter((item) => item.update.sessionUpdate === "tool_call"),
+    [items],
+  );
+  const thinking = isThinking(items);
+  const isActive = tools.some(isToolActive) || thinking || mayStillGrow;
 
+  // Grouping only ever builds a run around ≥2 tool calls, but the component is exported, so a
+  // thought-only run resolves to no current tool rather than throwing on `undefined`.
   const currentItem =
     [...tools].reverse().find(isToolActive) ?? tools[tools.length - 1];
-  const current = resolveTool(currentItem);
-  const currentName = friendlyName(toolKey(currentItem));
+  const current = currentItem ? resolveTool(currentItem) : null;
+  const currentName = currentItem ? friendlyName(toolKey(currentItem)) : null;
   const currentContext =
-    current.toolCall.title &&
+    current?.toolCall.title &&
+    currentName &&
     current.toolCall.title.toLocaleLowerCase() !==
       currentName.toLocaleLowerCase()
       ? current.toolCall.title
       : null;
-  const LeadIcon = iconForToolCall(current.toolCall, current.toolName);
+  const LeadIcon = current
+    ? iconForToolCall(current.toolCall, current.toolName)
+    : null;
+
+  // A settled run reads as a tally of what happened. One with nothing countable keeps the live
+  // shape rather than falling back to summarize's "Worked". Memoized because the trailing group
+  // re-renders per streamed token, and this walks the whole run.
+  const summary = useMemo(() => summarize(items), [items]);
+  const showSummary = !isActive && summary.hasCountableWork;
+
+  // Keyed so a change swaps the label through the cross-fade. Thinking is its own key, so a run
+  // that returns to the same tool after a thought still animates the change.
+  const labelKey = showSummary
+    ? `done:${summary.doneLabel}`
+    : thinking || !currentName
+      ? "thinking"
+      : `tool:${currentName}:${currentContext ?? ""}`;
 
   return (
     <ChatMarker
       defaultOpen={false}
-      body={tools.map((item) => (
+      body={items.map((item) => (
         <SessionUpdateView
           key={item.id}
           item={item.update}
@@ -134,19 +182,42 @@ export const ToolGroup = memo(function ToolGroup({
         "focus-visible:shadow-none focus-visible:ring-(--ring)/50 focus-visible:ring-2 focus-visible:ring-inset",
       )}
     >
-      <ChatMarkerIcon>{isActive ? <Spinner /> : <LeadIcon />}</ChatMarkerIcon>
+      <ChatMarkerIcon>
+        {isActive || !LeadIcon ? <Spinner /> : <LeadIcon />}
+      </ChatMarkerIcon>
       <ChatMarkerContent
         className={cn(
           "flex min-w-0 items-center gap-1.5 overflow-hidden text-muted-foreground text-sm",
           isActive && "shimmer",
         )}
       >
-        <span className="shrink-0 font-medium">{currentName}</span>
-        {currentContext ? (
-          <span className="truncate text-muted-foreground/70">
-            {currentContext}
-          </span>
-        ) : null}
+        {/* `mode="wait"` so the outgoing label clears before the next fades in — overlapping them
+            on one line reads as a flicker rather than a change. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={labelKey}
+            className="flex min-w-0 items-center gap-1.5"
+            initial={reduceMotion ? false : LABEL_MOTION.initial}
+            animate={reduceMotion ? undefined : LABEL_MOTION.animate}
+            exit={reduceMotion ? undefined : LABEL_MOTION.exit}
+            transition={reduceMotion ? undefined : LABEL_MOTION.transition}
+          >
+            {showSummary ? (
+              <span className="truncate">{summary.doneLabel}</span>
+            ) : thinking || !currentName ? (
+              <span className="shrink-0 font-medium">Thinking…</span>
+            ) : (
+              <>
+                <span className="shrink-0 font-medium">{currentName}</span>
+                {currentContext ? (
+                  <span className="truncate text-muted-foreground/70">
+                    {currentContext}
+                  </span>
+                ) : null}
+              </>
+            )}
+          </motion.span>
+        </AnimatePresence>
       </ChatMarkerContent>
     </ChatMarker>
   );
