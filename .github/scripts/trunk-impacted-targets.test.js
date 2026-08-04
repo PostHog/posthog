@@ -12,6 +12,7 @@ const assert = require('node:assert/strict')
 
 const {
     computeTargets,
+    allKnownTargets,
     compileContractMatcher,
     compileWorkspaceMatcher,
     globToRegExp,
@@ -19,15 +20,28 @@ const {
     isTripwire,
     parseCrateDependencies,
     parsePytestIgnores,
+    parseSemgrepLanguages,
     parseWorkspacePackageGlobs,
     reverseClosure,
+    semgrepDomain,
+    tripwireDomain,
     ALL,
+    JAVASCRIPT,
+    PYTHON,
+    RUST,
+    UNIVERSAL,
 } = require('./trunk-impacted-targets')
 const { parseTachModules, tachDependents } = require('./turbo-discover')
 
 const CONTEXT = {
     products: ['alpha', 'beta', 'gamma'],
+    services: ['mcp', 'oauth-proxy'],
     isolatedProducts: new Set(['alpha', 'beta']),
+    semgrepDomains: new Map([
+        ['.semgrep/rules/security/py-rule.yaml', PYTHON],
+        ['.semgrep/rules/devex/ts-rule.yaml', JAVASCRIPT],
+        ['.semgrep/rules/devex/generic-rule.yaml', UNIVERSAL],
+    ]),
     rustGraph: {
         dependsOn: new Map([
             ['shared', []],
@@ -47,6 +61,35 @@ const CONTEXT = {
     },
 }
 
+// What a widening decision now uploads in place of the "ALL" sentinel.
+const EVERYTHING = allKnownTargets(CONTEXT)
+
+// A graph that declares all three products, so their importer sets are bounded.
+// The base CONTEXT deliberately declares none, which covers the case where a
+// product sits outside `tach check` and has to keep widening.
+const TACH_DECLARED_CONTEXT = {
+    ...CONTEXT,
+    tachGraph: {
+        graph: parseTachModules(`
+[[modules]]
+path = "products.alpha"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.beta"
+depends_on = ["products.gamma"]
+layer = "modules"
+
+[[modules]]
+path = "products.gamma"
+depends_on = []
+layer = "modules"
+`),
+        tachDependents,
+    },
+}
+
 // gamma vendors its own pnpm workspace; alpha and beta keep the conventional
 // backend/ + frontend/ layout, so the cases above stay on the old behavior.
 const WORKSPACE_CONTEXT = {
@@ -54,13 +97,16 @@ const WORKSPACE_CONTEXT = {
     productWorkspaces: new Map([['gamma', compileWorkspaceMatcher(['apps/*', 'packages/*', 'tooling/*'])]]),
 }
 
-test('every tripwire forces ALL', () => {
+// Nothing here has a blast radius the script can hold to one language: the
+// lockfiles span the whole pnpm and uv workspaces, the schemas land on both
+// sides of the fe/py split, and the rest steer what every suite runs or what it
+// runs against.
+test('a universal tripwire claims every known target', () => {
     const tripwireFiles = [
         'pnpm-lock.yaml',
         'uv.lock',
         'rust/Cargo.lock',
         'tach.toml',
-        '.github/workflows/ci-backend.yml',
         'proto/events.proto',
         'frontend/src/queries/schema.json',
         'posthog/schema.py',
@@ -69,28 +115,131 @@ test('every tripwire forces ALL', () => {
         '.test_durations',
         // Trees that steer what every suite runs or what it runs against: the
         // Depot copies of the workflows, the toolchain, the service configs the
-        // stack mounts, and the lint rules that run repo-wide.
+        // stack mounts, and the markdownlint config every tree's prose obeys.
         '.depot/workflows/ci-backend.yml',
         '.flox/env/manifest.toml',
         'docker/clickhouse/config.d/default.xml',
         'devenv/duckgres.yaml',
-        '.semgrep/rules/security/prefer-codegen-api.yaml',
         '.config/.markdownlint-cli2.jsonc',
+        // A workflow nobody has placed in a domain keeps the old radius.
+        '.github/workflows/ci-e2e-playwright.yml',
     ]
     for (const file of tripwireFiles) {
         assert.equal(isTripwire(file), true, `${file} should be a tripwire`)
-        assert.equal(computeTargets([file], CONTEXT), ALL, `${file} should force ALL`)
+        assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, `${file} should claim every target`)
     }
 })
 
-test('a tripwire anywhere in the change set forces ALL even alongside narrow files', () => {
-    assert.equal(computeTargets(['products/alpha/backend/api.py', 'pnpm-lock.yaml'], CONTEXT), ALL)
+// The lane rules and the graphs they read are the one case that must stay
+// universal on principle rather than for want of a narrower radius: two PRs
+// that disagree about the partition cannot be safely placed in it. Same
+// self-gating hazard as CONTRACT_DECLARATIONS.
+test('a change to the lane rules themselves stays universal', () => {
+    for (const file of [
+        '.github/scripts/trunk-impacted-targets.js',
+        '.github/scripts/trunk-impacted-targets.test.js',
+        '.github/scripts/trunk-lane-telemetry.js',
+        '.github/scripts/turbo-discover.js',
+        '.github/workflows/trunk-impacted-targets.yml',
+        'tach.toml',
+        'turbo.json',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
+    }
+})
+
+// A tripwire held to one language claims every lane running that language and
+// nothing else, which is the whole point: a frontend lint rule no longer
+// serializes against Rust, and a backend one no longer serializes against the
+// frontend.
+test('a language-scoped tripwire claims only that language', () => {
+    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    assert.equal(javascript.includes('fe:core'), true)
+    assert.equal(javascript.includes('fe:product:alpha'), true)
+    assert.equal(javascript.includes('node:ingestion'), true)
+    assert.equal(javascript.includes('svc:mcp'), true)
+    assert.equal(javascript.includes('py:core'), false)
+    assert.equal(
+        javascript.some((target) => target.startsWith('rust:crate:')),
+        false
+    )
+
+    const python = computeTargets(['mypy.ini'], CONTEXT)
+    assert.equal(python.includes('py:core'), true)
+    assert.equal(python.includes('py:product:alpha'), true)
+    assert.equal(python.includes('fe:core'), false)
+    assert.equal(python.includes('node:ingestion'), false)
+
+    const rust = computeTargets(['.github/workflows/ci-rust.yml'], CONTEXT)
+    assert.deepEqual(rust, ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated'])
+})
+
+// A workflow decides which suites run, so the suite it defines is the radius.
+// ci-frontend.yml was the single most common reason a PR widened.
+test('a single-language workflow claims that language rather than everything', () => {
+    assert.deepEqual(
+        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
+        computeTargets(['.oxlintrc.json'], CONTEXT)
+    )
+    assert.deepEqual(
+        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT),
+        computeTargets(['mypy.ini'], CONTEXT)
+    )
+})
+
+// Semgrep enforces the languages: declaration on every rule, so it is a sound
+// source for the radius. The IDOR allowlist every new team-scoped model has to
+// touch is a python rule, and used to serialize those PRs against the frontend.
+test('a semgrep rule claims the lanes of the languages it declares', () => {
+    assert.deepEqual(
+        computeTargets(['.semgrep/rules/security/py-rule.yaml'], CONTEXT),
+        computeTargets(['mypy.ini'], CONTEXT)
+    )
+    assert.deepEqual(
+        computeTargets(['.semgrep/rules/devex/ts-rule.yaml'], CONTEXT),
+        computeTargets(['.oxlintrc.json'], CONTEXT)
+    )
+    // A rule spanning languages with no single lane mapping, and a rule file
+    // the context never resolved, both keep the old radius.
+    assert.deepEqual(computeTargets(['.semgrep/rules/devex/generic-rule.yaml'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['.semgrep/rules/devex/unknown-rule.yaml'], CONTEXT), EVERYTHING)
+})
+
+test('semgrep language declarations resolve to a single domain or widen', () => {
+    assert.deepEqual([...parseSemgrepLanguages('      languages: [python]')], ['python'])
+    assert.deepEqual([...parseSemgrepLanguages('  languages: [typescript, javascript]')], ['typescript', 'javascript'])
+    assert.deepEqual([...parseSemgrepLanguages('languages:\n    - python\n    - py\n')], ['python', 'py'])
+    assert.equal(semgrepDomain('languages: [python]\nlanguages: [py]'), PYTHON)
+    assert.equal(semgrepDomain('languages: [typescript, javascript]'), JAVASCRIPT)
+    // Both sides of the split, an unmapped language, and no declaration at all.
+    assert.equal(semgrepDomain('languages: [python]\nlanguages: [typescript]'), UNIVERSAL)
+    assert.equal(semgrepDomain('languages: [generic]'), UNIVERSAL)
+    assert.equal(semgrepDomain('rules:\n  - id: x\n'), UNIVERSAL)
+})
+
+// Markdown in a tripwire tree compiles into nothing and no suite reads it. A
+// pull request template used to serialize a PR against the entire repo.
+test('markdown inside a tripwire tree is prose, not a CI change', () => {
+    for (const file of ['.github/pull_request_template.md', '.semgrep/rules/devex/README.md']) {
+        assert.equal(isTripwire(file), false, file)
+        assert.deepEqual(computeTargets([file], CONTEXT), ['prose'], file)
+    }
+})
+
+test('the widest tripwire in a change set wins', () => {
+    // A language-scoped tripwire accumulates alongside the narrow files rather
+    // than replacing them, so the product's own lane survives.
+    const scoped = computeTargets(['products/alpha/backend/api.py', 'mypy.ini'], CONTEXT)
+    assert.equal(scoped.includes('py:product:alpha'), true)
+    assert.equal(scoped.includes('fe:core'), false)
+    // A universal one still swallows everything.
+    assert.deepEqual(computeTargets(['products/alpha/backend/api.py', 'pnpm-lock.yaml'], CONTEXT), EVERYTHING)
 })
 
 // The single most dangerous failure mode: an unclaimed path yielding an empty
 // target set reads to Trunk as "overlaps nothing", so the PR merges in parallel
 // with everything. A new top-level directory must widen, never narrow.
-test('an unmapped path forces ALL rather than an empty target set', () => {
+test('an unmapped path widens rather than yielding an empty target set', () => {
     for (const file of [
         'some-new-toplevel/thing.go',
         'common/unrecognized/x.ts',
@@ -99,8 +248,70 @@ test('an unmapped path forces ALL rather than an empty target set', () => {
         'share/geoip.py',
         'agent-os/generate.py',
     ]) {
-        assert.equal(computeTargets([file], CONTEXT), ALL, `${file} should force ALL`)
+        assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, `${file} should widen`)
     }
+})
+
+// THE INVARIANT behind replacing the sentinel: a widened PR is only equivalent
+// to "ALL" if the enumerated set contains every target any other PR can claim.
+// One missing target makes the widened PR disjoint from the PR claiming it,
+// which is exactly the silent break the sentinel existed to prevent.
+test('every target the rules can emit appears in the enumerated universe', () => {
+    const everyRule = [
+        'posthog/models/team.py',
+        'ee/settings.py',
+        'ee/frontend/x.tsx',
+        'frontend/src/index.tsx',
+        'packages/quill/src/index.ts',
+        'playwright/spec.ts',
+        'nodejs/src/main.ts',
+        'services/mcp/src/index.ts',
+        'services/oauth-proxy/src/index.ts',
+        'docs/onboarding/index.ts',
+        '.agents/skills/merging-prs/SKILL.md',
+        'cli/src/main.rs',
+        'livestream/auth/jwt.go',
+        'funnel-udf/src/codec.rs',
+        'terraform/us/dashboards.tf',
+        '.stamphog/policy.yml',
+        '.vscode/launch.json',
+        'tools/phrocs/src/main.rs',
+        'tools/pr-approval-agent/policy.py',
+        'common/hogvm/x.py',
+        'common/storybook/x.ts',
+        'rust/shared/src/lib.rs',
+        'products/alpha/backend/api.py',
+        'products/beta/frontend/Scene.tsx',
+        'README.md',
+        '.oxlintrc.json',
+        'mypy.ini',
+        '.github/workflows/ci-rust.yml',
+    ]
+    for (const file of everyRule) {
+        const targets = computeTargets([file], CONTEXT)
+        assert.notEqual(targets, ALL, `${file} should enumerate`)
+        for (const target of targets) {
+            assert.equal(EVERYTHING.includes(target), true, `${target} (from ${file}) is missing from allKnownTargets`)
+        }
+    }
+})
+
+// Enumeration is only safe when it is complete, so a context that cannot name
+// every crate or service has to fall back to the sentinel rather than upload a
+// set that is missing lanes.
+test('an incomplete context falls back to the ALL sentinel', () => {
+    assert.equal(allKnownTargets({ ...CONTEXT, rustGraph: null }), null)
+    assert.equal(allKnownTargets({ ...CONTEXT, services: null }), null)
+    assert.equal(computeTargets(['some-new-toplevel/thing.go'], { ...CONTEXT, services: null }), ALL)
+})
+
+test('tripwire domains are reported for telemetry', () => {
+    assert.equal(tripwireDomain('pnpm-lock.yaml'), UNIVERSAL)
+    assert.equal(tripwireDomain('.oxlintrc.json'), JAVASCRIPT)
+    assert.equal(tripwireDomain('mypy.ini'), PYTHON)
+    assert.equal(tripwireDomain('.github/workflows/ci-rust.yml'), RUST)
+    assert.equal(tripwireDomain('.github/pull_request_template.md'), null)
+    assert.equal(tripwireDomain('products/alpha/backend/api.py'), null)
 })
 
 // Each of these went to ALL only because no rule named the directory, which
@@ -184,8 +395,8 @@ test('an unresolvable rust crate graph reports every crate instead of narrowing'
     assert.equal(computeTargets(['rust/shared/src/lib.rs'], noGraph), ALL)
 })
 
-test('a rust path outside every known crate forces ALL', () => {
-    assert.equal(computeTargets(['rust/not-a-crate/file.rs'], CONTEXT), ALL)
+test('a rust path outside every known crate widens', () => {
+    assert.deepEqual(computeTargets(['rust/not-a-crate/file.rs'], CONTEXT), EVERYTHING)
 })
 
 test('reverseClosure walks transitively and excludes unrelated nodes', () => {
@@ -356,12 +567,50 @@ layer = "modules"
     ])
 })
 
-test('a non-isolated product change widens to every backend target', () => {
+// The base CONTEXT keeps an empty tach graph, so no product is declared in it.
+// A product `tach check` does not constrain has no bounded importer set: any
+// module may import it, so its change still has to reach every backend lane.
+test('a product absent from the tach graph widens to every backend target', () => {
     const targets = computeTargets(['products/gamma/backend/api.py'], CONTEXT)
     assert.equal(targets.includes('py:core'), true)
     for (const product of CONTEXT.products) {
         assert.equal(targets.includes(`py:product:${product}`), true, `expected py:product:${product}`)
     }
+})
+
+// The lane only has to answer whether another PR can reference the symbols this
+// one changed, and tach.toml answers exactly that. Isolation is the stronger,
+// separate claim that the product's own suite is sufficient, which lets CI
+// skip the full Django suite, and which products/architecture.md says tach
+// cannot prove. A product can be too unsealed for that and still be bounded
+// here, which is why gamma (non-isolated) narrows the same way alpha does.
+test('a non-isolated product tach declares claims its own lane and its importers', () => {
+    assert.deepEqual(computeTargets(['products/gamma/backend/api.py'], TACH_DECLARED_CONTEXT), [
+        'py:product:beta',
+        'py:product:gamma',
+    ])
+    // Every backend file seeds, because a product with no declared contract
+    // surface has no way to say a file is internal.
+    assert.deepEqual(
+        computeTargets(['products/gamma/backend/internal/helper.py'], TACH_DECLARED_CONTEXT),
+        computeTargets(['products/gamma/backend/api.py'], TACH_DECLARED_CONTEXT)
+    )
+})
+
+// Isolation still governs the narrower question of which of a product's own
+// files seed the cascade at all, which is what a contract surface declares.
+test('isolation still buys a narrowed contract surface on top of the lane', () => {
+    const context = {
+        ...TACH_DECLARED_CONTEXT,
+        isolatedProducts: new Set([...CONTEXT.isolatedProducts, 'gamma']),
+        contractSurfaces: new Map([['gamma', compileContractMatcher(['backend/facade/**'])]]),
+    }
+    // Internals keep the product's own lane, with no cascade to beta.
+    assert.deepEqual(computeTargets(['products/gamma/backend/internal/helper.py'], context), ['py:product:gamma'])
+    assert.deepEqual(computeTargets(['products/gamma/backend/facade/api.py'], context), [
+        'py:product:beta',
+        'py:product:gamma',
+    ])
 })
 
 // 63 of the products are non-isolated, and their package.json carries the
@@ -386,9 +635,10 @@ test("a non-isolated product's declarations still seed the dependent cascade", (
     ])
 })
 
-// The narrowing is scoped to the declarations. Backend code in a non-isolated
-// product has no declared boundary, which is the whole reason it widens.
-test('a non-isolated product keeps widening on everything that is not a declaration', () => {
+// Declarations narrow even for a product tach does not declare, because they
+// configure only this product's own tasks. Its other files have neither a
+// declared boundary nor a bounded importer set, so they still widen.
+test('an undeclared product keeps widening on everything that is not a declaration', () => {
     for (const file of ['products/gamma/backend/api.py', 'products/gamma/mcp/tools.yaml']) {
         assert.equal(computeTargets([file], CONTEXT).includes('py:product:alpha'), true, file)
     }
@@ -573,16 +823,16 @@ test('backend-coupled and unrecognized tools stay in the backend lanes', () => {
 })
 
 // These steer what every suite runs, so they cannot sit in one domain's lane.
-test('CI-steering scripts directly under tools/ force ALL', () => {
-    assert.equal(computeTargets(['tools/playwright_spec_selection.py'], CONTEXT), ALL)
-    assert.equal(computeTargets(['tools/snob_backend_test_selection_shadow.py'], CONTEXT), ALL)
+test('CI-steering scripts directly under tools/ widen', () => {
+    assert.deepEqual(computeTargets(['tools/playwright_spec_selection.py'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['tools/snob_backend_test_selection_shadow.py'], CONTEXT), EVERYTHING)
 })
 
 // Both sit on the fe/py boundary: openapi-codegen generates the frontend types
 // from backend serializers, and owners is read by both suites.
 test('cross-domain tools are tripwires rather than backend-only', () => {
-    assert.equal(computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT), ALL)
-    assert.equal(computeTargets(['tools/owners/owners/__init__.py'], CONTEXT), ALL)
+    assert.deepEqual(computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['tools/owners/owners/__init__.py'], CONTEXT), EVERYTHING)
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the
@@ -600,11 +850,21 @@ test('markdown alongside code contributes no lane of its own', () => {
 
 // hogli build:skills zips products/*/skills/*, and ci-agent-skills.yml gates on
 // those paths and on .agents/, so this markdown is a build input, not prose.
+// Skill markdown is a build input for the Python skill build (and sometimes the product backend).
+// No frontend suite reads these files, so they should claim the backend lane but not the frontend lane.
 test('skill markdown keeps the lane of the tree that builds it', () => {
     assert.deepEqual(computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT), ['agents'])
     const productSkill = computeTargets(['products/beta/skills/creating-experiments/SKILL.md'], CONTEXT)
     assert.equal(productSkill.includes('py:product:beta'), true)
-    assert.equal(productSkill.includes('fe:product:beta'), true)
+    assert.equal(productSkill.includes('fe:product:beta'), false)
+})
+
+// The carve-out is for markdown, not for everything under skills/. A non-prose
+// file there is as unclassifiable as before and keeps both halves.
+test('a non-markdown skill file still claims both halves', () => {
+    const script = computeTargets(['products/beta/skills/creating-experiments/scripts/run.sh'], CONTEXT)
+    assert.equal(script.includes('py:product:beta'), true)
+    assert.equal(script.includes('fe:product:beta'), true)
 })
 
 // docs/onboarding is the @posthog/docs-onboarding workspace package that
@@ -619,8 +879,8 @@ test('docs/onboarding sources claim the frontend domain', () => {
 
 // Everything under docs/ is prose today apart from that package, so a new
 // non-prose tree there must widen rather than inherit the inert classification.
-test('an unrecognized non-prose file under docs forces ALL', () => {
-    assert.equal(computeTargets(['docs/tooling/generate.py'], CONTEXT), ALL)
+test('an unrecognized non-prose file under docs widens', () => {
+    assert.deepEqual(computeTargets(['docs/tooling/generate.py'], CONTEXT), EVERYTHING)
 })
 
 test('independent trees stay disjoint so they can share no lane', () => {
