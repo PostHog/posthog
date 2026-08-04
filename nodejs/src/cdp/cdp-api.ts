@@ -516,7 +516,7 @@ export class CdpApi {
                         logs,
                         sensitiveValues
                     )
-                    options.sendEmailsInline = true
+                    options.isTest = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -810,7 +810,7 @@ export class CdpApi {
                 logs,
                 sensitiveValues
             )
-            options.sendEmailsInline = true
+            options.isTest = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({

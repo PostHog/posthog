@@ -1621,7 +1621,7 @@ describe('CDP API', () => {
     // The test panel POSTs to /hog_flows/:id/invocations and runs the executor in-process —
     // it never enqueues into cyclotron. If the executor routes an email action onto the
     // dedicated email queue, nothing services that job and the workflow stalls on a
-    // "Workflow will pause until …" log. The handler forces `sendEmailsInline: true` so the
+    // "Workflow will pause until …" log. The handler forces `isTest: true` so the
     // email branch always goes through EmailService directly on this path.
     describe('hog_flows/:id/invocations — email actions are sent inline despite queue routing', () => {
         let emailSpy: jest.SpyInstance
@@ -1724,7 +1724,7 @@ describe('CDP API', () => {
                         ],
                         capturedPostHogEvents: [],
                         warehouseWebhookPayloads: [],
-                        emailAssets: [],
+                        messageAssets: [],
                     })
                 )
         })

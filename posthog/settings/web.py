@@ -79,6 +79,7 @@ PRODUCTS_APPS = [
     "products.logs.backend.apps.LogsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
+    "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
