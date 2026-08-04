@@ -183,11 +183,10 @@ function isInvisibleItem(item: ConversationItem): boolean {
 }
 
 /**
- * A thought joins a tool run instead of breaking it. Between two calls it is the agent narrating
- * the stretch of work the run already stands for, so folding it in keeps one row for one stretch —
- * the group's body still lists it in order, and the row's own label follows it while it streams.
- * Prose to the user (`agent_message_chunk`) still breaks the run: that is said *to* you, not about
- * the work.
+ * A thought joins a tool run instead of breaking it, because between two calls it narrates the
+ * stretch of work the run already stands for. The group's body still lists it in order. Prose to
+ * the user (`agent_message_chunk`) does break a run, since that is addressed to the reader rather
+ * than describing the work.
  */
 function isThoughtItem(item: ConversationItem): boolean {
   return (
@@ -200,20 +199,20 @@ function isThoughtItem(item: ConversationItem): boolean {
  * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
  * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
- * A lone tool call passes through untouched — it stays a single marker, matching the legacy thread,
- * and so do the thoughts around it: thoughts ride along a run, they never make one.
+ * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
+ * thoughts ride along a run, they never make one.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
  *
- * Grouping re-runs over the whole thread on every streamed chunk, so a completed run gets a fresh
- * array each time — new identity, same contents. That defeats `ToolGroup`'s `memo`, and every
- * settled group above the live one re-renders per token. Handing back the previous array makes
- * those groups skip the render entirely.
+ * Grouping re-runs over the whole thread on every streamed chunk, so a completed run produces a
+ * fresh array with identical contents each time. New identity defeats `ToolGroup`'s `memo`, which
+ * makes every settled group above the live one re-render per chunk. Handing back the previous
+ * array lets them skip the render.
  *
- * Only safe once the run's turn is complete: a live tool's status is mutated in place on its
- * resolved `ToolCall`, so reusing an array while the turn streams would freeze a spinner on a
- * tool that has since finished. `len` guards the case where a run gains items before settling.
+ * Only safe once the run's turn is complete, because a live tool's status is mutated in place on
+ * its resolved `ToolCall`: reusing an array mid-turn would leave a spinner on a tool that has
+ * since finished. `len` covers a run that gains items before it settles.
  */
 const settledRunItems = new WeakMap<
   ConversationItem,
@@ -240,7 +239,7 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
     if (toolCount >= 2) {
       out.push({
         type: "tool_group",
-        // The run's first tool call, so the id is stable as thoughts append around it.
+        // Keyed on the first tool call so the id survives thoughts appending around it.
         id: buffer.filter(isToolCallItem)[0].id,
         items: stableRunItems(buffer.filter(isSessionUpdateItem)),
       });

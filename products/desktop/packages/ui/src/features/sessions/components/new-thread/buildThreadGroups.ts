@@ -125,8 +125,8 @@ export function isGroupableItem(item: ConversationItem): boolean {
 }
 
 /**
- * Tallies, icons, and live/done labels for a run of grouped items. Exported so the quill thread's
- * `ToolGroup` reads the same counts this view does — one place decides what "ran 3 commands" means.
+ * Tallies, icons, and live/done labels for a run of grouped items. Exported so the thread's
+ * `ToolGroup` reads the same counts, keeping one definition of what "ran 3 commands" means.
  */
 export function summarize(items: ConversationItem[]): GroupSummary {
   const counts: GroupCounts = {
@@ -248,8 +248,8 @@ const summaryCache = new WeakMap<
 >();
 
 /**
- * `summarize`, skipping the walk for a run whose turn has completed. Exported alongside it so the
- * quill thread gets the same caching rather than re-walking every settled group per streamed token.
+ * `summarize`, skipping the walk for a run whose turn has completed. Exported so callers rendering
+ * many groups per streamed chunk don't re-walk the settled ones.
  */
 export function summarizeMemo(
   leading: ConversationItem[],

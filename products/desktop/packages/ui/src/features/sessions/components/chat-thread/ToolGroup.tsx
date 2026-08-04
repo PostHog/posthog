@@ -107,10 +107,9 @@ const LABEL_MOTION = {
 /**
  * One row standing in for a whole stretch of work: the tool calls and the thoughts between them.
  *
- * While it runs the row narrates — spinner plus whatever is happening right now (the current tool,
- * or "Thinking…" while the agent reasons between calls), cross-fading as that changes. Once the run
- * settles it collapses to what it did ("Ran 3 commands, read a file"), tallied by the same
- * `summarize` the legacy view uses. Opening it lists every step in order via `SessionUpdateView`.
+ * While the run is live the row shows what is happening now, which is the current tool or
+ * "Thinking…" while the agent reasons between calls. Once it settles the row shows what the run
+ * did ("Ran 3 commands, read a file"). Opening it lists every step in order.
  */
 export const ToolGroup = memo(function ToolGroup({
   items,
@@ -135,8 +134,8 @@ export const ToolGroup = memo(function ToolGroup({
   const thinking = isThinking(items);
   const isActive = tools.some(isToolActive) || thinking || mayStillGrow;
 
-  // Grouping only ever builds a run around ≥2 tool calls, but the component is exported, so a
-  // thought-only run resolves to no current tool rather than throwing on `undefined`.
+  // Grouping only ever builds a run around ≥2 tool calls, but this component is exported, so a
+  // thought-only run has to resolve to no current tool rather than throw on `undefined`.
   const currentItem = lastActiveTool(tools) ?? tools.at(-1);
   const current = currentItem ? resolveTool(currentItem) : null;
   const currentName = currentItem ? friendlyName(toolKey(currentItem)) : null;
@@ -151,17 +150,17 @@ export const ToolGroup = memo(function ToolGroup({
     ? iconForToolCall(current.toolCall, current.toolName)
     : null;
 
-  // A settled run reads as a tally of what happened. One with nothing countable keeps the live
-  // shape rather than falling back to summarize's "Worked". Cached across renders once the run's
-  // turn is complete — the walk is O(run), and the live turn re-renders every group per token.
+  // A run with no countable work (a lone streaming thought) keeps the live shape rather than
+  // falling back to summarize's "Worked". Cached once the turn completes because the walk is
+  // O(run) and the live turn re-renders every group on every streamed chunk.
   const summary = useMemo(
     () => summarizeMemo(items, items.at(-1)?.turnContext.turnComplete ?? false),
     [items],
   );
   const showSummary = !isActive && summary.hasCountableWork;
 
-  // Keyed so a change swaps the label through the cross-fade. Thinking is its own key, so a run
-  // that returns to the same tool after a thought still animates the change.
+  // Thinking gets its own key so a run that returns to the same tool after a thought still reads
+  // as a change rather than sitting static.
   const labelKey = showSummary
     ? `done:${summary.doneLabel}`
     : thinking || !currentName
@@ -182,14 +181,11 @@ export const ToolGroup = memo(function ToolGroup({
           thoughtComplete={item.thoughtComplete}
         />
       ))}
-      // Matches ToolRow: aligned to the text column, no hover fill, inset ring,
-      // and open looks the same as hover.
+      // Same row chrome as ToolRow; see the comment there for why quill's
+      // defaults are overridden.
       className={cn(
         "mx-0 px-0 opacity-50 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent",
         "data-panel-open:bg-transparent data-panel-open:opacity-100",
-        // The installed quill parks the chevron with `margin-inline-start: auto`;
-        // unset it so it sits against the text it opens. Newer quill already
-        // hugs, at which point this is inert.
         "[&>svg:last-child]:ms-0",
         "focus-visible:shadow-none focus-visible:ring-(--ring)/50 focus-visible:ring-2 focus-visible:ring-inset",
       )}
@@ -203,8 +199,8 @@ export const ToolGroup = memo(function ToolGroup({
           isActive && "shimmer",
         )}
       >
-        {/* `mode="wait"` so the outgoing label clears before the next fades in — overlapping them
-            on one line reads as a flicker rather than a change. */}
+        {/* `mode="wait"` so the outgoing label clears before the next fades in. Overlapping them
+            on a single line reads as a flicker rather than a change. */}
         <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={labelKey}
