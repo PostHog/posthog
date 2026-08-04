@@ -72,9 +72,10 @@ def audience_filters_for_query(filters: dict) -> dict:
     dispatched send resolve the same people. The stored trigger config keeps ``properties`` flat,
     which is what the audience editor, the account resolver and the cohort checks read.
     """
-    properties = filters.get("properties")
     if filters.get("properties_operator") != MATCH_ANY_PROPERTIES:
         return filters
+    properties = filters.get("properties")
+    # An audience with nothing to join keeps its flat shape, which resolves to everyone either way.
     if not isinstance(properties, list) or not properties:
         return filters
     return {**filters, "properties": {"type": MATCH_ANY_PROPERTIES, "values": properties}}

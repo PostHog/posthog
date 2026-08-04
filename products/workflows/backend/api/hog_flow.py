@@ -443,10 +443,12 @@ def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
 
 
 def validate_audience_properties_operator(filters: dict) -> None:
-    """Reject a join between audience conditions that the resolver wouldn't apply.
+    """Reject an operator the audience resolver would not apply.
 
-    An unrecognized operator would silently fall back to AND at query time, which is the
-    opposite of what a caller asking for OR wants from a mass send, so it fails at write time.
+    An unrecognized value falls back to AND at query time, and the account resolver only ever
+    requires every filter to match, so accepting either would resolve a different audience than
+    the caller asked for. On a mass send that difference is the whole recipient list, so it fails
+    at write time instead.
     """
     properties_operator = filters.get("properties_operator")
     if properties_operator is None:
@@ -813,8 +815,6 @@ class HogFlowActionSerializer(serializers.Serializer):
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
             "to reference a cohort. "
-            "batch and schedule triggers may set filters.properties_operator: 'AND' (default, a person must "
-            "match every condition) or 'OR' (a person matching any one condition is included). "
             "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
             "audience fans out one run per customer analytics account and takes account filters instead: "
             "properties entries of type 'account_custom_property' (key = definition id), plus "

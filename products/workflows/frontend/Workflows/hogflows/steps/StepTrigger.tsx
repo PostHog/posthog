@@ -711,7 +711,8 @@ function StepTriggerConfigurationBatch({
                 <StepTriggerBatchAccountFilters actionId={action.id} filters={config.filters} />
             ) : (
                 <div>
-                    {config.filters.properties.length > 1 && (
+                    {/* Drafts save without validation, so a batch trigger can reach here with no properties key. */}
+                    {(config.filters.properties?.length ?? 0) > 1 && (
                         <AndOrFilterSelect
                             value={propertiesOperator}
                             onChange={(properties_operator) =>
