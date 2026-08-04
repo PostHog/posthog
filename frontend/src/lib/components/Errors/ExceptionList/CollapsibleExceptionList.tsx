@@ -5,6 +5,7 @@ import { IconBox, IconChevronRight } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { toDisplayOrderFrames } from '../displayOrder'
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { CollapsibleExceptionHeader } from '../Exception/CollapsibleExceptionHeader'
 import { ExceptionRenderer } from '../Exception/ExceptionRenderer'
@@ -70,9 +71,13 @@ function GroupedStackTraceRenderer({
     renderFrame: (frame: ErrorTrackingStackFrame, record?: ErrorTrackingStackFrameRecord) => React.ReactNode
     renderVendorFrameGroup: (group: Extract<StackFrameGroup, { type: 'vendor' }>) => React.ReactNode
 }): JSX.Element {
+    const { framesStoredCrashFirst } = useValues(errorPropertiesLogic)
     const frameGroups = useMemo(
-        () => groupStackFrames(frames, exceptionId, { expandSingleVendorGroupByDefault }),
-        [exceptionId, expandSingleVendorGroupByDefault, frames]
+        () =>
+            groupStackFrames(toDisplayOrderFrames(frames, framesStoredCrashFirst), exceptionId, {
+                expandSingleVendorGroupByDefault,
+            }),
+        [exceptionId, expandSingleVendorGroupByDefault, frames, framesStoredCrashFirst]
     )
 
     return (
