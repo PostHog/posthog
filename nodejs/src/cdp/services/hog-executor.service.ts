@@ -5,22 +5,18 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
 
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
-    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
-    LogEntry,
-    MinimalAppMetric,
 } from '../types'
 import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 
 export interface HogExecutorConfig {
@@ -138,124 +134,6 @@ export class HogExecutorService {
         }
 
         return merged
-    }
-
-    async buildHogFunctionInvocations(
-        hogFunctions: HogFunctionType[],
-        triggerGlobals: HogFunctionInvocationGlobals
-    ): Promise<{
-        invocations: CyclotronJobInvocationHogFunction[]
-        metrics: MinimalAppMetric[]
-        logs: LogEntry[]
-    }> {
-        const metrics: MinimalAppMetric[] = []
-        const logs: LogEntry[] = []
-        const invocations: CyclotronJobInvocationHogFunction[] = []
-
-        // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
-        const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
-
-        const _filterHogFunction = async (
-            hogFunction: HogFunctionType,
-            filters: HogFunctionType['filters'],
-            filterGlobals: HogFunctionFilterGlobals
-        ): Promise<boolean> => {
-            const filterResults = await filterFunctionInstrumented({
-                fn: hogFunction,
-                filters,
-                filterGlobals,
-            })
-
-            // Add any generated metrics and logs to our collections
-            metrics.push(...filterResults.metrics)
-            logs.push(...filterResults.logs)
-
-            return filterResults.match
-        }
-
-        const _buildInvocation = async (
-            hogFunction: HogFunctionType,
-            additionalInputs?: HogFunctionType['inputs']
-        ): Promise<CyclotronJobInvocationHogFunction | null> => {
-            try {
-                const globalsWithSource = {
-                    ...triggerGlobals,
-                    source: {
-                        name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                        url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
-                    },
-                }
-
-                const globalsWithInputs = await this.hogInputsService.buildInputsWithGlobals(
-                    hogFunction,
-                    globalsWithSource,
-                    additionalInputs
-                )
-
-                return createInvocation(globalsWithInputs, hogFunction)
-            } catch (error) {
-                logs.push({
-                    team_id: hogFunction.team_id,
-                    log_source: 'hog_function',
-                    log_source_id: hogFunction.id,
-                    instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
-                    timestamp: DateTime.now(),
-                    level: 'error',
-                    message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
-                })
-
-                metrics.push({
-                    team_id: hogFunction.team_id,
-                    app_source_id: hogFunction.id,
-                    metric_kind: 'failure',
-                    metric_name: 'inputs_failed',
-                    count: 1,
-                })
-
-                return null
-            }
-        }
-
-        await Promise.all(
-            hogFunctions.map(async (hogFunction) => {
-                // We always check the top level filters
-                if (!(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals))) {
-                    return
-                }
-
-                // Check for non-mapping functions first
-                if (!hogFunction.mappings) {
-                    const invocation = await _buildInvocation(hogFunction)
-                    if (!invocation) {
-                        return
-                    }
-
-                    invocations.push(invocation)
-                    return
-                }
-
-                await Promise.all(
-                    hogFunction.mappings.map(async (mapping) => {
-                        if (!(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))) {
-                            return
-                        }
-
-                        const invocation = await _buildInvocation(hogFunction, mapping.inputs ?? {})
-                        if (!invocation) {
-                            return
-                        }
-
-                        invocations.push(invocation)
-                    })
-                )
-            })
-        )
-
-        return {
-            invocations,
-            metrics,
-            logs,
-        }
     }
 
     @instrumented({ key: 'hog-executor.execute', sendException: false })

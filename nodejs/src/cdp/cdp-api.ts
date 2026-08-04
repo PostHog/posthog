@@ -37,6 +37,7 @@ import { BatchExportHogFunctionService, NotFoundError, ParseError } from './serv
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogInputsService } from './services/hog-inputs.service'
 import {
     BatchResolverState,
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -64,6 +65,7 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
 import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
@@ -115,6 +117,7 @@ export type CdpApiDeps = CdpConsumerBaseDeps
 
 export class CdpApi {
     private hogExecutorAsync: HogExecutorAsyncService
+    private hogInputsService: HogInputsService
     private nativeDestinationExecutorService: NativeDestinationExecutorService
     private segmentDestinationExecutorService: SegmentDestinationExecutorService
 
@@ -152,6 +155,7 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.hogExecutorAsync = services.hogExecutorAsync
+        this.hogInputsService = services.hogInputsService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
@@ -484,10 +488,7 @@ export class CdpApi {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
-                } = await this.hogExecutorAsync.hogExecutor.buildHogFunctionInvocations(
-                    [compoundConfiguration],
-                    triggerGlobals
-                )
+                } = await buildHogFunctionInvocations(this.hogInputsService, [compoundConfiguration], triggerGlobals)
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {

@@ -27,6 +27,7 @@ import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -54,13 +55,14 @@ describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutorAsyncService
     let hub: Hub
+    let hogInputsService: HogInputsService
 
     beforeEach(async () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         hub = await createHub()
-        const hogInputsService = new HogInputsService(
+        hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
             hub.encryptedFields
@@ -370,7 +372,7 @@ describe('Hog Executor', () => {
 
             const inputGlobals = createHogExecutionGlobals({ groups: {} })
             expect(inputGlobals.source).toBeUndefined()
-            const results = await executor.hogExecutor.buildHogFunctionInvocations([fn], inputGlobals)
+            const results = await buildHogFunctionInvocations(hogInputsService, [fn], inputGlobals)
 
             expect(results.invocations).toHaveLength(1)
 
@@ -387,14 +389,16 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations(
+            const resultsShouldntMatch = await buildHogFunctionInvocations(
+                hogInputsService,
                 [fn],
                 createHogExecutionGlobals({ groups: {} })
             )
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
-            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations(
+            const resultsShouldMatch = await buildHogFunctionInvocations(
+                hogInputsService,
                 [fn],
                 createHogExecutionGlobals({
                     groups: {},
@@ -435,7 +439,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await buildHogFunctionInvocations(hogInputsService, [fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -454,7 +458,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await buildHogFunctionInvocations(hogInputsService, [fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -484,7 +488,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await buildHogFunctionInvocations(hogInputsService, [fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -503,7 +507,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await buildHogFunctionInvocations(hogInputsService, [fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -533,7 +537,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await buildHogFunctionInvocations(hogInputsService, [fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -552,7 +556,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await buildHogFunctionInvocations(hogInputsService, [fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -614,7 +618,7 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const results1 = await executor.hogExecutor.buildHogFunctionInvocations([fn], pageviewGlobals)
+            const results1 = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals)
             expect(results1.invocations).toHaveLength(2)
             expect(results1.metrics).toHaveLength(1)
             expect(results1.logs).toHaveLength(1)
@@ -622,7 +626,8 @@ describe('Hog Executor', () => {
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
 
-            const results2 = await executor.hogExecutor.buildHogFunctionInvocations(
+            const results2 = await buildHogFunctionInvocations(
+                hogInputsService,
                 [fn],
                 createHogExecutionGlobals({
                     event: {
@@ -648,7 +653,7 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const result = await executor.hogExecutor.buildHogFunctionInvocations([fn], pageviewGlobals)
+            const result = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals)
             // First mapping has input overrides that should be applied
             expect(result.invocations[0].state.globals.inputs.headers).toEqual({
                 version: 'v=',
