@@ -138,6 +138,28 @@ class TestEnforceSelfDrivingRunQuotaActivity:
         assert SignalReportTask.objects.filter(task_id=test_task.id).exists()
 
     @pytest.mark.django_db(transaction=True)
+    def test_non_github_pr_url_does_not_grant_enforcement_immunity(
+        self, activity_environment, test_task, test_task_run
+    ):
+        # Run output is caller-writable and only GitHub PR URLs are billable, so a forged
+        # non-GitHub value must neither stop the rechecks nor keep the report's records
+        # after the cancel.
+        report = _make_self_driving_run(test_task, test_task_run)
+        from products.signals.backend.task_run_artefacts import record_implementation_task
+
+        record_implementation_task(team_id=test_task.team_id, report_id=str(report.id), task_id=str(test_task.id))
+        test_task_run.output = {"pr_url": "https://example.com/not-github/pull/1"}
+        test_task_run.save(update_fields=["output"])
+        SignalReportTask = apps.get_model("signals", "SignalReportTask")
+        with (
+            patch(f"{MODULE}.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(limited=True, enforced=True)),
+            patch(f"{MODULE}.capture_signal_report_quota_paused"),
+            patch("products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None)),
+        ):
+            assert _run_activity(activity_environment, test_task_run) == SELF_DRIVING_QUOTA_CANCELLED
+        assert not SignalReportTask.objects.filter(task_id=test_task.id).exists()
+
+    @pytest.mark.django_db(transaction=True)
     def test_release_failure_still_reports_cancelled(self, activity_environment, test_task, test_task_run):
         # The cancel is irreversible: a release failure must not tell the workflow to proceed as if
         # the run were healthy.

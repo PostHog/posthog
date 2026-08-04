@@ -26,6 +26,19 @@ SELF_DRIVING_QUOTA_CANCEL_REASON = (
     "Stopped automatically: the organization reached its self-driving pull request limit."
 )
 
+# Only GitHub-hosted PR URLs are billable (products/signals/backend/billing.py applies the same
+# prefix rule), so only they attest already-billed work. Run output is caller-writable, which
+# means any other pr_url value must not stop enforcement. Literal kept local because tasks code
+# must not import signals internals.
+_BILLABLE_PR_URL_PREFIX = "https://github.com/"
+
+
+def _has_billable_pr_url(output: object) -> bool:
+    if not isinstance(output, dict):
+        return False
+    pr_url = output.get("pr_url")
+    return isinstance(pr_url, str) and pr_url.startswith(_BILLABLE_PR_URL_PREFIX)
+
 
 @dataclass
 class EnforceSelfDrivingRunQuotaInput:
@@ -42,8 +55,8 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
     Returns one of:
 
     - ``stop_checking``: the run is not self-driving-billable (wrong origin, already terminal) or has
-      already recorded its PR URL. A shipped PR means the report is already billed, so letting the
-      run finish (and its CI follow-ups run) costs the customer nothing more.
+      already recorded a billable (GitHub) PR URL. A shipped billable PR means the report is already
+      billed, so letting the run finish (and its CI follow-ups run) costs the customer nothing more.
     - ``proceed``: the team's org is under its quota, or enforcement is off. Check again later.
     - ``cancelled``: the team's org is over quota with enforcement on. The run was cancelled through the
       standard cancellation path (agent interrupted, workflow signalled its own completion) and
@@ -60,7 +73,7 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
         task = run.task
         if task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
             return SELF_DRIVING_QUOTA_STOP_CHECKING
-        if isinstance(run.output, dict) and run.output.get("pr_url"):
+        if _has_billable_pr_url(run.output):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
 
         team = Team.objects.select_related("organization").get(id=input.team_id)
@@ -117,10 +130,10 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
     # workflow would believe the run is healthy while it is being torn down.
     try:
         # Re-read after the cancel round-trip: the agent can ship its PR (agent report or webhook
-        # backstop) while the interrupt is in flight. A PR means the report is billed — keep its
-        # records; the run still ends cancelled.
+        # backstop) while the interrupt is in flight. A billable PR means the report is billed — keep
+        # its records; the run still ends cancelled.
         refreshed_output = TaskRun.objects.filter(id=input.run_id).values_list("output", flat=True).first()
-        if isinstance(refreshed_output, dict) and refreshed_output.get("pr_url"):
+        if _has_billable_pr_url(refreshed_output):
             log_with_activity_context(
                 "PR landed during self-driving quota cancel, keeping the report's billing records",
                 run_id=input.run_id,
