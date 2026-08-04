@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     get_idempotency_key,
     is_batch_already_processed,
@@ -142,6 +144,31 @@ class TestIsBatchAlreadyProcessed:
                 is_batch_already_processed(
                     team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_helper=helper
                 )
+
+    @parameterized.expand(
+        [
+            # (name, error, expect_captured)
+            ("non_transient_error_is_reported", RuntimeError("delta blew up"), True),
+            ("non_reportable_error_is_not_reported", NonReportableError("transient object-store blip"), False),
+        ]
+    )
+    def test_capture_exception_respects_non_reportable_errors(self, _name, error, expect_captured):
+        """get_delta_table already classifies transient object-store blips as NonReportableError
+        and skips reporting them itself; this call site must not undo that by reporting again."""
+        client = _redis_client(0)
+        helper = _delta_helper(error)
+
+        with (
+            patch(REDIS_CLIENT_PATH) as mock_get_client,
+            patch(f"{_IDEMPOTENCY_MODULE}.capture_exception") as mock_capture,
+        ):
+            mock_get_client.return_value.__enter__.return_value = client
+            with pytest.raises(type(error)):
+                is_batch_already_processed(
+                    team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_helper=helper
+                )
+
+        assert mock_capture.called is expect_captured
 
 
 class TestMarkBatchAsProcessed:

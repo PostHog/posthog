@@ -969,6 +969,9 @@ importers:
       '@posthog/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/typescript
+      esbuild:
+        specifier: 0.27.2
+        version: 0.27.2
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
