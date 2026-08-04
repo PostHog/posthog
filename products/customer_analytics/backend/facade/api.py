@@ -35,6 +35,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -124,6 +125,7 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
     from products.customer_analytics.backend.models import CustomPropertyValue
+    from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
@@ -395,6 +397,36 @@ def _account_name_from_group(team: Team, external_id: str) -> str:
         return external_id
     name = (group.group_properties or {}).get("name") if group is not None else None
     return str(name) if name else external_id
+
+
+def get_account_group_type_name(team: Team) -> str | None:
+    """The group type name accounts are keyed on, or None when customer analytics is unconfigured."""
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return None
+    group_types = get_group_types_for_project(team.project_id, caller_tag="customer_analytics/account_audience")
+    for mapping in group_types:
+        if mapping["group_type_index"] == group_type_index:
+            return mapping["group_type"]
+    return None
+
+
+def count_accounts_for_audience(team: Team, filters: "AccountAudienceFilters") -> int:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.count_accounts_for_audience(team, filters)
+
+
+def list_account_external_ids_for_audience(
+    team: Team, filters: "AccountAudienceFilters", *, cursor: str | None, limit: int
+) -> list[str]:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.list_account_external_ids_for_audience(team, filters, cursor=cursor, limit=limit)
 
 
 def create_external_account(

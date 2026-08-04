@@ -1054,6 +1054,10 @@ class RepoOverview:
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
+    # The slice of billable_minutes spent on merge-queue batch branches, broken out so queue-settings
+    # changes show up as their own delta instead of hiding inside the total.
+    merge_queue_billable_minutes: float | None
+    merge_queue_billable_minutes_prev: float | None
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
