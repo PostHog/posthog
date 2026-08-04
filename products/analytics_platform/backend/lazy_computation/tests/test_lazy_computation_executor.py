@@ -50,6 +50,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
+    invalidate_jobs,
     is_non_retryable_error,
     parse_ttl_schedule,
     run_lazy_computation_insert,
@@ -196,6 +197,85 @@ class TestFindMissingContiguousWindows(BaseTest):
         assert len(missing) == 2
         assert missing[0] == (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
         assert missing[1] == (datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+
+
+class TestInvalidateJobs(BaseTest):
+    def _job(self, start_day: int, end_day: int, query_hash: str = "hash_a", status=PreaggregationJob.Status.READY):
+        return PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, start_day, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, end_day, tzinfo=UTC),
+            status=status,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+    def _invalidate(self, start_day: int, end_day: int, hashes=("hash_a",), dry_run=False):
+        return invalidate_jobs(
+            team=self.team,
+            query_hashes=list(hashes),
+            start=datetime(2024, 1, start_day, tzinfo=UTC),
+            end=datetime(2024, 1, end_day, tzinfo=UTC),
+            dry_run=dry_run,
+        )
+
+    def test_deletes_overlapping_jobs_and_leaves_the_rest(self):
+        overlapping = self._job(5, 6)
+        outside = self._job(20, 21)
+
+        result = self._invalidate(1, 10)
+
+        assert result.jobs_deleted == 1
+        assert not PreaggregationJob.objects.filter(id=overlapping.id).exists()
+        assert PreaggregationJob.objects.filter(id=outside.id).exists()
+
+    def test_ignores_other_query_hashes(self):
+        mine = self._job(5, 6, query_hash="hash_a")
+        someone_elses = self._job(5, 6, query_hash="hash_b")
+
+        result = self._invalidate(1, 10, hashes=("hash_a",))
+
+        assert result.jobs_deleted == 1
+        assert not PreaggregationJob.objects.filter(id=mine.id).exists()
+        assert PreaggregationJob.objects.filter(id=someone_elses.id).exists()
+
+    def test_deletes_every_status_not_just_ready(self):
+        # A leftover FAILED/STALE row is only a record of a past attempt and keeps no data alive.
+        for status in PreaggregationJob.Status:
+            self._job(5, 6, status=status)
+
+        result = self._invalidate(1, 10)
+
+        assert result.jobs_deleted == len(PreaggregationJob.Status)
+        assert not PreaggregationJob.objects.filter(team=self.team).exists()
+
+    def test_effective_range_is_wider_than_requested_for_a_wide_job(self):
+        # A job's range can't be split, so invalidating one day inside it takes the whole job.
+        self._job(1, 31)
+
+        result = self._invalidate(10, 11)
+
+        assert result.jobs_deleted == 1
+        assert result.effective_start == datetime(2024, 1, 1, tzinfo=UTC)
+        assert result.effective_end == datetime(2024, 1, 31, tzinfo=UTC)
+
+    def test_no_match_reports_nothing_touched(self):
+        self._job(20, 21)
+
+        result = self._invalidate(1, 10)
+
+        assert result.jobs_deleted == 0
+        assert result.effective_start is None
+        assert result.effective_end is None
+
+    def test_dry_run_counts_without_deleting(self):
+        job = self._job(5, 6)
+
+        result = self._invalidate(1, 10, dry_run=True)
+
+        assert result.jobs_deleted == 1
+        assert result.effective_start == datetime(2024, 1, 5, tzinfo=UTC)
+        assert PreaggregationJob.objects.filter(id=job.id).exists()
 
 
 class TestFilterOverlappingJobs(BaseTest):
@@ -1718,6 +1798,44 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    # --- Invalidation racing an in-flight job ---
+
+    def test_job_deleted_mid_insert_is_not_resurrected(self):
+        """A plain `job.save()` UPDATEs, then INSERTs when the UPDATE matches no rows — which would
+        recreate a job invalidation had just deleted, as READY with its pre-invalidation expiry.
+
+        Only the first attempt is invalidated: the executor legitimately re-creates the range once
+        it sees it uncovered again, and that second job is what the caller ends up with.
+        """
+        deleted_ids: list = []
+
+        def invalidate_first_attempt(t, job):
+            if not deleted_ids:
+                deleted_ids.append(job.id)
+                PreaggregationJob.objects.filter(id=job.id).delete()
+            return 1
+
+        result = self._execute_with_insert(invalidate_first_attempt, TtlSchedule.from_seconds(self.LONG_TTL))
+
+        assert not PreaggregationJob.objects.filter(id=deleted_ids[0]).exists()
+        # The retry landed a fresh job rather than reviving the deleted one.
+        assert result.ready is True
+        assert deleted_ids[0] not in result.job_ids
+
+    def test_failed_job_deleted_mid_insert_is_not_resurrected(self):
+        deleted_ids: list = []
+
+        def fail_first_attempt(t, job):
+            if not deleted_ids:
+                deleted_ids.append(job.id)
+                PreaggregationJob.objects.filter(id=job.id).delete()
+                raise Exception("boom")
+            return 1
+
+        self._execute_with_insert(fail_first_attempt, TtlSchedule.from_seconds(self.LONG_TTL))
+
+        assert not PreaggregationJob.objects.filter(id=deleted_ids[0]).exists()
 
     def test_short_ttl_does_not_infinite_loop(self):
         query_info, _ = self._make_query_info()

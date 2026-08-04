@@ -10,7 +10,7 @@ from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Max, Min, Q
 from django.utils import timezone as django_timezone
 
 import redis as redis_lib
@@ -576,6 +576,67 @@ def find_existing_jobs(
     )
 
 
+@dataclass
+class InvalidationResult:
+    """What an invalidation touched.
+
+    `effective_start`/`effective_end` span the deleted jobs and can be wider than the requested
+    range: coverage requires a job to fully span a day and a job's range can't be split, so
+    invalidating one day inside a wide job invalidates the whole job. Both are None when nothing
+    matched. Surface them — a caller who reports only the requested range understates the blast radius.
+    """
+
+    jobs_deleted: int
+    effective_start: datetime | None
+    effective_end: datetime | None
+
+
+def invalidate_jobs(
+    team: Team,
+    query_hashes: list[str],
+    start: datetime,
+    end: datetime,
+    dry_run: bool = False,
+) -> InvalidationResult:
+    """Drop the precompute jobs for these query hashes that overlap [start, end), so the next read
+    recomputes the window.
+
+    Deletes rather than expires. `find_existing_jobs` accepts an `expired_grace_seconds`, and read
+    paths use it to serve stale rows while revalidating (6h for marketing costs), so a merely
+    expired job keeps being served for that grace — the invalidation would look like it did
+    nothing for most of a working day. Deleting takes effect immediately.
+
+    Every status goes, not just READY/PENDING: a leftover FAILED row is only a record of a past
+    attempt and keeps no data alive.
+
+    The rows in ClickHouse are left to their own TTL. Reads collapse each cell to its latest job
+    (`argMax(computed_at)`), so a rebuild's rows win as soon as they land, and dropping the PG
+    bookkeeping is what makes the rebuild happen. The exception is a cell that vanished upstream:
+    nothing newer is written, so the stale one keeps being served until its TTL — invalidation
+    can't make a total go *down*.
+    """
+    jobs = PreaggregationJob.objects.filter(
+        team=team,
+        query_hash__in=query_hashes,
+        time_range_start__lt=end,
+        time_range_end__gt=start,
+    )
+
+    # Aggregate before deleting — the queryset is evaluated here, while the rows still exist.
+    span = jobs.aggregate(first=Min("time_range_start"), last=Max("time_range_end"))
+    if dry_run:
+        count = jobs.count()
+    else:
+        _, deleted_per_model = jobs.delete()
+        count = deleted_per_model.get(PreaggregationJob._meta.label, 0)
+
+    return InvalidationResult(
+        jobs_deleted=count,
+        effective_start=span["first"],
+        effective_end=span["last"],
+    )
+
+
 def _intervals_overlap(start1: datetime, end1: datetime, start2: datetime, end2: datetime) -> bool:
     """Check if two half-open intervals [start1, end1) and [start2, end2) overlap."""
     return start1 < end2 and start2 < end1
@@ -1055,7 +1116,7 @@ class LazyComputationExecutor:
                                     new_job.expires_at,
                                     new_job.computed_at + timedelta(seconds=empty_ttl),
                                 )
-                            new_job.save()
+                            self._finalize_job(new_job, ["status", "computed_at", "expires_at"])
                             publish_job_completion(new_job.id, "ready")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
                                 outcome="ready_empty" if wrote_nothing else "ready",
@@ -1079,7 +1140,7 @@ class LazyComputationExecutor:
                             memory_exceeded = memory_exceeded or is_memory_limit_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
-                            new_job.save()
+                            self._finalize_job(new_job, ["status", "error"])
                             publish_job_completion(new_job.id, "failed")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
                                 outcome="failed", table=str(query_info.table)
@@ -1181,6 +1242,20 @@ class LazyComputationExecutor:
         _log_execution("success", result)
         return result
 
+    def _finalize_job(self, job: PreaggregationJob, fields: list[str]) -> bool:
+        """Move a job this executor owns out of PENDING, without recreating it if it's gone.
+
+        `job.save()` would UPDATE and then fall back to an INSERT when the UPDATE matches no rows,
+        so a job deleted mid-insert (by invalidation) would be resurrected — as READY, carrying its
+        pre-invalidation expiry — silently undoing the delete. A filtered UPDATE writes only if the
+        row is still there and still PENDING. Returns whether it wrote.
+        """
+        updated = PreaggregationJob.objects.filter(
+            id=job.id,
+            status=PreaggregationJob.Status.PENDING,
+        ).update(**{field: getattr(job, field) for field in fields})
+        return updated > 0
+
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
         Try to mark a stale PENDING job as FAILED.
@@ -1254,6 +1329,53 @@ class LazyComputationExecutor:
     def _wait_for_notification(self, pubsub: redis_lib.client.PubSub, timeout: float) -> dict | None:
         """Block until a pubsub message arrives or timeout. Extracted for testability."""
         return pubsub.get_message(timeout=timeout)
+
+
+def build_precompute_query_info(
+    team: Team,
+    insert_query: str | ast.SelectQuery,
+    table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
+    placeholders: dict[str, ast.Expr] | None = None,
+    sentinel_placeholders: set[str] | None = None,
+) -> QueryInfo:
+    """Build the QueryInfo whose hash identifies a precompute job.
+
+    Time-window placeholders are replaced with fixed sentinels so every job for the same query
+    template hashes identically regardless of the window it covers; callers can sentinelize more
+    placeholders via `sentinel_placeholders`.
+
+    Anything that needs to *find* existing jobs — invalidation, ops tooling — must re-derive the
+    hash through this function rather than reassembling the sentinelization itself. `PreaggregationJob`
+    has no product/table column and `compute_query_hash` deliberately excludes the table, so the
+    hash is the only handle on a job; a second implementation that drifts by one placeholder
+    silently matches nothing and reports success having deleted zero rows.
+    """
+    base_placeholders = placeholders or {}
+    _validate_no_reserved_placeholders(base_placeholders)
+
+    if sentinel_placeholders:
+        missing = sentinel_placeholders - set(base_placeholders)
+        if missing:
+            raise ValueError(
+                f"sentinel_placeholders {missing} must also be present in placeholders "
+                "so real values are available at INSERT time."
+            )
+
+    caller_sentinels: dict[str, ast.Expr] = {
+        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
+    }
+    hash_placeholders: dict[str, ast.Expr] = {
+        **base_placeholders,
+        "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
+        "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+        **caller_sentinels,
+    }
+
+    return QueryInfo(
+        query=_resolve_insert_query(insert_query, hash_placeholders),
+        table=table,
+        timezone=team.timezone,
+    )
 
 
 def ensure_precomputed(
@@ -1364,34 +1486,12 @@ def ensure_precomputed(
         # Use result.job_ids to query from the lazy-computed results table
     """
     base_placeholders = placeholders or {}
-    _validate_no_reserved_placeholders(base_placeholders)
-
-    if sentinel_placeholders:
-        missing = sentinel_placeholders - set(base_placeholders)
-        if missing:
-            raise ValueError(
-                f"sentinel_placeholders {missing} must also be present in placeholders "
-                "so real values are available at INSERT time."
-            )
-
-    # Parse the query template with sentinel placeholders for stable hashing.
-    # time_window_min/max are always sentinelized (managed by the executor).
-    # Callers can opt additional placeholders into sentinelization via sentinel_placeholders.
-    caller_sentinels: dict[str, ast.Expr] = {
-        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
-    }
-    hash_placeholders: dict[str, ast.Expr] = {
-        **base_placeholders,
-        "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
-        "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
-        **caller_sentinels,
-    }
-    parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
-
-    query_info = QueryInfo(
-        query=parsed_for_hash,
+    query_info = build_precompute_query_info(
+        team=team,
+        insert_query=insert_query,
         table=table,
-        timezone=team.timezone,
+        placeholders=base_placeholders,
+        sentinel_placeholders=sentinel_placeholders,
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
