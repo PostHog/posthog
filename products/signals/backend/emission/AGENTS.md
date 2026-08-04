@@ -43,7 +43,7 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
 Triggered by the data import workflow:
 
 1. **Parent workflow** (`products/warehouse_sources/backend/temporal/data_imports/external_data_job.py`) finishes importing data, then spawns the emit-signals child workflow if emission is enabled for the source.
-2. **Child workflow** (`products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals.py`) runs the activity that calls `config.record_fetcher` then the shared pipeline.
+2. **Child workflow** (`products/signals/backend/emission/emit_signals.py`) runs the activity that calls `config.record_fetcher` then the shared pipeline.
 
 ### Conversations source
 

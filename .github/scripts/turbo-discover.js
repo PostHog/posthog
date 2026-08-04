@@ -244,20 +244,47 @@ const moduleToProduct = (module) => module.replace(/_/g, '-')
 // aren't products.* so they fall out of the startsWith filter for free. See
 // tachDependents for why routing through them would be wrong, not just
 // inconvenient.
+// TOML comments run to the end of the line, and a `#` inside a double-quoted
+// string does not start one. Comments have to go before the block scan below,
+// because a comment inside a depends_on list can carry a `]`: tach.toml
+// documents a facade-only edge as "enforced by stamphog's [[interfaces]]
+// block", and that bracket ends the non-greedy scan early, dropping every
+// entry after it.
+function stripTomlComments(tomlText) {
+    let out = ''
+    let inString = false
+    for (let index = 0; index < tomlText.length; index++) {
+        const char = tomlText[index]
+        if (char === '"' && tomlText[index - 1] !== '\\') {
+            inString = !inString
+        }
+        if (!inString && char === '#') {
+            while (index < tomlText.length && tomlText[index] !== '\n') {
+                index++
+            }
+            out += '\n'
+            continue
+        }
+        out += char
+    }
+    return out
+}
+
 function parseTachModules(tomlText) {
     const graph = new Map()
     // Each `[[modules]]` block holds exactly one `path` and one `depends_on`
     // before the next block starts — split on the marker and take the first
-    // match of each within a block. depends_on entries are plain quoted
-    // strings with no nested brackets, so a non-greedy scan to the first `]`
-    // is safe even across multi-line lists or lists split across shared lines.
+    // match of each within a block. With comments stripped, depends_on entries
+    // are plain quoted strings with no nested brackets, so a non-greedy scan to
+    // the first `]` is safe even across multi-line lists or lists split across
+    // shared lines.
     //
     // Only double-quoted strings are supported. Other valid TOML (single-quoted
     // literals, inline tables) would be dropped by the regexes without error,
     // silently shrinking the cascade — so any entry the regexes can't represent
     // throws instead, which loadTachModuleGraph turns into "test all products".
     // A false trip over-tests; a silent drop under-tests, so err on throwing.
-    const blocks = tomlText.split('[[modules]]').slice(1)
+    const blocks = stripTomlComments(tomlText).split('[[modules]]').slice(1)
     for (const block of blocks) {
         const pathMatch = block.match(/path\s*=\s*"([^"]+)"/)
         if (!pathMatch) {
@@ -273,7 +300,9 @@ function parseTachModules(tomlText) {
             }
             continue
         }
-        const leftover = dependsMatch[1].replace(/"[^"]*"/g, '').replace(/#[^\n]*/g, '')
+        // Comments are already gone, so anything left beside the quoted entries
+        // is an entry shape these regexes cannot represent.
+        const leftover = dependsMatch[1].replace(/"[^"]*"/g, '')
         if (/[^\s,]/.test(leftover)) {
             throw new Error(
                 `unsupported \`depends_on\` entry for ${pathMatch[1]} in tach.toml (expected double-quoted strings): ${leftover.trim().slice(0, 80)}`

@@ -78,7 +78,7 @@ async def _run_post_load(
             job=job,
             schema=schema,
             source=MagicMock(),
-            delta_table_helper=helper,
+            delta_table_ref=helper,
             row_count=10,
             table_schema_dict={},
             resource_name="orders",

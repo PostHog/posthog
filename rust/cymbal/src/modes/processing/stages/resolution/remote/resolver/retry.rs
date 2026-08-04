@@ -157,6 +157,7 @@ pub(super) async fn resolve_work_item(
                 return Ok(ResolvedRemoteItem {
                     event_slot: work_item.event_slot,
                     exception_slot: work_item.exception_slot,
+                    target: work_item.target,
                     exception,
                 });
             }
@@ -353,7 +354,7 @@ fn classify_outcome(
 fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
     UnhandledError::Other(format!(
-        "remote resolution item {token} failed terminally; failing batch under all-or-nothing rollout policy ({message})"
+        "remote resolution item {token} failed terminally; failing batch ({message})"
     ))
 }
 
@@ -513,6 +514,7 @@ mod tests {
             routing_key: "team:1".to_string(),
             event_slot: 0,
             exception_slot: 0,
+            target: super::super::ResolutionTarget::Canonical,
             item: cymbal_proto::cymbal::resolution::v1::ResolveItem {
                 id: token,
                 team_id: 1,

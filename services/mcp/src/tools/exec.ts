@@ -669,9 +669,9 @@ export function createExecTool(
                                 // the raw JSON. When such a table exists, re-home the UI app's data
                                 // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
                                 // table and the chart still renders. When there is no formatted table,
-                                // the model reads the full data as text either way — so the payload
-                                // stays in the standard `structuredContent` field instead of being
-                                // duplicated under `_meta`, and the app still hydrates from it.
+                                // the payload stays in the standard `structuredContent` field — which
+                                // both the model and the app read — and the text channel carries a
+                                // pointer rather than a second copy of the same rows.
                                 forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
