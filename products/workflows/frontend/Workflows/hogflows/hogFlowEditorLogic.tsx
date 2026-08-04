@@ -1871,6 +1871,9 @@ export interface hogFlowEditorLogicActions {
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
     }
+    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
+        isZoomedOutFar: boolean
+    }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
     }
@@ -1888,9 +1891,6 @@ export interface hogFlowEditorLogicActions {
     }
     setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => {
         reactFlowWrapper: RefObject<HTMLDivElement>
-    }
-    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
-        isZoomedOutFar: boolean
     }
     setSelectedNodeId: (selectedNodeId: string | null) => {
         selectedNodeId: string | null
