@@ -24,7 +24,16 @@ from products.tasks.backend.logic.services.loop_runs import (
     handle_loop_run_terminal,
     render_trigger_context,
 )
-from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    Channel,
+    Loop,
+    LoopFire,
+    LoopTrigger,
+    SandboxEnvironment,
+    Task,
+    TaskClientProvenance,
+    TaskRun,
+)
 from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run
 from products.tasks.backend.temporal.constants import LOOP_RUN_STALE_SECONDS
 
@@ -177,7 +186,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
 
     def test_same_fire_key_on_a_trigger_dedups_and_returns_the_original_run(self):
-        loop = self.create_loop()
+        loop = self.create_loop(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
         trigger = self.create_trigger(loop)
 
         first = fire_loop(loop, trigger, "delivery-1", "ctx")
@@ -191,6 +200,11 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(second.task_run_id, first.task_run_id)
         self.assertEqual(LoopFire.objects.unscoped().filter(loop_trigger=trigger).count(), 1)
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
+        assert first.task_id is not None
+        self.assertEqual(
+            Task.objects.get(id=first.task_id).client_provenance,
+            TaskClientProvenance.POSTHOG_DESKTOP,
+        )
 
     def test_manual_fire_dedups_on_the_idempotency_key(self):
         # Manual "run now" has no trigger; a double-click with the same Idempotency-Key must

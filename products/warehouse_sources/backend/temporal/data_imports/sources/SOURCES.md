@@ -268,6 +268,7 @@ the row lists both.
 | flowlu                           | HTTP                        | requests                                                        | ✅                          |
 | fly_io                           | HTTP                        | requests                                                        | ✅                          |
 | formbricks                       | HTTP                        | requests                                                        | ✅                          |
+| fred                             | HTTP                        | requests                                                        | ✅                          |
 | frill                            | HTTP                        | requests                                                        | ✅                          |
 | front                            | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                          | HTTP                        | requests                                                        | ✅                          |
@@ -299,6 +300,7 @@ the row lists both.
 | gridly                           | HTTP                        | requests                                                        | ✅                          |
 | groq                             | HTTP                        | requests                                                        | ✅                          |
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
+| gumroad                          | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
 | gusto                            | HTTP                        | requests                                                        | ✅                          |
 | harvest                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -662,6 +664,7 @@ the row lists both.
 | workable                         | HTTP                        | requests                                                        | ✅                          |
 | workday                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| world_bank                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike                            | HTTP                        | requests                                                        | ✅                          |
 | writesonic                       | HTTP                        | requests                                                        | ✅                          |
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
@@ -954,6 +957,7 @@ doesn't conflict with concurrent PRs.
 - fly_io
 - formbricks
 - fortnox
+- fourthwall
 - fred
 - freeagent
 - freightview
@@ -1022,7 +1026,6 @@ doesn't conflict with concurrent PRs.
 - growthbook
 - guesty
 - gumloop
-- gumroad
 - harness
 - harness_ccm
 - harness_sei
@@ -1415,7 +1418,6 @@ doesn't conflict with concurrent PRs.
 - workflowmax
 - workiz
 - workramp
-- world_bank
 - wufoo
 - xero
 - xsolla
