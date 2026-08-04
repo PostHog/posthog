@@ -280,6 +280,11 @@ class TestFeedbackFooter:
                 "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.get_unsubscribe_token",
                 return_value="tok",
             ),
+            # Mocking EmailMessage means no real send + no MessagingRecord, so the
+            # post-send acceptance check would hit the DB; delivery is covered separately.
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.raise_if_delivery_rejected"
+            ),
         ):
             send_email_ai_subscription_report(
                 email="a@b.com",

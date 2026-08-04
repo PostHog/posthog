@@ -62,8 +62,13 @@ class DeltaMaintenance:
 
     async def _vacuum(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        # vacuum() commits a REMOVE of tombstoned files, so it's just as subject to delta-rs's
+        # conflict checker as merge/optimize.compact — see execute_with_conflict_retry.
+        vacuum_stats = await execute_with_conflict_retry(
+            table,
+            lambda: table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False),
+            "vacuum_table",
+            self._logger,
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 

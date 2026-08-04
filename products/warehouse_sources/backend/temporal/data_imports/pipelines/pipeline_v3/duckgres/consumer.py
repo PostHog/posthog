@@ -214,18 +214,18 @@ class DuckgresBatchConsumerAdapter:
             if superseded:
                 logger.info("duckgres_superseded_obsolete_batches", count=superseded)
 
-            backlog, oldest_age, blocked, blocked_age, failing_blocked = await DuckgresBatchQueue.get_backlog_stats(
+            stats = await DuckgresBatchQueue.get_backlog_stats(
                 conn,
                 team_ids=team_ids,
                 blocked_schema_ids=self._blocked_schema_ids,
                 eligible_schema_ids=self._eligible_schema_ids,
                 failing_schema_ids=self._failing_schema_ids,
             )
-            SINK_ELIGIBLE_BACKLOG.set(backlog)
-            SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
-            SINK_BLOCKED_BACKLOG.set(blocked)
-            SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
-            SINK_FAILING_BLOCKED_BACKLOG.set(failing_blocked)
+            SINK_ELIGIBLE_BACKLOG.set(stats.eligible_count)
+            SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(stats.eligible_oldest_age_seconds or 0.0)
+            SINK_BLOCKED_BACKLOG.set(stats.blocked_count)
+            SINK_BLOCKED_OLDEST_AGE_SECONDS.set(stats.blocked_oldest_age_seconds or 0.0)
+            SINK_FAILING_BLOCKED_BACKLOG.set(stats.failing_blocked_count)
             orgs_at_budget = await DuckgresBatchQueue.count_orgs_at_budget(
                 conn, team_org_budgets=self._team_org_budgets
             )
@@ -273,9 +273,9 @@ class DuckgresBatchConsumerAdapter:
         logger.info(
             "duckgres_maintenance_ran",
             team_count=None if team_ids is None else len(team_ids),
-            eligible_backlog=backlog,
-            blocked_backlog=blocked,
-            failing_blocked_backlog=failing_blocked,
+            eligible_backlog=stats.eligible_count,
+            blocked_backlog=stats.blocked_count,
+            failing_blocked_backlog=stats.failing_blocked_count,
             orgs_at_budget=orgs_at_budget,
             blocked_schema_count=None if self._blocked_schema_ids is None else len(self._blocked_schema_ids),
             failing_schema_count=None if self._failing_schema_ids is None else len(self._failing_schema_ids),

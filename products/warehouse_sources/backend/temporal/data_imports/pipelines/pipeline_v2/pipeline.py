@@ -1,6 +1,6 @@
 import sys
 import time
-from typing import Any, Generic, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -20,21 +20,17 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
-    cdp_producer_clear_chunks,
     cleanup_memory,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
-    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
-    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
-    write_chunk_for_cdp_producer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
@@ -51,14 +47,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
-    PersonPropertyRowSink,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sinks import (
+    PipelineSinks,
+    build_pipeline_sinks,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -71,6 +67,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+        ImportJobModels,
+    )
 
 
 class PipelineNonDLT(Generic[ResumableData]):
@@ -86,7 +87,7 @@ class PipelineNonDLT(Generic[ResumableData]):
     _delta_table_ref: DeltaTableRef
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema = HogQLSchema()
-    _cdp_producer: CDPProducer
+    _sinks: PipelineSinks
     _batcher: Batcher
     _load_id: int
 
@@ -97,11 +98,9 @@ class PipelineNonDLT(Generic[ResumableData]):
         job_id: str,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
-        job: ExternalDataJob,
-        schema: ExternalDataSchema,
-        source: ExternalDataSource,
-        table: DataWarehouseTable | None,
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
+        *,
+        models: "ImportJobModels",
     ) -> None:
         self._resource = source_response
         self._resource_name = source_response.name
@@ -109,19 +108,19 @@ class PipelineNonDLT(Generic[ResumableData]):
         # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
         # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
         # intermittently returns nothing.
-        self._resource.primary_keys = resolve_primary_keys(schema, self._resource)
+        self._resource.primary_keys = resolve_primary_keys(models.schema, self._resource)
 
-        self._job = job
+        self._job = models.job
         self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
 
-        self._schema = schema
-        self._source = source
-        self._table = table
+        self._schema = models.schema
+        self._source = models.source
+        self._table = models.table
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
-        self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
+        self._is_incremental = models.schema.is_incremental or models.schema.is_webhook or models.schema.is_xmin
 
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
@@ -136,10 +135,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
-        self._cdp_producer = CDPProducer(
-            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
-        )
-        self._person_property_sink = PersonPropertyRowSink(
+        self._sinks = build_pipeline_sinks(
             team_id=self._job.team_id,
             schema_id=self._schema.id,
             job_id=job_id,
@@ -149,12 +145,12 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
-            schema.incremental_field_earliest_value, schema.incremental_field_type
+            models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
         # SQL sources project enabled_columns in their SELECT and own schema_metadata via
         # introspection; managed-schema sources don't allow selection. Everything else gets the
         # Delta-write-side drop plus observed-columns capture so the column picker has a catalog.
-        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
     async def run(self) -> PipelineResult:
@@ -166,8 +162,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             await self._logger.ainfo("Resumable source detected - attempting to resume previous import")
 
         try:
-            await cdp_producer_clear_chunks(self._cdp_producer)
-            await person_property_sink_clear_chunks(self._person_property_sink)
+            await self._sinks.clear()
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
@@ -267,7 +262,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
 
-            result = PipelineResult(should_trigger_cdp_producer=await self._cdp_producer.should_produce_table())
+            result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             return result
@@ -353,13 +348,9 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
-        await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
-        await stage_chunk_for_person_property_sink(self._person_property_sink, index, pa_table)
+        await self._sinks.stage_chunk(index, pa_table)
 
-        (
-            self._last_incremental_field_value,
-            self._earliest_incremental_field_value,
-        ) = await update_incremental_field_values(
+        incremental_values = await update_incremental_field_values(
             self._schema,
             pa_table,
             self._resource,
@@ -367,6 +358,8 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._earliest_incremental_field_value,
             self._logger,
         )
+        self._last_incremental_field_value = incremental_values.last_value
+        self._earliest_incremental_field_value = incremental_values.earliest_value
 
         await update_row_tracking_after_batch(
             self._job.id, self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
