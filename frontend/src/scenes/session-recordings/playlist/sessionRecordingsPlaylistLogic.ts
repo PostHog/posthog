@@ -16,6 +16,7 @@ import {
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
+import { z } from 'zod'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -33,13 +34,20 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
+import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    VALID_RECORDING_ORDERS,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
@@ -65,7 +73,7 @@ import {
     isValidRecordingOrder,
 } from '../filters/recordingsQueryConversions'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { filtersFromUniversalFilterGroups } from '../utils'
+import { filtersFromUniversalFilterGroups, isUniversalFilters } from '../utils'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 
 // Re-exported for back-compat with existing import sites; the implementations now live in the leaf
@@ -175,6 +183,15 @@ const getDefaultFilterTestAccounts = (): boolean => {
     return stored === 'true'
 }
 
+// The sort the user explicitly picked in the list settings. It wins over the relevance
+// rollout/experiment default, so users who prefer another order aren't re-defaulted
+// into relevance on every visit and filter reset. Keyed per team, like the playlist
+// filter persistence below, so the preference doesn't leak across accounts
+export const preferredRecordingsSortStorage = localStorageSlot(
+    () => `${getCurrentTeamId()}__replay_list_preferred_sort`,
+    z.object({ order: z.enum(VALID_RECORDING_ORDERS), order_direction: z.enum(['ASC', 'DESC']) })
+)
+
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
@@ -195,17 +212,22 @@ export const getDefaultFilters = (
     // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
     // where recency is the better default than relevance
     const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
+    // A sort the user explicitly picked beats the relevance default, but specific-intent
+    // surfaces keep recency regardless
+    const preferredSort = hasSpecificIntent ? null : preferredRecordingsSortStorage.get()
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
         // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
         order:
-            !hasSpecificIntent &&
+            preferredSort?.order ??
+            (!hasSpecificIntent &&
             (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
                 posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
                 ? 'surfacing_score'
-                : DEFAULT_RECORDING_FILTERS.order,
+                : DEFAULT_RECORDING_FILTERS.order),
+        order_direction: preferredSort?.order_direction ?? DEFAULT_RECORDING_FILTERS.order_direction,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
@@ -319,6 +341,20 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     return true
 }
 
+/**
+ * Saved playlists persisted before universal filters store the legacy shape, which has no
+ * `filter_group` for the filter UI to render or for the query converter to read. Anything loading
+ * stored filters has to come through here, or a legacy playlist silently applies no filters at all.
+ */
+export function asUniversalFilters(
+    filters: RecordingUniversalFilters | LegacyRecordingFilters | undefined | null
+): RecordingUniversalFilters | undefined {
+    if (!filters) {
+        return undefined
+    }
+    return isUniversalFilters(filters) ? filters : convertLegacyFiltersToUniversalFilters({}, filters)
+}
+
 export function convertLegacyFiltersToUniversalFilters(
     simpleFilters?: LegacyRecordingFilters,
     advancedFilters?: LegacyRecordingFilters
@@ -424,6 +460,13 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    /** Called with each freshly loaded page of recordings (not the accumulated list). */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
+    /**
+     * Called when a recording is selected (clicked, played next, or picked via the URL) —
+     * not for the initial autoplayed recording, which is selected implicitly.
+     */
+    onRecordingSelected?: (recordingId: SessionRecordingType['id']) => void
     pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
@@ -1384,13 +1427,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings(direction)
         },
 
-        loadSessionRecordingsSuccess: () => {
+        loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
+            props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
         },
 
-        setSelectedRecordingId: () => {
+        setSelectedRecordingId: ({ id }) => {
             // Close filters when selecting a recording
             actions.setIsFiltersExpanded(false)
+
+            if (id) {
+                props.onRecordingSelected?.(id)
+            }
 
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
 

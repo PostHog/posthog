@@ -33,9 +33,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.sharing_publish_gate import blocked_access_in_notebook_edit, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
+from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -70,16 +72,25 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
+from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
+from products.notebooks.backend.sql_v2_runs import finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
+    NotebookKernelConfigResponseSerializer,
+    NotebookKernelStatusResponseSerializer,
+    NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
+    NotebookSQLV2RunResponseSerializer,
+    NotebookSQLV2RunStatusResponseSerializer,
+    NotebookSQLV2StateResponseSerializer,
 )
+from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -107,17 +118,17 @@ def classify_request_source(request: Request) -> tuple[str, dict[str, str | None
     """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
 
     Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
-    programmatic client. The PostHog MCP server forwards the client identity so PostHog Code can be
-    told apart from a customer's own MCP client: ``mcp_consumer`` is ``posthog-code``/``posthog-cli``
-    for first-party PostHog Code, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
-    third-party clients. Shared by the create and read events."""
+    programmatic client. ``mcp_consumer`` is the wrapping app the PostHog MCP server forwards
+    (``posthog-code``/``posthog-cli`` for first-party PostHog Desktop), which tells it apart from a
+    customer's own MCP client. The third-party OAuth app name (e.g. Claude) rides along on every
+    request-bound event as ``mcp_oauth_client_name`` via ``get_request_analytics_properties``, so it
+    isn't repeated here. Shared by the create and read events."""
     authenticator = getattr(request, "successful_authenticator", None)
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return NotebookCreationSource.UI, {}
     return NotebookCreationSource.MCP, {
         "api_key_type": type(authenticator).__name__,
         "mcp_consumer": request.META.get("HTTP_X_POSTHOG_MCP_CONSUMER"),
-        "mcp_oauth_client": request.META.get("HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"),
     }
 
 
@@ -264,7 +275,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
             visibility=notebook.visibility,
             node_count=notebook_node_count(notebook.content),
             mcp_consumer=source_props.get("mcp_consumer"),
-            mcp_oauth_client=source_props.get("mcp_oauth_client"),
             api_key_type=source_props.get("api_key_type"),
         )
 
@@ -291,6 +301,27 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         raise Conflict("Someone else edited the Notebook")
 
                     validated_data["version"] = locked_instance.version + 1
+
+                    # A publicly shared notebook's link would expose any query this save adds or
+                    # changes, so the editor must be able to run them. Only changed queries are
+                    # checked, and only when a share exists - normal autosave on unshared
+                    # notebooks does no access work at all.
+                    if (
+                        locked_instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+                        # org admins have full access, so skip the gate for a faster save
+                        and not (self.user_access_control and self.user_access_control.is_organization_admin)
+                        and is_publicly_shared(locked_instance)
+                    ):
+                        blocked = blocked_access_in_notebook_edit(
+                            self.context["request"].user, locked_instance, validated_data.get("content")
+                        )
+                        if blocked:
+                            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                            raise serializers.ValidationError(
+                                f"Can't save: you don't have access to {blocked_list}, "
+                                "and this notebook is publicly shared."
+                            )
+
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
@@ -376,9 +407,15 @@ ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
 
 
 class NotebookKernelConfigSerializer(serializers.Serializer):
-    cpu_cores = serializers.FloatField(required=False)
-    memory_gb = serializers.FloatField(required=False)
-    idle_timeout_seconds = serializers.IntegerField(required=False)
+    cpu_cores = serializers.FloatField(
+        required=False, help_text="CPU cores for the notebook's sandbox kernel; must be a supported option."
+    )
+    memory_gb = serializers.FloatField(
+        required=False, help_text="Memory in GB for the notebook's sandbox kernel; must be a supported option."
+    )
+    idle_timeout_seconds = serializers.IntegerField(
+        required=False, help_text="Seconds of inactivity before the sandbox kernel shuts down."
+    )
 
     def validate_cpu_cores(self, value: float) -> float:
         if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_CPU_CORES):
@@ -723,7 +760,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 is_creator=instance.created_by_id == getattr(request.user, "id", None),
                 user_access_level=serializer.data.get("user_access_level"),
                 mcp_consumer=source_props.get("mcp_consumer"),
-                mcp_oauth_client=source_props.get("mcp_oauth_client"),
                 api_key_type=source_props.get("api_key_type"),
             )
 
@@ -765,7 +801,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
         return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
 
-    @action(methods=["GET"], url_path="kernel/status", detail=True)
+    @extend_schema(
+        responses={200: NotebookKernelStatusResponseSerializer},
+        description=(
+            "Live-checked kernel runtime state for this notebook, its compute configuration, and the "
+            "catalog of dataframes/tables a cell can currently reference (with column schemas)."
+        ),
+    )
+    @action(methods=["GET"], url_path="kernel/status", detail=True, required_scopes=["notebook:read"])
     def kernel_status(self, request: Request, **kwargs):
         notebook = self._get_notebook_for_kernel()
         user = self._current_user()
@@ -844,7 +887,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             }
         )
 
-    @action(methods=["POST"], url_path="kernel/config", detail=True)
+    @extend_schema(
+        request=NotebookKernelConfigSerializer,
+        responses={200: NotebookKernelConfigResponseSerializer},
+        description=(
+            "Set the notebook's kernel compute configuration. Applies at sandbox provision time: a "
+            "currently running kernel keeps its resources until restarted."
+        ),
+    )
+    @action(methods=["POST"], url_path="kernel/config", detail=True, required_scopes=["notebook:write"])
     def kernel_config(self, request: Request, **kwargs):
         serializer = NotebookKernelConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -869,6 +920,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "cpu_cores": notebook.kernel_cpu_cores,
                 "memory_gb": notebook.kernel_memory_gb,
                 "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+                "restart_required": KernelRuntime.objects.filter(
+                    team_id=self.team_id,
+                    notebook_short_id=notebook.short_id,
+                    status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+                ).exists(),
             }
         )
 
@@ -983,8 +1039,63 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
-    # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
-    @extend_schema(exclude=True)
+    @extend_schema(
+        responses={200: NotebookSQLV2StateResponseSerializer},
+        description=(
+            "The full notebook view for agents: title, document source (markdown, or raw content for "
+            "legacy rich-text notebooks), every cell with its dependency edges and derived run status "
+            "(including staleness), and the kernel's runtime state and compute config. "
+            "Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(methods=["GET"], url_path="sql_v2/state", detail=True, required_scopes=["notebook:read", "query:read"])
+    def sql_v2_state(self, request: Request, **kwargs):
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+        notebook = self._get_notebook_for_kernel()
+        # Cell code and result metadata derive from the user's data, so the same query
+        # gate as run results applies.
+        self._require_query_access()
+
+        cells = build_notebook_cell_state(self.team_id, notebook)
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        sandbox_config = build_notebook_sandbox_config(notebook)
+        markdown = markdown_collab.get_markdown_notebook_markdown(notebook.content)
+        payload = {
+            "notebook_id": notebook.short_id,
+            "title": notebook.title,
+            "version": notebook.version,
+            "markdown": markdown,
+            # The document rides exactly one field: markdown notebooks would duplicate
+            # their whole source if content were included too.
+            "content": notebook.content if markdown is None else None,
+            "kernel": {
+                "status": runtime.status if runtime else KernelRuntime.Status.STOPPED,
+                "cpu_cores": sandbox_config.cpu_cores,
+                "memory_gb": sandbox_config.memory_gb,
+                "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            },
+            "cells": cells,
+        }
+        return Response(NotebookSQLV2StateResponseSerializer(payload).data)
+
+    @extend_schema(
+        request=NotebookSQLV2RunRequestSerializer,
+        responses={200: NotebookSQLV2RunResponseSerializer},
+        description=(
+            "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
+            "poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
@@ -1063,28 +1174,48 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
         try:
-            start_sql_v2_run_workflow(
-                SQLV2RunInput(
-                    run_id=str(run.id),
-                    notebook_short_id=notebook.short_id,
-                    team_id=self.team_id,
-                    user_id=user.id if isinstance(user, User) else None,
-                    code=run_code,
-                    node_type=node_type,
-                    output_name=output_name,
-                    inputs=inputs,
+            if node_type == NotebookNodeRun.NodeType.HOGQL:
+                # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
+                # async query manager, and the run-result poll advances the row.
+                enqueue_direct_run(self.team, user if isinstance(user, User) else None, run)
+            else:
+                start_sql_v2_run_workflow(
+                    SQLV2RunInput(
+                        run_id=str(run.id),
+                        notebook_short_id=notebook.short_id,
+                        team_id=self.team_id,
+                        user_id=user.id if isinstance(user, User) else None,
+                        code=run_code,
+                        node_type=node_type,
+                        output_name=output_name,
+                        inputs=inputs,
+                    )
                 )
-            )
         except Exception:
             logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
-            run.status = NotebookNodeRun.Status.FAILED
-            run.error = "Failed to start run."
-            run.save(update_fields=["status", "error", "updated_at"])
+            # Status-guarded: a dispatch that partially started before raising could still
+            # deliver a callback, which must keep the row and stay the only reporter.
+            finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
             return Response({"detail": "Failed to start run."}, status=503)
 
         return Response({"run_id": str(run.id)})
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the run, as returned by the run dispatch endpoint.",
+            )
+        ],
+        responses={200: NotebookSQLV2RunStatusResponseSerializer},
+        description=(
+            "Read a run's durable state: its status, and — once done or interrupted — the result envelope "
+            "(columns, first rows, stdout/stderr, media, error). Poll until terminal. "
+            "Flag-gated (revamped-py-notebooks)."
+        ),
+    )
     @action(
         methods=["GET"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
@@ -1111,16 +1242,22 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if run is None:
             raise Http404()
 
+        # Direct (hogql) runs have no callback: this poll advances the row from the async
+        # query status, and while the manager's result is alive it also returns the full
+        # capped row set for client-side paging (`rows`, absent once expired).
+        rows = sync_direct_run(run)
+
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.
         has_result = run.status in (NotebookNodeRun.Status.DONE, NotebookNodeRun.Status.INTERRUPTED)
-        return Response(
-            {
-                "status": run.status,
-                "result": run.envelope if has_result else None,
-                "error": run.error or None,
-            }
-        )
+        payload: dict[str, Any] = {
+            "status": run.status,
+            "result": run.envelope if has_result else None,
+            "error": run.error or None,
+        }
+        if rows is not None:
+            payload["rows"] = rows
+        return Response(payload)
 
     @extend_schema(exclude=True)
     @action(
@@ -1168,17 +1305,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "stale"}, status=409)
 
         if run.node_type == NotebookNodeRun.NodeType.HOGQL:
-            # Runs recorded before the code column existed (default "") have no query to page.
-            # Send that to the kernel and it round-trips into an opaque "page fetch failed"; catch
-            # it here with guidance instead.
-            if not run.code.strip():
-                return Response(
-                    {"detail": "This result predates page support — re-run the query to page through it."},
-                    status=400,
-                )
+            # SQL results page client-side over the capped row set the run-result poll
+            # serves (the direct lane); server paging remains only for kernel frames.
+            return Response(
+                {"detail": "SQL results are paged in the browser. Re-run the query to reload its rows."},
+                status=400,
+            )
         # A kernel run (python/duckdb) pages by slicing its result frame in the sandbox, so it
         # needs the result_id its envelope advertised — no frame written means nothing to page.
-        elif not run.result_id:
+        if not run.result_id:
             return Response({"detail": "This result has no pageable frame — re-run the node."}, status=400)
 
         # An out-of-cache page holds this worker synchronously for up to the kernel timeout,
@@ -1207,7 +1342,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(page)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the run, as returned by the run dispatch endpoint.",
+            )
+        ],
+        responses={
+            200: NotebookSQLV2InterruptResponseSerializer,
+            202: NotebookSQLV2InterruptResponseSerializer,
+        },
+        description=(
+            "Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome "
+            "unchanged. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
     @action(
         methods=["POST"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)/interrupt",
@@ -1231,6 +1384,17 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         if run.status != NotebookNodeRun.Status.RUNNING:
             # Already terminal: idempotent noop; the client just reads the outcome.
+            return Response({"status": run.status})
+
+        if run.node_type == NotebookNodeRun.NodeType.HOGQL:
+            # A direct (hogql) run has no kernel to signal, so stop it at the query manager
+            # instead. Mark the row abandoned first so the stop is durable even if the
+            # cancellation below is slow or fails; the guarded update yields to a completion
+            # that already landed, and sync_direct_run's own guard can never overwrite this
+            # interrupt afterwards. Only the caller that won the transition has a live query
+            # to stop, because a run that finished on its own has nothing left running.
+            if finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped."):
+                cancel_direct_run(run)
             return Response({"status": run.status})
 
         try:
@@ -1258,9 +1422,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # No reachable kernel anywhere: the callback can never arrive, so this is the
             # user's escape hatch out of a stuck RUNNING row. A late callback (e.g. the
             # sandbox comes back) simply overwrites with the real outcome.
-            run.status = NotebookNodeRun.Status.INTERRUPTED
-            run.error = "Kernel is not reachable, so the run was stopped."
-            run.save(update_fields=["status", "error", "updated_at"])
+            finish_node_run(
+                run, NotebookNodeRun.Status.INTERRUPTED, error="Kernel is not reachable, so the run was stopped."
+            )
             return Response({"status": run.status})
 
         if not known:
@@ -1283,6 +1447,22 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         user = cast(User, request.user)
         user_name = _collab_user_name(user)
+
+        # Same guard as NotebookSerializer.update - collab saves write content directly, so
+        # without it the collab path would bypass the shared-notebook access block entirely.
+        # Must run before submit_steps: once steps are accepted, peers have already applied them.
+        if (
+            notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster save
+            and not self.user_access_control.is_organization_admin
+            and is_publicly_shared(notebook)
+        ):
+            blocked = blocked_access_in_notebook_edit(user, notebook, data.get("content"))
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                )
 
         result = submit_steps(
             team_id=notebook.team_id,
@@ -1370,6 +1550,21 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self.get_object()
         user = cast(User, request.user)
         submitted_content = data["content"]
+
+        # Same guard as NotebookSerializer.update and collab_save - markdown saves also write
+        # content directly, so without it this path would bypass the shared-notebook access block.
+        if (
+            notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster save
+            and not self.user_access_control.is_organization_admin
+            and is_publicly_shared(notebook)
+        ):
+            blocked = blocked_access_in_notebook_edit(user, notebook, submitted_content)
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                )
 
         notebook_before: Notebook | None = None
         with transaction.atomic():

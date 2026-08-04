@@ -22,6 +22,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
+from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -38,6 +39,11 @@ from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+# Neutral mid-pack score for sessions the surfacing scorer has not reached; shared with the
+# replay-vision sweep so list eligibility and sweep eligibility agree on unscored sessions.
+UNSCORED_SURFACING_SCORE = 0.36
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -72,7 +78,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
             ), 2) as activity_score,
-            coalesce(max(s.surfacing_score), 0.36) as surfacing_score
+            coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -240,7 +246,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Call(name="max", args=[ast.Field(chain=["s", "_timestamp"])]),
                         right=ast.Constant(
                             # provided in a placeholder, so we can pass now from python to make tests easier 🙈
-                            value=datetime.now(UTC) - timedelta(minutes=5),
+                            value=datetime.now(UTC) - timedelta(minutes=ONGOING_SESSION_WINDOW_MINUTES),
                         ),
                         op=ast.CompareOperationOp.GtEq,
                     ),
@@ -248,6 +254,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
                 "python_now": ast.Constant(value=datetime.now(UTC)),
+                "unscored_surfacing_score": ast.Constant(value=UNSCORED_SURFACING_SCORE),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):

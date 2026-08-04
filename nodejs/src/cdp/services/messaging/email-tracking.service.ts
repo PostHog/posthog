@@ -12,7 +12,6 @@ import { logger } from '~/common/utils/logger'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailSuppressionService } from './email-suppression.service'
@@ -143,7 +142,6 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
-        private recipientsManager: RecipientsManagerService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService
     ) {
@@ -316,7 +314,6 @@ export class EmailTrackingService {
                 body,
                 metrics,
                 logEntries,
-                optOutRecipients,
                 transientBounceRecipients,
                 hardBounceRecipients,
                 deliveredRecipients,
@@ -340,7 +337,7 @@ export class EmailTrackingService {
                 })
             }
 
-            // Wrapped so a failure here doesn't skip the opt-out processing below.
+            // Wrapped so a failure here doesn't skip the suppression writes below.
             try {
                 await this.trackLogs(
                     (logEntries || []).map((entry) => ({
@@ -356,39 +353,7 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            // Collect all emails to opt out per team, then batch each team's opt-out in one query
-            const emailsByTeam = new Map<number, string[]>()
-            for (const { teamId: teamIdStr, emailAddresses } of optOutRecipients || []) {
-                const teamId = teamIdStr ? parseInt(teamIdStr, 10) : NaN
-                if (!teamId || isNaN(teamId)) {
-                    logger.error('[EmailTrackingService] handleSesWebhook: Missing or invalid teamId for opt-out', {
-                        teamIdStr,
-                        emailAddresses,
-                    })
-                    continue
-                }
-                const existing = emailsByTeam.get(teamId) ?? []
-                existing.push(...emailAddresses)
-                emailsByTeam.set(teamId, existing)
-            }
-
-            for (const [teamId, emails] of emailsByTeam) {
-                try {
-                    await this.recipientsManager.optOut(teamId, emails)
-                    logger.info('[EmailTrackingService] Opted out recipients after a hard bounce', {
-                        teamId,
-                        emails,
-                    })
-                } catch (error) {
-                    logger.error('[EmailTrackingService] Failed to opt out recipients', {
-                        teamId,
-                        emails,
-                        error,
-                    })
-                }
-            }
-
-            // Feed soft bounces and successful deliveries into the suppression list. Wrapped so a
+            // Feed bounces and successful deliveries into the suppression list. Wrapped so a
             // failure here never affects the webhook's 200 response to SNS. Deliveries are processed
             // first so a delivery + bounce in the same batch nets out conservatively (count resets,
             // then the fresh bounce re-counts from a clean slate).
@@ -409,9 +374,6 @@ export class EmailTrackingService {
                         )
                     }
                 }
-                // Dual-write: hard bounces still go through the opt-out path above; here we also
-                // mirror them into the suppression list so the unified deliverability view
-                // includes them ahead of phase 2 (retiring the opt-out write).
                 for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {

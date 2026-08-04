@@ -182,6 +182,39 @@ const PathValueWithHoverLink = ({
     )
 }
 
+// Outbound clicks come through as a `url` column (not `breakdown_value`), so they don't get the
+// PathValueWithHoverLink affordance. The value is already a full external URL.
+const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (typeof value !== 'string' || !value) {
+        return <>{value}</>
+    }
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
+        return <>{value}</>
+    }
+
+    const url = value.startsWith('http') ? value : `https://${value}`
+
+    // The URL text itself is the click target so it stays discoverable on touch and keyboard focus,
+    // and works even when the cell's max-width clips the trailing icon. The icon is a hover-only hint.
+    return (
+        <Link
+            to={url}
+            target="_blank"
+            subtle
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className="inline-flex items-center gap-1"
+        >
+            {value}
+            <Tooltip title="Open URL">
+                <IconExternal className="text-base opacity-0 transition-opacity [[data-row-key]:hover_&]:opacity-100" />
+            </Tooltip>
+        </Link>
+    )
+}
+
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
 const VariationCell = (
     { isPercentage, reverseColors, isDuration }: VariationCellProps = {
@@ -321,6 +354,22 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>URL</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
+        case WebStatsBreakdown.FirstPageviewChannelType:
+            return <>Channel Type (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
+            return <>Referring Domain (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+            return <>UTM Source (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+            return <>UTM Campaign (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+            return <>UTM Medium (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+            return <>UTM Term (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMContent:
+            return <>UTM Content (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+            return <>Source / Medium / Campaign (First Pageview)</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -445,6 +494,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             return <NotSetBreakdownLabel />
         case WebStatsBreakdown.InitialReferringDomain:
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
             // NULL referrer is canonically "Direct" in PostHog (matches the channel-type
             // bucketing in sessions_v2). Keep that wording to stay consistent across tiles.
             if (value == null) {
@@ -468,6 +518,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             break
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
             if (typeof value === 'string') {
                 return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
@@ -477,6 +528,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.InitialUTMCampaign:
         case WebStatsBreakdown.InitialUTMTerm:
         case WebStatsBreakdown.InitialUTMContent:
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+        case WebStatsBreakdown.FirstPageviewUTMContent:
             return typeof value === 'string' ? <>{value}</> : <NotSetBreakdownLabel />
     }
 
@@ -605,6 +661,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
             align: 'right',
+        },
+        url: {
+            render: UrlValueCell,
         },
         action_name: {
             title: 'Action',

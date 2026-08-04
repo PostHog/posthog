@@ -1,48 +1,58 @@
+import json
 from datetime import date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
-from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.picqer import picqer
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer import (
     PicqerResumeConfig,
     _base_url,
     _build_params,
-    get_rows,
     normalize_account,
+    picqer_source,
     to_picqer_datetime,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.settings import PAGE_SIZE, PICQER_ENDPOINTS
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the picqer module.
+PICQER_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer.make_tracked_session"
+)
+
 
 class TestNormalizeAccount:
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "value,expected",
         [
-            ("bare", "acme", "acme"),
-            ("full_host", "acme.picqer.com", "acme"),
-            ("https_url", "https://acme.picqer.com", "acme"),
-            ("trailing_slash", "acme.picqer.com/", "acme"),
-            ("with_hyphen", "acme-corp", "acme-corp"),
-            ("whitespace", "  acme  ", "acme"),
-        ]
+            ("acme", "acme"),
+            ("acme.picqer.com", "acme"),
+            ("https://acme.picqer.com", "acme"),
+            ("acme.picqer.com/", "acme"),
+            ("acme-corp", "acme-corp"),
+            ("  acme  ", "acme"),
+        ],
     )
-    def test_valid_accounts(self, _name: str, value: str, expected: str) -> None:
+    def test_valid_accounts(self, value: str, expected: str) -> None:
         assert normalize_account(value) == expected
 
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "value",
         [
-            ("path_injection", "acme/../evil"),
-            ("host_injection", "acme.evil.com"),
-            ("userinfo_injection", "acme@evil.com"),
-            ("empty", ""),
-            ("space_inside", "ac me"),
-            ("trailing_hyphen", "acme-"),
-        ]
+            "acme/../evil",
+            "acme.evil.com",
+            "acme@evil.com",
+            "",
+            "ac me",
+            "acme-",
+        ],
     )
-    def test_invalid_accounts_raise(self, _name: str, value: str) -> None:
+    def test_invalid_accounts_raise(self, value: str) -> None:
         # The account is the host the stored API key is sent to; a loosened regex would let an org
         # member retarget the credential at a server they control.
         with pytest.raises(ValueError):
@@ -53,15 +63,16 @@ class TestNormalizeAccount:
 
 
 class TestToPicqerDatetime:
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "value,expected",
         [
-            ("naive_datetime", datetime(2020, 1, 2, 3, 4, 5), "2020-01-02 03:04:05"),
-            ("date_value", date(2020, 1, 2), "2020-01-02 00:00:00"),
-            ("iso_string", "2020-01-02T03:04:05", "2020-01-02 03:04:05"),
-            ("already_spaced_string", "2020-01-02 03:04:05", "2020-01-02 03:04:05"),
-        ]
+            (datetime(2020, 1, 2, 3, 4, 5), "2020-01-02 03:04:05"),
+            (date(2020, 1, 2), "2020-01-02 00:00:00"),
+            ("2020-01-02T03:04:05", "2020-01-02 03:04:05"),
+            ("2020-01-02 03:04:05", "2020-01-02 03:04:05"),
+        ],
     )
-    def test_format(self, _name: str, value: Any, expected: str) -> None:
+    def test_format(self, value: Any, expected: str) -> None:
         # Picqer's `updated_after` filter expects `YYYY-MM-DD HH:MM:SS`; a broken format silently
         # returns wrong/empty incremental pages.
         assert to_picqer_datetime(value) == expected
@@ -95,102 +106,193 @@ class TestBuildParams:
         assert params == {}
 
 
-class _FakeResumableManager:
-    def __init__(self, state: PicqerResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[PicqerResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> PicqerResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: PicqerResumeConfig) -> None:
-        self.saved.append(data)
+def _response(body: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _patch_fetch(monkeypatch: Any, responses: list[Any]) -> list[dict[str, Any]]:
-    """Return pages in order, recording the params (offset + any filter) of each request."""
-    calls: list[dict[str, Any]] = []
-    pages = iter(responses)
-
-    def fake_fetch(session: Any, url: str, params: dict[str, Any]) -> Any:
-        calls.append(params)
-        return next(pages)
-
-    monkeypatch.setattr(picqer, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(picqer, "_make_session", lambda api_key: MagicMock())
-    return calls
+def _page(n: int) -> Response:
+    # Picqer list endpoints return a bare JSON array (no envelope).
+    return _response([{"idorder": i} for i in range(n)])
 
 
-def _collect(monkeypatch: Any, manager: _FakeResumableManager, **kwargs: Any) -> list[dict]:
-    rows: list[dict] = []
-    for batch in get_rows(
+def _make_manager(resume_state: PicqerResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
+    run shows only the final state — snapshot a copy when each request is prepared instead. The
+    prepared request's ``url`` is echoed from the Request so the client's allowed-host check
+    (pinned to ``<account>.picqer.com``) passes.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock(url=request.url)
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(
+    endpoint: str,
+    manager: mock.MagicMock,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Any:
+    return picqer_source(
         account="acme",
         api_key="key",
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(batch)
-    return rows
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
 
-def _page(n: int) -> list[dict]:
-    return [{"idorder": i} for i in range(n)]
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_by_offset_until_short_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page(PAGE_SIZE), _page(3)])
 
-
-class TestGetRows:
-    def test_paginates_by_offset_until_short_page(self, monkeypatch: Any) -> None:
-        calls = _patch_fetch(monkeypatch, [_page(PAGE_SIZE), _page(3)])
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="orders")
+        rows = _rows(_source("orders", _make_manager()))
 
         assert len(rows) == PAGE_SIZE + 3
-        assert [c["offset"] for c in calls] == [0, PAGE_SIZE]
+        assert [p["offset"] for p in params] == [0, PAGE_SIZE]
+        # Offset-only advancement: Picqer has no page-size override, so no `limit` is ever sent.
+        assert all("limit" not in p for p in params)
 
-    def test_stops_on_empty_first_page(self, monkeypatch: Any) -> None:
-        calls = _patch_fetch(monkeypatch, [[]])
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="orders")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_empty_first_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page(0)])
+
+        manager = _make_manager()
+        rows = _rows(_source("orders", manager))
 
         assert rows == []
-        assert [c["offset"] for c in calls] == [0]
+        assert [p["offset"] for p in params] == [0]
+        manager.save_state.assert_not_called()
 
-    def test_saves_next_offset_only_while_more_pages_remain(self, monkeypatch: Any) -> None:
-        _patch_fetch(monkeypatch, [_page(PAGE_SIZE), _page(1)])
-        manager = _FakeResumableManager()
-        _collect(monkeypatch, manager, endpoint="orders")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_next_offset_only_while_more_pages_remain(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page(PAGE_SIZE), _page(1)])
 
-        # State is saved after the full first page (advance to PAGE_SIZE), never after the short last page.
-        assert manager.saved == [PicqerResumeConfig(offset=PAGE_SIZE)]
+        manager = _make_manager()
+        _rows(_source("orders", manager))
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        calls = _patch_fetch(monkeypatch, [_page(2)])
-        rows = _collect(monkeypatch, _FakeResumableManager(PicqerResumeConfig(offset=PAGE_SIZE)), endpoint="orders")
+        # State is saved after the full first page (advance to PAGE_SIZE), never after the short
+        # last page.
+        manager.save_state.assert_called_once_with(PicqerResumeConfig(offset=PAGE_SIZE))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page(2)])
+
+        rows = _rows(_source("orders", _make_manager(PicqerResumeConfig(offset=PAGE_SIZE))))
 
         assert len(rows) == 2
-        assert [c["offset"] for c in calls] == [PAGE_SIZE]
+        assert [p["offset"] for p in params] == [PAGE_SIZE]
 
-    def test_incremental_filter_present_on_every_page(self, monkeypatch: Any) -> None:
-        calls = _patch_fetch(monkeypatch, [_page(PAGE_SIZE), _page(1)])
-        _collect(
-            monkeypatch,
-            _FakeResumableManager(),
-            endpoint="purchaseorders",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2020, 1, 2, 3, 4, 5),
-        )
-        # The filter must stay on the paginated request so pagination walks only the filtered set.
-        assert all(c.get("updated_after") == "2020-01-02 03:04:05" for c in calls)
-        assert [c["offset"] for c in calls] == [0, PAGE_SIZE]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_filter_present_on_every_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page(PAGE_SIZE), _page(1)])
 
-    def test_full_refresh_endpoint_sends_no_filter(self, monkeypatch: Any) -> None:
-        calls = _patch_fetch(monkeypatch, [_page(1)])
-        _collect(
-            monkeypatch,
-            _FakeResumableManager(),
-            endpoint="orders",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2020, 1, 2, 3, 4, 5),
+        _rows(
+            _source(
+                "purchaseorders",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2020, 1, 2, 3, 4, 5),
+            )
         )
-        assert "updated_after" not in calls[0]
+
+        # The filter must stay on every paginated request so pagination walks only the filtered set.
+        assert all(p.get("updated_after") == "2020-01-02 03:04:05" for p in params)
+        assert [p["offset"] for p in params] == [0, PAGE_SIZE]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_endpoint_sends_no_filter(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page(1)])
+
+        _rows(
+            _source(
+                "orders",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2020, 1, 2, 3, 4, 5),
+            )
+        )
+
+        assert "updated_after" not in params[0]
+
+    @pytest.mark.parametrize("status", [429, 503])
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_codes_recover(self, MockSession, _mock_sleep, status: int) -> None:
+        # A transient 429/5xx then success: the client retry recovers and still yields the data.
+        session = MockSession.return_value
+        _wire(session, [_response({}, status_code=status), _page(1)])
+
+        rows = _rows(_source("orders", _make_manager()))
+
+        assert len(rows) == 1
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        "status,expected_ok",
+        [
+            (200, True),
+            # 403 = valid key, insufficient scope — accepted at source-create (per-table scope
+            # reported separately).
+            (403, True),
+            (401, False),
+            (500, False),
+        ],
+    )
+    @mock.patch(PICQER_SESSION_PATCH)
+    def test_status_mapping(self, mock_session, status: int, expected_ok: bool) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+
+        ok, code = validate_credentials("acme", "key")
+
+        assert ok is expected_ok
+        assert code == status
+
+    @mock.patch(PICQER_SESSION_PATCH)
+    def test_transport_error_maps_to_none_status(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+
+        ok, code = validate_credentials("acme", "key")
+
+        assert ok is False
+        assert code is None
+
+    def test_bad_account_raises_before_probe(self) -> None:
+        # A malformed account must fail loud (so the caller can surface a precise message) rather
+        # than being swallowed as an unreachable probe.
+        with pytest.raises(ValueError):
+            validate_credentials("acme.evil.com", "key")

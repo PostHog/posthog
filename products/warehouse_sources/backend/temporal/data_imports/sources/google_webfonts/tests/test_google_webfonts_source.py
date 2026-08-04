@@ -1,11 +1,9 @@
 import pytest
 from unittest import mock
 
-import requests
-
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlewebfonts import (
     GoogleWebfontsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.settings import ENDPOINTS
@@ -89,37 +87,28 @@ class TestGoogleWebfontsSource:
         assert webfonts["description"]
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "transport_return",
         [
-            (True, True, None),
-            (False, False, "Invalid Google API key"),
+            (True, None),
+            (False, "Invalid Google API key"),
+            (False, "Could not reach the Google Fonts API. Check your network connection and try again."),
         ],
     )
     @mock.patch(f"{_MODULE}.validate_google_webfonts_credentials")
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials_delegates_to_transport(self, mock_validate, transport_return):
+        mock_validate.return_value = transport_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        result = self.source.validate_credentials(self.config, self.team_id)
 
-        assert is_valid is expected_valid
-        assert error_message == expected_message
+        assert result == transport_return
         mock_validate.assert_called_once_with("AIza-key")
-
-    @mock.patch(f"{_MODULE}.validate_google_webfonts_credentials")
-    def test_validate_credentials_reports_connection_failure_distinctly(self, mock_validate):
-        # A transient network failure must not be reported as an invalid key, or the user
-        # wastes time recreating a working credential.
-        mock_validate.side_effect = requests.ConnectionError("boom")
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is False
-        assert error_message == "Could not reach the Google Fonts API. Check your network connection and try again."
 
     @mock.patch(f"{_MODULE}.google_webfonts_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "webfonts"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
 
         self.source.source_for_pipeline(self.config, inputs)
 
@@ -127,3 +116,5 @@ class TestGoogleWebfontsSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "AIza-key"
         assert kwargs["endpoint"] == "webfonts"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"

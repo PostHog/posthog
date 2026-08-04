@@ -23,12 +23,15 @@ from oauth2_provider.models import (
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.validators import AllowedURIValidator
 
-from posthog.helpers.encrypted_fields import EncryptedCharField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
+
+    # This model loads at django.setup() in every process; the pydantic schema is
+    # runtime-imported in the accessors that materialize it.
+    from posthog.models.oauth_provisioning import ProvisioningConfig
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -40,6 +43,22 @@ class OAuthApplicationAccessLevel(enum.Enum):
 class OAuthApplicationAuthBrand(enum.Enum):
     POSTHOG = "posthog"
     TWIG = "twig"
+
+
+class TokenEndpointAuthMethod(enum.Enum):
+    """How a client authenticates at the token endpoint, per RFC 7591 section 2.
+
+    ``NONE`` is a public client: it holds no credential and relies on PKCE (RFC 7636).
+    ``CLIENT_SECRET_POST`` holds a shared secret; RFC 6749 section 2.3.1 also defines a
+    ``client_secret_basic`` variant, which is not registered separately here because both
+    transports are accepted from any secret-holding client. ``PRIVATE_KEY_JWT`` is
+    asymmetric: the client signs an assertion (RFC 7523) that is verified against a public
+    key it publishes at its ``jwks_uri``, so no shared secret ever has to be transmitted.
+    """
+
+    NONE = "none"
+    CLIENT_SECRET_POST = "client_secret_post"
+    PRIVATE_KEY_JWT = "private_key_jwt"
 
 
 def is_loopback_host(hostname: str | None) -> bool:
@@ -173,92 +192,146 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
     )
 
+    # Client authentication - RFC 7591 section 2 client metadata
+    jwks_uri: models.URLField = models.URLField(
+        max_length=2048,
+        null=True,
+        blank=True,
+        help_text=(
+            "HTTPS URL serving the client's public keys as a JWK Set. Setting this on a "
+            "confidential client switches it to private_key_jwt authentication (RFC 7523): it "
+            "signs an assertion we verify against these keys instead of holding a shared secret."
+        ),
+    )
+
     # Provisioning fields - only relevant for partners that provision accounts/resources
     # via the agentic provisioning API. Null/blank for regular OAuth clients.
-    provisioning_auth_method: models.CharField = models.CharField(
-        max_length=20,
-        blank=True,
-        default="",
-        help_text="Auth method for provisioning requests: hmac, bearer, or pkce. Empty for non-provisioning apps.",
-    )
-    provisioning_signing_secret = EncryptedCharField(
-        max_length=500,
-        blank=True,
-        null=True,
-        default="",
-        help_text="HMAC shared secret for provisioning request verification (encrypted at rest)",
-    )
-    provisioning_partner_type: models.CharField = models.CharField(
-        max_length=50,
-        blank=True,
-        default="",
-        help_text="Partner identifier: stripe, wizard, etc. Empty for non-provisioning apps.",
-    )
-    provisioning_active: models.BooleanField = models.BooleanField(
-        default=False, help_text="Must be explicitly enabled for provisioning access"
-    )
-    provisioning_can_create_accounts: models.BooleanField = models.BooleanField(
-        default=False, help_text="Can this app create PostHog accounts on behalf of users"
-    )
-    provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
-        default=True, help_text="Can this app provision projects and API keys"
-    )
-    provisioning_issues_personal_api_key: models.BooleanField = models.BooleanField(
+    is_provisioning_partner: models.BooleanField = models.BooleanField(
         default=False,
         db_default=False,
         help_text=(
-            "Whether provisioning mints a Personal API Key for this app. Off by default; "
-            "only grandfathered apps (the legacy Stripe app) still issue one, capped at the app's scopes."
+            "Whether this app may act as an agentic provisioning partner. How it authenticates "
+            "follows from client_type, so there is no separate provisioning auth method."
         ),
     )
-    provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
-    )
-    provisioning_rate_limit_account_requests_source: models.CharField = models.CharField(
-        max_length=24,
+    # Mangled so the `provisioning` property below can own the readable name. Every capability
+    # and quota lives in here; see posthog/models/oauth_provisioning.py for the shape. Empty
+    # object means "a partner that may do nothing yet", which is the intended starting point.
+    _provisioning_config: models.JSONField = models.JSONField(
+        default=dict,
+        db_default={},
         blank=True,
-        default="",
-        choices=[
-            ("default_unverified", "default_unverified"),
-            ("default_verified", "default_verified"),
-            ("admin", "admin"),
-        ],
+        db_column="provisioning_config",
         help_text=(
-            "Records who set provisioning_rate_limit_account_requests so verification flips don't "
-            "overwrite an explicit admin override."
+            "Provisioning capabilities and per-endpoint rate limits. Every capability is off unless explicitly granted."
         ),
-    )
-    provisioning_rate_limit_token_exchanges: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for token exchanges (per hour)"
-    )
-    provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
-    )
-    provisioning_rate_limit_github_grants: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for GitHub grant creation (per hour)"
-    )
-    provisioning_rate_limit_wizard_runs: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for wizard cloud run creation (per hour)"
-    )
-    provisioning_disabled: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text=(
-            "Kill switch for misbehaving partners. When true, apply_provisioning_defaults will not "
-            "re-enable the app on subsequent CIMD requests."
-        ),
-    )
-    provisioning_skip_existing_user_consent: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
-    )
-    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
     )
 
     @property
-    def is_provisioning_partner(self) -> bool:
-        return bool(self.provisioning_auth_method)
+    def provisioning(self) -> "ProvisioningConfig":
+        """The parsed provisioning config. Absent keys read as their default, so a partner is
+        never accidentally granted a capability the stored blob never mentioned."""
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        return ProvisioningConfig.model_validate(self._provisioning_config or {})
+
+    @provisioning.setter
+    def provisioning(self, value: "ProvisioningConfig | dict") -> None:
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        config = value if isinstance(value, ProvisioningConfig) else ProvisioningConfig.model_validate(value)
+        self._provisioning_config = config.model_dump(mode="json")
+
+    def update_provisioning(self, **changes: object) -> "ProvisioningConfig":
+        """Apply a partial change to the config and persist it.
+
+        The blob is one column, so a read-modify-write is the only way to set a single key
+        without clobbering its neighbours. That makes concurrent writers a lost-update
+        problem - an admin granting a capability while a CIMD refresh re-tiers a rate limit
+        would otherwise have one silently overwrite the other - so the row is locked and
+        re-read inside the transaction rather than trusting the copy in memory.
+        """
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            self.provisioning = self.provisioning.model_copy(update=changes)
+            self.save(update_fields=["_provisioning_config"])
+        return self.provisioning
+
+    def update_provisioning_rate_limits(self, **changes: object) -> "ProvisioningConfig":
+        """Apply a partial change to the nested rate limits and persist it.
+
+        Nested under the same lock as any other partial change, so the read of the current
+        limits can't be stale by the time it is written back.
+        """
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+
+    @property
+    def carries_provisioning_config(self) -> bool:
+        """Whether this app has ever been configured for provisioning, whatever
+        ``is_provisioning_partner`` says now.
+
+        Partner quotas key on this rather than the flag, so an admin who disables a partner
+        without revoking its outstanding tokens doesn't also exempt those tokens from the
+        rate limits.
+
+        "Grants or records something" rather than "the column is non-empty": the backfill writes
+        a config to every row, ordinary OAuth apps included, so a non-empty blob says nothing
+        about whether an app was ever a partner. A config equal to the all-default one carries no
+        grant, no deactivation and no quota, which is exactly the app that owes no partner quota.
+        """
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        return self.is_provisioning_partner or self.provisioning != ProvisioningConfig()
+
+    # Client authentication is registration state on purpose. A client_id is public, so
+    # inferring the method from what a request happens to present would let anyone act as a
+    # confidential client by presenting nothing at all.
+
+    @property
+    def effective_client_id(self) -> str:
+        """The identifier this client uses for itself on the wire.
+
+        For a CIMD client that is its metadata URL, which is what the client sends and what it
+        names itself by in a signed assertion; the ``client_id`` column holds an opaque value
+        generated at registration. For every other client the two are the same.
+
+        Gated on ``is_cimd_client`` so a stray ``cimd_metadata_url`` on a non-CIMD app cannot
+        change which identifier an assertion's ``iss``/``sub`` are checked against.
+        """
+        if self.is_cimd_client and self.cimd_metadata_url:
+            return self.cimd_metadata_url
+        return self.client_id
+
+    @property
+    def requires_client_authentication(self) -> bool:
+        """Whether this client must prove itself, i.e. is confidential (RFC 6749 section 3.2.1)."""
+        return self.client_type == AbstractApplication.CLIENT_CONFIDENTIAL
+
+    @property
+    def token_endpoint_auth_method(self) -> TokenEndpointAuthMethod:
+        """Which RFC 7591 method this client authenticates with.
+
+        Derived rather than stored: the client type says whether it authenticates at all, and a
+        jwks_uri says it does so with an asymmetric key. Both are registration state, so this is
+        never influenced by what a request presents.
+        """
+        if not self.requires_client_authentication:
+            return TokenEndpointAuthMethod.NONE
+        if self.jwks_uri:
+            return TokenEndpointAuthMethod.PRIVATE_KEY_JWT
+        return TokenEndpointAuthMethod.CLIENT_SECRET_POST
+
+    @property
+    def uses_client_secret_auth(self) -> bool:
+        return self.token_endpoint_auth_method is TokenEndpointAuthMethod.CLIENT_SECRET_POST
+
+    @property
+    def uses_private_key_jwt_auth(self) -> bool:
+        return self.token_endpoint_auth_method is TokenEndpointAuthMethod.PRIVATE_KEY_JWT
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"
@@ -299,7 +372,17 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # calling super().clean(), which would re-run the redirect validation and reject those native schemes.
         self._validate_redirect_uris()
         self._validate_optional_scopes()
+        self._validate_client_authentication()
         self._validate_application_config()
+
+    def _validate_client_authentication(self):
+        if self.jwks_uri and not self.jwks_uri.startswith("https://"):
+            raise ValidationError("jwks_uri must be an https URL")
+
+        # A public client cannot authenticate, so a key set would never be consulted
+        # Rejecting the combination keeps token_endpoint_auth_method unambiguous.
+        if self.jwks_uri and not self.requires_client_authentication:
+            raise ValidationError("jwks_uri is only meaningful for a confidential client")
 
     def _validate_redirect_uris(self):
         validator = AllowedURIValidator(

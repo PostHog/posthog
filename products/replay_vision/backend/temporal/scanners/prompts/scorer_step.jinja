@@ -1,5 +1,7 @@
 {% from "_macros.jinja" import cite_in %}Rate this session against the following criterion: {{ user_prompt }}
 
-In `reasoning`, work through what you observed in the session that bears on this criterion; then set `score` on {% if scale_label %}the '{{ scale_label }}' scale{% else %}the scale{% endif %} from {{ scale_min }} to {{ scale_max }}.
+Before scoring, verify the moments that drive your score with `get_events_around`: what the events record at a moment outranks a visual impression of it, and a score toward either end of the scale needs event-checked moments behind it, not just how the session looks.
+
+In `reasoning`, work through what you observed in the session that bears on this criterion, noting what the events confirmed or contradicted; then set `score` on {% if scale_label %}the '{{ scale_label }}' scale{% else %}the scale{% endif %} from {{ scale_min }} to {{ scale_max }}.
 
 {{ cite_in('reasoning') }}

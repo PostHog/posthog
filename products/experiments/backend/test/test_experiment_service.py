@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -28,6 +28,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -39,6 +40,8 @@ from products.experiments.backend.experiment_service import (
     ExperimentService,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
+    _merge_metric_arrays,
+    _merge_saved_metric_links,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -52,7 +55,6 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
-from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -309,6 +311,55 @@ class TestExperimentService(APIBaseTest):
         assert "fingerprint" in experiment.metrics[0]
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
         assert len(experiment.metrics[0]["fingerprint"]) == 64  # SHA256 hex
+
+    def test_lifecycle_save_does_not_clobber_concurrent_metric_change(self):
+        from django.utils import timezone
+
+        self._create_flag(key="lifecycle-clobber")
+        service = self._service()
+
+        metric_one = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-1",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        metric_two = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-2",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+
+        experiment = service.create_experiment(
+            name="Lifecycle Clobber",
+            feature_flag_key="lifecycle-clobber",
+            allow_unknown_events=True,
+            metrics=[metric_one],
+            start_date=timezone.now(),  # launched, so end_experiment is valid
+        )
+
+        # A request that loaded the experiment before the concurrent metric add.
+        stale = Experiment.objects.get(pk=experiment.pk)
+        stale_version = stale.version or 0
+
+        # A concurrent request adds a second metric.
+        service.update_experiment(
+            Experiment.objects.get(pk=experiment.pk),
+            {"metrics": [metric_one, metric_two]},
+            allow_unknown_events=True,
+        )
+
+        # Ending from the stale instance must not revert metric-2: the scoped, row-locked
+        # save touches only end_date/conclusion/version, never the metric collections.
+        service.end_experiment(stale)
+
+        final = Experiment.objects.get(pk=experiment.pk)
+        assert final.end_date is not None
+        assert {m["uuid"] for m in (final.metrics or [])} == {"metric-1", "metric-2"}
+        # Both writes advanced the token; the lifecycle bump reads the locked row, so it
+        # lands above the concurrent update rather than colliding with it.
+        assert (final.version or 0) > stale_version + 1
 
     # ------------------------------------------------------------------
     # Metric ordering
@@ -4194,6 +4245,8 @@ class TestExperimentService(APIBaseTest):
         else:
             experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
             assert experiment.is_stopped
+        experiment.flag_cleanup_task_id = uuid4()
+        experiment.save()
 
         reset = self._service().reset_experiment(experiment)
 
@@ -4204,6 +4257,7 @@ class TestExperimentService(APIBaseTest):
         assert reset.archived is False
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
+        assert reset.flag_cleanup_task_id is None
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
@@ -4243,6 +4297,26 @@ class TestExperimentService(APIBaseTest):
         assert reset.feature_flag.filters["groups"] == original_groups
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+    def test_reset_experiment_clears_freeze_without_request(self):
+        experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
+        original_groups = deepcopy(experiment.feature_flag.filters["groups"])
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # Non-HTTP callers (no request/user) still route the freeze-strip through the
+        # gated facade write, attributed as a system change in the activity log.
+        with self.captureOnCommitCallbacks(execute=True):
+            reset = self._service().reset_experiment(frozen)
+
+        assert reset.is_draft
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.filters["groups"] == original_groups
+        log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(reset.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert log.is_system is True
+        assert log.user is None
 
     @parameterized.expand(
         [
@@ -4877,93 +4951,6 @@ class TestExperimentService(APIBaseTest):
         service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
 
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
-
-    # ------------------------------------------------------------------
-    # Eligible feature flags
-    # ------------------------------------------------------------------
-
-    def test_get_eligible_feature_flags_only_returns_multivariate_flags_within_variant_bounds(self) -> None:
-        eligible_flag = self._create_flag(key="eligible-flag")
-        no_control_flag = self._create_flag(
-            key="no-control-flag",
-            variants=[
-                {"key": "test-1", "name": "Test 1", "rollout_percentage": 50},
-                {"key": "test-2", "name": "Test 2", "rollout_percentage": 50},
-            ],
-        )
-        self._create_flag(
-            key="single-variant-flag",
-            variants=[{"key": "control", "name": "Control", "rollout_percentage": 100}],
-        )
-
-        result = self._service().get_eligible_feature_flags(order="key")
-
-        assert result["count"] == 2
-        assert [flag.key for flag in result["results"]] == [eligible_flag.key, no_control_flag.key]
-
-    def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
-        self._create_flag(key="search-alpha")
-        self._create_flag(key="search-beta")
-        self._create_flag(key="other-flag")
-
-        result = self._service().get_eligible_feature_flags(
-            search="search",
-            order="key",
-            limit=1,
-            offset=1,
-        )
-
-        assert result["count"] == 2
-        assert [flag.key for flag in result["results"]] == ["search-beta"]
-
-    def test_get_eligible_feature_flags_filters_by_evaluation_contexts(self) -> None:
-        flag_with_tags = self._create_flag(key="flag-with-tags")
-        self._create_flag(key="flag-without-tags")
-        evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=evaluation_context)
-
-        service = self._service()
-
-        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_contexts="true", order="key")
-        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_contexts="false", order="key")
-
-        assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
-        assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
-
-    def test_get_eligible_feature_flags_excludes_flags_blocked_by_access_controls(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
-        self.organization.save()
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save()
-
-        self._create_flag(key="accessible-flag")
-        other_user = User.objects.create_and_join(self.organization, "flag-owner@posthog.com", None)
-        private_flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=other_user,
-            key="private-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        AccessControl.objects.create(
-            team=self.team, resource="feature_flag", resource_id=str(private_flag.id), access_level="none"
-        )
-
-        result = self._service().get_eligible_feature_flags(order="key")
-
-        assert result["count"] == 1
-        assert [flag.key for flag in result["results"]] == ["accessible-flag"]
 
     # ------------------------------------------------------------------
     # Experiment list/querying
@@ -5927,12 +5914,6 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
         assert qs is not None
-
-    def test_eligible_flags_order_by_invalid_field_raises(self):
-        """Ordering eligible flags by a non-allowlisted field should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.get_eligible_feature_flags(order="team__organization__name")
 
     def test_launch_with_deleted_flag_raises(self):
         """Launching an experiment whose flag is soft-deleted should fail."""
@@ -6924,3 +6905,81 @@ class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
         request = MagicMock()
         type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
         assert _deprecated_parameters_keys_in_request(request) == []
+
+
+class TestConcurrentMetricMerge(SimpleTestCase):
+    """Branch pins for the pure three-way merge helpers behind experiment optimistic concurrency.
+    The end-to-end behavior is covered in test_presentation_api.py::TestExperimentConcurrency;
+    these lock the merge decisions that are awkward to reach through the API (identical edits on
+    both sides, double deletes, fingerprint-only churn)."""
+
+    @staticmethod
+    def _metric(uuid: str, event: str, fingerprint: str | None = None) -> dict:
+        metric = {"uuid": uuid, "kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": event}}
+        if fingerprint is not None:
+            metric["fingerprint"] = fingerprint
+        return metric
+
+    @parameterized.expand(
+        [
+            (
+                "identical_edit_on_both_sides_is_not_a_conflict",
+                [("m1", "old", None)],
+                [("m1", "new", None)],
+                [("m1", "new", None)],
+                {"new"},
+                [],
+            ),
+            (
+                "both_delete_the_same_metric",
+                [("m1", "e1", None), ("m2", "e2", None)],
+                [("m2", "e2", None)],
+                [("m2", "e2", None)],
+                {"e2"},
+                [],
+            ),
+            (
+                "fingerprint_only_churn_is_not_a_concurrent_edit",
+                [("m1", "e1", "old-fp"), ("m2", "e2", "old-fp")],
+                [("m1", "e1", "new-fp"), ("m2", "e2", "new-fp")],
+                [("m2", "e2", "old-fp")],
+                {"e2"},
+                [],
+            ),
+            (
+                "edit_vs_delete_conflicts",
+                [("m1", "e1", None)],
+                [("m1", "edited", None)],
+                [],
+                {"edited"},
+                ["m1"],
+            ),
+        ]
+    )
+    def test_merge_metric_arrays(
+        self,
+        _name: str,
+        base: list,
+        theirs: list,
+        mine: list,
+        expected_events: set[str],
+        expected_conflicts: list[str],
+    ) -> None:
+        merged, conflicts = _merge_metric_arrays(
+            [self._metric(*m) for m in base],
+            [self._metric(*m) for m in theirs],
+            [self._metric(*m) for m in mine],
+        )
+
+        self.assertEqual(conflicts, expected_conflicts)
+        if not expected_conflicts:
+            self.assertEqual({m["source"]["event"] for m in merged}, expected_events)
+
+    def test_merge_saved_metric_links_identical_metadata_edit_is_not_a_conflict(self) -> None:
+        base = [{"id": 1, "metadata": {"type": "primary"}}]
+        both_edited = [{"id": 1, "metadata": {"type": "secondary"}}]
+
+        merged, conflicts = _merge_saved_metric_links(base, both_edited, both_edited)
+
+        self.assertEqual(conflicts, [])
+        self.assertEqual(merged, [{"id": 1, "metadata": {"type": "secondary"}}])

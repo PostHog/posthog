@@ -16,6 +16,7 @@ import { logger } from '~/common/utils/logger'
 
 import { RawKafkaEvent } from '../../types'
 import { AIObservabilityConfig } from '../config'
+import { EvaluationTargetConfig, ResolvedSettleConfig } from '../types'
 
 export type TemporalServiceConfig = Pick<
     AIObservabilityConfig,
@@ -49,10 +50,26 @@ function getEvaluationWorkflowPrefix(evaluationRuntime: EvaluationWorkflowRuntim
     return EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime]
 }
 
-// Fallback aggregation window when an evaluation's target_config carries no window_seconds.
-// Per-eval values come from the eval config; this only applies to legacy/empty configs. Must
-// comfortably exceed a single LLM turn (seconds, or a few minutes with heavy tool usage).
+// Fallback settle values when an evaluation's target_config predates strategies or omits a
+// field. Per-eval values come from the eval config; these mirror the backend defaults in
+// products/ai_observability/backend/models/evaluation_configs.py.
 export const DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS = 30 * 60
+export const DEFAULT_TRACE_EVALUATION_QUIET_PERIOD_SECONDS = 5 * 60
+export const DEFAULT_TRACE_EVALUATION_MAX_AGE_SECONDS = 2 * 60 * 60
+
+export function resolveSettleConfig(targetConfig: EvaluationTargetConfig | null | undefined): ResolvedSettleConfig {
+    if (targetConfig?.strategy === 'inactivity') {
+        return {
+            strategy: 'inactivity',
+            quiet_period_seconds: targetConfig.quiet_period_seconds ?? DEFAULT_TRACE_EVALUATION_QUIET_PERIOD_SECONDS,
+            max_age_seconds: targetConfig.max_age_seconds ?? DEFAULT_TRACE_EVALUATION_MAX_AGE_SECONDS,
+        }
+    }
+    return {
+        strategy: 'fixed_window',
+        window_seconds: targetConfig?.window_seconds ?? DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS,
+    }
+}
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
@@ -211,28 +228,29 @@ export class TemporalService {
     }
 
     /**
-     * Start (or join) the delayed whole-trace evaluation for (evaluation, trace).
+     * Start (or join) the settle-then-evaluate workflow for (evaluation, trace).
      *
      * The workflow id deliberately excludes the event uuid: the first matching generation of a
-     * trace creates the workflow, and every later one lands on it as a no-op (USE_EXISTING
-     * while pending/running). Once a run completed, ALLOW_DUPLICATE_FAILED_ONLY rejects new
-     * starts — a trace is evaluated at most once per evaluation, which also caps the damage
-     * from runaway shared trace ids ("0", "fixed_id", ...). Returns null when the trace was
-     * already evaluated.
+     * trace creates the workflow and every later one lands on it as a no-op (USE_EXISTING while
+     * pending/running). The workflow discovers further trace activity itself by polling
+     * ClickHouse, so ingestion volume never reaches Temporal beyond this one dedup'd start.
+     * Once a run completed, ALLOW_DUPLICATE_FAILED_ONLY rejects new starts — a trace is
+     * evaluated at most once per evaluation, which also caps the damage from runaway shared
+     * trace ids ("0", "fixed_id", ...). Returns null when the trace was already evaluated.
      */
-    async startTraceEvaluationRunWorkflow(
+    async startAggregateEvaluationWorkflow(
         evaluationId: string,
         event: RawKafkaEvent,
         traceId: string,
         sessionId: string | null,
-        windowSeconds: number
+        settle: ResolvedSettleConfig
     ): Promise<WorkflowHandle | null> {
         const client = await this.ensureConnected()
 
         const workflowId = `llma-trace-eval-${evaluationId}-${workflowSafeTraceId(traceId)}`
 
         try {
-            const handle = await client.workflow.start('run-trace-evaluation', {
+            const handle = await client.workflow.start('run-aggregate-evaluation', {
                 args: [
                     {
                         evaluation_id: evaluationId,
@@ -240,7 +258,7 @@ export class TemporalService {
                         trace_id: traceId,
                         distinct_id: event.distinct_id,
                         session_id: sessionId,
-                        window_seconds: windowSeconds,
+                        settle,
                     },
                 ],
                 taskQueue: EVALUATION_TASK_QUEUE,
@@ -252,17 +270,16 @@ export class TemporalService {
 
             temporalWorkflowsStarted.labels({ status: 'success' }).inc()
 
-            logger.debug('Started trace evaluation run workflow', {
+            logger.debug('Started aggregate evaluation workflow', {
                 workflowId,
                 evaluationId,
                 traceId,
+                strategy: settle.strategy,
                 timestamp: event.timestamp,
             })
 
             return handle
         } catch (error) {
-            // A completed run for this (evaluation, trace) already exists — the expected
-            // outcome for every matching event after the trace was evaluated.
             if (error instanceof WorkflowExecutionAlreadyStartedError) {
                 temporalWorkflowsStarted.labels({ status: 'already_completed' }).inc()
                 return null

@@ -4,6 +4,7 @@ import json
 import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
@@ -66,6 +67,7 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    pending_reason: str | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -77,6 +79,8 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if pending_reason is not None:
+        properties["pending_reason"] = pending_reason
 
     if event == "signal_report_completed" and result is not None:
         metrics.increment_report_completed(result)
@@ -104,6 +108,14 @@ class ReportDecision:
     summary: str
     choice: ActionabilityChoice
     explanation: str
+    # Resolved chart payload to store with the title/summary (see `RunAgenticReportOutput.charts`):
+    # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
+    # which does no research.
+    charts: list[dict[str, Any]] | None = None
+    # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
+    # broken repo-selection integration apart from the agent legitimately asking for human input.
+    # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
+    pending_reason: str | None = None
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -250,6 +262,7 @@ class SignalReportSummaryWorkflow:
                     summary=f"Could not automatically select a repository: {repo_result.reason}",
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
+                    pending_reason="repo_selection_required",
                 )
             else:
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
@@ -271,6 +284,8 @@ class SignalReportSummaryWorkflow:
                     summary=agentic_result.summary,
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
+                    charts=agentic_result.charts,
+                    pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
                 log.info(
@@ -306,6 +321,8 @@ class SignalReportSummaryWorkflow:
                         reason=f"Requires human input: {decision.explanation}",
                         signal_count=signal_count,
                         source_products=source_products,
+                        charts=decision.charts,
+                        pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -322,6 +339,7 @@ class SignalReportSummaryWorkflow:
                     summary=decision.summary,
                     processed_signal_count=signal_count,
                     source_products=source_products,
+                    charts=decision.charts,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -466,6 +484,10 @@ class MarkReportReadyInput:
     summary: str
     processed_signal_count: int
     source_products: list[str] = field(default_factory=list)
+    # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
+    # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
+    # history that predates this field replays cleanly.
+    charts: list[dict[str, Any]] | None = None
 
 
 @temporalio.activity.defn
@@ -484,6 +506,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
                 return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
+            if input.charts is not None:
+                report.charts = input.charts
+                updated_fields = [*updated_fields, "charts"]
             report.save(update_fields=updated_fields)
             # Loop to re-research only if new signals arrived and we're within the cap; past
             # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
@@ -600,6 +625,11 @@ class MarkReportPendingInput:
     reason: str
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
+    # See MarkReportReadyInput.charts — written in the same transaction as the draft title/summary.
+    charts: list[dict[str, Any]] | None = None
+    # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
+    # ReportDecision.pending_reason.
+    pending_reason: str | None = None
 
 
 @temporalio.activity.defn
@@ -617,6 +647,12 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
             )
+            if input.charts is not None:
+                report.charts = input.charts
+                updated_fields = [*updated_fields, "charts"]
+            # Read by capture_status_change_analytics's post_save receiver (same instance, same
+            # transaction) — not a model field, so it never persists past this save.
+            report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
@@ -645,6 +681,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         run_count=run_count,
         source_products=input.source_products,
         result="pending_input",
+        pending_reason=input.pending_reason,
     )
     logger.debug(
         f"Marked report {input.report_id} as pending_input",

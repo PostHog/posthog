@@ -47,6 +47,9 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
+    FirstPageviewAttributionTestMixin,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
     WebOverviewPreAggregatedQueryBuilder,
@@ -54,7 +57,7 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 
 
 @snapshot_clickhouse_queries
-class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
     def _create_events(self, data, event="$pageview"):
@@ -138,6 +141,24 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             WebOverviewQueryResponse.model_validate(response)
             return response
 
+    def test_first_pageview_attribution_rewrites_session_filters(self):
+        self._seed_ssr_poisoned_session()
+
+        def visitors_for_paid_search(flag_on):
+            with self._patch_first_pageview_flag(flag_on), freeze_time(self.QUERY_TIMESTAMP):
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+                    properties=[
+                        SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+                    ],
+                    modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
+                )
+                results = WebOverviewQueryRunner(team=self.team, query=query).calculate().results
+                return next(item.value for item in results if item.key == "visitors")
+
+        assert visitors_for_paid_search(flag_on=True) == 1
+        assert not visitors_for_paid_search(flag_on=False)
+
     def test_no_crash_when_no_data(self):
         results = self._run_web_overview_query(
             "2023-12-08",
@@ -179,6 +200,31 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "unique conversions",
             "conversion rate",
         ]
+
+    @parameterized.expand([("without_conversion_goal", False), ("with_conversion_goal", True)])
+    @patch("products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query")
+    def test_empty_hogql_results_do_not_crash(self, _name: str, with_conversion_goal: bool, mock_execute: MagicMock):
+        # The live events query can legitimately return zero rows; that used to hit a bare
+        # `assert response.results` and surface as a 5xx. It should return an empty overview instead.
+        mock_execute.return_value = MagicMock(results=[])
+
+        action = None
+        if with_conversion_goal:
+            action = Action.objects.create(
+                team=self.team,
+                name="Visited Foo",
+                steps_json=[{"event": "$pageview"}],
+            )
+
+        response = self._run_web_overview_query("2023-12-08", "2023-12-15", action=action)
+
+        assert all(item.value is None and item.previous is None for item in response.results)
+        expected_keys = (
+            ["visitors", "total conversions", "unique conversions", "conversion rate"]
+            if with_conversion_goal
+            else ["visitors", "views", "sessions", "session duration", "bounce rate"]
+        )
+        assert [item.key for item in response.results] == expected_keys
 
     def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
@@ -1270,7 +1316,7 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         with (
             override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=allowlist),
             patch(
-                "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.posthoganalytics.feature_enabled",
+                "products.web_analytics.backend.hogql_queries.first_pageview_flag.posthoganalytics.feature_enabled",
                 **flag_mock_kwargs,
             ),
         ):

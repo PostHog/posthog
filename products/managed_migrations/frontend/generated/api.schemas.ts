@@ -331,6 +331,70 @@ export interface PatchedBatchImportApi {
     readonly import_config?: unknown
 }
 
+/**
+ * @nullable
+ */
+export type BatchImportResponseApiCreatedBy = { [key: string]: unknown } | null
+
+/**
+ * Serializer for BatchImport responses that matches frontend expectations
+ */
+export interface BatchImportResponseApi {
+    readonly id: string
+    readonly source_type: string
+    readonly content_type: string
+    status?: BatchImportStatusEnumApi
+    readonly display_status: string
+    /** @nullable */
+    readonly start_date: string | null
+    /** @nullable */
+    readonly end_date: string | null
+    /** @nullable */
+    readonly created_by: BatchImportResponseApiCreatedBy
+    readonly created_at: string
+    /** @nullable */
+    status_message: string | null
+    state?: unknown
+    /** Whether this job is a trial run (stores browsable results instead of ingesting). */
+    readonly is_trial: boolean
+    /** @nullable */
+    readonly trial_record_limit: number | null
+    /** @nullable */
+    readonly promoted_from_trial_id: string | null
+}
+
+/**
+ * One page of trial-run results, proxied from the trial output store.
+ */
+export interface TrialRecordsResponseApi {
+    /** Trial records in source order: each has seq (global index), source (the original source event), outputs (the event(s) it would produce), and error (why it would be dropped, if it would be). */
+    records: unknown[]
+    /** Zero-based index of this page. */
+    page: number
+    /** Number of result pages written so far. */
+    total_pages: number
+    /** Number of source records processed so far. */
+    total_records: number
+    /** Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range. */
+    summary: unknown
+}
+
+/**
+ * Values a customer needs to configure cross-account IAM role access for S3 imports.
+ */
+export interface BatchImportAWSIAMSetupApi {
+    /** Whether IAM role authentication is available on this PostHog deployment. */
+    available: boolean
+    /** External ID to pin in the role trust policy's sts:ExternalId condition. Stable per project. */
+    external_id: string
+    /** ARN of PostHog's import role -- the principal your role must trust. */
+    posthog_role_arn: string
+    /** Ready-to-paste IAM trust policy JSON for the role in your AWS account. */
+    trust_policy: string
+    /** IAM permission policy JSON template; replace YOUR_BUCKET and YOUR_PREFIX with your values. */
+    permission_policy_template: string
+}
+
 export type ManagedMigrationsSupportListParams = {
     /**
      * Number of results to return per page.
@@ -402,3 +466,10 @@ export const ManagedMigrationsListStatus = {
     Paused: 'paused',
     Running: 'running',
 } as const
+
+export type ManagedMigrationsTrialRecordsRetrieveParams = {
+    /**
+     * Zero-based results page index (see total_pages in the response).
+     */
+    page?: number
+}

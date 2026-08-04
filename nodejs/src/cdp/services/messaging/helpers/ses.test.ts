@@ -220,7 +220,9 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics).toEqual([])
     })
 
-    it('still opts out recipients on a permanent bounce even for test sends', async () => {
+    it('does not suppress recipients on a permanent bounce for test sends', async () => {
+        // Editor "Run test" traffic must not be able to suppress a production address just by
+        // targeting a bad recipient — the isTest gate on suppressionAllowed blocks the write.
         const testMail = {
             ...baseMail,
             // isTest rides on the signed header code (preferred by the webhook); the short tag
@@ -243,13 +245,8 @@ describe('SesWebhookHandler', () => {
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
-        // No metric or log entry recorded for the test send, but the hard bounce still triggers an opt-out
-        // (pre-existing behavior, kept unchanged for backward compat).
         expect(result.metrics).toEqual([])
         expect(result.logEntries).toEqual([])
-        expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
-        // Suppression writes are NOT populated for test sends — editor "Run test" traffic shouldn't be
-        // able to suppress a production address just by targeting a bad recipient.
         expect(result.hardBounceRecipients).toEqual([])
     })
 
@@ -310,7 +307,7 @@ describe('SesWebhookHandler', () => {
         ])
     })
 
-    it('parses a raw Bounce event and returns opt-out recipients for permanent bounces', async () => {
+    it('parses a raw Bounce event and surfaces permanent bounces for suppression', async () => {
         const body = [
             {
                 eventType: 'Bounce',
@@ -327,16 +324,16 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        // Hard bounces emit both the catch-all metric and the AWS-comparable hard-only one
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_hard'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
-        expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
-        // Dual-write: permanent bounces also surface for the suppression list with the diagnostic.
         expect(result.hardBounceRecipients).toEqual([
             { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
         ])
+        expect(result.transientBounceRecipients).toEqual([])
     })
 
-    it('does not return opt-out recipients for transient bounces', async () => {
+    it('surfaces transient bounces for the soft-bounce counter, not the hard-bounce list', async () => {
         const body = [
             {
                 eventType: 'Bounce',
@@ -353,10 +350,10 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        // Transient bounces must NOT emit email_bounced_hard — AWS's account rate excludes them
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_transient'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
-        expect(result.optOutRecipients).toEqual([])
-        // Soft bounces are surfaced separately so the suppression list can count them.
+        expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
             { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
         ])
@@ -403,7 +400,7 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {}, verifySignature: true })
         expect(result.status).toBe(403)
-        expect(result.optOutRecipients).toBeUndefined()
+        expect(result.hardBounceRecipients).toBeUndefined()
     })
 
     it('parses a raw Complaint event', async () => {
@@ -770,7 +767,6 @@ describe('SesWebhookHandler', () => {
             })
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
             expect(result.status).toBe(403)
-            expect(result.optOutRecipients).toBeUndefined()
             expect(result.hardBounceRecipients).toBeUndefined()
         })
 
@@ -787,7 +783,9 @@ describe('SesWebhookHandler', () => {
             })
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
             expect(result.status).toBe(200)
-            expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['recipient@example.com'] }])
+            expect(result.hardBounceRecipients).toEqual([
+                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad' },
+            ])
         })
 
         it('empty allowlist means no restriction (dev/test backward compat)', async () => {
@@ -854,7 +852,6 @@ describe('SesWebhookHandler', () => {
             expect(result.transientBounceRecipients).toEqual([])
             expect(result.hardBounceRecipients).toEqual([])
             expect(result.deliveredRecipients).toEqual([])
-            expect(result.optOutRecipients).toEqual([])
             // Metrics are unaffected — engagement signal is still emitted for the parsed events.
             expect(result.metrics?.length).toBeGreaterThan(0)
         })

@@ -9,8 +9,39 @@ import { isOkResult } from './results'
 export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
 
 /**
+ * Processes one group's queued chunk: receives the chunk's results in
+ * processing order and returns one result per item. Composed by
+ * GroupProcessingBuilder from pipeChunk steps and sequential per-item stages,
+ * in declaration order.
+ */
+export type GroupChunkProcessor<TIn, TOut, C, RStep extends string> = <RPrev extends string>(
+    items: PipelineResultWithContext<TIn, C, RPrev>[]
+) => Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]>
+
+/**
+ * The group chunk stage behind `sequentially`: each OK item runs through the
+ * per-item pipeline one at a time, in input order; non-OK items pass through.
+ */
+export function processGroupChunkSequentially<T, U, C, RStep extends string>(
+    processor: Pipeline<T, U, C, RStep>
+): GroupChunkProcessor<T, U, C, RStep> {
+    return async <RPrev extends string>(items: PipelineResultWithContext<T, C, RPrev>[]) => {
+        const results: PipelineResultWithContext<U, C, RPrev | RStep>[] = []
+        for (const item of items) {
+            if (isOkResult(item.result)) {
+                results.push(await processor.process({ result: item.result, context: item.context }))
+            } else {
+                results.push({ result: item.result, context: item.context })
+            }
+        }
+        return results
+    }
+}
+
+/**
  * A chunk pipeline that groups inputs by a key and processes each group concurrently.
- * Within each group, items are processed sequentially through the provided pipeline.
+ * Each group's queued chunk runs through a single {@link GroupChunkProcessor},
+ * composed by the builder from chunk steps and sequential per-item stages.
  *
  * Ordering guarantees:
  * - Items within the same group are always processed in order, even across multiple next() calls
@@ -68,7 +99,11 @@ export class ConcurrentlyGroupingChunkPipeline<
 
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
-        private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
+        // One processor for a group's whole queued chunk, composed by the
+        // builder from chunk steps and sequential per-item stages. Runs once
+        // per started group chunk: items queued while a group is active form a
+        // new chunk with its own invocation.
+        private processGroupChunk: GroupChunkProcessor<TIntermediate, TOutput, COutput, RStep>,
         private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
         maxConcurrency?: number
     ) {
@@ -159,9 +194,7 @@ export class ConcurrentlyGroupingChunkPipeline<
 
         // The key is claimed in activeProcessing synchronously below, so per-key ordering holds even
         // when a group parks waiting for a concurrency permit.
-        const run = this.limit
-            ? this.limit(() => this.processGroupSequentially(queue))
-            : this.processGroupSequentially(queue)
+        const run = this.limit ? this.limit(() => this.processGroupChunk(queue)) : this.processGroupChunk(queue)
         const processingPromise = run.then(
             (results) => {
                 this.completedResults.push(results)
@@ -186,28 +219,5 @@ export class ConcurrentlyGroupingChunkPipeline<
         )
 
         this.activeProcessing.set(key, processingPromise)
-    }
-
-    private async processGroupSequentially(
-        items: PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]
-    ): Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[]> {
-        const results: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[] = []
-
-        for (const item of items) {
-            if (isOkResult(item.result)) {
-                const result = await this.processor.process({
-                    result: item.result,
-                    context: item.context,
-                })
-                results.push(result)
-            } else {
-                results.push({
-                    result: item.result,
-                    context: item.context,
-                })
-            }
-        }
-
-        return results
     }
 }

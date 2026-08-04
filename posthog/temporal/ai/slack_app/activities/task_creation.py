@@ -31,6 +31,11 @@ _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
+# Default the Slack bot to Opus 5 when neither the user nor the workspace has
+# pinned a model, instead of letting the agent server fall back to its own
+# default. Kept together as a valid (runtime_adapter, model) pair.
+_SLACK_DEFAULT_RUNTIME_ADAPTER = "claude"
+_SLACK_DEFAULT_MODEL = "claude-opus-5"
 _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
@@ -125,11 +130,12 @@ def _max_ts(*candidates: str | None) -> str:
 def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     """Render a message author as a labeled Slack mention when we have the raw id.
 
-    `<@U…|displayname>` is the wire-format token Slack accepts on both inbound and
-    outbound messages; including it here means the agent sees who wrote each line
-    *and* can echo the token verbatim to ping that participant back. When the raw
-    id is missing (bots, app-posted messages, unresolved users), fall back to the
-    plain display name so the line still reads naturally.
+    `<@U…|displayname>` is the form Slack uses to deliver mentions inbound; rendering
+    it here means the agent sees who wrote each line *and* can echo the token verbatim
+    to ping that participant back (the Slack relay rewrites echoed tokens to the bare
+    `<@U…>` on the way out, which is what actually notifies). When the raw id is missing
+    (bots, app-posted messages, unresolved users), fall back to the plain display name
+    so the line still reads naturally.
     """
     name = (display_name or "").strip() or "user"
     uid = (user_id or "").strip()
@@ -574,7 +580,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
 
     user_text = decode_slack_event_text(slack, integration, event.get("text", ""))
-    # Title is shown in PostHog Code's UI (task lists, PR titles) where the
+    # Title is shown in PostHog Desktop's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
     title_text = labeled_mentions_to_display_names(user_text)
@@ -635,6 +641,24 @@ def create_posthog_code_task_for_repo_activity(
 
     ai_prefs = resolve_ai_preferences(integration, slack_user_id)
 
+    # `resolve_ai_preferences` guarantees runtime_adapter and model are set together,
+    # so falling back on both keeps the pair consistent — an explicit override wins,
+    # otherwise the Slack bot defaults to Opus 5.
+    runtime_adapter = ai_prefs.runtime_adapter or _SLACK_DEFAULT_RUNTIME_ADAPTER
+    model = ai_prefs.model or _SLACK_DEFAULT_MODEL
+
+    # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
+    # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
+    personal_channel_id: uuid.UUID | None = None
+    try:
+        personal_channel_id = tasks_facade.ensure_personal_channel_id(integration.team_id, user_id)
+    except Exception:
+        logger.warning(
+            "posthog_code_personal_channel_resolution_failed",
+            team_id=integration.team_id,
+            user_id=user_id,
+        )
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
         created = tasks_facade.create_and_run_task(
@@ -651,9 +675,10 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes="full",
             initial_permission_mode="bypassPermissions",
-            runtime_adapter=ai_prefs.runtime_adapter,
-            model=ai_prefs.model,
+            runtime_adapter=runtime_adapter,
+            model=model,
             reasoning_effort=ai_prefs.reasoning_effort,
+            channel_id=personal_channel_id,
         )
     except Exception as e:
         logger.exception(

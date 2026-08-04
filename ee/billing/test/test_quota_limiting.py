@@ -976,6 +976,30 @@ class TestQuotaLimiting(BaseTest):
         # reset for subsequent tests
         self.organization.never_drop_data = False
 
+    def test_update_org_billing_quotas_invalidates_llm_gateway_quota_cache(self) -> None:
+        gateway_redis_url = "redis://llm-gateway-redis-test/"
+        cache_keys = [
+            f"quota:posthog_code_credits:team:{self.team.id}",
+            f"quota:ai_credits:team:{self.team.id}",
+            f"quota:code_usage_billing:team:{self.team.id}",
+        ]
+        with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
+            gateway_redis = get_client(gateway_redis_url)
+            gateway_redis.mset(dict.fromkeys(cache_keys, "stale"))
+            # Seed the central Redis too: eviction must target the gateway's own
+            # instance, not the default client (which would silently no-op in prod).
+            self.redis_client.mset(dict.fromkeys(cache_keys, "central"))
+            self.organization.usage = {
+                "events": {"usage": 1, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+            update_org_billing_quotas(self.organization)
+
+            assert gateway_redis.mget(cache_keys) == [None] * len(cache_keys)
+            assert self.redis_client.mget(cache_keys) == [b"central"] * len(cache_keys)
+        self.redis_client.delete(*cache_keys)
+
     def test_update_org_billing_quotas(self):
         with freeze_time("2021-01-01T12:59:59Z"):
             other_team = create_team(organization=self.organization)

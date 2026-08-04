@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PrefectCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.prefectcloud import (
+    PrefectCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.prefect_cloud import (
     PrefectCloudResumeConfig,
 )

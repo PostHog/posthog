@@ -10,7 +10,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlPieGraph } from './SqlPieGraph'
 
 let cleanupJsdom: () => void
@@ -41,7 +41,7 @@ const yData = (data: (number | null)[]): AxisSeries<number | null>[] => [
     },
 ]
 
-const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): LineGraphProps => ({
+const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): SqlChartProps => ({
     xData,
     yData: yData(data),
     visualizationType: ChartDisplayType.ActionsPie,

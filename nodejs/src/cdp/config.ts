@@ -131,16 +131,20 @@ export type CdpConfig = ClickhouseConfig & {
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    // Configuration set with ESP-level open/click tracking enabled, used for sends with engagement tracking on.
+    SES_TRACKED_CONFIGURATION_SET: string
+    // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
+    // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
+    SES_UNTRACKED_CONFIGURATION_SET: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
+    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
+    // and its Standard reputation policy can pause a single tenant instead of the shared account.
+    // Off by default: a send naming a tenant whose identity association is missing fails, so this
+    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
+    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
 
-    // Two independent kill switches for the email suppression list, both OFF by default so the
-    // feature ships dark. WRITE controls whether the SES webhook populates the list; ENFORCE
-    // controls whether the pre-send check actually skips suppressed recipients. Separating them
-    // lets us turn on writing first and observe what would be suppressed before enforcing.
-    EMAIL_SUPPRESSION_WRITE_ENABLED: boolean
-    EMAIL_SUPPRESSION_ENFORCE_ENABLED: boolean
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
@@ -182,6 +186,8 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
     CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
+
+    // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -301,9 +307,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+        SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
+        SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
-        EMAIL_SUPPRESSION_WRITE_ENABLED: false,
-        EMAIL_SUPPRESSION_ENFORCE_ENABLED: false,
+        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing

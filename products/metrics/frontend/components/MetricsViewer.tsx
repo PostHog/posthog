@@ -43,6 +43,8 @@ import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
+import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
+import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { MetricStatPanel } from './MetricStatPanel'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import {
@@ -118,6 +120,7 @@ export const MetricsViewer = (): JSX.Element => {
     // The side panel's logic listens to this viewer's filter changes; mounting it
     // here keeps samples in sync even while the panel itself is off-screen.
     useMountedLogic(metricsSamplesLogic())
+    const { openModal: openStarterDashboardModal } = useActions(metricsStarterDashboardLogic)
     const {
         metricName,
         aggregation,
@@ -375,7 +378,17 @@ export const MetricsViewer = (): JSX.Element => {
                 >
                     Add to dashboard
                 </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={openStarterDashboardModal}
+                    tooltip="Create a dashboard with one insight per metric, using each metric's recommended aggregation"
+                    data-attr="metrics-viewer-starter-dashboard"
+                >
+                    New service dashboard
+                </LemonButton>
             </div>
+            <MetricsStarterDashboardModal />
             {savedInsight && (
                 <AddToDashboardModal
                     isOpen={isAddToDashboardModalOpen}

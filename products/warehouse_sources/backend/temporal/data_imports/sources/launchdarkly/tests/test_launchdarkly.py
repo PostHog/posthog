@@ -1,16 +1,16 @@
+import json
 from typing import Any
 
 import pytest
 from unittest import mock
 
+from requests import Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly import (
     API_HOST,
     BASE_URL,
     LaunchDarklyResumeConfig,
-    _initial_url,
-    _next_url_from,
     _resolve_url,
-    get_rows,
     launchdarkly_source,
     validate_credentials,
 )
@@ -18,6 +18,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.launchdark
     ENDPOINTS,
     LAUNCHDARKLY_ENDPOINTS,
 )
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the launchdarkly module.
+LD_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
+)
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
 def _make_manager(resume_state: LaunchDarklyResumeConfig | None = None) -> mock.MagicMock:
@@ -27,25 +35,46 @@ def _make_manager(resume_state: LaunchDarklyResumeConfig | None = None) -> mock.
     return manager
 
 
-def _page(items: list[dict[str, Any]], next_href: str | None = None) -> dict[str, Any]:
+def _response(items: list[dict[str, Any]], next_href: str | None = None, status_code: int = 200) -> Response:
     links: dict[str, Any] = {}
     if next_href:
         links["next"] = {"href": next_href}
-    return {"items": items, "_links": links}
-
-
-def _resp(page: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = page
+    resp = Response()
     resp.status_code = status_code
-    resp.ok = 200 <= status_code < 300
+    resp.url = f"{BASE_URL}/members"
+    resp._content = json.dumps({"items": items, "_links": links}).encode()
     return resp
 
 
-class TestUrlHelpers:
-    def test_initial_url_includes_limit(self):
-        assert _initial_url("/projects", 20) == f"{BASE_URL}/projects?limit=20"
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session; capture each request's URL and params AT SEND TIME.
 
+    The paginator mutates ``request.url``/``request.params`` in place across pages, so a copy is
+    snapshotted when each request is prepared.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock):
+    return launchdarkly_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+
+
+class TestUrlHelpers:
     @pytest.mark.parametrize(
         "href, expected",
         [
@@ -56,203 +85,209 @@ class TestUrlHelpers:
     def test_resolve_url(self, href, expected):
         assert _resolve_url(href) == expected
 
-    @pytest.mark.parametrize(
-        "data, expected",
-        [
-            ({"_links": {"next": {"href": "/api/v2/members?offset=20"}}}, f"{API_HOST}/api/v2/members?offset=20"),
-            ({"_links": {}}, None),
-            ({}, None),
-            ({"_links": {"next": {}}}, None),
-        ],
-    )
-    def test_next_url_from(self, data, expected):
-        assert _next_url_from(data) == expected
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(LD_SESSION_PATCH)
     def test_returns_status_code(self, mock_session, status_code):
-        response = mock.MagicMock(status_code=status_code)
-        mock_session.return_value.get.return_value = response
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("api-token") == status_code
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(LD_SESSION_PATCH)
     def test_uses_no_bearer_prefix(self, mock_session):
-        response = mock.MagicMock(status_code=200)
-        mock_session.return_value.get.return_value = response
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("api-secret-token")
         headers = mock_session.return_value.get.call_args.kwargs["headers"]
         assert headers["Authorization"] == "api-secret-token"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(LD_SESSION_PATCH)
     def test_returns_none_on_exception(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("api-token") is None
 
 
 class TestGetRowsTopLevel:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_via_links_next(self, mock_session):
-        pages = [
-            _page([{"_id": "1"}, {"_id": "2"}], "/api/v2/members?limit=20&offset=20"),
-            _page([{"_id": "3"}], None),
-        ]
-        mock_session.return_value.get.side_effect = [_resp(p) for p in pages]
+        session = mock_session.return_value
+        snaps = _wire(
+            session,
+            [
+                _response([{"_id": "1"}, {"_id": "2"}], "/api/v2/members?limit=20&offset=20"),
+                _response([{"_id": "3"}], None),
+            ],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("token", "members", mock.MagicMock(), manager))
+        rows = _rows(_source("members", manager))
 
-        assert [item["_id"] for batch in batches for item in batch] == ["1", "2", "3"]
+        assert [item["_id"] for item in rows] == ["1", "2", "3"]
         # No project key injected for top-level endpoints.
-        assert all("_project_key" not in item for batch in batches for item in batch)
-        # State saved after every page (final save records the empty next_url marker).
-        saved_urls = [call.args[0].next_url for call in manager.save_state.call_args_list]
-        assert saved_urls == [f"{API_HOST}/api/v2/members?limit=20&offset=20", ""]
+        assert all("_project_key" not in item for item in rows)
+        # First page targets the base path; second follows the (resolved) _links.next href.
+        assert snaps[0]["url"] == f"{BASE_URL}/members"
+        assert snaps[0]["params"]["limit"] == 20
+        assert snaps[1]["url"] == f"{API_HOST}/api/v2/members?limit=20&offset=20"
+        # One checkpoint, saved after the first page (points at the next URL); the last page saves none.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == LaunchDarklyResumeConfig(
+            next_url=f"{API_HOST}/api/v2/members?limit=20&offset=20"
+        )
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, mock_session):
-        mock_session.return_value.get.return_value = _resp(_page([{"_id": "9"}], None))
+        session = mock_session.return_value
+        snaps = _wire(session, [_response([{"_id": "9"}], None)])
 
         resume_url = f"{API_HOST}/api/v2/members?limit=20&offset=80"
         manager = _make_manager(LaunchDarklyResumeConfig(next_url=resume_url))
+        _rows(_source("members", manager))
 
-        list(get_rows("token", "members", mock.MagicMock(), manager))
+        assert snaps[0]["url"] == resume_url
 
-        assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_response_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _resp(_page([], None))
+        session = mock_session.return_value
+        _wire(session, [_response([], None)])
 
         manager = _make_manager()
-        batches = list(get_rows("token", "members", mock.MagicMock(), manager))
-
-        assert batches == []
+        assert _rows(_source("members", manager)) == []
+        manager.save_state.assert_not_called()
 
 
 class TestGetRowsFanout:
-    def _fanout_side_effect(self) -> list[mock.MagicMock]:
-        # 1) project list, 2) environments for proj1, 3) environments for proj2
-        return [
-            _resp(_page([{"key": "proj1"}, {"key": "proj2"}], None)),
-            _resp(_page([{"_id": "e1"}], None)),
-            _resp(_page([{"_id": "e2"}], None)),
-        ]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_iterates_projects_and_injects_project_key(self, mock_session):
-        mock_session.return_value.get.side_effect = self._fanout_side_effect()
+        session = mock_session.return_value
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}, {"key": "proj2"}], None),
+                _response([{"_id": "e1"}], None),
+                _response([{"_id": "e2"}], None),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("token", "environments", mock.MagicMock(), manager))
+        rows = _rows(_source("environments", _make_manager()))
 
-        rows = [item for batch in batches for item in batch]
         assert rows == [
             {"_id": "e1", "_project_key": "proj1"},
             {"_id": "e2", "_project_key": "proj2"},
         ]
+        urls = [snap["url"] for snap in snaps]
+        assert urls[0] == f"{BASE_URL}/projects"
+        assert urls[1] == f"{BASE_URL}/projects/proj1/environments"
+        assert urls[2] == f"{BASE_URL}/projects/proj2/environments"
 
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[0] == f"{BASE_URL}/projects?limit=20"
-        assert urls[1] == f"{BASE_URL}/projects/proj1/environments?limit=20"
-        assert urls[2] == f"{BASE_URL}/projects/proj2/environments?limit=20"
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metrics_compose_path(self, mock_session):
+        session = mock_session.return_value
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}], None),
+                _response([{"_id": "m1"}], None),
+            ],
+        )
+        _rows(_source("metrics", _make_manager()))
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
-    def test_flags_compose_metrics_path(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp(_page([{"key": "proj1"}], None)),
-            _resp(_page([{"_id": "m1"}], None)),
-        ]
-        list(get_rows("token", "metrics", mock.MagicMock(), _make_manager()))
+        assert snaps[1]["url"] == f"{BASE_URL}/metrics/proj1"
 
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[1] == f"{BASE_URL}/metrics/proj1?limit=20"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_skips_completed_project(self, mock_session):
-        # proj1 was finished last run (empty next_url marker); resume must start at proj2.
-        mock_session.return_value.get.side_effect = [
-            _resp(_page([{"key": "proj1"}, {"key": "proj2"}], None)),
-            _resp(_page([{"_id": "e2"}], None)),
-        ]
-        manager = _make_manager(LaunchDarklyResumeConfig(next_url="", project_key="proj1"))
+        session = mock_session.return_value
+        # proj1 already fully synced last run; resume must start at proj2.
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}, {"key": "proj2"}], None),
+                _response([{"_id": "e2"}], None),
+            ],
+        )
+        manager = _make_manager(
+            LaunchDarklyResumeConfig(
+                fanout_state={"completed": ["/projects/proj1/environments"], "current": None, "child_state": None}
+            )
+        )
 
-        batches = list(get_rows("token", "environments", mock.MagicMock(), manager))
+        rows = _rows(_source("environments", manager))
 
-        rows = [item for batch in batches for item in batch]
         assert rows == [{"_id": "e2", "_project_key": "proj2"}]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        # projects list + proj2 environments only (proj1 skipped)
-        assert urls == [f"{BASE_URL}/projects?limit=20", f"{BASE_URL}/projects/proj2/environments?limit=20"]
+        urls = [snap["url"] for snap in snaps]
+        assert urls == [f"{BASE_URL}/projects", f"{BASE_URL}/projects/proj2/environments"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_midproject_uses_saved_url(self, mock_session):
+        session = mock_session.return_value
         resume_url = f"{BASE_URL}/projects/proj1/environments?limit=20&offset=20"
-        mock_session.return_value.get.side_effect = [
-            _resp(_page([{"key": "proj1"}, {"key": "proj2"}], None)),
-            _resp(_page([{"_id": "e1b"}], None)),
-            _resp(_page([{"_id": "e2"}], None)),
-        ]
-        manager = _make_manager(LaunchDarklyResumeConfig(next_url=resume_url, project_key="proj1"))
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}, {"key": "proj2"}], None),
+                _response([{"_id": "e1b"}], None),
+                _response([{"_id": "e2"}], None),
+            ],
+        )
+        manager = _make_manager(
+            LaunchDarklyResumeConfig(
+                fanout_state={
+                    "completed": [],
+                    "current": "/projects/proj1/environments",
+                    "child_state": {"next_url": resume_url},
+                }
+            )
+        )
 
-        list(get_rows("token", "environments", mock.MagicMock(), manager))
+        _rows(_source("environments", manager))
 
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        urls = [snap["url"] for snap in snaps]
         assert urls == [
-            f"{BASE_URL}/projects?limit=20",
+            f"{BASE_URL}/projects",
             resume_url,
-            f"{BASE_URL}/projects/proj2/environments?limit=20",
+            f"{BASE_URL}/projects/proj2/environments",
         ]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_no_projects_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _resp(_page([], None))
+        session = mock_session.return_value
+        _wire(session, [_response([], None)])
 
-        batches = list(get_rows("token", "flags", mock.MagicMock(), _make_manager()))
-        assert batches == []
+        assert _rows(_source("flags", _make_manager())) == []
 
 
 class TestRetryAndErrors:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-    )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_4xx_raises(self, mock_session):
-        resp = _resp(_page([], None), status_code=403)
-        resp.raise_for_status.side_effect = Exception("403 Client Error")
-        mock_session.return_value.get.return_value = resp
+        session = mock_session.return_value
+        _wire(session, [_response([], None, status_code=403)])
 
         with pytest.raises(Exception, match="403 Client Error"):
-            list(get_rows("token", "members", mock.MagicMock(), _make_manager()))
+            _rows(_source("members", _make_manager()))
+
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_429_is_retried_then_succeeds(self, mock_session, _mock_sleep):
+        session = mock_session.return_value
+        # A 429 is retryable at the client layer; the retry re-issues and succeeds.
+        _wire(
+            session,
+            [
+                _response([], None, status_code=429),
+                _response([{"_id": "1"}], None),
+            ],
+        )
+
+        rows = _rows(_source("members", _make_manager()))
+        assert [item["_id"] for item in rows] == ["1"]
 
 
 class TestLaunchDarklySourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
+        mock_session.return_value.headers = {}
         config = LAUNCHDARKLY_ENDPOINTS[endpoint]
-        response = launchdarkly_source("token", endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_key

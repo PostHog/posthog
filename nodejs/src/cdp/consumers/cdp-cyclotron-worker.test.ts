@@ -258,6 +258,23 @@ describe('CdpCyclotronWorker', () => {
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
 
+        it.each([['project'], ['event']] as const)(
+            'should DLQ a malformed invocation whose globals is missing %s instead of crashing',
+            async (field) => {
+                const dequeueInvocationsSpy = jest
+                    .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                    .mockResolvedValue(undefined)
+
+                const malformed = createExampleInvocation(fn, globals)
+                delete (malformed.state.globals as any)[field]
+
+                const results = await processor['loadHogFunctions']([malformed])
+
+                expect(results).toEqual([])
+                expect(dequeueInvocationsSpy).toHaveBeenCalledWith([malformed])
+            }
+        )
+
         it('should skip a loaded function if it is disabled', async () => {
             const fn2 = await insertHogFunction(
                 hub.postgres,

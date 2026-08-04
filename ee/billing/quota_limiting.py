@@ -227,6 +227,22 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
     return team_api_token in limited_team_attributes
 
 
+def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource, bool]:
+    """Uncached limited-state for one team across every resource, one Redis round trip.
+
+    `is_team_limited` reads a fleet-wide list memoized per worker for 30 seconds, which
+    is fine for callers that re-check constantly — but consumers that cache the answer
+    downstream for minutes (the LLM gateway) would re-cache a just-lifted limit as still
+    limited. This reads the zset scores directly instead.
+    """
+    now_ts = timezone.now().timestamp()
+    pipe = get_client().pipeline()
+    for resource in QuotaResource:
+        pipe.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}", team_api_token)
+    scores = pipe.execute()
+    return {resource: score is not None and score >= now_ts for resource, score in zip(QuotaResource, scores)}
+
+
 def dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
     """
     Triggers a `RemoteConfig` rebuild for each team after its recordings quota-limit state
@@ -625,6 +641,31 @@ def org_quota_limited_until(
         }
 
 
+def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
+    """Evict the LLM gateway's per-team quota entries so a raised billing limit
+    takes effect immediately instead of after the gateway's five-minute cache TTL.
+
+    The gateway caches in its own Redis (`settings.LLM_GATEWAY_REDIS_URL`, not the
+    central instance) and key shapes mirror `llm_gateway/services/quota_resolver.py`.
+    Best-effort by design: the gateway TTL already bounds staleness, so a failure
+    here must not fail the billing update that just committed.
+    """
+    cache_keys = [
+        key
+        for team_id in team_ids
+        for key in (
+            f"quota:code_usage_billing:team:{team_id}",
+            *(f"quota:{resource.value}:team:{team_id}" for resource in QuotaResource),
+        )
+    ]
+    if not cache_keys:
+        return
+    try:
+        get_client(settings.LLM_GATEWAY_REDIS_URL).delete(*cache_keys)
+    except Exception as e:
+        capture_exception(e)
+
+
 def update_org_billing_quotas(organization: Organization):
     """
     This method is basically update_all_orgs_billing_quotas but for a single org. It's called more often
@@ -687,6 +728,8 @@ def update_org_billing_quotas(organization: Organization):
 
     if recordings_transitioned_team_ids:
         dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
+
+    invalidate_llm_gateway_quota_cache(teams_by_token.values())
 
 
 def set_org_usage_summary(

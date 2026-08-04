@@ -130,9 +130,19 @@ export type CyclotronV2RescheduleParkedResult = {
  * on the interface (testable, mockable) without pulling the full manager
  * implementation. Add methods here as new producers need them.
  */
+export interface CyclotronV2InFlightCounts {
+    count: number
+    /** Parked/running jobs per current action id. Point-in-time — jobs transition during the read. */
+    byAction: Record<string, number>
+    /** Jobs with no action_id: freshly enqueued and not yet executed (currentAction is set on the
+     * first executor pass), or written before the lookup column existed. A steady-state category
+     * that grows under worker lag, not a shrinking migration artifact. */
+    positionUnknown: number
+}
+
 export interface CyclotronV2JobProducer {
     createJob(input: CyclotronV2JobInit): Promise<string>
-    countInFlightJobs(teamId: number, functionId: string): Promise<number>
+    countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     disconnect(): Promise<void>
 }

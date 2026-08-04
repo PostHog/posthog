@@ -15,9 +15,11 @@ Vocabulary, one term per concept:
 - tier: the group of nodes sharing one effective cadence; each tier gets one
   Temporal schedule (see cohort_scheduling).
 - bounds: a declarable target must sit in [source floor .. consumer ceiling].
-  source_floor = the slowest ancestor source interval (you cannot promise fresher
-  data than your slowest source delivers); consumer_ceiling = the finest declared
-  target among descendants (you cannot be staler than a consumer requires).
+  source_floor = how often a node's data can actually change: a source's own sync
+  interval, and for a derived node the finest floor among its parents (its output
+  changes whenever any input changes, so it can be as fresh as its freshest input);
+  consumer_ceiling = the finest declared target among descendants (you cannot be
+  staler than a consumer requires).
   In interval-space a smaller timedelta means fresher/more frequent, so as plain
   timedeltas: source_floor <= target <= consumer_ceiling.
 
@@ -36,8 +38,6 @@ Edges are (upstream_id, downstream_id): data flows upstream -> downstream, so a 
 import dataclasses
 from collections import defaultdict, deque
 from datetime import timedelta
-
-from products.data_modeling.backend.logic.graph_traversal import reachable
 
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
 # floor: a descendant may be as tight as the buckets allow. Imported sources instead
@@ -98,14 +98,20 @@ def format_cadence(interval: timedelta) -> str:
     return str(interval)
 
 
-def _adjacency(edges: list[tuple[str, str]]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Return (children, parents) maps. Edges are (upstream, downstream)."""
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class Adjacency:
+    children: dict[str, list[str]]  # upstream id -> downstream ids
+    parents: dict[str, list[str]]  # downstream id -> upstream ids
+
+
+def _adjacency(edges: list[tuple[str, str]]) -> Adjacency:
+    """Return the children/parents maps. Edges are (upstream, downstream)."""
     children: dict[str, list[str]] = defaultdict(list)
     parents: dict[str, list[str]] = defaultdict(list)
     for upstream, downstream in edges:
         children[upstream].append(downstream)
         parents[downstream].append(upstream)
-    return children, parents
+    return Adjacency(children=children, parents=parents)
 
 
 def compute_effective_cadences(
@@ -120,9 +126,9 @@ def compute_effective_cadences(
     no declared target and no scheduled descendant demanding freshness (the
     ride-downstream opt-out). Source nodes are not expected in `nodes`.
     """
-    children, parents = _adjacency(edges)
+    adj = _adjacency(edges)
     # reverse-topological pass, iterative because recursion overflows on deep chains
-    out_degree = {node: sum(1 for child in children.get(node, []) if child in nodes) for node in nodes}
+    out_degree = {node: sum(1 for child in adj.children.get(node, []) if child in nodes) for node in nodes}
     queue = deque(node for node in nodes if out_degree[node] == 0)
     resolved: dict[str, timedelta | None] = {}
     while queue:
@@ -130,12 +136,12 @@ def compute_effective_cadences(
         candidates: list[timedelta] = []
         if node in declared_targets:
             candidates.append(declared_targets[node])
-        for child in children.get(node, []):
+        for child in adj.children.get(node, []):
             if child in nodes and (child_effective := resolved[child]) is not None:
                 candidates.append(child_effective)
         # min = the finest demand wins (smaller timedelta = fresher)
         resolved[node] = min(candidates) if candidates else None
-        for parent in parents.get(node, []):
+        for parent in adj.parents.get(node, []):
             if parent in nodes:
                 out_degree[parent] -= 1
                 if out_degree[parent] == 0:
@@ -146,44 +152,78 @@ def compute_effective_cadences(
     return resolved
 
 
-def declared_target_bounds(
-    *,
-    node_id: str,
-    edges: list[tuple[str, str]],
-    declared_targets: dict[str, timedelta],
-    source_intervals: dict[str, timedelta],
-) -> tuple[timedelta, timedelta | None]:
-    """Return (source_floor, consumer_ceiling) for a node's declarable target.
+def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, timedelta]:
+    """Every node's source floor in one forward pass.
 
-    source_floor = the slowest interval among ancestor source nodes (STREAMING sources
-    add no floor). consumer_ceiling = the finest declared target among descendants, or
-    None if no descendant declares one. A floor coarser than the ceiling means the node
-    is unsatisfiable.
+    A source node's floor is its own sync interval. A derived node's floor is the finest (min)
+    among its parents' floors, because its output changes whenever any input changes: a view
+    joining events with a weekly import produces new rows continuously, so the weekly side must
+    not drag the join to a weekly cadence. Only pure slow lineage keeps a coarse floor.
+
+    One forward pass instead of a per-node ancestor walk, so a whole-graph check is O(N+E) rather
+    than O(N^2). STREAMING for a derived node with no parents. Nodes in a cycle are omitted
+    (callers default them to STREAMING; the scheduling path rejects cycles upstream).
     """
-    children, parents = _adjacency(edges)
+    adj = _adjacency(edges)
+    all_ids = set(source_intervals) | {node for edge in edges for node in edge}
+    in_degree = {node: len(adj.parents.get(node, [])) for node in all_ids}
+    queue = deque(node for node in all_ids if in_degree[node] == 0)
+    floor: dict[str, timedelta] = {}
+    while queue:
+        node = queue.popleft()
+        if node in source_intervals:
+            floor[node] = source_intervals[node]
+        else:
+            floor[node] = min((floor[parent] for parent in adj.parents.get(node, [])), default=STREAMING)
+        for child in adj.children.get(node, []):
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+    return floor
 
-    ancestor_source_intervals = [
-        source_intervals[ancestor] for ancestor in reachable(node_id, parents) if ancestor in source_intervals
-    ]
-    source_floor = max(ancestor_source_intervals) if ancestor_source_intervals else STREAMING
 
-    descendant_targets = [
-        declared_targets[descendant] for descendant in reachable(node_id, children) if descendant in declared_targets
-    ]
-    consumer_ceiling = min(descendant_targets) if descendant_targets else None
-
-    return source_floor, consumer_ceiling
+def all_consumer_ceilings(
+    edges: list[tuple[str, str]], declared_targets: dict[str, timedelta]
+) -> dict[str, timedelta | None]:
+    """Every node's consumer ceiling (finest declared target among strict descendants) in one
+    reverse pass. None when no descendant declares a target. Cyclic nodes are omitted."""
+    adj = _adjacency(edges)
+    all_ids = set(declared_targets) | {node for edge in edges for node in edge}
+    out_degree = {node: len(adj.children.get(node, [])) for node in all_ids}
+    queue = deque(node for node in all_ids if out_degree[node] == 0)
+    ceiling: dict[str, timedelta | None] = {}
+    while queue:
+        node = queue.popleft()
+        candidates = [declared_targets[child] for child in adj.children.get(node, []) if child in declared_targets]
+        candidates += [c for child in adj.children.get(node, []) if (c := ceiling.get(child)) is not None]
+        ceiling[node] = min(candidates) if candidates else None
+        for parent in adj.parents.get(node, []):
+            out_degree[parent] -= 1
+            if out_degree[parent] == 0:
+                queue.append(parent)
+    return ceiling
 
 
 def nearest_schedulable_bucket_at_least(floor: timedelta) -> timedelta:
     """The finest schedulable bucket no finer than `floor` — coarsen up to a runnable cadence.
 
     A source delivering every 45min means running finer than 1hour recomputes identical data, so
-    the meaningful cadence is the smallest bucket >= the floor. Falls back to the coarsest bucket
-    when the floor is coarser than every bucket (nothing coarser is schedulable).
+    the meaningful cadence is the smallest bucket >= the floor. A floor coarser than every bucket
+    (a rogue >30day source interval — the column is an unconstrained DurationField) clamps to the
+    coarsest bucket: running more often than a source delivers only wastes a run, never breaks
+    freshness. Mirrors nearest_schedulable_bucket_at_most's "fresher is always safe" fallback.
     """
     coarser_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket >= floor]
     return min(coarser_or_equal) if coarser_or_equal else max(SCHEDULABLE_BUCKETS)
+
+
+def nearest_schedulable_bucket_at_most(cadence: timedelta) -> timedelta:
+    """The coarsest schedulable bucket no coarser than `cadence` — round a non-bucket seed down to a
+    finer bucket so "no older than `cadence`" stays honored (fresher is always safe). Falls back to
+    the finest bucket for a sub-minute cadence, the finest anything can actually be scheduled at.
+    """
+    finer_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket <= cadence]
+    return max(finer_or_equal) if finer_or_equal else min(SCHEDULABLE_BUCKETS)
 
 
 @dataclasses.dataclass
@@ -205,20 +245,19 @@ def clamp_to_source_floor(
     """Coarsen every node scheduled finer than its sources can deliver to the nearest bucket >= its
     source floor, returning the adjusted cadences and the list of changes.
 
-    Clamping each node independently stays consistent because the floor spans the whole ancestor
-    cone (`declared_target_bounds`): a consumer that pulled an ancestor too fine shares that same
-    source and clamps to the same bucket. Streaming/best-effort sources have a zero floor and are
-    never clamped.
+    Clamping each node independently can leave a slow-lineage ancestor coarser than a mixed-lineage
+    consumer, which is intended: the consumer's fast inputs keep it changing at its fine cadence,
+    while the columns derived from the slow lineage update as often as that lineage delivers.
+    Streaming/best-effort sources have a zero floor and are never clamped.
     """
+    floors = all_source_floors(edges, source_intervals)
     clamped: dict[str, timedelta | None] = {}
     changes: list[ClampedCadence] = []
     for node_id, cadence in effective.items():
         if cadence is None:
             clamped[node_id] = None
             continue
-        source_floor, _consumer_ceiling = declared_target_bounds(
-            node_id=node_id, edges=edges, declared_targets={}, source_intervals=source_intervals
-        )
+        source_floor = floors.get(node_id, STREAMING)
         if is_finer_than(cadence, source_floor):
             target = nearest_schedulable_bucket_at_least(source_floor)
             clamped[node_id] = target
@@ -228,6 +267,20 @@ def clamp_to_source_floor(
         else:
             clamped[node_id] = cadence
     return clamped, changes
+
+
+def normalize_seed_target(seed: timedelta, source_floor: timedelta) -> timedelta:
+    """Round a raw v1 seed cadence to a schedulable, satisfiable declared target.
+
+    Snap a non-bucket seed down to a finer bucket (fresher honors "no older than X"), then coarsen
+    to the source floor if the source cannot deliver that fast. So a go-live backfill persists a
+    target that equals what the scheduler will run, rather than an unschedulable (45min) or
+    unsatisfiable (finer than the source) one that reconcile would have to clamp anyway.
+    """
+    bucket = nearest_schedulable_bucket_at_most(seed)
+    if is_finer_than(bucket, source_floor):
+        return nearest_schedulable_bucket_at_least(source_floor)
+    return bucket
 
 
 def validate_declared_target(
@@ -244,13 +297,12 @@ def validate_declared_target(
         raise UnsupportedFrequencyTargetError(
             f"Requested freshness ({format_cadence(target)}) is not a schedulable cadence; pick one of: {supported}"
         )
-    source_floor, consumer_ceiling = declared_target_bounds(
-        node_id=node_id, edges=edges, declared_targets=declared_targets, source_intervals=source_intervals
-    )
+    source_floor = all_source_floors(edges, source_intervals).get(node_id, STREAMING)
+    consumer_ceiling = all_consumer_ceilings(edges, declared_targets).get(node_id)
     if is_finer_than(target, source_floor):
         raise UnsatisfiableFrequencyError(
-            f"Requested freshness ({format_cadence(target)}) is more frequent than this node's sources can deliver;"
-            f" the slowest upstream source syncs every {format_cadence(source_floor)}"
+            f"Requested freshness ({format_cadence(target)}) is more frequent than this node's data can change;"
+            f" its upstream sources deliver new data every {format_cadence(source_floor)} at the fastest"
         )
     if consumer_ceiling is not None and is_coarser_than(target, consumer_ceiling):
         raise UnsatisfiableFrequencyError(
@@ -281,11 +333,12 @@ def find_invalid_targets(
     graph edits move floors. Runtime freshness stays correct (finest demand wins) — what
     breaks is declared == effective, so run this on any graph mutation and surface the result.
     """
+    floors = all_source_floors(edges, source_intervals)
+    ceilings = all_consumer_ceilings(edges, declared_targets)
     invalid: list[InvalidTarget] = []
     for node_id, declared in declared_targets.items():
-        source_floor, consumer_ceiling = declared_target_bounds(
-            node_id=node_id, edges=edges, declared_targets=declared_targets, source_intervals=source_intervals
-        )
+        source_floor = floors.get(node_id, STREAMING)
+        consumer_ceiling = ceilings.get(node_id)
         if is_finer_than(declared, source_floor) or (
             consumer_ceiling is not None and is_coarser_than(declared, consumer_ceiling)
         ):

@@ -1,0 +1,177 @@
+"""Canonical, documentation-sourced descriptions for Eppo endpoints and columns.
+
+Sourced from the official Eppo public API reference (https://eppo.cloud/api/docs). Keyed by the
+resource names in `settings.py` `ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced
+Eppo table. Columns absent here fall back to LLM enrichment.
+"""
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_API_DOCS = "https://eppo.cloud/api/docs"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "Experiments": {
+        "description": "An Eppo experiment or holdout: its configuration, variations, metrics, and status.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the experiment.",
+            "status": "Current status of the experiment (e.g. running, stopped, not_started).",
+            "name": "Human-readable name of the experiment.",
+            "assignments_start_date": "Date from which assignments to this experiment began.",
+            "entity_id": "Identifier of the entity (unit of analysis) the experiment is run on.",
+            "hypothesis": "Hypothesis being tested by the experiment.",
+            "assignments_end_date": "Date after which no new assignments are made to this experiment.",
+            "events_start_date": "Start of the date range used to include events in analysis.",
+            "events_end_date": "End of the date range used to include events in analysis.",
+            "experiment_key": "Unique key used to reference the experiment in code (e.g. SDK assignment calls).",
+            "traffic_allocation": "Percentage of eligible traffic allocated to the experiment.",
+            "results_url": "URL to view the experiment's results in the Eppo UI.",
+            "progress_percent": "Percentage of the experiment's planned duration or sample size completed.",
+            "results_last_updated": "Time the experiment's analysis results were last recalculated.",
+            "winning_variant_key": "Key of the variation Eppo has determined to be winning, if any.",
+            "outcome": "Recorded outcome of the experiment once concluded.",
+            "decision_reason": "Reason recorded for the experiment's concluding decision.",
+            "team_id": "Identifier of the team that owns the experiment.",
+            "schedule_id": "Identifier of the schedule driving this experiment's automated runs, if any.",
+            "holdout_id": "Identifier of the holdout this experiment belongs to, if any.",
+            "is_holdout_analysis": "Whether this experiment represents a holdout analysis.",
+            "is_traffic_imbalanced": "Whether observed traffic across variations deviates materially from the configured split.",
+            "created_date": "Time at which the experiment was created.",
+            "concluded_date": "Time at which the experiment was concluded, if applicable.",
+            "deleted_date": "Time at which the experiment was deleted, if applicable.",
+            "key_takeaways": "Free-text summary of the experiment's key takeaways.",
+        },
+    },
+    "Metrics": {
+        "description": "A metric definition used to analyze experiments (e.g. conversion rate, revenue per user).",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the metric.",
+            "name": "Human-readable name of the metric.",
+            "type": "Type of the metric (e.g. simple, ratio, funnel).",
+            "description": "Description of what the metric measures.",
+            "minimum_detectable_effect": "Minimum effect size the metric is configured to reliably detect.",
+            "entity_id": "Identifier of the entity (unit of analysis) the metric is computed over.",
+            "guardrail_cutoff": "Threshold beyond which the metric is flagged as a guardrail concern.",
+            "display_style": "How the metric's value is formatted for display (e.g. percentage, currency).",
+            "certified": "Whether the metric has been marked as certified/trusted by the team.",
+            "created_date": "Time at which the metric was created.",
+            "updated_date": "Time at which the metric was last updated.",
+            "creator_email": "Email of the user who created the metric.",
+            "last_updated_by_email": "Email of the user who last updated the metric.",
+            "desired_change": "Direction of change considered desirable for this metric (increase or decrease).",
+            "team_id": "Identifier of the team that owns the metric.",
+        },
+    },
+    "MetricCollections": {
+        "description": "A named grouping of metrics (e.g. a guardrail metric set) reusable across experiments.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the metric collection.",
+            "name": "Human-readable name of the metric collection.",
+            "description": "Description of the metric collection's purpose.",
+            "is_guardrail": "Whether this collection is used as a guardrail metric set.",
+            "entity_id": "Identifier of the entity (unit of analysis) the collection applies to.",
+            "creator_email": "Email of the user who created the collection.",
+            "last_updated_by_email": "Email of the user who last updated the collection.",
+        },
+    },
+    "FeatureFlags": {
+        "description": "A feature flag, its variations, allocations, and per-environment configuration.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the feature flag.",
+            "name": "Human-readable name of the feature flag.",
+            "description": "Description of the feature flag's purpose.",
+            "key": "Unique key used to reference the flag in code (SDK evaluation calls).",
+            "is_archived": "Whether the feature flag has been archived.",
+            "updated_at": "Time at which the feature flag was last updated.",
+            "created_at": "Time at which the feature flag was created.",
+            "entity_id": "Identifier of the entity (unit of analysis) the feature flag targets.",
+        },
+    },
+    "Bandits": {
+        "description": "A contextual multi-armed bandit that dynamically allocates traffic across variations.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the bandit.",
+            "name": "Human-readable name of the bandit.",
+            "key": "Unique key used to reference the bandit in code (SDK evaluation calls).",
+            "updated_at": "Time at which the bandit was last updated.",
+            "created_at": "Time at which the bandit was created.",
+            "model_version": "Version identifier of the bandit's underlying model.",
+            "training_frequency_hours": "How often, in hours, the bandit's model is retrained.",
+            "response_window_minutes": "Window, in minutes, within which a reward is attributed to an assignment.",
+            "lookback_window_days": "Number of days of historical data used to train the bandit's model.",
+            "exploitation_temperature": "Parameter controlling the bandit's exploration-versus-exploitation tradeoff.",
+        },
+    },
+    "Holdouts": {
+        "description": "A holdout group excluded from one or more experiments for a period, to measure long-run impact.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the holdout.",
+            "name": "Human-readable name of the holdout.",
+            "key": "Unique key used to reference the holdout.",
+            "assignments_start_date": "Date from which assignments to the holdout began.",
+            "assignments_end_date": "Date after which no new assignments are made to the holdout.",
+            "experiment_id": "Identifier of the experiment associated with this holdout, if any.",
+            "traffic_allocation": "Percentage of eligible traffic allocated to the holdout group.",
+            "archived_at": "Time at which the holdout was archived, if applicable.",
+            "updated_at": "Time at which the holdout was last updated.",
+            "created_at": "Time at which the holdout was created.",
+        },
+    },
+    "Teams": {
+        "description": "A team used to group ownership of experiments, metrics, and feature flags.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the team.",
+            "name": "Human-readable name of the team.",
+            "archived_at": "Time at which the team was archived, if applicable.",
+        },
+    },
+    "Tags": {
+        "description": "A tag used to label and filter experiments and feature flags.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the tag.",
+            "name": "Name of the tag.",
+            "description": "Description of the tag's purpose.",
+            "created_at": "Time at which the tag was created.",
+            "updated_at": "Time at which the tag was last updated.",
+        },
+    },
+    "Audiences": {
+        "description": "A saved audience definition (targeting rule set) reusable across feature flags and experiments.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the audience.",
+            "name": "Human-readable name of the audience.",
+            "description": "Description of the audience's purpose.",
+            "team": "Identifier of the team the audience belongs to.",
+            "creator_email": "Email of the user who created the audience.",
+            "last_edited_by_email": "Email of the user who last edited the audience.",
+            "allocation_count": "Number of allocations currently using this audience.",
+            "updated_at": "Time at which the audience was last updated.",
+            "created_at": "Time at which the audience was created.",
+            "archived_at": "Time at which the audience was archived, if applicable.",
+            "is_archived": "Whether the audience has been archived.",
+        },
+    },
+    "Environments": {
+        "description": "A deployment environment (e.g. production, staging) feature flags can be configured per.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier for the environment.",
+            "name": "Human-readable name of the environment.",
+            "is_production": "Whether this environment is marked as production.",
+            "sdk_key_count": "Number of SDK keys provisioned for this environment.",
+            "client_token_count": "Number of client tokens provisioned for this environment.",
+            "updated_at": "Time at which the environment was last updated.",
+            "created_at": "Time at which the environment was created.",
+        },
+    },
+}

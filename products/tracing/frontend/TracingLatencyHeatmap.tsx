@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
-import { Heatmap, useChartTheme } from '@posthog/quill-charts'
+import { Heatmap, type HeatmapBrushData, useChartTheme } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
 import { shortTimeZone } from 'lib/utils/timezones'
@@ -14,9 +14,16 @@ interface TracingLatencyHeatmapProps {
     data: TracingLatencyHeatmapData
     loading: boolean
     displayTimezone: string
+    /** Enables the 2D brush: drag a rectangle to select a time window + duration range. */
+    onBrush?: (selection: HeatmapBrushData) => void
 }
 
-export function TracingLatencyHeatmap({ data, loading, displayTimezone }: TracingLatencyHeatmapProps): JSX.Element {
+export function TracingLatencyHeatmap({
+    data,
+    loading,
+    displayTimezone,
+    onBrush,
+}: TracingLatencyHeatmapProps): JSX.Element {
     const theme = useChartTheme()
 
     // Same tick density logic as TracingSparkline: pick a format for the window size and thin
@@ -71,6 +78,7 @@ export function TracingLatencyHeatmap({ data, loading, displayTimezone }: Tracin
                     cells={data.cells}
                     theme={theme}
                     config={config}
+                    onBrush={onBrush}
                     dataAttr="tracing-latency-heatmap"
                 />
             ) : !loading ? (

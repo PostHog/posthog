@@ -1,3 +1,4 @@
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
@@ -134,6 +135,28 @@ describe('databaseTableListLogic', () => {
         resolveStale?.({ tables: { my_view: { name: 'my_view', type: 'view' } }, joins: [] })
         await stalePreDeletion
         expect(logic.values.views).toEqual([])
+    })
+
+    it('resetConnectionScope drops the connection and reloads the project catalog', async () => {
+        logic = databaseTableListLogic()
+        logic.mount()
+        logic.actions.setConnection('conn-123')
+        await logic.asyncActions.loadDatabase()
+        ;(performQuery as jest.Mock).mockClear()
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            tables: { events: { name: 'events', type: 'posthog' } },
+            joins: [],
+        })
+
+        // Without the reload, consumers that only fetch when `database` is empty would keep
+        // rendering the connection's tables long after the SQL editor closed.
+        logic.actions.resetConnectionScope()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.connectionId).toBeNull()
+        expect(performQuery).toHaveBeenCalledTimes(1)
+        expect((performQuery as jest.Mock).mock.calls[0][0]).toMatchObject({ connectionId: undefined })
+        expect(logic.values.allTables.map((table) => table.name)).toEqual(['events'])
     })
 
     it('does not let a stale schema response overwrite the selected connection schema', async () => {

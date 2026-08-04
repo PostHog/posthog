@@ -62,6 +62,7 @@ export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 // Heatmap
 export { Heatmap } from './charts/Heatmap/Heatmap'
 export type {
+    HeatmapBrushData,
     HeatmapCellDatum,
     HeatmapConfig,
     HeatmapProps,
@@ -114,6 +115,7 @@ export type {
     ChartMargins,
     ChartScales,
     ChartTheme,
+    AreaSelectData,
     ComboChartConfig,
     CreateScalesFn,
     DateRangeZoomData,

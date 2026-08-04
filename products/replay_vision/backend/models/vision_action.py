@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 
 from django.core.validators import MinValueValidator
@@ -42,6 +43,14 @@ class AlertDirection(models.TextChoices):
     # Which side of the threshold breaches. Both bounds are inclusive.
     ABOVE = "above", "At or above"
     BELOW = "below", "At or below"
+
+
+@dataclass(frozen=True)
+class _ScheduleKey:
+    """Cadence identity: `save()` compares these by equality to detect a schedule change."""
+
+    rrule: str
+    timezone: str
 
 
 class VisionAction(TeamScopedRootMixin, UUIDModel):
@@ -159,7 +168,7 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         if not ({"trigger_type", "trigger_config"} & self.get_deferred_fields()):
             self._cached_schedule_key = self._schedule_key()
 
-    def _schedule_key(self) -> tuple[str, str] | None:
+    def _schedule_key(self) -> "_ScheduleKey | None":
         # Both the rrule AND the timezone determine the next fire time, so a change to either must
         # trigger a recompute — keying on the rrule alone would miss a timezone-only edit.
         if self.trigger_type != TriggerType.SCHEDULE:
@@ -168,17 +177,16 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         rrule = cfg.get("rrule")
         if not rrule:
             return None
-        return (rrule, cfg.get("timezone", "UTC"))
+        return _ScheduleKey(rrule=rrule, timezone=cfg.get("timezone", "UTC"))
 
     def _recompute_next_run_at(self) -> None:
         key = self._schedule_key()
         if key is None:
             self.next_run_at = None
             return
-        rrule, timezone_str = key
         starts_at = self.created_at or timezone.now()
         occurrences = compute_next_occurrences(
-            rrule_string=rrule, starts_at=starts_at, timezone_str=timezone_str, count=1
+            rrule_string=key.rrule, starts_at=starts_at, timezone_str=key.timezone, count=1
         )
         self.next_run_at = occurrences[0] if occurrences else None
 

@@ -109,6 +109,12 @@ export interface EmailTemplaterLogicProps {
     defaultValue?: EmailTemplate | null
     templating?: boolean | 'hog' | 'liquid'
     onChangeTemplating?: (templating: 'hog' | 'liquid') => void
+    /**
+     * 'modal' (default): preview with an editing modal, changes propagate on save.
+     * 'inline': the full editor rendered in place, changes propagate live (debounced) so the
+     * parent form's dirty state and save flow see them without a separate editor-level save.
+     */
+    layout?: 'modal' | 'inline'
 }
 
 function autoRevealAdvancedFields(
@@ -149,6 +155,7 @@ export interface emailTemplaterLogicValues {
     isEmailTemplateValid: boolean
     isModalOpen: boolean
     isSaveTemplateModalOpen: boolean
+    isTemplatePickerOpen: boolean
     logicProps: EmailTemplaterLogicProps
     mergeTags: UnlayerMergeTags
     personPropertyDefinitions: PropertyDefinition[]
@@ -168,6 +175,12 @@ export interface emailTemplaterLogicActions {
         template: MessageTemplate
     }
     closeWithConfirmation: () => {
+        value: true
+    }
+    designLoaded: () => {
+        value: true
+    }
+    designUpdated: () => {
         value: true
     }
     hideAdvancedField: (key: EmailMetaFieldKey) => {
@@ -244,6 +257,9 @@ export interface emailTemplaterLogicActions {
     setIsSaveTemplateModalOpen: (isOpen: boolean) => {
         isOpen: boolean
     }
+    setIsTemplatePickerOpen: (isOpen: boolean) => {
+        isOpen: boolean
+    }
     setTemplatingEngine: (templating: 'hog' | 'liquid') => {
         templating: 'hog' | 'liquid'
     }
@@ -297,6 +313,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setIsTemplatePickerOpen: (isOpen: boolean) => ({ isOpen }),
+        designUpdated: true,
+        designLoaded: true,
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
@@ -329,6 +348,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        isTemplatePickerOpen: [
+            false,
+            {
+                setIsTemplatePickerOpen: (_, { isOpen }) => isOpen,
+                setIsModalOpen: (state, { isModalOpen }) => (isModalOpen ? state : false),
             },
         ],
         appliedTemplate: [
@@ -442,7 +468,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         ],
     }),
 
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values, props, cache }) => ({
         emailTemplate: {
             defaults: props.defaultValue as EmailTemplate,
             submit: async (formValues: EmailTemplate | undefined) => {
@@ -480,17 +506,71 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     design: htmlData.design,
                 }
 
+                cache.lastEditorDesign = htmlData.design
                 props.onChange(finalValues)
                 actions.setIsModalOpen(false)
             },
         },
     })),
 
-    listeners(({ props, values, actions }) => ({
+    listeners(({ props, values, actions, cache }) => ({
         onEmailEditorReady: () => {
+            // Listeners must attach before loadDesign so the initial design:loaded is heard and
+            // rebaselines - otherwise the load echo is indistinguishable from a user edit.
+            if (props.layout === 'inline') {
+                values.emailEditorRef?.editor?.addEventListener('design:updated', () => actions.designUpdated())
+                values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
+            }
             if (props.value?.design) {
+                cache.lastEditorDesign = props.value.design
                 values.emailEditorRef?.editor?.loadDesign(props.value.design)
             }
+        },
+
+        designLoaded: async (_, breakpoint) => {
+            // Re-baseline off the editor's own normalized export: unlayer rewrites loaded JSON
+            // (defaults, ids), so comparing raw stored designs against later exports would flag
+            // every load echo as an edit and falsely dirty the parent form.
+            const editor = values.emailEditorRef?.editor
+            if (!editor || props.layout !== 'inline') {
+                return
+            }
+            const htmlData: { design: JSONTemplate } = await new Promise<any>((res) => editor.exportHtml(res))
+            breakpoint()
+            cache.lastEditorDesign = htmlData.design
+        },
+
+        designUpdated: async (_, breakpoint) => {
+            // A programmatic loadDesign fires design:updated too; the debounce lets designLoaded
+            // rebaseline first, and the equality check below then filters the echo. A genuine user
+            // edit differs from the baseline, so it always propagates - even right after a load.
+            await breakpoint(500)
+
+            const editor = values.emailEditorRef?.editor
+            if (!editor || !values.isEmailEditorReady) {
+                return
+            }
+
+            const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] = await Promise.all([
+                new Promise<any>((res) => editor.exportHtml(res)),
+                new Promise<any>((res) => editor.exportPlainText(res)),
+            ])
+            breakpoint()
+
+            // Only real changes propagate - an export identical to the last known editor state is a
+            // load echo, and pushing it would only mark the parent form dirty.
+            if (objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                return
+            }
+            cache.lastEditorDesign = htmlData.design
+            props.onChange({
+                ...values.emailTemplate,
+                html: ['native_email', 'native_email_template'].includes(props.type)
+                    ? htmlData.html
+                    : escapeHTMLStringCurlies(htmlData.html),
+                text: textData.text,
+                design: htmlData.design,
+            })
         },
 
         setEmailTemplateValue: ({ name, value }) => {
@@ -520,8 +600,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         setIsModalOpen: ({ isModalOpen }) => {
             if (isModalOpen && props.value) {
-                const hasHtml = !!props.value.html
-                actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
+                // Plain text only when the email is genuinely text-only; a blank email starts visual.
+                const plainTextOnly = !!props.value.text && !props.value.html && !props.value.design
+                actions.setActiveContentTab(plainTextOnly ? 'plaintext' : 'visual')
             }
         },
 
@@ -531,6 +612,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             // Load the design into the editor if it's ready and has a design
             if (values.isEmailEditorReady && emailTemplateContent.design) {
+                cache.lastEditorDesign = emailTemplateContent.design
                 values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
             }
         },

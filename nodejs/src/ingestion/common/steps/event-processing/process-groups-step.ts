@@ -6,7 +6,8 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
-import { ok } from '~/ingestion/framework/results'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
+import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { Properties } from '~/plugin-scaffold'
 import { PreIngestionEvent, ProjectId, Team, TeamId } from '~/types'
@@ -56,6 +57,10 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
             )
 
             if (preparedEvent.event === '$groupidentify') {
+                const invalidGroupSetWarning = validateGroupSet(preparedEvent)
+                if (invalidGroupSetWarning) {
+                    return drop('invalid_group_set', [], [invalidGroupSetWarning])
+                }
                 await upsertGroup(
                     groupTypeManager,
                     groupStoreForBatch,
@@ -98,6 +103,34 @@ async function updateGroupsAndFirstEvent(
     }
 
     await Promise.all(promises)
+}
+
+// Group properties must be a plain JSON object — anything else (string, number,
+// array, ...) would reach Postgres as an invalid jsonb parameter and poison the
+// whole write batch.
+function validateGroupSet(preparedEvent: PreIngestionEvent): PipelineWarning | null {
+    const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = preparedEvent.properties
+
+    if (
+        groupPropertiesToSet == null ||
+        (typeof groupPropertiesToSet === 'object' && !Array.isArray(groupPropertiesToSet))
+    ) {
+        return null
+    }
+
+    return {
+        type: 'invalid_group_set',
+        details: {
+            eventUuid: preparedEvent.eventUuid,
+            distinctId: preparedEvent.distinctId,
+            groupType: String(groupType),
+            groupKey: sanitizeString(String(groupKey)),
+            receivedType: Array.isArray(groupPropertiesToSet) ? 'array' : typeof groupPropertiesToSet,
+        },
+        // No `key`: the limiter's bucket map never evicts, so a client-supplied
+        // key (like $group_key) would let a sender bypass the per-team debounce
+        // and grow the map without bound. Debounce per team and type instead.
+    }
 }
 
 async function upsertGroup(

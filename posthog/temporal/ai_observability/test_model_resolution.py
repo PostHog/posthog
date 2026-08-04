@@ -12,13 +12,6 @@ from products.ai_observability.backend.models.evaluation_config import Evaluatio
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
-@pytest.fixture(autouse=True)
-def _future_deprecation_date(settings):
-    # Pin the trial cutoff far in the future so grandfathering (0 < used < limit) is deterministic
-    # regardless of the wall clock the suite runs on. Cutoff-specific tests override this locally.
-    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
-
-
 @pytest.fixture
 def team():
     organization = Organization.objects.create(name="Test Org")
@@ -33,10 +26,6 @@ def _key(team, provider, state=LLMProviderKey.State.OK):
         state=state,
         encrypted_config={"api_key": "sk-test"},
     )
-
-
-def _grandfathered_config(team, **kwargs):
-    return EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=50, **kwargs)
 
 
 def _error_type(exc_info):
@@ -76,41 +65,17 @@ class TestExplicitModelSpec:
             ExplicitModelSpec("openai", "gpt-5", str(key.id)).resolve(team.id)
         assert _error_type(exc_info) == "key_invalid"
 
-    def test_grandfathered_trial_allowlisted_model_resolves_without_key(self, team):
-        _grandfathered_config(team)
-        resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert resolved.provider_key is None
-        assert not resolved.is_byok
-
-    def test_grandfathered_non_allowlisted_model_raises_model_not_allowed(self, team):
-        _grandfathered_config(team)
-        with pytest.raises(ApplicationError) as exc_info:
-            ExplicitModelSpec("openai", "gpt-5", None).resolve(team.id)
-        assert _error_type(exc_info) == "model_not_allowed"
-
-    def test_no_trial_usage_requires_provider_key(self, team):
+    def test_keyless_requires_provider_key(self, team):
+        # No pinned key: resolution has no PostHog-funded fallback and must ask for a key.
         with pytest.raises(ApplicationError) as exc_info:
             ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
         assert _error_type(exc_info) == "provider_key_required"
 
-    def test_exhausted_trial_requires_provider_key(self, team):
-        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=100)
-        with pytest.raises(ApplicationError) as exc_info:
-            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert _error_type(exc_info) == "provider_key_required"
-
-    def test_past_cutoff_requires_provider_key(self, team, settings):
-        settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2000-01-01T00:00:00+00:00"
-        _grandfathered_config(team)
-        with pytest.raises(ApplicationError) as exc_info:
-            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert _error_type(exc_info) == "provider_key_required"
-
-    def test_null_key_falls_back_to_matching_active_key_despite_exhausted_quota(self, team):
-        # Regression: an eval whose model config pinned a model but no key was blocked with
-        # trial_limit_reached even though the team had a healthy active key for that provider.
+    def test_null_key_falls_back_to_matching_active_key(self, team):
+        # An eval whose model config pinned a model but no key resolves to the team's healthy
+        # active key for that provider.
         key = _key(team, "openai")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key, trial_eval_limit=100, trial_evals_used=100)
+        EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
         resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
 
@@ -119,31 +84,17 @@ class TestExplicitModelSpec:
 
     def test_null_key_ignores_active_key_of_a_different_provider(self, team):
         key = _key(team, "anthropic")
-        _grandfathered_config(team, active_provider_key=key)
+        EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
-        resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-
-        assert resolved.provider_key is None
-        assert not resolved.is_byok
+        with pytest.raises(ApplicationError) as exc_info:
+            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
+        assert _error_type(exc_info) == "provider_key_required"
 
 
 @pytest.mark.django_db
 class TestDefaultModelSpec:
-    def test_grandfathered_no_active_key_falls_back_to_posthog_trial(self, team):
-        _grandfathered_config(team)
-        resolved = DefaultModelSpec().resolve(team.id)
-        assert resolved.provider == "openai"
-        assert resolved.model == DEFAULT_MODEL_BY_PROVIDER["openai"]
-        assert resolved.provider_key is None
-        assert not resolved.is_byok
-
-    def test_no_active_key_no_trial_usage_requires_provider_key(self, team):
-        with pytest.raises(ApplicationError) as exc_info:
-            DefaultModelSpec().resolve(team.id)
-        assert _error_type(exc_info) == "provider_key_required"
-
-    def test_no_active_key_exhausted_requires_provider_key(self, team):
-        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=100)
+    def test_no_active_key_requires_provider_key(self, team):
+        # Null config, no team active key — must bring a key.
         with pytest.raises(ApplicationError) as exc_info:
             DefaultModelSpec().resolve(team.id)
         assert _error_type(exc_info) == "provider_key_required"

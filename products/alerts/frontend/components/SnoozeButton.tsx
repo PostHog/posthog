@@ -1,3 +1,6 @@
+import { IconCalendar } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
@@ -7,14 +10,25 @@ const DATETIME_FORMAT = 'MMM D - HH:mm'
 interface SnoozeButtonProps {
     onChange: (snoonzeUntil: string) => void
     value?: string
+    disabledReason?: string
 }
 
-export function SnoozeButton({ onChange, value }: SnoozeButtonProps): JSX.Element {
+export function SnoozeButton({ onChange, value, disabledReason }: SnoozeButtonProps): JSX.Element {
+    if (disabledReason) {
+        return (
+            <LemonButton type="secondary" size="medium" icon={<IconCalendar />} disabledReason={disabledReason}>
+                Snooze until
+            </LemonButton>
+        )
+    }
+
     return (
         <DateFilter
             dateFrom={value ?? null}
             onChange={(snoozeUntil) => {
-                snoozeUntil && onChange(snoozeUntil)
+                if (snoozeUntil) {
+                    onChange(snoozeUntil)
+                }
             }}
             placeholder="Snooze until"
             max={31}

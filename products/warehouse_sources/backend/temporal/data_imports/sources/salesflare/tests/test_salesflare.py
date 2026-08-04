@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -6,14 +7,16 @@ from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare import salesflare
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.salesflare import (
     PAGE_SIZE,
     SalesflareResumeConfig,
-    SalesflareRetryableError,
     check_access,
-    get_rows,
     salesflare_source,
     validate_credentials,
 )
@@ -22,121 +25,168 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare
     SALESFLARE_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = salesflare._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# tenacity sleeps between retries; patch it so the failure-path tests don't actually wait.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: SalesflareResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SalesflareResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SalesflareResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SalesflareResumeConfig) -> None:
-        self.saved.append(data)
+def _response(body: Any, *, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _full_page(start_id: int) -> list[dict]:
+def _full_page(start_id: int) -> list[dict[str, Any]]:
     return [{"id": start_id + i} for i in range(PAGE_SIZE)]
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[int, list[dict]], endpoint: str = "contacts"
-    ) -> list[dict]:
-        def fake_fetch(session: Any, path: str, offset: int, limit: int, logger: Any) -> list[dict]:
-            return pages[offset]
+def _make_manager(resume_state: SalesflareResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-        monkeypatch.setattr(salesflare, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(salesflare, "make_tracked_session", lambda **kwargs: MagicMock())
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="sf-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
 
-    def test_single_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: [{"id": 1}, {"id": 2}]})
-        assert rows == [{"id": 1}, {"id": 2}]
-        # The page is short (< PAGE_SIZE), so we stop without persisting resume state.
-        assert manager.saved == []
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared instead of inspecting it after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
 
-    def test_follows_offset_pagination_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {0: _full_page(0), PAGE_SIZE: [{"id": 999}]}
-        rows = self._collect(manager, monkeypatch, pages)
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(manager, endpoint: str = "contacts"):
+    return salesflare_source(
+        api_key="sf-key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_progresses_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(_full_page(0)), _response([{"id": 999}])])
+
+        manager = _make_manager()
+        rows = _rows(_run(manager))
+
         assert len(rows) == PAGE_SIZE + 1
-        # State is saved after the first full page (offset advances to PAGE_SIZE), then we stop.
-        assert [s.offset for s in manager.saved] == [PAGE_SIZE]
+        assert rows[-1] == {"id": 999}
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == PAGE_SIZE
+        assert params[1]["offset"] == PAGE_SIZE
+        # Checkpoint saved after the first full page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == SalesflareResumeConfig(offset=PAGE_SIZE)
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(SalesflareResumeConfig(offset=PAGE_SIZE))
-        # Offset 0 must never be fetched on resume.
-        pages = {PAGE_SIZE: [{"id": 5}]}
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": 5}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}, {"id": 2}])])
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: []})
+        manager = _make_manager()
+        rows = _rows(_run(manager))
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_run(manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Offset 0 must never be fetched on resume — only the seeded page is served.
+        params = _wire(session, [_response([{"id": 5}])])
+
+        manager = _make_manager(SalesflareResumeConfig(offset=PAGE_SIZE))
+        rows = _rows(_run(manager))
+
+        assert rows == [{"id": 5}]
+        assert params[0]["offset"] == PAGE_SIZE
+
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_the_endpoint_path(self, endpoint: str, MockSession) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            urls.append(request.url)
+            return mock.MagicMock()
+
+        session.headers = {}
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [_response([])]
+
+        _rows(_run(_make_manager(), endpoint))
+        assert urls[0] == f"{salesflare.SALESFLARE_BASE_URL}{SALESFLARE_ENDPOINTS[endpoint].path}"
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
+class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(SalesflareRetryableError):
-            _fetch_page_unwrapped(session, "/contacts", 0, PAGE_SIZE, MagicMock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_are_retried_then_raise(self, _name: str, status: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        # Five identical failures exhaust the client's retry budget, then it reraises.
+        _wire(session, [_response({"error": "nope"}, status_code=status) for _ in range(5)])
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_run(_make_manager()))
+        assert session.send.call_count == 5
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_immediately(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "nope"}, status_code=status)])
+
         with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "/contacts", 0, PAGE_SIZE, MagicMock())
+            _rows(_run(_make_manager()))
+        # 4xx is not retryable — exactly one request is made.
+        assert session.send.call_count == 1
 
-    def test_success_returns_list_body(self) -> None:
-        body = [{"id": 1}]
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "/contacts", 0, PAGE_SIZE, MagicMock())
-        assert result == body
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_is_retryable(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        # A 200 whose body isn't a bare array is a malformed payload — retried, then reraised.
+        _wire(session, [_response({"error": "nope"}) for _ in range(5)])
 
-    def test_non_list_body_is_retryable(self) -> None:
-        session = self._session_returning(200, {"error": "nope"})
-        with pytest.raises(SalesflareRetryableError):
-            _fetch_page_unwrapped(session, "/contacts", 0, PAGE_SIZE, MagicMock())
-
-    def test_request_uses_limit_and_offset_params(self) -> None:
-        session = self._session_returning(200, [])
-        _fetch_page_unwrapped(session, "/accounts", 200, PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"limit": PAGE_SIZE, "offset": 200}
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_run(_make_manager()))
+        assert session.send.call_count == 5
 
 
 class TestCheckAccess:
@@ -210,7 +260,8 @@ class TestSalesflareSourceResponse:
         response = salesflare_source(
             api_key="sf-key",
             endpoint=endpoint,
-            logger=MagicMock(),
+            team_id=1,
+            job_id="j",
             resumable_source_manager=MagicMock(),
         )
         assert response.name == endpoint

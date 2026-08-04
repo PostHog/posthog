@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.source import BettermodeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BettermodeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
+    BettermodeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

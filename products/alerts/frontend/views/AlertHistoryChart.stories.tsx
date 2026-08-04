@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { dayjs, type Dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 
 import {
     AlertCalculationInterval,
@@ -52,123 +52,6 @@ function makePoints(count: number, seed = 0): AlertHistoryChartPoint[] {
         label: dayjs()
             .subtract(count - 1 - i, 'hour')
             .format('MMM D, HH:mm'),
-    }))
-}
-
-/** X-axis labels that match how checks land for daily / weekly / monthly evaluation. */
-function makePointsForEvaluationInterval(
-    count: number,
-    unit: 'day' | 'week' | 'month',
-    labelFormat: string,
-    seed = 0
-): AlertHistoryChartPoint[] {
-    return Array.from({ length: count }, (_, i) => ({
-        value: 45 + Math.sin((i + seed) / 2.5) * 22 + (i % 5) * 4 + (i === Math.floor(count / 2) ? 35 : 0),
-        label: dayjs()
-            .subtract(count - 1 - i, unit)
-            .format(labelFormat),
-    }))
-}
-
-function minutesSinceMidnight(t: Dayjs): number {
-    return t.hour() * 60 + t.minute()
-}
-
-function parseHHMMToMinutes(s: string): number {
-    const [h, m] = s.split(':').map(Number)
-    return h * 60 + m
-}
-
-/** Half-open [start, end) in project local time; supports overnight (e.g. 22:00–07:00). */
-function isInBlockedQuietWindow(t: Dayjs, start: string, end: string): boolean {
-    const now = minutesSinceMidnight(t)
-    const s = parseHHMMToMinutes(start)
-    const e = parseHHMMToMinutes(end)
-    if (s < e) {
-        return now >= s && now < e
-    }
-    if (s > e) {
-        return now >= s || now < e
-    }
-    return false
-}
-
-function synthValue(i: number, count: number, seed: number): number {
-    return 45 + Math.sin((i + seed) / 2.5) * 22 + (i % 5) * 4 + (i === Math.floor(count / 2) ? 35 : 0)
-}
-
-/** Hourly checks only on weekdays (no Sat/Sun), newest on the right. */
-function makeHourlyPointsSkippingWeekends(pointCount: number, seed = 0): AlertHistoryChartPoint[] {
-    const rev: { label: string }[] = []
-    let t = dayjs().startOf('hour')
-    while (rev.length < pointCount) {
-        const dow = t.day()
-        if (dow !== 0 && dow !== 6) {
-            rev.push({ label: t.format('MMM D, HH:mm') })
-        }
-        t = t.subtract(1, 'hour')
-    }
-    return rev.reverse().map((p, i) => ({
-        label: p.label,
-        value: synthValue(i, pointCount, seed),
-    }))
-}
-
-/** One check per weekday only (daily + skip weekends). */
-function makeDailyPointsSkippingWeekends(dayCount: number, seed = 0): AlertHistoryChartPoint[] {
-    const rev: { label: string }[] = []
-    let t = dayjs().startOf('day')
-    while (rev.length < dayCount) {
-        const dow = t.day()
-        if (dow !== 0 && dow !== 6) {
-            rev.push({ label: t.format('ddd, MMM D') })
-        }
-        t = t.subtract(1, 'day')
-    }
-    return rev.reverse().map((p, i) => ({
-        label: p.label,
-        value: synthValue(i, dayCount, seed),
-    }))
-}
-
-/** Hourly checks outside quiet hours (e.g. overnight block defers runs → uneven spacing on the axis). */
-function makeHourlyPointsOutsideQuietHours(
-    pointCount: number,
-    blocked: { start: string; end: string },
-    seed = 0
-): AlertHistoryChartPoint[] {
-    const rev: { label: string }[] = []
-    let t = dayjs().startOf('hour')
-    while (rev.length < pointCount) {
-        if (!isInBlockedQuietWindow(t, blocked.start, blocked.end)) {
-            rev.push({ label: t.format('MMM D, HH:mm') })
-        }
-        t = t.subtract(1, 'hour')
-    }
-    return rev.reverse().map((p, i) => ({
-        label: p.label,
-        value: synthValue(i, pointCount, seed),
-    }))
-}
-
-/** Hourly checks on weekdays only and outside quiet hours. */
-function makeHourlyPointsWeekdaysOutsideQuietHours(
-    pointCount: number,
-    blocked: { start: string; end: string },
-    seed = 0
-): AlertHistoryChartPoint[] {
-    const rev: { label: string }[] = []
-    let t = dayjs().startOf('hour')
-    while (rev.length < pointCount) {
-        const dow = t.day()
-        if (dow !== 0 && dow !== 6 && !isInBlockedQuietWindow(t, blocked.start, blocked.end)) {
-            rev.push({ label: t.format('MMM D, HH:mm') })
-        }
-        t = t.subtract(1, 'hour')
-    }
-    return rev.reverse().map((p, i) => ({
-        label: p.label,
-        value: synthValue(i, pointCount, seed),
     }))
 }
 
@@ -227,136 +110,10 @@ export const Default: Story = {
 }
 
 /** Caption when total checks exceed the chart window (see `historyLimit`). */
-export const MoreChecksThanChartWindow: Story = {
+export const TruncatedHistory: Story = {
     args: {
         ...Default.args,
         checksTotal: 240,
-    },
-}
-
-/** One check per calendar day (daily evaluation). */
-export const DailyEvaluationTimeAxis: Story = {
-    args: {
-        ...Default.args,
-        points: makePointsForEvaluationInterval(14, 'day', 'ddd, MMM D'),
-        alert: buildStoryAlert({
-            calculation_interval: AlertCalculationInterval.DAILY,
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { lower: 40, upper: 85 },
-                },
-            },
-        }),
-    },
-}
-
-/** One check per week (weekly evaluation). */
-export const WeeklyEvaluationTimeAxis: Story = {
-    args: {
-        ...Default.args,
-        points: makePointsForEvaluationInterval(10, 'week', '[Week of] MMM D'),
-        alert: buildStoryAlert({
-            calculation_interval: AlertCalculationInterval.WEEKLY,
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { lower: 40, upper: 85 },
-                },
-            },
-        }),
-    },
-}
-
-/** One check per month (monthly evaluation). */
-export const MonthlyEvaluationTimeAxis: Story = {
-    args: {
-        ...Default.args,
-        points: makePointsForEvaluationInterval(8, 'month', 'MMM YYYY'),
-        alert: buildStoryAlert({
-            calculation_interval: AlertCalculationInterval.MONTHLY,
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { lower: 40, upper: 85 },
-                },
-            },
-        }),
-    },
-}
-
-const DEFAULT_QUIET_HOURS = { start: '22:00', end: '07:00' }
-
-/** Hourly checks only land on weekdays when `skip_weekend` is set (gaps across Sat/Sun). */
-export const SkipWeekendsHourly: Story = {
-    args: {
-        ...Default.args,
-        points: makeHourlyPointsSkippingWeekends(28, 1),
-        alert: buildStoryAlert({
-            calculation_interval: AlertCalculationInterval.HOURLY,
-            skip_weekend: true,
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { lower: 40, upper: 85 },
-                },
-            },
-        }),
-    },
-}
-
-/** Daily checks only on weekdays (skip weekend). */
-export const SkipWeekendsDaily: Story = {
-    args: {
-        ...Default.args,
-        points: makeDailyPointsSkippingWeekends(14, 2),
-        alert: buildStoryAlert({
-            calculation_interval: AlertCalculationInterval.DAILY,
-            skip_weekend: true,
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { lower: 40, upper: 85 },
-                },
-            },
-        }),
-    },
-}
-
-/** Quiet hours defer checks — hourly timeline has uneven gaps (e.g. nothing overnight). */
-export const QuietHoursHourly: Story = {
-    args: {
-        ...Default.args,
-        points: makeHourlyPointsOutsideQuietHours(32, DEFAULT_QUIET_HOURS, 3),
-        alert: buildStoryAlert({
-            calculation_interval: AlertCalculationInterval.HOURLY,
-            schedule_restriction: { blocked_windows: [DEFAULT_QUIET_HOURS] },
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { lower: 40, upper: 85 },
-                },
-            },
-        }),
-    },
-}
-
-/** Both skip weekend and quiet hours (hourly). */
-export const SkipWeekendsAndQuietHoursHourly: Story = {
-    args: {
-        ...Default.args,
-        points: makeHourlyPointsWeekdaysOutsideQuietHours(36, DEFAULT_QUIET_HOURS, 4),
-        alert: buildStoryAlert({
-            calculation_interval: AlertCalculationInterval.HOURLY,
-            skip_weekend: true,
-            schedule_restriction: { blocked_windows: [DEFAULT_QUIET_HOURS] },
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { lower: 40, upper: 85 },
-                },
-            },
-        }),
     },
 }
 
@@ -401,7 +158,7 @@ export const AnomalyProbabilityCutoff: Story = {
  * Red dots below the lower line fired at the time but wouldn't under current config (widened).
  * Orange dots between old and new upper bound would now fire but didn't then (tightened).
  */
-export const MixedThresholdChange: Story = {
+export const ThresholdChanged: Story = {
     args: {
         ...Default.args,
         points: withHistoricalFirings(makePoints(30, 11), { lower: 38, upper: 80 }),

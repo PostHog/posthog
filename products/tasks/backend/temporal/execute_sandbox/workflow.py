@@ -11,7 +11,7 @@ is deleted in a later PR.
 
 import json
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Optional
@@ -102,6 +102,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     update_task_run_status,
 )
 from products.tasks.backend.temporal.process_task.credential_refresh import (
+    TASK_ROWS_GONE_ERROR_MESSAGE,
     CredentialRefreshExitReason,
     run_credential_refresh_loop,
 )
@@ -175,6 +176,9 @@ class PendingFollowup:
     artifact_ids: list[str]
     ack_id: str
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
+    actor_user_id: int | None = None
+    message_id: str | None = None
+    context: dict[str, Any] = field(default_factory=dict)
     steer: bool = False
     sequence: int = 0
 
@@ -459,7 +463,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
 
             await self._update_task_run_status("in_progress")
-            await self._emit_progress("sandbox", "in_progress", "Setting up sandbox", "setup")
+            sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
+            await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup")
             await self._track_workflow_event(
                 "task_run_started",
                 {
@@ -730,14 +735,21 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
         source: str = FOLLOWUP_SOURCE_USER,
-        steer: bool = False,
+        message_id: str | bool | None = None,
+        actor_user_id: int | None = None,
+        message_context: dict[str, Any] | None = None,
     ) -> None:
+        legacy_steer = message_id if isinstance(message_id, bool) else False
+        stable_message_id = message_id if isinstance(message_id, str) else None
         self._queue_followup_message(
             ack_id,
             message,
             artifact_ids,
             source,
-            steer=steer,
+            actor_user_id=actor_user_id,
+            message_id=stable_message_id,
+            message_context=message_context,
+            steer=legacy_steer,
             signal_name=SEND_FOLLOWUP_SIGNAL,
         )
 
@@ -748,12 +760,18 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
         source: str = FOLLOWUP_SOURCE_USER,
+        message_id: str | None = None,
+        actor_user_id: int | None = None,
+        message_context: dict[str, Any] | None = None,
     ) -> None:
         self._queue_followup_message(
             ack_id,
             message,
             artifact_ids,
             source,
+            actor_user_id=actor_user_id,
+            message_id=message_id,
+            message_context=message_context,
             steer=True,
             signal_name=SEND_STEER_SIGNAL,
         )
@@ -768,6 +786,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None,
         artifact_ids: Optional[list[str]],
         source: str,
+        actor_user_id: int | None = None,
+        message_id: str | None = None,
+        message_context: dict[str, Any] | None = None,
         *,
         steer: bool,
         signal_name: str,
@@ -812,6 +833,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 artifact_ids=artifact_ids or [],
                 ack_id=ack_id,
                 source=source,
+                actor_user_id=actor_user_id,
+                message_id=message_id,
+                context=message_context if isinstance(message_context, dict) else {},
                 steer=steer,
                 sequence=self._next_followup_sequence,
             )
@@ -860,6 +884,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 outcome = await self._send_followup_to_sandbox(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
+                    actor_user_id=followup.actor_user_id,
+                    message_id=followup.message_id,
+                    message_context=followup.context,
                     steer=followup.steer,
                 )
                 if followup.steer and outcome == STEER_DECLINED_OUTCOME:
@@ -869,6 +896,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                             artifact_ids=followup.artifact_ids,
                             ack_id=followup.ack_id,
                             source=followup.source,
+                            actor_user_id=followup.actor_user_id,
+                            message_id=followup.message_id,
+                            context=followup.context,
                             sequence=followup.sequence,
                         ),
                     )
@@ -1066,28 +1096,38 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
-        will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
+        repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
+        will_clone = bool(repositories_to_clone)
+        checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
+        will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            await workflow.execute_activity(
-                clone_repository_in_sandbox,
-                CloneRepositoryInSandboxInput(
-                    context=self.context,
-                    sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
-                    github_token=prepared.github_token,
-                    shallow_clone=prepared.shallow_clone,
-                ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+            await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        clone_repository_in_sandbox,
+                        CloneRepositoryInSandboxInput(
+                            context=self.context,
+                            sandbox_id=created.sandbox_id,
+                            repository=repository,
+                            github_token=prepared.github_token,
+                            shallow_clone=prepared.shallow_clone,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for repository in repositories_to_clone
+                )
             )
-            await self._emit_progress("clone", "completed", "Cloned repository", "setup")
+            clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
+            await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         if will_checkout and not is_resume:
+            assert checkout_repository is not None
+            assert prepared.branch is not None
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -1096,7 +1136,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 CheckoutBranchInSandboxInput(
                     context=self.context,
                     sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
+                    repository=checkout_repository,
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
@@ -1276,17 +1316,28 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
 
     async def _maybe_record_terminal_status(self) -> None:
-        # TaskRun stays in_progress on successful completion *and* on
-        # inactivity timeout — the run is always followable, so neither
-        # path is terminal. Only an explicit failure or cancellation
-        # propagated through complete_task transitions out of in_progress;
-        # the except blocks in run() cover the other terminal paths.
+        # An interactive run stays in_progress on successful completion *and* on
+        # inactivity timeout — it is always followable, so neither path is
+        # terminal. Only an explicit failure or cancellation propagated through
+        # complete_task transitions it out; the except blocks in run() cover the
+        # other terminal paths.
         if self._task_completed and self._completion_status in {"failed", "cancelled"}:
             await self._update_task_run_status(
                 self._completion_status,
                 error_message=self._completion_error,
                 error_type=self._completion_error_type,
             )
+            return
+
+        # A background run (loop / automated) is one-shot and unattended: nothing
+        # sends a follow-up, so its natural end (agent idle timeout or a
+        # successful complete_task) is terminal. Mark it completed so it doesn't
+        # sit in_progress forever after the sandbox is reclaimed. Adding this
+        # activity is replay-safe without a patch gate: it runs only on the
+        # terminal path, which no in-flight execution has passed (reaching it
+        # completes the workflow).
+        if self._context and self._context.mode != "interactive":
+            await self._update_task_run_status("completed")
 
     async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
         exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)
@@ -1303,6 +1354,23 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 sandbox_id=sandbox_id,
             )
+        elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
+            workflow.logger.warning(
+                "execute_sandbox_task_rows_gone_detected",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+            # Ends the main loop through the sandbox-gone event so the workflow winds down
+            # instead of waiting on signals that can never arrive. Recording failure here is
+            # what makes the end visible: an interactive run is exempt from the terminal
+            # status write on its normal completion path, so without this it would report
+            # success for a run whose rows no longer exist. The write itself then fails
+            # non-retryably, since those rows are gone, which fails the workflow in both
+            # modes rather than only for background runs.
+            self._completion_status = "failed"
+            self._completion_error = TASK_ROWS_GONE_ERROR_MESSAGE
+            self._completion_error_type = "TaskRunDeletedError"
+            self._sandbox_gone = True
 
     def _mark_sandbox_gone(self) -> None:
         self._task_completed = True
@@ -1376,7 +1444,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
 
     async def _send_followup_to_sandbox(
-        self, message: str | None, artifact_ids: list[str], *, steer: bool = False
+        self,
+        message: str | None,
+        artifact_ids: list[str],
+        actor_user_id: int | None = None,
+        message_id: str | None = None,
+        message_context: dict[str, Any] | None = None,
+        *,
+        steer: bool = False,
     ) -> str | None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
@@ -1391,7 +1466,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 message=message,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
-                message_id=str(workflow.uuid4()),
+                message_id=message_id or str(workflow.uuid4()),
+                actor_user_id=actor_user_id,
+                context=message_context if isinstance(message_context, dict) else {},
                 steer=steer,
             ),
             start_to_close_timeout=timedelta(minutes=35),

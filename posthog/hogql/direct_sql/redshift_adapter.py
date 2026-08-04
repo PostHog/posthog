@@ -18,7 +18,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+        RedshiftSourceConfig,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
         RedshiftImplementation,
     )

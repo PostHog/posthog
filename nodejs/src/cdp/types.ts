@@ -229,6 +229,7 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'billable_invocation'
         | 'dropped'
+        | 'budget_skipped'
         | 'email_queued'
         | 'email_sent'
         | 'email_delivered'
@@ -236,17 +237,22 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_bounced'
+        | 'email_bounced_hard'
+        | 'email_bounced_transient'
+        | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
         | 'email_suppressed'
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
+        | 'email_untracked'
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
         | 'quota_limited'
         | 'conversion'
         | 'exited_workflow_changed'
+        | 'redirected_workflow_changed'
     count: number
 }
 
@@ -298,7 +304,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
-    emailAssets: MessageAssetRow[]
+    messageAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -338,6 +344,20 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
+    // Stamped at enqueue for account-audience batch children: event.distinct_id is the account's
+    // group key, not a person distinct_id. The worker must trust this over the live trigger config,
+    // which can be edited to a person audience while these children are still queued.
+    accountAudience?: boolean
+    // Set by the subscription matcher when a person merge repointed this job's distinct_id and re-keyed
+    // personId onto the survivor. Tells the worker to resolve the person by personId, not the distinct_id
+    // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a
+    // merge-woken step reads stale person props (e.g. an email step gets no recipient and drops the send).
+    personIdRepointed?: boolean
+    // High-water mark of the repoint version last applied to this job's personId. Repoints aren't
+    // Kafka-keyed, so a delayed lower-version move can arrive in a later batch than a higher one already
+    // applied; the matcher rejects any repoint whose version isn't strictly greater, so an out-of-order
+    // older move can't rewind the wait onto an obsolete person.
+    personIdRepointVersion?: number
     actionStepCount: number
     currentAction?: {
         id: string
@@ -354,6 +374,10 @@ export type HogFlowInvocationContext = {
         eventMatchedEventUuid?: string
         // Paired with the UUID to build the event link in the logs view; never displayed.
         eventMatchedEventTimestamp?: string
+        // Set by the subscription matcher when it re-keys a parked wait onto a merge survivor and wakes
+        // it (scheduled=now). The wait handler consumes it to attribute the re-check outcome
+        // (advanced vs re-parked) to the re-key, so the wasted-re-park churn is observable.
+        rekeyWake?: boolean
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
@@ -442,10 +466,19 @@ export type HogFunctionInputSchemaType = {
 export type HogFunctionTypeType =
     | 'destination'
     | 'transformation'
+    | 'transformation_log'
     | 'internal_destination'
     | 'source_webhook'
     | 'warehouse_source_webhook'
     | 'site_destination'
+
+// Function types a cyclotron worker actually executes, so a rerun can safely re-enqueue
+// the stored invocation onto the cyclotron hog queue and have it run. Every other type
+// runs elsewhere (source webhooks inline in the cdp-api HTTP handler, transformations
+// during ingestion, site_* transpiled to client-side JS) and would never drain from that
+// queue — re-enqueuing one wedges the partition. Mirror of the Django `TYPES_THAT_CAN_RERUN`
+// allowlist and the frontend invocations UI.
+export const RERUNNABLE_HOG_FUNCTION_TYPES = new Set<HogFunctionTypeType>(['destination', 'internal_destination'])
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -545,11 +578,17 @@ export type MessageAssetRow = {
     parent_run_id: string
     invocation_id: string
     action_id: string
-    kind: 'email'
+    kind: 'email' | 'push'
     distinct_id: string
     person_id: string
+    // Where the message went: the address for email. Push has no address, so this carries the
+    // recipient's distinct_id instead. The delivering channels are deliberately not stored here,
+    // because the captured preview is a snapshot of what the recipient saw and they never saw those.
     recipient: string
+    // The message's headline: an email subject line, or a push notification title.
     subject: string
+    // Only delivered messages are captured, so this is 'sent' today. It stays a union because open
+    // tracking will write a higher-version row with its own status and collapse onto this one.
     status: 'sent'
     sent_at: string // ISO microsecond DateTime64
     version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap

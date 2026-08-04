@@ -2,7 +2,9 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PgAnalyzeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pganalyze import (
+    PgAnalyzeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.source import PgAnalyzeSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

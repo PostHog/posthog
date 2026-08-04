@@ -12,11 +12,16 @@ use tracing::warn;
 use crate::filters::catalog::FilterCatalog;
 use crate::filters::reverse_index::TeamFiltersBuilder;
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::metrics::{FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_TZ_FALLBACK};
+use crate::metrics::{
+    FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_INVALID_SHAPE_HASH,
+    FILTER_CATALOG_TZ_FALLBACK,
+};
+use crate::seed::{BehavioralShapeHash, PersonShapeHash, ScopeKind, ShapeHashError};
 
 /// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
 /// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
-pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, t.timezone \
+pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, \
+            c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
      FROM posthog_cohort c \
      JOIN posthog_team t ON t.id = c.team_id \
      WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL";
@@ -27,6 +32,8 @@ pub struct CohortRow {
     pub id: i32,
     pub team_id: i32,
     pub filters: Value,
+    pub behavioral_filters_shape_hash: Option<String>,
+    pub person_filters_shape_hash: Option<String>,
     /// `posthog_team.timezone` — a non-null IANA zone name (default `"UTC"`).
     pub timezone: String,
 }
@@ -54,14 +61,35 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> F
             )
         });
 
-        if let Err(err) = builder.add_cohort(cohort_id, team_id, &row.filters) {
-            counter!(FILTER_CATALOG_COHORT_PARSE_ERRORS).increment(1);
-            warn!(
-                cohort_id = cohort_id.0,
-                team_id = team_id.0,
-                error = %err,
-                "skipping cohort that failed to parse",
-            );
+        match builder.add_cohort(cohort_id, team_id, &row.filters) {
+            Ok(()) => {
+                let cohort = (cohort_id, team_id);
+                if let Some(hash) = shape_guard(
+                    row.behavioral_filters_shape_hash.as_deref(),
+                    BehavioralShapeHash::parse,
+                    ScopeKind::Behavioral,
+                    cohort,
+                ) {
+                    builder.set_behavioral_shape_hash(cohort_id, hash);
+                }
+                if let Some(hash) = shape_guard(
+                    row.person_filters_shape_hash.as_deref(),
+                    PersonShapeHash::parse,
+                    ScopeKind::PersonProperty,
+                    cohort,
+                ) {
+                    builder.set_person_shape_hash(cohort_id, hash);
+                }
+            }
+            Err(err) => {
+                counter!(FILTER_CATALOG_COHORT_PARSE_ERRORS).increment(1);
+                warn!(
+                    cohort_id = cohort_id.0,
+                    team_id = team_id.0,
+                    error = %err,
+                    "skipping cohort that failed to parse",
+                );
+            }
         }
     }
 
@@ -70,6 +98,33 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> F
             .into_iter()
             .map(|(team, (builder, tz))| (team, builder.freeze_with(tz, cascade_enabled))),
     )
+}
+
+/// One persisted shape-hash column as a reconcile guard, or `None` when there is nothing to guard
+/// with. Python's canonical extractor returns an empty string for a cohort with no leaves of that
+/// kind, so NULL and `""` are expected absences rather than malformed data; only a value that
+/// fails the newtype's bounds is counted and warned.
+fn shape_guard<T>(
+    raw: Option<&str>,
+    parse: fn(&str) -> Result<T, ShapeHashError>,
+    kind: ScopeKind,
+    (cohort_id, team_id): (CohortId, TeamId),
+) -> Option<T> {
+    let raw = raw.filter(|hash| !hash.is_empty())?;
+    match parse(raw) {
+        Ok(hash) => Some(hash),
+        Err(error) => {
+            counter!(FILTER_CATALOG_INVALID_SHAPE_HASH, "kind" => kind.as_str()).increment(1);
+            warn!(
+                cohort_id = cohort_id.0,
+                team_id = team_id.0,
+                kind = kind.as_str(),
+                error = %error,
+                "ignoring invalid persisted shape hash",
+            );
+            None
+        }
+    }
 }
 
 /// Resolve a team's `posthog_team.timezone`, falling back to UTC for an unrecognized zone. Counts
@@ -92,6 +147,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    const SHAPE_HASH: &str = "persisted-authoritative-hash";
+
     fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
         row_with_tz(id, team_id, filters, "UTC")
     }
@@ -101,8 +158,21 @@ mod tests {
             id,
             team_id,
             filters,
+            behavioral_filters_shape_hash: None,
+            person_filters_shape_hash: None,
             timezone: timezone.to_string(),
         }
+    }
+
+    const PERSON_SHAPE_HASH: &str = "persisted-person-hash";
+
+    /// A parseable cohort with its two guard columns set independently, so no assertion can pass
+    /// while the loader reads the wrong one.
+    fn row_with_guards(id: i32, behavioral: Option<&str>, person: Option<&str>) -> CohortRow {
+        let mut row = row(id, 7, behavioral_cohort());
+        row.behavioral_filters_shape_hash = behavioral.map(str::to_string);
+        row.person_filters_shape_hash = person.map(str::to_string);
+        row
     }
 
     fn behavioral_cohort() -> Value {
@@ -126,6 +196,56 @@ mod tests {
     fn empty_rows_build_an_empty_catalog() {
         let catalog = build_catalog_from_rows(vec![], false);
         assert_eq!(catalog.team_count(), 0);
+    }
+
+    #[test]
+    fn build_catalog_carries_only_valid_persisted_shape_hashes() {
+        assert!(REALTIME_COHORTS_SQL.contains("c.behavioral_filters_shape_hash"));
+        assert!(REALTIME_COHORTS_SQL.contains("c.person_filters_shape_hash"));
+        let mut malformed = row(5, 7, json!({ "bogus": true }));
+        malformed.behavioral_filters_shape_hash = Some(SHAPE_HASH.to_string());
+        malformed.person_filters_shape_hash = Some(PERSON_SHAPE_HASH.to_string());
+        let catalog = build_catalog_from_rows(
+            vec![
+                row_with_guards(1, Some(SHAPE_HASH), Some(PERSON_SHAPE_HASH)),
+                row_with_guards(2, None, None),
+                row_with_guards(3, Some(""), Some("")),
+                row_with_guards(4, Some("non-ascii-é"), Some("non-ascii-é")),
+                malformed,
+                // A cohort with leaves of only one kind carries only that kind's guard.
+                row_with_guards(6, Some(SHAPE_HASH), None),
+                row_with_guards(7, None, Some(PERSON_SHAPE_HASH)),
+            ],
+            false,
+        );
+
+        let team = catalog.team(TeamId(7)).expect("team present");
+        assert_eq!(
+            team.behavioral_shape_hashes[&CohortId(1)].as_str(),
+            SHAPE_HASH,
+        );
+        assert_eq!(
+            team.person_shape_hashes[&CohortId(1)].as_str(),
+            PERSON_SHAPE_HASH,
+        );
+        // NULL, empty (no leaves of that kind), invalid, and unparsed-cohort rows all carry no guard.
+        for absent in [2, 3, 4, 5] {
+            assert!(!team.behavioral_shape_hashes.contains_key(&CohortId(absent)));
+            assert!(!team.person_shape_hashes.contains_key(&CohortId(absent)));
+        }
+        assert!(team.behavioral_shape_hashes.contains_key(&CohortId(6)));
+        assert!(!team.person_shape_hashes.contains_key(&CohortId(6)));
+        assert!(!team.behavioral_shape_hashes.contains_key(&CohortId(7)));
+        assert!(team.person_shape_hashes.contains_key(&CohortId(7)));
+        assert!(team.cohorts.contains_key(&CohortId(3)));
+        assert!(
+            team.cohorts.contains_key(&CohortId(4)),
+            "only the bad hash is ignored"
+        );
+        assert!(
+            !team.cohorts.contains_key(&CohortId(5)),
+            "the malformed cohort is skipped"
+        );
     }
 
     #[test]
