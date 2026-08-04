@@ -1085,15 +1085,6 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .optional()
                 .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
-            xs: zod
-                .object({
-                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
-                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
-                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                    h: zod.number().optional().describe('Height in grid rows.'),
-                })
-                .optional()
-                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
         })
         .optional()
         .describe(
@@ -1275,15 +1266,6 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .optional()
                 .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
-            xs: zod
-                .object({
-                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
-                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
-                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                    h: zod.number().optional().describe('Height in grid rows.'),
-                })
-                .optional()
-                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
         })
         .optional()
         .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),
