@@ -136,22 +136,22 @@ describe('surveyNotificationModalLogic', () => {
     it.each([
         [
             'copies an exact value the sample is missing',
-            { key: '$survey_completed', operator: PropertyOperator.Exact, value: true },
+            { key: SurveyEventProperties.SURVEY_COMPLETED, operator: PropertyOperator.Exact, value: true },
             true,
         ],
         [
             'copies the first accepted value of an is-any-of filter',
-            { key: '$survey_completed', operator: PropertyOperator.Exact, value: ['a', 'b'] },
-            'a',
+            { key: '$survey_response_q1', operator: PropertyOperator.Exact, value: ['Other', 'Bug'] },
+            'Other',
         ],
         [
             'leaves the sample alone for a negated filter',
-            { key: '$survey_completed', operator: PropertyOperator.IsNot, value: 'nope' },
-            undefined,
+            { key: '$survey_response_q1', operator: PropertyOperator.IsNot, value: 'Other' },
+            'Something else',
         ],
     ])('aligning sample globals with the notification filter %s', (_name, property, expected) => {
         const globals = {
-            event: { event: 'survey sent', properties: {} },
+            event: { event: SurveyEventName.SENT, properties: { $survey_response_q1: 'Something else' } },
         } as unknown as CyclotronJobInvocationGlobals
 
         const aligned = alignGlobalsWithNotificationFilter(globals, {
@@ -164,7 +164,7 @@ describe('surveyNotificationModalLogic', () => {
             ],
         })
 
-        expect(aligned.event.properties.$survey_completed).toEqual(expected)
+        expect(aligned.event.properties[property.key]).toEqual(expected)
     })
 
     it('removes copied survey response properties that do not have a target question', () => {

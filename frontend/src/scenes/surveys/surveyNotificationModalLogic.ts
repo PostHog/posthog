@@ -268,20 +268,15 @@ function buildTemplateGlobals(survey: SurveyNotificationContext): CyclotronJobIn
 }
 
 /**
- * The filters the backend actually evaluates for a test invocation: a mapping's filters win
- * over the top-level ones, matching how `buildHogFunctionInvocations` picks a trigger.
- */
-export function getEffectiveNotificationFilters(
-    notification: Pick<HogFunctionType, 'filters' | 'mappings'> | null | undefined
-): CyclotronJobFiltersType | null {
-    return notification?.mappings?.[0]?.filters ?? notification?.filters ?? null
-}
-
-/**
  * One lookup per event the notification triggers on, each carrying that event's own property
  * filters. Anything less would fetch a response the notification would never have sent for
  * (a partial `survey sent`, a rating below the configured threshold), and the test would be
  * skipped with no way for the user to tell why.
+ *
+ * Only the top-level filters are read. `buildHogFunctionInvocations` evaluates those for every
+ * function, and additionally requires a mapping to match when the function has mappings, so an
+ * event that fails them is rejected outright. Survey notifications carry no mappings, so this
+ * is exact for anything this modal creates.
  */
 export function buildLastSurveyResponseQueries(
     surveyId: string,
@@ -291,6 +286,8 @@ export function buildLastSurveyResponseQueries(
         return []
     }
 
+    // Saved filters already scope by survey, but a hand-edited one may not, and pulling another
+    // survey's response into this survey's test would be worse than finding nothing.
     const surveyIdProperty: EventPropertyFilter = {
         key: SurveyEventProperties.SURVEY_ID,
         type: PropertyFilterType.Event,
@@ -332,12 +329,17 @@ type LastSurveyResponseResult =
     | { status: 'empty' }
     | { status: 'failed' }
 
-// Copying the excluded value into the sample would guarantee the filter rejects it.
-const NEGATED_PROPERTY_OPERATORS = new Set<PropertyOperator>([
-    PropertyOperator.IsNot,
-    PropertyOperator.NotIContains,
-    PropertyOperator.NotRegex,
-    PropertyOperator.IsNotSet,
+/**
+ * Operators where copying the filter's own value into the sample event satisfies the filter.
+ * An allowlist rather than a list of negations to skip, so an operator nobody thought about
+ * leaves the sample alone instead of being handed a value that makes the filter reject it.
+ */
+const SAMPLE_SATISFIABLE_OPERATORS = new Set<PropertyOperator>([
+    PropertyOperator.Exact,
+    PropertyOperator.IContains,
+    PropertyOperator.GreaterThanOrEqual,
+    PropertyOperator.LessThanOrEqual,
+    PropertyOperator.IsSet,
 ])
 
 /**
@@ -358,10 +360,13 @@ export function alignGlobalsWithNotificationFilter(
         if (!('key' in prop) || !prop.key || !('value' in prop) || prop.value === undefined) {
             continue
         }
-        if (prop.operator && NEGATED_PROPERTY_OPERATORS.has(prop.operator)) {
+        // A property filter with no operator is an exact match, both here and in the backend.
+        const operator = prop.operator ?? PropertyOperator.Exact
+        if (!SAMPLE_SATISFIABLE_OPERATORS.has(operator)) {
             continue
         }
-        if (prop.operator === PropertyOperator.IsSet && mergedProperties[prop.key] !== undefined) {
+        // `is set` carries a sentinel rather than a real value, so only fill in a missing key.
+        if (operator === PropertyOperator.IsSet && mergedProperties[prop.key] !== undefined) {
             continue
         }
         // An `is any of` filter stores every accepted value; one of them is enough for the sample.
@@ -385,27 +390,31 @@ async function fetchLastSurveyResponseGlobals(queries: EventsQuery[]): Promise<L
     if (queries.length === 0) {
         return { status: 'empty' }
     }
-    try {
-        const responses = await Promise.all(queries.map((query) => performQuery(query)))
-        let latest: { event: EventType; person: PersonType } | null = null
-        for (const response of responses) {
-            const row = response?.results?.[0]
-            const event = row?.[0] as EventType | undefined
-            const person = row?.[1] as PersonType | undefined
-            if (!event || !person) {
-                continue
-            }
-            if (!latest || Date.parse(event.timestamp ?? '') > Date.parse(latest.event.timestamp ?? '')) {
-                latest = { event, person }
-            }
-        }
-        if (!latest) {
-            return { status: 'empty' }
-        }
-        return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(latest.event, latest.person) }
-    } catch {
+    // One branch erroring shouldn't cost us a real response another branch already found.
+    const settled = await Promise.allSettled(queries.map((query) => performQuery(query)))
+    if (settled.every((result) => result.status === 'rejected')) {
         return { status: 'failed' }
     }
+
+    let latest: { event: EventType; person: PersonType } | null = null
+    for (const result of settled) {
+        if (result.status !== 'fulfilled') {
+            continue
+        }
+        const row = result.value?.results?.[0]
+        const event = row?.[0] as EventType | undefined
+        const person = row?.[1] as PersonType | undefined
+        if (!event || !person) {
+            continue
+        }
+        if (!latest || Date.parse(event.timestamp ?? '') > Date.parse(latest.event.timestamp ?? '')) {
+            latest = { event, person }
+        }
+    }
+    if (!latest) {
+        return { status: 'empty' }
+    }
+    return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(latest.event, latest.person) }
 }
 
 async function buildSurveyNotificationPayload({
@@ -1294,7 +1303,7 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
 
                     // Filter against the configuration being tested, not the saved notification,
                     // so unsaved filter edits in the modal are reflected in the test.
-                    const filters = getEffectiveNotificationFilters(configuration)
+                    const filters = configuration.filters ?? null
 
                     let globals: CyclotronJobInvocationGlobals = values.templateGlobals
                     let usingSample = source === 'sample'
