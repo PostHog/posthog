@@ -10,6 +10,13 @@ import { ChartDisplayType } from '~/types'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 
+export function sumAppMetricsTimeSeries(timeSeries: AppMetricsTimeSeriesResponse | null | undefined): number {
+    if (!timeSeries) {
+        return 0
+    }
+    return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
+}
+
 export type AppMetricSummaryProps = {
     name: string
     description: string
@@ -19,6 +26,8 @@ export type AppMetricSummaryProps = {
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     loading?: boolean
     hideIfZero?: boolean
+    /** Extra context shown beneath the total, e.g. this metric's share of another metric. */
+    subtitle?: string | null
 }
 
 export function AppMetricSummary({
@@ -30,23 +39,14 @@ export function AppMetricSummary({
     colorIfZero,
     loading,
     hideIfZero = false,
+    subtitle,
 }: AppMetricSummaryProps): JSX.Element | null {
-    const total = useMemo(() => {
-        if (!timeSeries) {
-            return 0
-        }
-        return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
-    }, [timeSeries])
+    const total = useMemo(() => sumAppMetricsTimeSeries(timeSeries), [timeSeries])
 
-    const totalPreviousPeriod = useMemo(() => {
-        if (!previousPeriodTimeSeries) {
-            return 0
-        }
-        return previousPeriodTimeSeries.series.reduce(
-            (acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0),
-            0
-        )
-    }, [previousPeriodTimeSeries])
+    const totalPreviousPeriod = useMemo(
+        () => sumAppMetricsTimeSeries(previousPeriodTimeSeries),
+        [previousPeriodTimeSeries]
+    )
 
     const diffForDisplay = formatPercentageDiff(total, totalPreviousPeriod)
 
@@ -66,7 +66,14 @@ export function AppMetricSummary({
                 )}
             </div>
             <div className="flex flex-row justify-end items-center gap-2 text-xs text-muted">
-                {loading ? <LemonSkeleton className="w-10 h-4" /> : <>{diffForDisplay}</>}
+                {loading ? (
+                    <LemonSkeleton className="w-10 h-4" />
+                ) : (
+                    <>
+                        {subtitle}
+                        {diffForDisplay}
+                    </>
+                )}
             </div>
 
             <div className="flex-1 mt-2">

@@ -4,7 +4,8 @@ import { useMemo } from 'react'
 import { getColorVar } from 'lib/colors'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
+import { AppMetricSummary, sumAppMetricsTimeSeries } from 'lib/components/AppMetrics/AppMetricSummary'
+import { percentage } from 'lib/utils/numbers'
 
 import { WORKFLOW_EMAIL_METRICS } from './workflowMetricsSummaryLogic'
 
@@ -32,21 +33,29 @@ export function EmailMetricsSummary({ logicKey }: { logicKey: string }): JSX.Ele
         [appMetricsTrends]
     )
 
+    const sentTotal = sumAppMetricsTimeSeries(getSingleTrendSeries('email_sent'))
+
     return (
         <>
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]
+                    const timeSeries = getSingleTrendSeries(key)
                     return (
                         <AppMetricSummary
                             key={key}
                             name={metric.name}
                             description={metric.description}
                             loading={appMetricsTrendsLoading}
-                            timeSeries={getSingleTrendSeries(key)}
+                            timeSeries={timeSeries}
                             previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
                             color={metric.color}
                             colorIfZero={getColorVar('muted')}
+                            subtitle={
+                                key !== 'email_sent' && sentTotal > 0
+                                    ? `${percentage(sumAppMetricsTimeSeries(timeSeries) / sentTotal, 1)} of sent`
+                                    : null
+                            }
                         />
                     )
                 })}
