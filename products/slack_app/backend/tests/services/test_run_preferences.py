@@ -2,7 +2,12 @@ import pytest
 from unittest.mock import patch
 
 from products.slack_app.backend.services import run_preferences
-from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices, describe_run_model
+from products.slack_app.backend.services.model_catalogue import (
+    ModelChoice,
+    available_model_choices,
+    describe_run_model,
+    format_model_id,
+)
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, resolve_run_preferences
 from products.slack_app.backend.services.slack_settings import AIPreferences
 
@@ -92,6 +97,27 @@ class TestDescribeRunModel:
     )
     def test_renders_the_shared_phrasing(self, model, reasoning_effort, expected):
         assert describe_run_model(model, reasoning_effort) == expected
+
+
+class TestFormatModelId:
+    @pytest.mark.parametrize(
+        "model_id,expected",
+        [
+            ("claude-opus-5", "Claude Opus 5"),
+            # A dashed version survives the split as one component.
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            # Vendor initialisms keep their casing and stay glued to the version, so
+            # the picker reads "GPT-5.6 Sol" rather than "Gpt 5.6 Sol".
+            ("gpt-5.2", "GPT-5.2"),
+            ("gpt-5.6-sol", "GPT-5.6 Sol"),
+            ("gpt-5.3-codex", "GPT-5.3 Codex"),
+            ("gpt-5-mini", "GPT-5 Mini"),
+            # A provider-prefixed id drops the prefix before naming.
+            ("openai/gpt-5.5", "GPT-5.5"),
+        ],
+    )
+    def test_names_every_family_without_a_lookup_table(self, model_id, expected):
+        assert format_model_id(model_id) == expected
 
 
 class TestAvailableModelChoices:

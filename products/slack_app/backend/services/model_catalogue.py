@@ -49,6 +49,9 @@ RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "codex": "Codex (OpenAI)",
 }
 
+# Vendor initialisms that must not be title-cased into "Gpt".
+_MODEL_ACRONYMS: dict[str, str] = {"gpt": "GPT", "glm": "GLM"}
+
 REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = {
     "low": "Low",
     "medium": "Medium",
@@ -89,7 +92,7 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
             ModelChoice(
                 runtime_adapter=runtime_adapter,
                 model=model.id,
-                label=format_model_id(model.id, owned_by=model.owned_by),
+                label=format_model_id(model.id),
                 supported_efforts=tuple(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model.id)),
             )
         )
@@ -114,28 +117,35 @@ def runtime_adapter_for(model: str | None) -> str | None:
     return None
 
 
-def format_model_id(model_id: str, *, owned_by: str | None = None) -> str:
-    """OpenAI ids stay lowercase; Claude ids become `Claude Opus 4.8` etc.
+def format_model_id(model_id: str) -> str:
+    """Turn a gateway model id into a display name: `Claude Opus 4.8`, `GPT-5.6 Sol`.
 
-    Pass `owned_by` when the gateway already told you the provider. A caller holding
-    only a model id (a stored preference, a run's state) can omit it and the runtime
-    the model belongs to decides the casing.
+    Every family goes through the same rules — strip the provider prefix, glue a
+    version onto a leading acronym, title-case the rest — so a new model is named
+    without anyone touching a lookup table.
     """
-    is_openai = owned_by == "openai" if owned_by is not None else runtime_adapter_for(model_id) == "codex"
     clean = model_id
     for provider in _runtime_adapter_by_provider():
         if clean.startswith(f"{provider}/"):
             clean = clean[len(provider) + 1 :]
             break
-    if is_openai:
-        return clean.lower()
 
     # Collapse `4-8` into `4.8` so version components survive the dash split.
-    clean = re.sub(r"(\d)-(\d)", r"\1.\2", clean)
-    return " ".join(
-        word if re.fullmatch(r"[0-9.]+", word) else word[:1].upper() + word[1:].lower()
-        for word in re.split(r"[-_]", clean)
-    )
+    words = re.split(r"[-_]", re.sub(r"(\d)-(\d)", r"\1.\2", clean))
+    acronym = _MODEL_ACRONYMS.get(words[0].lower())
+    if acronym is None:
+        return " ".join(_titled(word) for word in words)
+    # `gpt` + `5.6` reads as `GPT-5.6`, the way the vendor writes it, with any
+    # remaining qualifier ("sol", "codex", "mini") as its own word.
+    head = f"{acronym}-{words[1]}" if len(words) > 1 else acronym
+    return " ".join([head, *(_titled(word) for word in words[2:])])
+
+
+def _titled(word: str) -> str:
+    """Capitalise a name part, leaving bare version numbers alone."""
+    if re.fullmatch(r"[0-9.]+", word):
+        return word
+    return word[:1].upper() + word[1:].lower()
 
 
 def label_for(value: str | None, mapping: dict[str, str]) -> str:
