@@ -8,6 +8,8 @@ import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -38,6 +40,13 @@ export function IntegrationChoice({
     const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
+    // Connecting an integration only requires project membership; editing or removing one still
+    // requires admin (enforced again by the backend). Mirror that here instead of letting a member
+    // click through the disconnect flow only to hit a permission error from the API.
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -156,6 +165,7 @@ export function IntegrationChoice({
                                   label: 'Disconnect integration',
                                   status: 'danger' as const,
                                   sideIcon: <IconTrash />,
+                                  disabledReason: restrictedReason,
                               }
                             : null,
                     ],

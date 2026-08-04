@@ -1,7 +1,13 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -86,5 +92,30 @@ describe('IntegrationChoice', () => {
         await waitFor(() => {
             expect(screen.getByText(/no longer available/)).toBeInTheDocument()
         })
+    })
+
+    it("disables 'Disconnect integration' for a project member instead of letting the API 403", async () => {
+        // Regression guard: a member could previously click through the full disconnect flow
+        // (menu item -> confirm dialog -> DELETE) only to have the API reject it with a
+        // permission error, since removal requires admin while this menu offered it to anyone.
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+
+        render(
+            <Provider>
+                <IntegrationChoice integration="github" value={1} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText('Change')).toBeInTheDocument()
+        })
+        await userEvent.click(screen.getByText('Change'))
+
+        const disconnectItem = await screen.findByText('Disconnect integration')
+        expect(disconnectItem.closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 })
