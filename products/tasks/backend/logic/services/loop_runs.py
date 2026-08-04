@@ -710,6 +710,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         internal=True,
         loop=loop,
         channel_id=feed_channel_id,
+        client_provenance=loop.client_provenance,
     )
 
     config_snapshot = {
