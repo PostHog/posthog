@@ -74,7 +74,7 @@ import {
   type ThreadScrollResume,
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
-import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { buildResponseCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import { copyFromContextMenu } from "@posthog/ui/features/sessions/components/copyContextTarget";
@@ -85,6 +85,7 @@ import { mergeConversationItems } from "@posthog/ui/features/sessions/components
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
+import { extractOrchestrationInstructions } from "@posthog/ui/features/sessions/components/session-update/orchestrationInstructions";
 import {
   hasFileMentions,
   MentionChip,
@@ -313,9 +314,8 @@ function formatTimestamp(ts: number): string {
 
 /**
  * Hover-revealed footer under a completed agent turn: the turn's timestamp plus a button copying
- * the whole turn. Rendered right-aligned under agent-side content — the end-aligned user bubble
- * keeps its own footer — inside a `group` container, so it fades in only while that turn is
- * hovered. Once per turn rather than per row, which was too noisy.
+ * the agent response. It is rendered right-aligned under agent-side content while the end-aligned
+ * user bubble keeps its own footer. The `group` container reveals it when the turn is hovered.
  */
 function TurnFooter({
   timestamp,
@@ -330,7 +330,7 @@ function TurnFooter({
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
-      {copyText && <CopyButton value={copyText} label="Copy turn" />}
+      {copyText && <CopyButton value={copyText} label="Copy response" />}
     </ChatMessageFooter>
   );
 }
@@ -408,12 +408,21 @@ function UserBubble({
   const afterCanvasInstructions = canvasInstructions
     ? canvasInstructions.stripped
     : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
+  const orchestrationInstructions = useMemo(
+    () => extractOrchestrationInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
+  const afterOrchestrationInstructions = orchestrationInstructions
+    ? orchestrationInstructions.stripped
+    : afterCanvasInstructions;
+  const customInstructions = useMemo(
+    () => extractCustomInstructions(afterOrchestrationInstructions),
+    [afterOrchestrationInstructions],
+  );
   const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+    customInstructions
+      ? customInstructions.stripped
+      : afterOrchestrationInstructions,
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
@@ -714,11 +723,7 @@ const ThreadRow = memo(function ThreadRow({
         </div>
         <TurnFooter
           timestamp={completedTurnTimestamp(item)}
-          copyText={
-            buildTurnCopyText(
-              item.prompt ? [item.prompt, ...item.items] : item.items,
-            ) ?? undefined
-          }
+          copyText={buildResponseCopyText(item.items) ?? undefined}
         />
       </ChatMessageScrollerItem>
     );

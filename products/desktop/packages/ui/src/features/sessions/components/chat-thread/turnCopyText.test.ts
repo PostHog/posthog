@@ -1,7 +1,7 @@
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import type { ToolGroupItem } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
 import { describe, expect, it } from "vitest";
-import { buildTurnCopyText } from "./turnCopyText";
+import { buildResponseCopyText } from "./turnCopyText";
 
 function userMessage(id: string, content: string): ConversationItem {
   return { type: "user_message", id, content, timestamp: 0 };
@@ -47,9 +47,9 @@ function toolGroup(id: string): ToolGroupItem {
   return { type: "tool_group", id, tools: [] } as unknown as ToolGroupItem;
 }
 
-describe("buildTurnCopyText", () => {
+describe("buildResponseCopyText", () => {
   it("joins the rows' prose in order", () => {
-    const text = buildTurnCopyText([
+    const text = buildResponseCopyText([
       agentText("a1", "first paragraph"),
       agentText("a2", "second paragraph"),
     ]);
@@ -58,14 +58,14 @@ describe("buildTurnCopyText", () => {
   });
 
   it("skips tool calls, tool groups and other non-prose rows", () => {
-    const text = buildTurnCopyText([
+    const text = buildResponseCopyText([
       userMessage("u1", "do the thing"),
       toolCall("t1"),
       toolGroup("g1"),
       agentText("a1", "done"),
     ]);
 
-    expect(text).toBe("do the thing\n\ndone");
+    expect(text).toBe("done");
   });
 
   it.each([
@@ -73,6 +73,6 @@ describe("buildTurnCopyText", () => {
     ["tools only", [toolCall("t1"), toolGroup("g1")]],
     ["blank prose", [userMessage("u1", "   "), agentText("a1", "\n")]],
   ])("returns null when there is nothing to copy: %s", (_label, items) => {
-    expect(buildTurnCopyText(items)).toBeNull();
+    expect(buildResponseCopyText(items)).toBeNull();
   });
 });

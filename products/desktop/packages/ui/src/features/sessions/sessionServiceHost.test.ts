@@ -4023,6 +4023,7 @@ describe("SessionService", () => {
           expect.objectContaining({
             type: "user_message",
             content: "build me a thing",
+            pinToTop: false,
           }),
         );
       });
@@ -4094,6 +4095,7 @@ describe("SessionService", () => {
           expect.objectContaining({
             type: "user_message",
             content: "build me a thing",
+            pinToTop: false,
           }),
         );
       });
