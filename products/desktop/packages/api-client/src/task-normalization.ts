@@ -110,7 +110,11 @@ function normalizeTaskRunArtifact(
     ...(artifact.id === undefined ? {} : { id: artifact.id }),
     name: artifact.name,
     type: normalizeArtifactType(artifact.type),
-    ...(artifact.source === undefined ? {} : { source: artifact.source }),
+    ...(artifact.source === "agent_output" ||
+    artifact.source === "user_attachment" ||
+    artifact.source === "posthog_code_skill"
+      ? { source: artifact.source }
+      : {}),
     ...(artifact.size === undefined ? {} : { size: artifact.size }),
     ...(artifact.content_type === undefined
       ? {}
@@ -186,7 +190,6 @@ export function normalizeTaskResponse(
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
     origin_product: dto.origin_product ?? "",
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),
-    repositories: dto.repositories ?? (dto.repository ? [dto.repository] : []),
     ...(dto.github_integration === undefined
       ? {}
       : { github_integration: dto.github_integration }),

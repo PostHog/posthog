@@ -253,6 +253,23 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
 
+// A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
+// blocker or extension blocking the request. Name that likely cause instead of echoing it.
+export function resolveConnectErrorMessage(e: any): string {
+    const apiMessage = e?.data?.message ?? e?.detail
+    if (apiMessage) {
+        return apiMessage
+    }
+    if (e?.status === undefined || e?.status === null || e?.status === 0) {
+        return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
+    }
+    if (e?.status >= 500) {
+        return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+    }
+    // A 4xx without a message body would otherwise toast "undefined".
+    return e?.message ?? 'Something went wrong setting up your source. Please try again.'
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -1056,6 +1073,7 @@ export interface sourceWizardLogicActions {
             | 'GoogleDirectory'
             | 'GoogleDrive'
             | 'GoogleForms'
+            | 'GoogleMerchantCenter'
             | 'GooglePageSpeedInsights'
             | 'GooglePlayConsole'
             | 'GoogleSearchConsole'
@@ -3301,7 +3319,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                lemonToast.error(resolveConnectErrorMessage(e))
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)
@@ -3477,15 +3495,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                // A gateway timeout / 5xx has no JSON body, so e.message is the raw
-                // "Non-OK response [POST ...] (status 504: )" — meaningless to the user. Surface a
-                // friendly hint for server-side failures while keeping any API-provided message.
                 const apiMessage = e.data?.message ?? e.detail
-                const errorMessage =
-                    apiMessage ??
-                    (e.status >= 500
-                        ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
-                        : e.message)
+                const errorMessage = resolveConnectErrorMessage(e)
                 lemonToast.error(errorMessage)
 
                 // A 5xx with no body is an unexpected server failure, not a user credential

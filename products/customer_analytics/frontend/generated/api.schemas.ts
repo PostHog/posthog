@@ -66,6 +66,7 @@ export interface ErrorResponseApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -78,6 +79,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -208,25 +210,10 @@ export const SlackSummaryCadenceEnumApi = {
 } as const
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type AccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -241,6 +228,8 @@ export type AccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
 } | null
 
 /**
@@ -260,7 +249,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -389,25 +378,10 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -422,6 +396,8 @@ export type PatchedAccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
 } | null
 
 /**
@@ -441,7 +417,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -1468,21 +1444,9 @@ export type AccountRelationshipDefinitionsListParams = {
 
 export type AccountsListParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean
-    /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
-     */
-    csm?: string
     /**
      * Number of results to return per page.
      */

@@ -86,6 +86,24 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.showStartupCapLine).toBe(false)
     })
 
+    it('derives billing display values from the quota, paid vs free-allocation-only', async () => {
+        await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+
+        // Paid org: 4,000 used against a 10,000 limit with a 2,500 free tier.
+        logic.actions.loadQuotaSuccess(makeQuota({ credits_used: 4000, remaining: 6000 }))
+        expect(logic.values.showUsd).toBe(true)
+        expect(logic.values.onFreePlan).toBe(false)
+        expect(logic.values.billedCredits).toBe(1500)
+        expect(logic.values.billedLimitCredits).toBe(7500)
+
+        // Free-allocation-only org: the whole limit is the free tier, so nothing bills.
+        logic.actions.loadQuotaSuccess(makeQuota({ credit_limit: 2500, credits_used: 1000, remaining: 1500 }))
+        expect(logic.values.showUsd).toBe(false)
+        expect(logic.values.onFreePlan).toBe(true)
+        expect(logic.values.billedCredits).toBe(0)
+        expect(logic.values.billedLimitCredits).toBe(0)
+    })
+
     it('loadQuota overwrites any optimistic adjustment with the server value', async () => {
         await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
         logic.actions.adjustProjectedMonthly(250)
