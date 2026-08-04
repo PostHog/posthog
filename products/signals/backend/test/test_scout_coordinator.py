@@ -313,9 +313,9 @@ async def test_wildcard_keeps_a_fully_breaker_paused_team_enrolled_for_probes(at
 @pytest.mark.flag_off
 @pytest.mark.parametrize("autostart_enabled", [True, False, None])
 async def test_self_driving_switch_drains_a_team(ateam, autostart_enabled):
-    # The inbox's Self-driving switch stops the whole pipeline, so an off team must plan no runs at
-    # all: its findings would be dropped at emission, and a probe for a breaker-paused lane would
-    # burn a sandbox for nothing. Only an explicit False is off (null means never set).
+    # The inbox's Self-driving switch stops the whole pipeline, so a team that switched it off drops
+    # out of participation entirely — anything its scouts emitted would be dropped at emission
+    # anyway. Only an explicit False is off; null means never set.
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
     await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
     await database_sync_to_async(SignalTeamConfig.objects.update_or_create)(
