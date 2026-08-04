@@ -22312,6 +22312,177 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    /**
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical
+     */
+    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
+
+
+    export const TicketPriorityEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    /**
+     * * `widget` - widget
+     * * `email` - email
+     * * `slack` - slack
+     * * `teams` - teams
+     * * `github` - github
+     * * `all` - all
+     */
+    export type TicketChannelFilterEnum = typeof TicketChannelFilterEnum[keyof typeof TicketChannelFilterEnum];
+
+
+    export const TicketChannelFilterEnum = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `breached` - breached
+     * * `at-risk` - at-risk
+     * * `on-track` - on-track
+     * * `all` - all
+     */
+    export type TicketSlaFilterEnum = typeof TicketSlaFilterEnum[keyof typeof TicketSlaFilterEnum];
+
+
+    export const TicketSlaFilterEnum = {
+      Breached: 'breached',
+      AtRisk: 'at-risk',
+      OnTrack: 'on-track',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `any` - any
+     * * `all` - all
+     */
+    export type TicketTagsMatchEnum = typeof TicketTagsMatchEnum[keyof typeof TicketTagsMatchEnum];
+
+
+    export const TicketTagsMatchEnum = {
+      Any: 'any',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `1` - 1
+     * * `-1` - -1
+     */
+    export type TicketSortOrderEnum = typeof TicketSortOrderEnum[keyof typeof TicketSortOrderEnum];
+
+
+    export const TicketSortOrderEnum = {
+      Number1: 1,
+      NumberMinus1: -1,
+    } as const;
+
+    export interface TicketViewSorting {
+      /** Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at. */
+      columnKey: string;
+      /** 1 for ascending, -1 for descending.
+       *
+       * * `1` - 1
+       * * `-1` - -1 */
+      order: TicketSortOrderEnum;
+    }
+
+    export type TicketViewFiltersAssigneeItem = 'me' | 'unassigned' | {
+      type: 'user' | 'role';
+      id: string | number;
+    };
+
+    /**
+     * Canonical shape of a saved ticket view's filters. Every field is optional; an omitted
+     * field (or an 'all' sentinel) leaves that dimension unfiltered.
+     */
+    export interface TicketViewFilters {
+      /** Ticket statuses to include. Empty or omitted means all statuses. */
+      status?: TicketStatusEnum[];
+      /** Ticket priorities to include. Empty or omitted means all priorities. */
+      priority?: TicketPriorityEnum[];
+      /** Channel the ticket originated from. 'all' disables the filter.
+       *
+       * * `widget` - widget
+       * * `email` - email
+       * * `slack` - slack
+       * * `teams` - teams
+       * * `github` - github
+       * * `all` - all */
+      channel?: TicketChannelFilterEnum;
+      /** SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.
+       *
+       * * `breached` - breached
+       * * `at-risk` - at-risk
+       * * `on-track` - on-track
+       * * `all` - all */
+      sla?: TicketSlaFilterEnum;
+      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
+      aiTriageResult?: AiTriageResultEnum[];
+      /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
+      assignee?: TicketViewFiltersAssigneeItem[];
+      /** Tag names to match, combined according to tagsMatch. */
+      tags?: string[];
+      /** 'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).
+       *
+       * * `any` - any
+       * * `all` - all */
+      tagsMatch?: TicketTagsMatchEnum;
+      /** Tickets carrying any of these tags are excluded. */
+      tagsExclude?: string[];
+      /**
+         * Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.
+         * @nullable
+         */
+      dateFrom?: string | null;
+      /**
+         * Only include tickets updated on or before this date. Same format as dateFrom.
+         * @nullable
+         */
+      dateTo?: string | null;
+      /** Sort order for the ticket list. */
+      sorting?: TicketViewSorting | null;
+      /**
+         * Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content.
+         * @maxLength 200
+         */
+      search?: string;
+    }
+
+    export interface TicketView {
+      readonly id: string;
+      readonly short_id: string;
+      /** @maxLength 400 */
+      name: string;
+      /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
+      filters?: TicketViewFilters;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+      is_favorited?: boolean;
+      /** Whether this is the current user's default view for this project. Opening Support applies the default view's filters. Each user has at most one default per project, so setting a new default replaces the previous one. Defaults are personal to each user. */
+      is_default?: boolean;
+    }
+
+    /**
+     * Wraps the view so the endpoint has a stable response shape when no default is set.
+     */
+    export interface DefaultTicketView {
+      /** The requesting user's default view for this project, or null if they haven't set one. */
+      default_view: TicketView | null;
+    }
+
     export interface DeleteTileRequest {
       /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
       tile_id: number;
@@ -48739,22 +48910,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `low` - Low
-     * * `medium` - Medium
-     * * `high` - High
-     * * `critical` - Critical
-     */
-    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
-
-
-    export const TicketPriorityEnum = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
-
-    /**
      * @nullable
      */
     export type TicketAssignmentUser = {[key: string]: string} | null;
@@ -48920,151 +49075,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TicketMessage[];
-    }
-
-    /**
-     * * `widget` - widget
-     * * `email` - email
-     * * `slack` - slack
-     * * `teams` - teams
-     * * `github` - github
-     * * `all` - all
-     */
-    export type TicketChannelFilterEnum = typeof TicketChannelFilterEnum[keyof typeof TicketChannelFilterEnum];
-
-
-    export const TicketChannelFilterEnum = {
-      Widget: 'widget',
-      Email: 'email',
-      Slack: 'slack',
-      Teams: 'teams',
-      Github: 'github',
-      All: 'all',
-    } as const;
-
-    /**
-     * * `breached` - breached
-     * * `at-risk` - at-risk
-     * * `on-track` - on-track
-     * * `all` - all
-     */
-    export type TicketSlaFilterEnum = typeof TicketSlaFilterEnum[keyof typeof TicketSlaFilterEnum];
-
-
-    export const TicketSlaFilterEnum = {
-      Breached: 'breached',
-      AtRisk: 'at-risk',
-      OnTrack: 'on-track',
-      All: 'all',
-    } as const;
-
-    /**
-     * * `any` - any
-     * * `all` - all
-     */
-    export type TicketTagsMatchEnum = typeof TicketTagsMatchEnum[keyof typeof TicketTagsMatchEnum];
-
-
-    export const TicketTagsMatchEnum = {
-      Any: 'any',
-      All: 'all',
-    } as const;
-
-    /**
-     * * `1` - 1
-     * * `-1` - -1
-     */
-    export type TicketSortOrderEnum = typeof TicketSortOrderEnum[keyof typeof TicketSortOrderEnum];
-
-
-    export const TicketSortOrderEnum = {
-      Number1: 1,
-      NumberMinus1: -1,
-    } as const;
-
-    export interface TicketViewSorting {
-      /** Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at. */
-      columnKey: string;
-      /** 1 for ascending, -1 for descending.
-       *
-       * * `1` - 1
-       * * `-1` - -1 */
-      order: TicketSortOrderEnum;
-    }
-
-    export type TicketViewFiltersAssigneeItem = 'me' | 'unassigned' | {
-      type: 'user' | 'role';
-      id: string | number;
-    };
-
-    /**
-     * Canonical shape of a saved ticket view's filters. Every field is optional; an omitted
-     * field (or an 'all' sentinel) leaves that dimension unfiltered.
-     */
-    export interface TicketViewFilters {
-      /** Ticket statuses to include. Empty or omitted means all statuses. */
-      status?: TicketStatusEnum[];
-      /** Ticket priorities to include. Empty or omitted means all priorities. */
-      priority?: TicketPriorityEnum[];
-      /** Channel the ticket originated from. 'all' disables the filter.
-       *
-       * * `widget` - widget
-       * * `email` - email
-       * * `slack` - slack
-       * * `teams` - teams
-       * * `github` - github
-       * * `all` - all */
-      channel?: TicketChannelFilterEnum;
-      /** SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.
-       *
-       * * `breached` - breached
-       * * `at-risk` - at-risk
-       * * `on-track` - on-track
-       * * `all` - all */
-      sla?: TicketSlaFilterEnum;
-      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
-      aiTriageResult?: AiTriageResultEnum[];
-      /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
-      assignee?: TicketViewFiltersAssigneeItem[];
-      /** Tag names to match, combined according to tagsMatch. */
-      tags?: string[];
-      /** 'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).
-       *
-       * * `any` - any
-       * * `all` - all */
-      tagsMatch?: TicketTagsMatchEnum;
-      /** Tickets carrying any of these tags are excluded. */
-      tagsExclude?: string[];
-      /**
-         * Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.
-         * @nullable
-         */
-      dateFrom?: string | null;
-      /**
-         * Only include tickets updated on or before this date. Same format as dateFrom.
-         * @nullable
-         */
-      dateTo?: string | null;
-      /** Sort order for the ticket list. */
-      sorting?: TicketViewSorting | null;
-      /**
-         * Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content.
-         * @maxLength 200
-         */
-      search?: string;
-    }
-
-    export interface TicketView {
-      readonly id: string;
-      readonly short_id: string;
-      /** @maxLength 400 */
-      name: string;
-      /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
-      filters?: TicketViewFilters;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
-      is_favorited?: boolean;
     }
 
     export interface PaginatedTicketViewList {
@@ -57216,6 +57226,8 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
       is_favorited?: boolean;
+      /** Whether this is the current user's default view for this project. Opening Support applies the default view's filters. Each user has at most one default per project, so setting a new default replaces the previous one. Defaults are personal to each user. */
+      is_default?: boolean;
     }
 
     /**

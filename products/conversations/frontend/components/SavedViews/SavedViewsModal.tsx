@@ -1,8 +1,16 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconHeart, IconHeartFilled } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconHeart, IconHeartFilled, IconPin, IconPinFilled } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -122,12 +130,26 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
 }
 
 export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
-        ticketViewsLogic({ id })
-    )
-    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
-        ticketViewsLogic({ id })
-    )
+    const {
+        isModalOpen,
+        filteredViews,
+        viewsLoading,
+        currentFilters,
+        favoritingShortIds,
+        defaultingShortIds,
+        searchTerm,
+    } = useValues(ticketViewsLogic({ id }))
+    const {
+        closeModal,
+        openSaveModal,
+        deleteView,
+        loadView,
+        updateView,
+        toggleFavorite,
+        setViewAsDefault,
+        clearDefaultView,
+        setSearchTerm,
+    } = useActions(ticketViewsLogic({ id }))
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
@@ -158,9 +180,43 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
             ),
         },
         {
+            title: '',
+            key: 'default',
+            width: 0,
+            render: (_, view) => (
+                <LemonButton
+                    size="xsmall"
+                    loading={defaultingShortIds.includes(view.short_id)}
+                    onClick={() => (view.is_default ? clearDefaultView(view) : setViewAsDefault(view))}
+                    disabledReason={editDisabledReason}
+                    icon={
+                        view.is_default ? (
+                            <IconPinFilled className="text-accent" />
+                        ) : (
+                            <IconPin className="text-secondary" />
+                        )
+                    }
+                    tooltip={
+                        view.is_default
+                            ? 'Remove your default view. Support will open with your last used filters.'
+                            : 'Set as my default. Support will open with this view (only visible to you).'
+                    }
+                />
+            ),
+        },
+        {
             title: 'Name',
             dataIndex: 'name',
-            render: (_, view) => <span className="font-medium">{view.name}</span>,
+            render: (_, view) => (
+                <div className="flex items-center gap-1.5">
+                    <span className="font-medium">{view.name}</span>
+                    {view.is_default && (
+                        <LemonTag size="small" type="highlight">
+                            Your default
+                        </LemonTag>
+                    )}
+                </div>
+            ),
         },
         {
             title: 'Filters',
@@ -192,6 +248,11 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                         overlay={
                             <LemonMenuOverlay
                                 items={[
+                                    {
+                                        label: view.is_default ? 'Remove my default' : 'Set as my default',
+                                        onClick: () =>
+                                            view.is_default ? clearDefaultView(view) : setViewAsDefault(view),
+                                    },
                                     {
                                         label: 'Rename',
                                         onClick: () => {

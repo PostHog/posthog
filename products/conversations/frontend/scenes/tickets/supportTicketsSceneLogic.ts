@@ -24,7 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
-import { conversationsViewsRetrieve } from '../../generated/api'
+import { conversationsViewsDefaultRetrieve, conversationsViewsRetrieve } from '../../generated/api'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
@@ -75,6 +75,17 @@ const FILTER_URL_PARAM_KEYS = [
     'tags_exclude',
     'order_by',
 ] as const
+
+// Write the current filter selection into the URL so an untouched page is still shareable.
+function reflectFiltersInUrl(filters: TicketViewFilters): void {
+    const currentFilterParams = filtersToUrlParams(filters)
+    if (Object.keys(currentFilterParams).length > 0) {
+        router.actions.replace(router.values.location.pathname, {
+            ...router.values.searchParams,
+            ...currentFilterParams,
+        })
+    }
+}
 
 function sortingToOrderBy(sorting: Sorting | null | undefined): string {
     if (!sorting) {
@@ -212,6 +223,7 @@ export interface supportTicketsSceneLogicValues {
         dateTo: string | null
     } | null
     dateTo: string | null
+    defaultView: SavedTicketView | null
     editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
     orderBy: string
@@ -297,6 +309,12 @@ export interface supportTicketsSceneLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setDefaultView: (view: SavedTicketView | null) => {
+        view: SavedTicketView | null
+    }
+    resolveDefaultView: () => {
+        value: true
     }
     setPriorityFilter: (priorities: TicketPriority[]) => {
         priorities: TicketPriority[]
@@ -409,6 +427,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyUrlFilters: (filters: TicketViewFilters) => ({ filters }),
         applyView: (view: SavedTicketView) => ({ view }),
         loadSavedView: (shortId: string) => ({ shortId }),
+        resolveDefaultView: true,
+        setDefaultView: (view: SavedTicketView | null) => ({ view }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
         resetFilters: true,
@@ -430,6 +450,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             false,
             {
                 loadTickets: () => true,
+                // Mount gates the first fetch on the default view resolving, so show the loading
+                // state from the first frame rather than flashing the empty state.
+                resolveDefaultView: () => true,
                 setTickets: () => false,
                 setTicketsLoading: (_, { loading }) => loading,
             },
@@ -555,6 +578,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setActiveView: (_, { view }) => view,
                 clearActiveView: () => null,
+            },
+        ],
+        // Deliberately not persisted: the server owns this, and a stale cached default would
+        // silently override the filters the user actually left behind.
+        defaultView: [
+            null as SavedTicketView | null,
+            {
+                setDefaultView: (_, { view }) => view,
             },
         ],
         dateRangeBeforeView: [
@@ -881,6 +912,29 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 inFlight.delete(shortId)
             }
         },
+        resolveDefaultView: async (_, breakpoint) => {
+            const teamId = teamLogic.values.currentTeamId
+            let view: SavedTicketView | null = null
+            try {
+                const response = await conversationsViewsDefaultRetrieve(String(teamId))
+                view = (response.default_view as unknown as SavedTicketView | null) ?? null
+            } catch {
+                // A missing or forbidden default must never block the ticket list, and there's
+                // nothing the user can act on, so fall through to their persisted filters quietly.
+            }
+            // Bail if the scene unmounted while the request was in flight — reading values or
+            // dispatching past that point throws on a torn-down store.
+            breakpoint()
+            actions.setDefaultView(view)
+            if (view) {
+                // applyView -> applyViewFilters -> setCurrentPage(1) -> loadTickets(), so the
+                // list is fetched exactly once, already filtered by the default.
+                actions.applyView(view)
+                return
+            }
+            reflectFiltersInUrl(values.currentFilters)
+            actions.loadTickets()
+        },
         resetFilters: () => {
             const dateRangeBeforeView = values.dateRangeBeforeView
             actions.clearActiveView()
@@ -984,6 +1038,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 return
             }
+            if (!hasFilterParams(searchParams) && values.defaultView) {
+                // Navigating back to a bare /support/tickets while the logic is still mounted lands
+                // on the personal default, same as a fresh load. Our own URL writes were already
+                // filtered out by cache.selfNavigating above, so clearing a view can't bounce back.
+                if (values.activeView?.short_id !== values.defaultView.short_id) {
+                    actions.applyView(values.defaultView)
+                }
+                return
+            }
             const leavingSavedView = !!values.activeView || !!cache.latestViewShortId
             if (
                 leavingSavedView ||
@@ -994,30 +1057,29 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
     })),
     afterMount(({ actions, values, props }) => {
-        const embedded = !!props.distinctIds?.length
         const { searchParams } = router.values
-        if (!embedded && searchParams.view) {
+        // Embedded instances (e.g. the person side panel) never touch the URL and have no
+        // landing view of their own, so they skip both the URL and the default entirely.
+        if (props.distinctIds?.length) {
+            actions.loadTickets()
+            return
+        }
+        if (searchParams.view) {
             actions.loadSavedView(String(searchParams.view))
             return
         }
-        if (!embedded) {
-            if (hasFilterParams(searchParams)) {
-                if (!urlFiltersMatchState(searchParams, values.currentFilters)) {
-                    // A shared/bookmarked link overrides the persisted selection.
-                    actions.applyUrlFilters(urlParamsToFilters(searchParams))
-                    return
-                }
-            } else {
-                // No filters in the URL — reflect the persisted selection so the page is shareable on open.
-                const currentFilterParams = filtersToUrlParams(values.currentFilters)
-                if (Object.keys(currentFilterParams).length > 0) {
-                    router.actions.replace(router.values.location.pathname, {
-                        ...searchParams,
-                        ...currentFilterParams,
-                    })
-                }
+        if (hasFilterParams(searchParams)) {
+            if (!urlFiltersMatchState(searchParams, values.currentFilters)) {
+                // A shared/bookmarked link overrides the persisted selection.
+                actions.applyUrlFilters(urlParamsToFilters(searchParams))
+                return
             }
+            actions.loadTickets()
+            return
         }
-        actions.loadTickets()
+        // Nothing in the URL, so the user's default view wins over their persisted filters.
+        // loadTickets() is deliberately left to resolveDefaultView, which fetches the list once
+        // the right filters are in place instead of once now and again after.
+        actions.resolveDefaultView()
     }),
 ])

@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 
 from products.conversations.backend.api.ticket_filters import TicketViewFiltersSerializer
 from products.conversations.backend.api.ticket_views import TicketViewFiltersField
-from products.conversations.backend.models import TicketView, TicketViewFavorite
+from products.conversations.backend.models import TicketView, TicketViewDefault, TicketViewFavorite
 
 
 class TestTicketViewAPI(APIBaseTest):
@@ -291,6 +291,108 @@ class TestTicketViewAPI(APIBaseTest):
         results = self.client.get(self.base_url).json()["results"]
         assert [r["name"] for r in results] == ["Older", "Newer"]
         assert results[0]["is_favorited"] is True
+
+    # --- Personal default ---
+
+    def _default_rows(self, **filters):
+        return TicketViewDefault.objects.for_team(self.team.pk).filter(user=self.user, **filters)
+
+    def test_set_and_clear_default(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_default": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["is_default"] is True
+        assert self._default_rows(ticket_view_id=created["id"]).count() == 1
+
+        response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_default": False}, format="json")
+        assert response.json()["is_default"] is False
+        assert not self._default_rows().exists()
+
+    def test_setting_a_new_default_replaces_the_old(self):
+        first = self._create_via_api(name="First")
+        second = self._create_via_api(name="Second")
+
+        self.client.patch(f"{self.base_url}{first['short_id']}/", {"is_default": True}, format="json")
+        self.client.patch(f"{self.base_url}{second['short_id']}/", {"is_default": True}, format="json")
+
+        assert self._default_rows().count() == 1
+        assert str(self._default_rows().get().ticket_view_id) == second["id"]
+
+        results = self.client.get(self.base_url).json()["results"]
+        assert [r["name"] for r in results if r["is_default"]] == ["Second"]
+
+    def test_clearing_default_on_a_non_default_view_is_a_noop(self):
+        default = self._create_via_api(name="Default")
+        other = self._create_via_api(name="Other")
+        self.client.patch(f"{self.base_url}{default['short_id']}/", {"is_default": True}, format="json")
+
+        self.client.patch(f"{self.base_url}{other['short_id']}/", {"is_default": False}, format="json")
+
+        assert str(self._default_rows().get().ticket_view_id) == default["id"]
+
+    @parameterized.expand([("default", True), ("not_default", False)])
+    def test_create_with_default_flag(self, _label, is_default):
+        data = self._create_via_api(is_default=is_default)
+        assert data["is_default"] is is_default
+        assert self._default_rows(ticket_view_id=data["id"]).exists() is is_default
+
+    def test_default_is_personal_to_each_user(self):
+        created = self._create_via_api()
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_default": True}, format="json")
+
+        other_user = self._create_user("other-default@posthog.com")
+        other_client = APIClient()
+        other_client.force_login(other_user)
+
+        assert other_client.get(self.base_url).json()["results"][0]["is_default"] is False
+        assert other_client.get(f"{self.base_url}default/").json()["default_view"] is None
+
+    def test_default_endpoint_returns_the_view_with_its_filters(self):
+        created = self._create_via_api()
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_default": True}, format="json")
+
+        response = self.client.get(f"{self.base_url}default/")
+        assert response.status_code == status.HTTP_200_OK
+        default_view = response.json()["default_view"]
+        assert default_view["short_id"] == created["short_id"]
+        assert default_view["filters"] == {"status": ["new", "open"], "priority": ["high"]}
+        assert default_view["is_default"] is True
+        assert default_view["is_favorited"] is False
+
+    def test_default_endpoint_returns_null_when_unset(self):
+        self._create_via_api()
+
+        response = self.client.get(f"{self.base_url}default/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"default_view": None}
+
+    def test_deleting_the_default_view_clears_the_default(self):
+        created = self._create_via_api()
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_default": True}, format="json")
+
+        self.client.delete(f"{self.base_url}{created['short_id']}/")
+
+        assert not self._default_rows().exists()
+        assert self.client.get(f"{self.base_url}default/").json()["default_view"] is None
+
+    def test_default_is_scoped_per_team(self):
+        created = self._create_via_api()
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_default": True}, format="json")
+
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        response = self.client.get(f"/api/environments/{team2.pk}/conversations/views/default/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["default_view"] is None
+
+    def test_default_does_not_float_above_favorites(self):
+        favorited = self._create_via_api(name="Favorited")
+        default = self._create_via_api(name="Default")
+        self.client.patch(f"{self.base_url}{favorited['short_id']}/", {"is_favorited": True}, format="json")
+        self.client.patch(f"{self.base_url}{default['short_id']}/", {"is_default": True}, format="json")
+
+        results = self.client.get(self.base_url).json()["results"]
+        assert [r["name"] for r in results] == ["Favorited", "Default"]
 
     # --- Auth ---
 

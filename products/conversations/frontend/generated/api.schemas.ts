@@ -1221,6 +1221,8 @@ export interface TicketViewApi {
     readonly created_by: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
+    /** Whether this is the current user's default view for this project. Opening Support applies the default view's filters. Each user has at most one default per project, so setting a new default replaces the previous one. Defaults are personal to each user. */
+    is_default?: boolean
 }
 
 export interface PaginatedTicketViewListApi {
@@ -1243,6 +1245,16 @@ export interface PatchedTicketViewApi {
     readonly created_by?: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
+    /** Whether this is the current user's default view for this project. Opening Support applies the default view's filters. Each user has at most one default per project, so setting a new default replaces the previous one. Defaults are personal to each user. */
+    is_default?: boolean
+}
+
+/**
+ * Wraps the view so the endpoint has a stable response shape when no default is set.
+ */
+export interface DefaultTicketViewApi {
+    /** The requesting user's default view for this project, or null if they haven't set one. */
+    default_view: TicketViewApi | null
 }
 
 export interface ZendeskImportStartApi {

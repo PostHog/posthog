@@ -12,8 +12,11 @@ class TicketView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
 
-    # Not a column — a per-request annotation set by the viewset/serializer.
+    # Not columns — per-request annotations set by the viewset/serializer.
     is_favorited: bool
+    is_default: bool
+    # Set by the serializer when a write changed the default, so the viewset knows what to report.
+    _default_changed_to: bool | None
 
     class Meta:
         db_table = "posthog_conversations_tickets_views"

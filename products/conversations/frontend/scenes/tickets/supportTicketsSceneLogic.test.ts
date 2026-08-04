@@ -42,6 +42,7 @@ function makeSavedView(shortId: string, filters: TicketViewFilters = {}): SavedT
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
         is_favorited: false,
+        is_default: false,
     }
 }
 
@@ -63,6 +64,7 @@ describe('supportTicketsSceneLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [], count: 0 }],
+                    '/api/projects/:team_id/conversations/views/default/': () => [200, { default_view: null }],
                 },
             })
             initKeaTests()
@@ -191,6 +193,7 @@ describe('supportTicketsSceneLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:team_id/conversations/views/default/': () => [200, { default_view: null }],
                     '/api/projects/:team_id/conversations/views/:short_id/': () => [404, { detail: 'Not found' }],
                 },
             })
@@ -339,6 +342,161 @@ describe('supportTicketsSceneLogic', () => {
         })
     })
 
+    describe('personal default view', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let ticketRequests: number
+        let defaultRequests: number
+
+        // Counts both requests so tests can assert the list is fetched once, not once per filter set
+        function getMocks(defaultResponse: () => [number, unknown]): Record<string, unknown> {
+            return {
+                '/api/projects/:team_id/conversations/tickets/': () => {
+                    ticketRequests++
+                    return [200, { count: 0, results: [] }]
+                },
+                '/api/projects/:team_id/conversations/views/default/': () => {
+                    defaultRequests++
+                    return defaultResponse()
+                },
+                '/api/projects/:team_id/conversations/views/:short_id/': () => [
+                    200,
+                    makeSavedView('other', { status: ['pending'] }),
+                ],
+            }
+        }
+
+        const withDefault = (shortId: string): (() => [number, unknown]) => {
+            return () => [200, { default_view: makeSavedView(shortId, { status: ['open'] }) }]
+        }
+
+        beforeEach(() => {
+            ticketRequests = 0
+            defaultRequests = 0
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('applies the default view on a bare mount and names it in the URL', async () => {
+            useMocks({ get: getMocks(withDefault('mine')) })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('mine')
+            expect(logic.values.defaultView?.short_id).toBe('mine')
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBe('mine')
+        })
+
+        // The whole point of gating the mount: fetching once with the wrong filters and again with
+        // the right ones both wastes a query and flashes the wrong tickets.
+        it('fetches tickets exactly once while applying the default view', async () => {
+            useMocks({ get: getMocks(withDefault('mine')) })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(ticketRequests).toBe(1)
+        })
+
+        it('overrides persisted filters with the default view', async () => {
+            useMocks({ get: getMocks(withDefault('mine')) })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setStatusFilter(['closed'])
+            }).toFinishAllListeners()
+            logic.unmount()
+
+            // Opening Support fresh: statusFilter is still persisted but the URL carries nothing,
+            // so the default has to win rather than the filters the user last left behind.
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(logic.values.activeView?.short_id).toBe('mine')
+        })
+
+        it.each([
+            ['a linked view', { view: 'other' }],
+            ['explicit filter params', { status: ['pending'] }],
+        ])('ignores the default when the URL carries %s', async (_label, searchParams) => {
+            useMocks({ get: getMocks(withDefault('mine')) })
+            router.actions.push(urls.supportTickets(), searchParams)
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(defaultRequests).toBe(0)
+            expect(logic.values.statusFilter).toEqual(['pending'])
+        })
+
+        it('loads tickets normally when no default is set', async () => {
+            useMocks({ get: getMocks(() => [200, { default_view: null }]) })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.defaultView).toBeNull()
+            expect(logic.values.activeView).toBeNull()
+            expect(ticketRequests).toBe(1)
+        })
+
+        it('still loads tickets when the default request fails', async () => {
+            useMocks({ get: getMocks(() => [403, { detail: 'Forbidden' }]) })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.defaultView).toBeNull()
+            expect(ticketRequests).toBe(1)
+        })
+
+        // Embedded lists (the person side panel) share the logic but have no landing view.
+        it('never resolves a default when embedded', async () => {
+            useMocks({ get: getMocks(withDefault('mine')) })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic({ key: 'embedded', distinctIds: ['abc'] })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(defaultRequests).toBe(0)
+            expect(logic.values.activeView).toBeNull()
+            expect(router.values.searchParams.view).toBeUndefined()
+        })
+
+        it('does not re-apply the default after the user clears filters', async () => {
+            useMocks({ get: getMocks(withDefault('mine')) })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.statusFilter).toEqual([])
+        })
+    })
+
     describe('breadcrumbs', () => {
         let logic: ReturnType<typeof supportTicketsSceneLogic.build>
 
@@ -346,6 +504,7 @@ describe('supportTicketsSceneLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:team_id/conversations/views/default/': () => [200, { default_view: null }],
                 },
             })
             initKeaTests()

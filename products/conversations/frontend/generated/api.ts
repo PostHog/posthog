@@ -21,6 +21,7 @@ import type {
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
+    DefaultTicketViewApi,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
@@ -668,6 +669,25 @@ export const conversationsViewsDestroy = async (
     return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsViewsDefaultRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/views/default/`
+}
+
+/**
+ * The requesting user's default view, in one request so the ticket list can be fetched with the
+ * right filters on first load. Routed before the short_id detail route, and short_ids are 8
+ * characters, so "default" can never shadow a real view.
+ */
+export const conversationsViewsDefaultRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DefaultTicketViewApi> => {
+    return apiMutator<DefaultTicketViewApi>(getConversationsViewsDefaultRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

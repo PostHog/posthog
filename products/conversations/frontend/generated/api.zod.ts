@@ -497,6 +497,12 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
         ),
+    is_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether this is the current user's default view for this project. Opening Support applies the default view's filters. Each user has at most one default per project, so setting a new default replaces the previous one. Defaults are personal to each user."
+        ),
 })
 
 export const conversationsViewsPartialUpdateBodyNameMax = 400
@@ -632,6 +638,12 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
+        ),
+    is_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether this is the current user's default view for this project. Opening Support applies the default view's filters. Each user has at most one default per project, so setting a new default replaces the previous one. Defaults are personal to each user."
         ),
 })
 

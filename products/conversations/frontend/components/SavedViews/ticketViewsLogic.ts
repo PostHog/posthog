@@ -24,6 +24,7 @@ export interface TicketViewChanges {
     name?: string
     filters?: TicketViewFilters
     is_favorited?: boolean
+    is_default?: boolean
 }
 
 const searchViews = createFuseSearch<SavedTicketView>(['name'])
@@ -33,6 +34,9 @@ export interface ticketViewsLogicValues {
     activeView: SavedTicketView | null // supportTicketsSceneLogic
     currentFilters: TicketViewFilters // supportTicketsSceneLogic
     currentTeamId: number | null // teamLogic
+    defaultView: SavedTicketView | null // supportTicketsSceneLogic
+    defaultingShortIds: string[]
+    dropdownViews: SavedTicketView[]
     favoriteViews: SavedTicketView[]
     favoritingShortIds: string[]
     filteredViews: SavedTicketView[]
@@ -53,6 +57,15 @@ export interface ticketViewsLogicActions {
     setActiveView: (view: SavedTicketView | null) => {
         view: SavedTicketView | null
     } // supportTicketsSceneLogic
+    setDefaultView: (view: SavedTicketView | null) => {
+        view: SavedTicketView | null
+    } // supportTicketsSceneLogic
+    clearDefaultView: (view: SavedTicketView) => {
+        view: SavedTicketView
+    }
+    setViewAsDefault: (view: SavedTicketView) => {
+        view: SavedTicketView
+    }
     closeModal: () => {
         value: true
     }
@@ -141,6 +154,11 @@ export interface ticketViewsLogicMeta {
         sortedViews: (views: SavedTicketView[]) => SavedTicketView[]
         favoriteViews: (sortedViews: SavedTicketView[]) => SavedTicketView[]
         filteredViews: (sortedViews: SavedTicketView[], searchTerm: string) => SavedTicketView[]
+        dropdownViews: (
+            favoriteViews: SavedTicketView[],
+            views: SavedTicketView[],
+            defaultView: SavedTicketView | null
+        ) => SavedTicketView[]
     }
 }
 
@@ -157,8 +175,13 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
     path((key) => ['products', 'conversations', 'frontend', 'components', 'SavedViews', 'ticketViewsLogic', key]),
 
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic, ['currentFilters', 'activeView']],
-        actions: [supportTicketsSceneLogic, ['applyView', 'setActiveView']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            supportTicketsSceneLogic,
+            ['currentFilters', 'activeView', 'defaultView'],
+        ],
+        actions: [supportTicketsSceneLogic, ['applyView', 'setActiveView', 'setDefaultView']],
     })),
 
     actions({
@@ -166,6 +189,9 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
         updateView: (shortId: string, changes: TicketViewChanges) => ({ shortId, changes }),
         viewUpdated: (view: SavedTicketView) => ({ view }),
         toggleFavorite: (view: SavedTicketView) => ({ view }),
+        // Named apart from the connected setDefaultView, which only mirrors the server's answer
+        setViewAsDefault: (view: SavedTicketView) => ({ view }),
+        clearDefaultView: (view: SavedTicketView) => ({ view }),
         loadView: (view: SavedTicketView) => ({ view }),
         openModal: true,
         closeModal: true,
@@ -199,8 +225,28 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
     reducers({
         views: {
             deleteView: (state, { shortId }) => state.filter((v) => v.short_id !== shortId),
-            viewUpdated: (state, { view }) => state.map((v) => (v.short_id === view.short_id ? view : v)),
+            viewUpdated: (state, { view }) =>
+                state.map((v) => {
+                    if (v.short_id === view.short_id) {
+                        return view
+                    }
+                    // At most one default per user, so promoting a view demotes the rest locally,
+                    // matching the single-row upsert the server just did.
+                    return view.is_default && v.is_default ? { ...v, is_default: false } : v
+                }),
         },
+        defaultingShortIds: [
+            [] as string[],
+            {
+                setViewAsDefault: (state, { view }) =>
+                    state.includes(view.short_id) ? state : [...state, view.short_id],
+                clearDefaultView: (state, { view }) =>
+                    state.includes(view.short_id) ? state : [...state, view.short_id],
+                viewUpdated: (state, { view }) => state.filter((id) => id !== view.short_id),
+                loadViewsSuccess: () => [],
+                loadViewsFailure: () => [],
+            },
+        ],
         favoritingShortIds: [
             [] as string[],
             {
@@ -263,6 +309,22 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             (s) => [s.sortedViews],
             (sortedViews: SavedTicketView[]): SavedTicketView[] => sortedViews.filter((v) => v.is_favorited),
         ],
+        // The default heads the dropdown even when it isn't a favorite, so it's always reachable.
+        // Falls back to the scene's copy so the marker is right before loadViews resolves.
+        dropdownViews: [
+            (s) => [s.favoriteViews, s.views, s.defaultView],
+            (
+                favoriteViews: SavedTicketView[],
+                views: SavedTicketView[],
+                defaultView: SavedTicketView | null
+            ): SavedTicketView[] => {
+                const theDefault = views.find((v) => v.is_default) ?? defaultView
+                if (!theDefault) {
+                    return favoriteViews
+                }
+                return [theDefault, ...favoriteViews.filter((v) => v.short_id !== theDefault.short_id)]
+            },
+        ],
         filteredViews: [
             (s) => [s.sortedViews, s.searchTerm],
             (sortedViews: SavedTicketView[], searchTerm: string): SavedTicketView[] =>
@@ -273,6 +335,12 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
     listeners(({ actions, values }) => ({
         toggleFavorite: ({ view }) => {
             actions.updateView(view.short_id, { is_favorited: !view.is_favorited })
+        },
+        setViewAsDefault: ({ view }) => {
+            actions.updateView(view.short_id, { is_default: true })
+        },
+        clearDefaultView: ({ view }) => {
+            actions.updateView(view.short_id, { is_default: false })
         },
         openModal: () => {
             // The header dropdown already loads views on open; skip a duplicate GET if one is in flight
@@ -288,6 +356,10 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             actions.createView({ name, filters: { ...values.currentFilters } })
         },
         deleteView: async ({ shortId }) => {
+            if (values.defaultView?.short_id === shortId) {
+                // The server drops the default row with the view; keep the scene from landing on it
+                actions.setDefaultView(null)
+            }
             try {
                 await conversationsViewsDestroy(String(values.currentTeamId), shortId)
                 lemonToast.success('View deleted')
@@ -308,9 +380,16 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                 if (values.activeView?.short_id === shortId) {
                     actions.setActiveView(updated)
                 }
-                // Favoriting is a quiet, high-frequency action — no toast for it
-                const isFavoriteToggleOnly = Object.keys(changes).length === 1 && 'is_favorited' in changes
-                if (!isFavoriteToggleOnly) {
+                if ('is_default' in changes) {
+                    // Keep the scene's landing view in sync, so a remount or a bare navigation
+                    // back to the list uses the default the user just picked
+                    actions.setDefaultView(changes.is_default ? updated : null)
+                }
+                const onlyChange = Object.keys(changes).length === 1
+                if (onlyChange && 'is_default' in changes) {
+                    lemonToast.success(changes.is_default ? 'Default view set' : 'Default view cleared')
+                } else if (!(onlyChange && 'is_favorited' in changes)) {
+                    // Favoriting is a quiet, high-frequency action — no toast for it
                     lemonToast.success('View updated')
                 }
             } catch {
