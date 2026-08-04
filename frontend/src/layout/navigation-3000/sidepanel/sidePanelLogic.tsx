@@ -3,6 +3,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import type { SceneParams } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -27,7 +28,9 @@ const TABS_REQUIRING_A_TEAM = [
 /**
  * Tabs whose content is not about the current page (an AI chat, a support ticket draft, a notebook),
  * so they stay open across navigation. Every other tab describes the object on screen and closes
- * when the user moves to a different scene.
+ * when the user moves to a different scene. Max opened with a seed prompt tied to on-page content
+ * (e.g. "Explain this insight") is the exception to its own exception — see the `isSeededMaxChat` check
+ * in the listener below.
  */
 export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks]
 
@@ -37,6 +40,7 @@ export interface sidePanelLogicValues {
     scenePanelIsPresent: boolean // sceneLayoutLogic
     sceneSidePanelContext: SidePanelSceneContext // sidePanelContextLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
+    selectedTabOptions: string | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
@@ -84,7 +88,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
     connect(() => ({
         values: [
             sidePanelStateLogic,
-            ['selectedTab', 'sidePanelOpen'],
+            ['selectedTab', 'selectedTabOptions', 'sidePanelOpen'],
             sidePanelContextLogic,
             ['sceneSidePanelContext'],
             teamLogic,
@@ -163,20 +167,39 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         // the page being left. Comparing scenes (not URLs) keeps the panel open across in-page tab
         // switches, filter changes, and search params. Tabs in TABS_PERSISTED_ACROSS_NAVIGATION hold
         // cross-page state and survive.
-        [sceneLogic.actionTypes.setScene]: ({ sceneId }: { sceneId: string }, _: any, __: any, previousState: any) => {
+        [sceneLogic.actionTypes.setScene]: (
+            { sceneId, params }: { sceneId: string; params: SceneParams },
+            _: any,
+            __: any,
+            previousState: any
+        ) => {
             if (!values.sidePanelOpen) {
                 return
             }
             // Not the sceneId selector: setExportedScene already wrote the new sceneId before setScene fires
-            const previousSceneId = sceneLogic.selectors.lastSetScenePayload(previousState)?.sceneId
+            const previousPayload = sceneLogic.selectors.lastSetScenePayload(previousState)
+            const previousSceneId = previousPayload?.sceneId
             if (!previousSceneId || previousSceneId === sceneId) {
                 return
             }
-            // An explicit #panel= hash on the destination URL (deep link) wins over closing
-            if (router.values.hashParams['panel']) {
+            // An explicit #panel= hash on the destination URL (deep link) wins over closing — but only on
+            // the navigation that first introduces it. sidePanelStateLogic rewrites this same hash into
+            // every URL while the panel is open, so on later navigations the hash is carried over from the
+            // page being left, not a fresh deep link, and must not block the close.
+            const newPanelHash = params.hashParams?.['panel']
+            const previousPanelHash = previousPayload?.params?.hashParams?.['panel']
+            if (newPanelHash && newPanelHash !== previousPanelHash) {
                 return
             }
-            if (values.selectedTab && TABS_PERSISTED_ACROSS_NAVIGATION.includes(values.selectedTab)) {
+            // Max opened with a seed prompt (e.g. "Explain this insight") is about the page being left,
+            // not a general-purpose chat, so it follows the context-bound close rule below like any other
+            // scene-scoped tab, even though Max otherwise persists across navigation.
+            const isSeededMaxChat = values.selectedTab === SidePanelTab.Max && !!values.selectedTabOptions
+            if (
+                values.selectedTab &&
+                TABS_PERSISTED_ACROSS_NAVIGATION.includes(values.selectedTab) &&
+                !isSeededMaxChat
+            ) {
                 return
             }
             actions.closeSidePanel()

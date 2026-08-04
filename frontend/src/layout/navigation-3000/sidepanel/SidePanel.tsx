@@ -80,6 +80,8 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
 
 const DEFAULT_WIDTH = 512
 const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
+// Keeps enough of the underlying page visible that a resized panel can never impersonate a full page
+const MAX_WIDTH_VIEWPORT_FRACTION = 0.75
 
 export function SidePanel({ className }: { className?: string }): JSX.Element | null {
     const { theme } = useValues(themeLogic)
@@ -137,7 +139,10 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
           : 0
 
-    const sidePanelWidth = windowSize.width != null ? Math.min(rawSidePanelWidth, windowSize.width) : rawSidePanelWidth
+    const sidePanelWidth =
+        windowSize.width != null
+            ? Math.min(rawSidePanelWidth, windowSize.width * MAX_WIDTH_VIEWPORT_FRACTION)
+            : rawSidePanelWidth
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {

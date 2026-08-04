@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -51,5 +52,15 @@ describe('sidePanelStateLogic', () => {
         // Closing the selected tab closes the panel
         logic.actions.closeSidePanel(SidePanelTab.Max)
         await expectLogic(logic).toMatchValues({ sidePanelOpen: false })
+    })
+
+    it('opens from a #panel= hash already in the URL when the logic first mounts (cold load)', async () => {
+        // A hard refresh or a pasted deep link has the hash present before this logic ever mounts, so its
+        // "previous" location (as far as kea-router's synthetic initial dispatch is concerned) is
+        // indistinguishable from the current one. That must not be mistaken for a stale, carried-over hash.
+        router.actions.replace('/settings/user', {}, { panel: 'discussion' })
+        const coldLogic = sidePanelStateLogic.build()
+        coldLogic.mount()
+        await expectLogic(coldLogic).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Discussion })
     })
 })

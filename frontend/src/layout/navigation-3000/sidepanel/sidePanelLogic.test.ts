@@ -82,4 +82,19 @@ describe('sidePanelLogic', () => {
             selectedTab: SidePanelTab.Discussion,
         })
     })
+
+    it('closes a context-bound tab on the next navigation once the #panel= hash is carried over, not fresh', async () => {
+        // sidePanelStateLogic rewrites the current tab into the #panel= hash of every URL while the panel
+        // stays open, so the first navigation to carry the hash is a genuine deep link, but a second
+        // navigation while the panel is still open just carries over the same stale hash.
+        await navigate(urls.settings('user'), { panel: 'discussion' })
+        await navigate(urls.eventDefinitions(), { panel: 'discussion' })
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
+    })
+
+    it('closes a Max chat opened with a seed prompt tied to the page, unlike a plain Max chat', async () => {
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Explain this insight')
+        await navigate(urls.settings('user'))
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
+    })
 })

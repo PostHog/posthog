@@ -106,7 +106,7 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_, _search, hashParams) => {
+        '*': (_, _search, hashParams, payload, previousLocation) => {
             if ('supportModal' in hashParams) {
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
 
@@ -120,9 +120,17 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
 
             if (panelHash) {
                 const [panel, ...panelOptions] = panelHash.split(':')
+                // A hash carried over unchanged from the previous URL isn't a fresh request to open this
+                // tab — it's stale state that sidePanelLogic's close-on-navigate rule already had a chance
+                // to act on. Re-opening here would undo that decision on every subsequent navigation, which
+                // is how a panel opened on one page ends up pinned across the whole app. Only a hash that's
+                // new or has changed value forces an open (a cold load's synthetic "initial" dispatch always
+                // counts as fresh, since there's no real previous navigation to compare against).
+                const isFreshHash = payload.initial || panelHash !== previousLocation?.hashParams?.['panel']
 
                 if (
                     panel &&
+                    isFreshHash &&
                     (panel !== values.selectedTab ||
                         !values.sidePanelOpen ||
                         panelOptions.join(':') !== values.selectedTabOptions)
