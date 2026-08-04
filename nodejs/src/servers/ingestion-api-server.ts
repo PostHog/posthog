@@ -106,6 +106,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -308,7 +309,6 @@ export class IngestionApiServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()

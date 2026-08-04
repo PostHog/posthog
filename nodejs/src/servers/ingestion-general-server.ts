@@ -90,6 +90,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -258,7 +259,6 @@ export class IngestionGeneralServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
 
         const ingestionDeps: IngestionConsumerDeps = {

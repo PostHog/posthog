@@ -79,6 +79,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
@@ -185,7 +186,6 @@ export class ErrorTrackingServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: outputs,
-            teamManager,
         }
 
         // 3. Error tracking consumer
