@@ -21,7 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 
-from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT, SESSION_ID_EXPR
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 
 INTENT_MODEL = "gpt-4.1-mini"
@@ -46,16 +46,18 @@ SYSTEM_PROMPT = (
     "Example: 'Investigating why signup funnel conversion dropped last week.'"
 )
 
+# Same session id coalesce as logic._MCP_SESSIONS_SQL (see constants.SESSION_ID_EXPR),
+# so a session_id handed back from the sessions list resolves back to its intents here.
 _SESSION_INTENTS_SQL = """
 SELECT toString(properties.$mcp_intent) AS intent
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    AND $session_id = {session_id}
+    AND __SESSION_ID_EXPR__ = {session_id}
     AND coalesce(properties.$mcp_intent, '') != ''
 ORDER BY timestamp ASC
 LIMIT {limit}
-"""
+""".replace("__SESSION_ID_EXPR__", SESSION_ID_EXPR)
 
 
 def fetch_session_intents(team: Team, session_id: str, date_from: datetime | None = None) -> list[str]:

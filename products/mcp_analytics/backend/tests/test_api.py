@@ -187,6 +187,32 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert [s.session_id for s in page.results] == [kept]
 
+    def test_groups_by_mcp_session_id_when_session_id_is_absent(self) -> None:
+        # A client that only stamps $mcp_session_id (the documented grouping key) and never
+        # sets $session_id must still produce one session, and that session_id must resolve
+        # back to its events via list_mcp_tool_calls — otherwise the sessions tab is empty
+        # (or a dead end on click) for exactly the clients it documents itself as supporting.
+        mcp_session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        for tool, timestamp in [("query_run", now - timedelta(minutes=5)), ("insight_get", now)]:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="anon_seed",
+                timestamp=timestamp,
+                properties={"$mcp_session_id": mcp_session_id, "$mcp_tool_name": tool},
+            )
+
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        assert [s.session_id for s in page.results] == [mcp_session_id]
+        assert sorted(page.results[0].tools_used) == ["insight_get", "query_run"]
+
+        calls = api.list_mcp_tool_calls(
+            self.team, session_id=mcp_session_id, limit=50, offset=0, date_from=now - timedelta(minutes=10)
+        )
+        assert sorted(c.tool_name for c in calls.results) == ["insight_get", "query_run"]
+
     def test_search_filters_across_multiple_columns(self) -> None:
         alice_id = str(uuid7())
         bob_id = str(uuid7())

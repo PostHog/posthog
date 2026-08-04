@@ -23,7 +23,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT, MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT, MCP_TOOL_CALL_EVENT, SESSION_ID_EXPR
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
@@ -32,6 +32,9 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPInt
 # minute even at the top_n=500 cap; anything past 10 minutes is a dead task.
 STALE_COMPUTING_THRESHOLD = timedelta(minutes=10)
 
+# $session_id coalesces with properties.$mcp_session_id the same way the sessions list
+# grouping key does (see SESSION_ID_EXPR in constants.py), so a session_id handed back from that
+# list always resolves back to its events here.
 _MCP_TOOL_CALLS_SQL = """
 SELECT
     uuid AS event_id,
@@ -44,11 +47,11 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    AND $session_id = {session_id}
+    AND __SESSION_ID_EXPR__ = {session_id}
 ORDER BY timestamp ASC, event_id ASC
 LIMIT {limit}
 OFFSET {offset}
-"""
+""".replace("__SESSION_ID_EXPR__", SESSION_ID_EXPR)
 
 
 def list_submissions(team: Team, kind: enums.SubmissionKind) -> QuerySet[MCPAnalyticsSubmission]:
@@ -87,7 +90,7 @@ SESSION_OVERLAP_BUFFER = timedelta(days=1)
 # short enough that "Reload" still feels live.
 SESSIONS_CACHE_TTL_SECONDS = 30
 
-# One row per $session_id, aggregated from events. The column shape
+# One row per session id (SESSION_ID_EXPR — see constants.py), aggregated from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
 # if per-team volume ever warrants materialising it. __SEARCH__ / __ORDER__ are
 # validated structural fragments injected before parsing; {placeholders} are HogQL
@@ -99,7 +102,7 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # why a session straddling the window boundary reports full (not clipped) start/end/
 # duration/count, and why its detail view (bounded by session_start) shows every event.
 #
-# The event scan and $session_id resolution live in an inner subquery; the outer
+# The event scan and session id resolution live in an inner subquery; the outer
 # GROUP BY / HAVING / ORDER only touch the plain `session_id` alias and aggregate
 # outputs. Referencing the raw `$session_id` field directly in an aggregating query's
 # GROUP BY/ORDER makes ClickHouse intermittently reject the query with "Not found
@@ -123,7 +126,7 @@ FROM (
     -- (distinct_id / mcp_client_name); the post-aggregation search HAVING then resolves
     -- those names unambiguously to the aggregates, not the raw per-event columns.
     SELECT
-        $session_id AS session_id,
+        __SESSION_ID_EXPR__ AS session_id,
         timestamp,
         distinct_id AS event_distinct_id,
         properties.$mcp_tool_name AS tool_name,
@@ -134,9 +137,9 @@ FROM (
         -- aggregate into its full stats; the timestamp bounds keep the sort key pruning.
         AND timestamp >= {scan_from}
         AND timestamp <= {scan_to}
-        -- $session_id is a materialised String column — '' (not NULL) for sessionless
-        -- events — so a bare `!= ''` drops them without a coalesce.
-        AND $session_id != ''
+        -- Both $session_id and properties.$mcp_session_id are '' (not NULL) when unset,
+        -- so a bare `!= ''` on the coalesced expression drops sessionless events.
+        AND __SESSION_ID_EXPR__ != ''
 )
 GROUP BY session_id
 -- Session-level inclusion: at least one event inside the requested window.
@@ -145,7 +148,7 @@ HAVING countIf(timestamp >= {window_from} AND timestamp <= {window_to}) > 0
 ORDER BY __ORDER__
 LIMIT {limit}
 OFFSET {offset}
-"""
+""".replace("__SESSION_ID_EXPR__", SESSION_ID_EXPR)
 
 # Search is post-aggregation (folded into HAVING) so a match returns the whole session,
 # not just the matching events. tools_used / distinct_id / mcp_client_name are aggregates,
@@ -193,8 +196,9 @@ def list_mcp_sessions(
 ) -> contracts.MCPSessionsPage:
     """List a page of MCP sessions for a team, aggregated on the fly from $mcp_tool_call events.
 
-    One row per $session_id whose session overlaps the selected window, grouped in ClickHouse and
-    scoped to the team so the events sort key prunes the scan. Stats are full-session: a session
+    One row per session id (``properties.$mcp_session_id``, falling back to the materialised
+    ``$session_id`` column — see ``constants.SESSION_ID_EXPR``) whose session overlaps the selected window,
+    grouped in ClickHouse and scoped to the team so the events sort key prunes the scan. Stats are full-session: a session
     that straddles the window boundary reports its true start/end/duration/tool count, not just the
     in-window slice (see ``_MCP_SESSIONS_SQL`` for the buffered-scan + ``countIf`` mechanism).
     Over-fetches one row to report ``has_next`` (replay-style) without a separate count query.

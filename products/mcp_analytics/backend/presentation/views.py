@@ -178,7 +178,11 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=MCPSessionListQuerySerializer,
         responses={200: OpenApiResponse(response=MCPSessionSerializer(many=True))},
         operation_id="mcp_analytics_sessions_list",
-        description="List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
+        description=(
+            "List MCP sessions for the current project, derived by grouping $mcp_tool_call events by "
+            "$mcp_session_id (falling back to $session_id when a client doesn't set it). Ordered by "
+            "newest session start first by default."
+        ),
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         params = request.validated_query_data
@@ -200,7 +204,10 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=MCPSessionToolCallsQuerySerializer,
         responses={200: OpenApiResponse(response=MCPToolCallSerializer(many=True))},
         operation_id="mcp_analytics_sessions_tool_calls",
-        description="List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        description=(
+            "List a page of the $mcp_tool_call events that belong to a given session id "
+            "($mcp_session_id, falling back to $session_id), in chronological order."
+        ),
     )
     @action(detail=True, methods=["get"], url_path="tool_calls")
     def tool_calls(self, request: ValidatedRequest, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
