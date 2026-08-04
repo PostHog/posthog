@@ -20,21 +20,17 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
-    cdp_producer_clear_chunks,
     cleanup_memory,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
-    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
-    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
-    write_chunk_for_cdp_producer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
@@ -51,14 +47,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
-    PersonPropertyRowSink,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sinks import (
+    PipelineSinks,
+    build_pipeline_sinks,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -86,7 +82,7 @@ class PipelineNonDLT(Generic[ResumableData]):
     _delta_table_ref: DeltaTableRef
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema = HogQLSchema()
-    _cdp_producer: CDPProducer
+    _sinks: PipelineSinks
     _batcher: Batcher
     _load_id: int
 
@@ -136,10 +132,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
-        self._cdp_producer = CDPProducer(
-            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
-        )
-        self._person_property_sink = PersonPropertyRowSink(
+        self._sinks = build_pipeline_sinks(
             team_id=self._job.team_id,
             schema_id=self._schema.id,
             job_id=job_id,
@@ -166,8 +159,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             await self._logger.ainfo("Resumable source detected - attempting to resume previous import")
 
         try:
-            await cdp_producer_clear_chunks(self._cdp_producer)
-            await person_property_sink_clear_chunks(self._person_property_sink)
+            await self._sinks.clear()
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
@@ -267,7 +259,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
 
-            result = PipelineResult(should_trigger_cdp_producer=await self._cdp_producer.should_produce_table())
+            result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             return result
@@ -353,8 +345,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
-        await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
-        await stage_chunk_for_person_property_sink(self._person_property_sink, index, pa_table)
+        await self._sinks.stage_chunk(index, pa_table)
 
         (
             self._last_incremental_field_value,
