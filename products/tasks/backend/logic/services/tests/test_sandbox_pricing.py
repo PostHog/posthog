@@ -35,6 +35,7 @@ def _session(**overrides):
         "user_attributed_at": EFFECTIVE_AT,
         "ended_at": EFFECTIVE_AT + timedelta(seconds=10),
         "ttl_expires_at": EFFECTIVE_AT + timedelta(hours=6),
+        "vm_runtime": False,
         "burstable": False,
         "cpu_cores": 4.0,
         "memory_gb": 16.0,
@@ -135,6 +136,13 @@ def test_non_burstable_sessions_use_configured_resources():
     assert cost.memory_gib_seconds == Decimal("25.0")
 
 
+def test_vm_and_gvisor_sessions_use_the_same_v0_rates():
+    gvisor = _calculate(_session(vm_runtime=False))
+    vm = _calculate(_session(vm_runtime=True))
+
+    assert vm == gvisor
+
+
 def test_fractional_resources_and_cost_subtotals_remain_exact():
     cost = _calculate(
         _session(
@@ -164,8 +172,25 @@ def test_rate_boundary_apportions_one_session_without_rounding_twice():
     cost = _calculate(session, NEXT_RATE_AT - timedelta(seconds=1), NEXT_RATE_AT + timedelta(seconds=1))
 
     assert cost.billable_seconds == 1
-    assert len(cost.line_items) == 1
+    assert len(cost.line_items) == 2
     assert cost.line_items[0].rate_card.version == RATE_V1.version
+    assert cost.line_items[0].billable_seconds == Decimal("0.5")
+    assert cost.line_items[1].billable_seconds == Decimal("0.5")
+
+
+def test_rounds_once_before_apportioning_across_reporting_periods():
+    boundary = EFFECTIVE_AT + timedelta(hours=1)
+    session = _session(
+        user_attributed_at=boundary - timedelta(microseconds=600_000),
+        ended_at=boundary + timedelta(microseconds=600_000),
+    )
+
+    first = _calculate(session, EFFECTIVE_AT, boundary)
+    second = _calculate(session, boundary, EFFECTIVE_AT + timedelta(hours=2))
+
+    assert first.billable_seconds == Decimal("0.6")
+    assert second.billable_seconds == Decimal("1.4")
+    assert first.billable_seconds + second.billable_seconds == Decimal("2")
 
 
 def test_historical_window_keeps_old_rate_after_new_rate_is_active():

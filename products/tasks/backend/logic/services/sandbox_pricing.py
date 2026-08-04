@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
-from decimal import ROUND_FLOOR, ROUND_UP, Decimal
+from datetime import datetime, timedelta
+from decimal import ROUND_UP, Decimal
 
 from django.utils import timezone
 
@@ -24,7 +24,7 @@ class ComputeRateCard:
 @dataclass(frozen=True)
 class ComputeCostLineItem:
     rate_card: ComputeRateCard
-    billable_seconds: int
+    billable_seconds: Decimal
     cpu_core_seconds: Decimal
     memory_gib_seconds: Decimal
     cpu_cost_usd: Decimal
@@ -37,7 +37,7 @@ class ComputeCostLineItem:
 
 @dataclass(frozen=True)
 class SandboxComputeCost:
-    billable_seconds: int
+    billable_seconds: Decimal
     cpu_core_seconds: Decimal
     memory_gib_seconds: Decimal
     cpu_cost_usd: Decimal
@@ -104,9 +104,15 @@ def calculate_sandbox_compute_cost(
     if session.user_attributed_at is None:
         return _empty_cost()
 
+    pricing_start = max(session.user_attributed_at, cards[0].effective_at)
     effective_end = min(session.ended_at or now, session.ttl_expires_at)
-    start = max(session.user_attributed_at, reporting_start, cards[0].effective_at)
-    stop = min(effective_end, reporting_end)
+    if effective_end <= pricing_start:
+        return _empty_cost()
+
+    rounded_duration = _decimal_seconds(effective_end - pricing_start).to_integral_value(rounding=ROUND_UP)
+    rounded_end = pricing_start + timedelta(seconds=int(rounded_duration))
+    start = max(pricing_start, reporting_start)
+    stop = min(rounded_end, reporting_end)
     if stop <= start:
         return _empty_cost()
 
@@ -120,16 +126,10 @@ def calculate_sandbox_compute_cost(
     if sum((seconds for _, seconds in segments), Decimal(0)) != _decimal_seconds(stop - start):
         raise ComputeRateCardConfigurationError("compute rate cards do not cover the billable window")
 
-    rounded_seconds = int(_decimal_seconds(stop - start).to_integral_value(rounding=ROUND_UP))
-    allocated_seconds = _allocate_rounded_seconds(segments, rounded_seconds)
     cpu_cores, memory_gib = _billable_resources(session)
-    line_items = tuple(
-        _price_line_item(card, seconds, cpu_cores, memory_gib)
-        for (card, _), seconds in zip(segments, allocated_seconds, strict=True)
-        if seconds
-    )
+    line_items = tuple(_price_line_item(card, seconds, cpu_cores, memory_gib) for card, seconds in segments)
     return SandboxComputeCost(
-        billable_seconds=rounded_seconds,
+        billable_seconds=sum((item.billable_seconds for item in line_items), Decimal(0)),
         cpu_core_seconds=sum((item.cpu_core_seconds for item in line_items), Decimal(0)),
         memory_gib_seconds=sum((item.memory_gib_seconds for item in line_items), Decimal(0)),
         cpu_cost_usd=sum((item.cpu_cost_usd for item in line_items), Decimal(0)),
@@ -142,21 +142,6 @@ def _decimal_seconds(duration) -> Decimal:
     return Decimal(duration.days * 86400 + duration.seconds) + Decimal(duration.microseconds) / Decimal(1_000_000)
 
 
-def _allocate_rounded_seconds(
-    segments: Sequence[tuple[ComputeRateCard, Decimal]], total_seconds: int
-) -> tuple[int, ...]:
-    floors = [int(seconds.to_integral_value(rounding=ROUND_FLOOR)) for _, seconds in segments]
-    remaining = total_seconds - sum(floors)
-    fractions = sorted(
-        range(len(segments)),
-        key=lambda index: segments[index][1] - Decimal(floors[index]),
-        reverse=True,
-    )
-    for index in fractions[:remaining]:
-        floors[index] += 1
-    return tuple(floors)
-
-
 def _billable_resources(session: SandboxSession) -> tuple[Decimal, Decimal]:
     if session.burstable:
         if session.cpu_request_cores is None or session.memory_request_mb is None:
@@ -166,10 +151,10 @@ def _billable_resources(session: SandboxSession) -> tuple[Decimal, Decimal]:
 
 
 def _price_line_item(
-    card: ComputeRateCard, seconds: int, cpu_cores: Decimal, memory_gib: Decimal
+    card: ComputeRateCard, seconds: Decimal, cpu_cores: Decimal, memory_gib: Decimal
 ) -> ComputeCostLineItem:
-    cpu_core_seconds = Decimal(seconds) * cpu_cores
-    memory_gib_seconds = Decimal(seconds) * memory_gib
+    cpu_core_seconds = seconds * cpu_cores
+    memory_gib_seconds = seconds * memory_gib
     return ComputeCostLineItem(
         rate_card=card,
         billable_seconds=seconds,
@@ -182,7 +167,7 @@ def _price_line_item(
 
 def _empty_cost() -> SandboxComputeCost:
     return SandboxComputeCost(
-        billable_seconds=0,
+        billable_seconds=Decimal(0),
         cpu_core_seconds=Decimal(0),
         memory_gib_seconds=Decimal(0),
         cpu_cost_usd=Decimal(0),
