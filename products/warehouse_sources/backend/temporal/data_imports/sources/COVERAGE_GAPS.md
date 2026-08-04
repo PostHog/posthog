@@ -335,6 +335,23 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 - [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
       scoped to an organization ID this source does not collect).
 
+### Reddit Ads — spec-verified
+
+Reddit Ads is done; the section above still covers TikTok and Pinterest.
+Diffed against the Reddit Ads v3 OpenAPI spec (`https://ads-api.reddit.com/api/v3/openapi.json`) on 2026-08-04.
+
+Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, ad_account,
+custom_audiences, saved_audiences, pixels, funding_instruments, lead_gen_forms, profiles,
+structured_posts, campaign_country_report, campaign_gender_report, campaign_placement_report,
+campaign_community_report, campaign_os_type_report.
+
+- [x] Creative metadata — `structured_posts`, fanned out over the account's profiles. Reddit hangs creatives off profiles, not off the ad account, and ad rows carry the `post_id` to join on.
+- [x] Breakdown dimensions on the report tables — gender, country, placement, device (`OS_TYPE`) and community, each a campaign-grain report table defaulted to `should_sync_default=False`. Reddit returns breakdowns as extra dimensions on the same `POST /reports` call, capped at three per request, so each dimension is its own table rather than a new param. Age is not shippable: `AGE` is absent from the spec's `breakdowns` enum (it appears only in a stale request example).
+- [x] Ad account table — `ad_account`, carrying `currency` and `time_zone_id`.
+- [x] Audiences and pixel definitions — `custom_audiences`, `saved_audiences`, `pixels`. Conversion _events_ are write-only (`POST /pixels/{id}/conversion_events`), so there is nothing to sync.
+- Also added: `funding_instruments` (per-instrument currency and credit limit), `lead_gen_forms`, `profiles`.
+- Not built: `apps` (the response schema exposes only `id`); `creative_assets` (rows arrive wrapped in a per-item `result` envelope); product catalogs, feeds, sets and their imports (business-scoped, not reachable from the configured ad account); the targeting reference lists (`communities`, `interests`, `geolocations`, `languages`, `devices`, `carriers`) and `time_zones`, which are global catalogs rather than account data; `POST /ad_accounts/{id}/history` (an audit log, not warehouse-shaped); forecasting, bid suggestions and data-deletion jobs (write or estimate endpoints).
+
 ### Linear — needs confirmation
 
 Eight tables. Two small additions unblock the cycle-time use case.
