@@ -44,11 +44,7 @@ import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhook
 import { EncryptedFields } from './utils/encryption-utils'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
-export type CdpOutput =
-    | AppMetricsOutput
-    | LogEntriesOutput
-    | HogInvocationResultsOutput
-    | WarehouseSourceWebhooksOutput
+export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
