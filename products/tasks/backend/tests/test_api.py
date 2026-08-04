@@ -1019,6 +1019,7 @@ class TestTaskAPI(BaseTaskAPITest):
             client_id=client_id,
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
             redirect_uris="https://example.com/callback",
             organization=self.organization,
             user=self.user,
