@@ -1,8 +1,9 @@
 import json
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -42,6 +43,7 @@ from products.experiments.backend.experiment_service import (
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
     _merge_saved_metric_links,
+    _resolve_scalar_updates,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -6983,3 +6985,105 @@ class TestConcurrentMetricMerge(SimpleTestCase):
 
         self.assertEqual(conflicts, [])
         self.assertEqual(merged, [{"id": 1, "metadata": {"type": "secondary"}}])
+
+
+class TestScalarConcurrencyResolution(SimpleTestCase):
+    """Branch pins for the per-field scalar three-way merge behind experiment optimistic
+    concurrency, isolating the value canonicalization the API tests can't reach directly:
+    the client base echoes API JSON (ISO datetime strings, holdout ids) while the payload
+    and row carry validated Python objects (datetimes, model instances)."""
+
+    @parameterized.expand(
+        [
+            (
+                "noop_equal_value_passes_without_base",
+                {"description": "same"},
+                {},
+                {"description": "same"},
+                {"description": "same"},
+                [],
+            ),
+            (
+                "only_mine_changed_applies",
+                {"description": "mine"},
+                {"description": "base"},
+                {"description": "base"},
+                {"description": "mine"},
+                [],
+            ),
+            (
+                "echo_of_base_drops_so_theirs_survives",
+                {"description": "base", "name": "renamed by me"},
+                {"description": "base", "name": "base name"},
+                {"description": "theirs", "name": "base name"},
+                {"name": "renamed by me"},
+                [],
+            ),
+            (
+                "both_changed_same_field_conflicts",
+                {"description": "mine"},
+                {"description": "base"},
+                {"description": "theirs"},
+                {"description": "mine"},
+                ["description"],
+            ),
+            (
+                "missing_base_with_real_change_conflicts",
+                {"description": "mine"},
+                {},
+                {"description": "theirs"},
+                {"description": "mine"},
+                ["description"],
+            ),
+            (
+                "iso_string_base_matches_stored_datetime",
+                {"start_date": datetime(2026, 7, 27, 16, 10, tzinfo=UTC)},
+                {"start_date": "2026-07-02T23:10:00Z"},
+                {"start_date": datetime(2026, 7, 2, 23, 10, tzinfo=UTC)},
+                {"start_date": datetime(2026, 7, 27, 16, 10, tzinfo=UTC)},
+                [],
+            ),
+            (
+                "holdout_instance_compares_by_id_to_the_holdout_id_base",
+                {"holdout": SimpleNamespace(pk=7)},
+                {"holdout_id": 5},
+                {"holdout": 5},
+                {"holdout": SimpleNamespace(pk=7)},
+                [],
+            ),
+            (
+                "mergeable_metric_collections_are_left_alone",
+                {"metrics": [{"uuid": "m1"}], "description": "same"},
+                {},
+                {"description": "same"},
+                {"metrics": [{"uuid": "m1"}], "description": "same"},
+                [],
+            ),
+        ]
+    )
+    def test_resolve_scalar_updates(
+        self,
+        _name: str,
+        update_data: dict,
+        original: dict,
+        current_values: dict,
+        expected_update_data: dict,
+        expected_conflicts: list[str],
+    ) -> None:
+        conflicts = _resolve_scalar_updates(update_data, original, current_values)
+
+        self.assertEqual(conflicts, expected_conflicts)
+        self.assertEqual(update_data, expected_update_data)
+
+    def test_microsecond_datetime_base_roundtrips_like_drf(self) -> None:
+        # DRF renders aware UTC datetimes as `isoformat()` with `+00:00` folded to `Z`,
+        # microseconds included — the client echoes that string back as the base.
+        stored = datetime(2026, 8, 3, 18, 5, 3, 123456, tzinfo=UTC)
+        update_data = {"end_date": datetime(2026, 8, 10, tzinfo=UTC)}
+
+        conflicts = _resolve_scalar_updates(
+            update_data, {"end_date": "2026-08-03T18:05:03.123456Z"}, {"end_date": stored}
+        )
+
+        self.assertEqual(conflicts, [])
+        self.assertIn("end_date", update_data)
