@@ -377,6 +377,7 @@ the row lists both.
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
+| loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | luma                             | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1091,7 +1092,6 @@ doesn't conflict with concurrent PRs.
 - logrocket
 - lokalise
 - looker
-- loop_returns
 - m3ter
 - mailtrap
 - mantle
