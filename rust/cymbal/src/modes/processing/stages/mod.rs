@@ -1,5 +1,4 @@
 pub mod alerting;
-pub mod event_release;
 pub mod grouping;
 pub mod http_pipeline;
 pub mod linking;

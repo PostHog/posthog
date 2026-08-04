@@ -21,6 +21,7 @@ use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::{
+    event_release::ReleaseCache,
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
@@ -32,7 +33,7 @@ use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
     batch::Batch,
     event::AnyEvent,
-    exception_event::{ExceptionEvent, Parsed},
+    exception_event::{ExceptionEvent, Parsed, Resolved},
     operator::TeamId,
     stage::Stage,
     Exception, Stacktrace,
@@ -424,15 +425,21 @@ impl SymbolResolver for NoopResolver {
 }
 
 pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
-    ResolutionStage { remote: ctx }
+    ResolutionStage {
+        remote: ctx,
+        // Never connected: fixture events carry no release identifiers, so the release
+        // resolver never issues a query.
+        posthog_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused/unused")
+            .expect("lazy pool construction does not connect"),
+        release_cache: ReleaseCache::new(0, Duration::from_secs(0)),
+    }
 }
 
-// The stage resolves frames in place and leaves events Parsed; the Parsed -> Resolved flip
-// belongs to EventReleaseStage, outside these fixtures.
 pub async fn process_one(
     stage: ResolutionStage,
     evt: ExceptionEvent<Parsed>,
-) -> Result<ExceptionEvent<Parsed>, UnhandledError> {
+) -> Result<ExceptionEvent<Resolved>, UnhandledError> {
     let batch: Batch<ParsedPipelineItem> = Batch::from(vec![Ok(evt)]);
     let result = stage.process(batch).await?;
     let mut items: Vec<_> = result.into_iter().collect();

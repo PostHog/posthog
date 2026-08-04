@@ -76,7 +76,7 @@ fn remote_stage_with_resolver(
     ctx: cymbal::stages::resolution::remote::resolver::RemoteResolutionContext,
     _resolver: Arc<CountingResolver>,
 ) -> ResolutionStage {
-    ResolutionStage { remote: ctx }
+    remote_stage(ctx)
 }
 
 fn parsed_event(uuid: Uuid, properties: serde_json::Value) -> ExceptionEvent<Parsed> {
@@ -184,6 +184,13 @@ async fn happy_path_preserves_batch_event_and_exception_order() {
         })
         .collect();
     assert_eq!(resolved_types, expected_types);
+    for (resolved_evt, expected_evt_types) in resolved.iter().zip(expected_types.iter()) {
+        let mut expected_properties = expected_evt_types.clone();
+        expected_properties.sort();
+        let mut resolved_properties = resolved_evt.metadata().types.clone();
+        resolved_properties.sort();
+        assert_eq!(resolved_properties, expected_properties);
+    }
 }
 
 #[tokio::test]

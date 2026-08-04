@@ -2,20 +2,17 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use moka::future::{Cache, CacheBuilder};
 use serde_json::Value;
-use sqlx::{Executor, PgPool, Postgres};
+use sqlx::{Executor, Postgres};
 use uuid::Uuid;
 
 use crate::{
-    app_context::AppContext,
     error::UnhandledError,
     frames::releases::{mobile_release_hash_id, ReleaseRecord},
-    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLVER_OPERATOR, EVENT_RELEASE_STAGE},
-    stages::pipeline::{HandledError, ParsedPipelineItem, ResolvedPipelineItem},
+    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLVER_OPERATOR},
+    stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
-        batch::Batch,
         exception_event::{ExceptionEvent, Parsed},
         operator::{OperatorResult, TeamId, ValueOperator},
-        stage::{Stage, StageResult},
     },
 };
 
@@ -30,7 +27,7 @@ use crate::{
 /// content hash for mobile builds — so they get separate caches. `try_get_with` coalesces
 /// concurrent misses for the same key, so a cold cache under load issues one query per key rather
 /// than one per event. moka caches are internally Arc'd, so cloning this into each per-batch
-/// `EventReleaseStage` is cheap.
+/// `ResolutionStage` is cheap.
 ///
 /// Both caches are bounded in bytes rather than entries: a release carries a free-form `metadata`
 /// JSON column that any client can write, so entry count says nothing about memory held.
@@ -122,43 +119,10 @@ fn record_cache_outcome(cache_type: &'static str, cache_miss: bool) {
     metrics::counter!(ANCILLARY_CACHE, "type" => cache_type, "outcome" => outcome).increment(1);
 }
 
-/// Resolves each event's release and performs the Parsed -> Resolved flip. Runs after
-/// `ResolutionStage`, which resolves frames in place and leaves events Parsed: release resolution
-/// belongs on this side of the frame-resolution boundary so it can later fall back to the resolved
-/// frames' symbol sets for legacy events that carry neither `$release_id` nor app metadata.
-/// Owning `into_resolved()` here keeps `Resolved` born-complete, and means the compiler rejects a
-/// pipeline that runs grouping before the release is known.
-#[derive(Clone)]
-pub struct EventReleaseStage {
-    pub posthog_pool: PgPool,
-    pub release_cache: ReleaseCache,
-}
-
-impl From<&Arc<AppContext>> for EventReleaseStage {
-    fn from(ctx: &Arc<AppContext>) -> Self {
-        Self {
-            posthog_pool: ctx.posthog_pool.clone(),
-            release_cache: ctx.release_cache.clone(),
-        }
-    }
-}
-
-impl Stage for EventReleaseStage {
-    type Input = ParsedPipelineItem;
-    type Output = ResolvedPipelineItem;
-
-    fn name(&self) -> &'static str {
-        EVENT_RELEASE_STAGE
-    }
-
-    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        let resolved = batch.apply_operator(EventReleaseResolver, self).await?;
-        Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()))
-    }
-}
-
 /// Resolves the event-level release without going through the per-frame symbol-set join, so the
-/// release is independent of which chunks resolved the stack.
+/// release is independent of which chunks resolved the stack. Runs inside `ResolutionStage` after
+/// `resolve_batch`, so a future fallback for legacy events (which carry neither `$release_id` nor
+/// app metadata) can read the resolved frames' symbol sets.
 ///
 /// Two sources, in order of preference:
 ///   1. `$release_id` — web builds inject the release row's id, which the SDK emits verbatim. Direct
@@ -173,7 +137,7 @@ impl Stage for EventReleaseStage {
 pub struct EventReleaseResolver;
 
 impl ValueOperator for EventReleaseResolver {
-    type Context = EventReleaseStage;
+    type Context = ResolutionStage;
     type Item = ExceptionEvent<Parsed>;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
@@ -185,7 +149,7 @@ impl ValueOperator for EventReleaseResolver {
     async fn execute_value(
         &self,
         mut evt: ExceptionEvent<Parsed>,
-        ctx: EventReleaseStage,
+        ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
         let release_id = evt
             .properties()

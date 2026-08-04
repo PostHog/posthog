@@ -13,8 +13,8 @@ use crate::{
     core::config::build_pg_pool,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
-    stages::event_release::ReleaseCache,
     stages::rate_limiting::RedisRateLimiter,
+    stages::resolution::event_release::ReleaseCache,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
