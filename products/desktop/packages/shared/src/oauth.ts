@@ -11,6 +11,11 @@ export const POSTHOG_DEV_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ";
 // granted only because this app's OAuth ceiling is seeded to
 // ["@default", "llm_gateway:read"] in US + EU.
 //
+// That generated file also exports OAUTH_SCOPES_HIDDEN (batch_import_support,
+// query_performance, wizard_session). Never copy those in: they are staff-only
+// and subtracted out of UNPRIVILEGED_SCOPES, so "@default" can never cover them
+// and /authorize rejects the whole request with invalid_scope.
+//
 // Deploy-order guardrail: NEVER ship a non-"*" OAUTH_SCOPES set (or bump
 // OAUTH_SCOPE_VERSION off a build that still requests "*") until that ceiling is
 // seeded in both regions. A non-empty ceiling rejects scope=* at /authorize, and
@@ -226,12 +231,6 @@ export const OAUTH_SCOPES = [
   "web_analytics:write",
   "webhook:read",
   "webhook:write",
-  "batch_import_support:read",
-  "batch_import_support:write",
-  "query_performance:read",
-  "query_performance:write",
-  "wizard_session:read",
-  "wizard_session:write",
   // Privileged: embedded agent model calls go through PostHog's LLM gateway
   // (gateway.{region}.posthog.com), which requires this scope. Not in the
   // advertised set above; granted via this app's seeded ceiling.
