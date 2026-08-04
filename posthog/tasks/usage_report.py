@@ -1726,7 +1726,7 @@ def get_self_driving_credits_used_in_period_for_org(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_posthog_code_token_credits_used_in_period(
+def get_teams_with_posthog_code_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
@@ -1742,13 +1742,6 @@ def get_teams_with_posthog_code_token_credits_used_in_period(
         product_tag=Product.POSTHOG_CODE,
         markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
     )
-
-
-def get_teams_with_posthog_code_credits_used_in_period(
-    begin: datetime,
-    end: datetime,
-) -> list[tuple[int, int]]:
-    return get_teams_with_posthog_code_token_credits_used_in_period(begin, end)
 
 
 @timed_log()
@@ -2579,7 +2572,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     )
     task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
     sandbox_compute_usage = get_teams_with_billable_sandbox_compute_usage_in_period(period_start, period_end)
-    token_credits = get_teams_with_posthog_code_token_credits_used_in_period(period_start, period_end)
+    token_credits = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(

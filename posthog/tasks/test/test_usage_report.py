@@ -4636,7 +4636,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_credits_only_counts_posthog_code_events(self, mock_region: MagicMock) -> None:
         """The posthog_code query only counts generations tagged ai_product='posthog_code'."""
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_token_credits_used_in_period
+        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
 
         mock_region.return_value = "US"
         self._setup_teams()
@@ -4681,7 +4681,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        posthog_code_result = get_teams_with_posthog_code_token_credits_used_in_period(period_start, period_end)
+        posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
         # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
         # posthog_code event, not the signals one.
@@ -4702,7 +4702,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         PostHog Desktop never emits a matching $ai_trace event, so the LEFT JOIN never matches and the
         empty-trace fallback is what makes posthog_code billable at all — but only for $ai_billable=true.
         """
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_token_credits_used_in_period
+        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
 
         mock_region.return_value = "US"
         self._setup_teams()
@@ -4730,7 +4730,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_posthog_code_token_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
