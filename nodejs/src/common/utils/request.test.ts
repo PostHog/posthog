@@ -3,8 +3,17 @@ import { range } from 'lodash'
 import http from 'node:http'
 import { AddressInfo } from 'node:net'
 
+import { DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS } from '~/common/config'
+
 import { parseJSON } from './json-parse'
-import { SecureRequestError, fetch, internalFetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
+import {
+    FetchOptions,
+    SecureRequestError,
+    fetch,
+    internalFetch,
+    legacyFetch,
+    raiseIfUserProvidedUrlUnsafe,
+} from './request'
 
 const realDnsLookup = jest.requireActual('dns/promises').lookup
 jest.mock('dns/promises', () => ({
@@ -114,6 +123,37 @@ describe('fetch', () => {
             try {
                 const response = await fetch(baseUrl)
                 expect(response.status).toBe(200)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
+        })
+
+        // A CDP destination calls whatever API the customer configured, so it needs the
+        // third-party budget rather than the tighter one sized for our own services. Routing it
+        // back through the internal budget fails silently, because the only symptom is slower
+        // cross-region APIs being cut off on every retry until the event is dropped.
+        it.each([
+            ['fetch', fetch, DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS],
+            ['internalFetch', internalFetch, 3000],
+        ])('%s defaults the request timeout to %sms', async (_name, doFetch, expectedTimeoutMs) => {
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            try {
+                const options: FetchOptions = {}
+                await doFetch(baseUrl, options)
+                expect(options.timeoutMs).toBe(expectedTimeoutMs)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
+        })
+
+        it('keeps a timeout the caller set explicitly', async () => {
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            try {
+                const options: FetchOptions = { timeoutMs: 1234 }
+                await fetch(baseUrl, options)
+                expect(options.timeoutMs).toBe(1234)
             } finally {
                 process.env.NODE_ENV = originalNodeEnv
             }

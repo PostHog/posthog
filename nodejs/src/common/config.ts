@@ -8,6 +8,19 @@ export const DEFAULT_HTTP_SERVER_PORT = 6738
 // (mirrors LOCAL_DEV_INTERNAL_API_SECRET on the Django side).
 export const LOCAL_DEV_INTERNAL_API_SECRET = 'posthog123'
 
+/**
+ * Response budget for a request to a host we don't run, used by `fetch`/`legacyFetch` in
+ * common/utils/request.ts. Kept well above EXTERNAL_REQUEST_TIMEOUT_MS, which is sized for calls
+ * between our own services on the same network.
+ *
+ * A CDP destination points at whatever API the customer configured, which is routinely in another
+ * region and under no latency obligation to us. At the internal-service budget, an API that
+ * answers in a few seconds is cut off on every attempt, so every retry fails the same way and the
+ * event is lost for good, which penalizes the destination for the third party being slow rather
+ * than for being broken.
+ */
+export const DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS = 10000
+
 export enum KafkaSaslMechanism {
     Plain = 'plain',
     ScramSha256 = 'scram-sha-256',
@@ -177,6 +190,7 @@ export type CommonConfig = BaseServerConfig & {
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
     EXTERNAL_REQUEST_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
@@ -203,6 +217,7 @@ export type CommonConfig = BaseServerConfig & {
 export type ExternalRequestConfig = Pick<
     CommonConfig,
     | 'EXTERNAL_REQUEST_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECTIONS'
@@ -211,6 +226,9 @@ export type ExternalRequestConfig = Pick<
 export function getExternalRequestConfig(): ExternalRequestConfig {
     return {
         EXTERNAL_REQUEST_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 3000),
+        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: Number(
+            process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS ?? DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
+        ),
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
@@ -354,6 +372,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
+        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
