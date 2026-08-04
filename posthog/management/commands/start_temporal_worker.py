@@ -442,15 +442,13 @@ _task_queue_specs = [
         REPLAY_VISION_WORKFLOWS,
         REPLAY_VISION_ACTIVITIES,
     ),
-    (
-        settings.MESSAGING_TASK_QUEUE,
-        WA_DIGEST_WORKFLOWS,
-        WA_DIGEST_ACTIVITIES,
-    ),
+    # The web-analytics digests share this queue with the PostHog-wide weekly digest: both are
+    # weekly crons with the same shape, and the messaging queue they used to sit on has no other
+    # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES,
+        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,

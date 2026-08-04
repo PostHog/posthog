@@ -462,7 +462,7 @@ async def create_wa_weekly_digest_schedule(client: Client):
             "wa-weekly-digest",
             WAWeeklyDigestInput(),
             id="wa-weekly-digest-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -497,7 +497,7 @@ async def create_wa_digest_notification_schedule(client: Client):
             "wa-digest-notification",
             WADigestNotificationInput(),
             id="wa-digest-notification-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
