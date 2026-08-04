@@ -60,7 +60,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -88,6 +88,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
@@ -583,6 +584,36 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
+# The thumbs rating at the end of the report body carries an optional note, capped in the UI at the
+# same length as the dismissal note.
+SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
+
+
+class SignalReportFeedbackRequestSerializer(serializers.Serializer):
+    sentiment = serializers.ChoiceField(
+        choices=[("positive", "positive"), ("negative", "negative")],
+        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+    )
+    note = serializers.CharField(
+        max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
+        help_text=(
+            "Free-form note explaining the rating. Capped at "
+            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Only submitted alongside a note — a "
+            "bare thumb carries none — and, for a report authored by a scout, forwarded to that scout "
+            "as a steering note."
+        ),
+    )
+
+
+class SignalReportFeedbackResponseSerializer(serializers.Serializer):
+    forwarded = serializers.BooleanField(
+        help_text=(
+            "Whether the note was forwarded to the report's authoring scout as a steering note. False "
+            "when the report has no resolvable authoring scout, or the caller lacks scout-steering access."
+        ),
+    )
+
+
 # Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
 # organization, matching the refund window (the org's billing period).
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
@@ -781,10 +812,12 @@ class SignalReportViewSet(
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
     # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
     # can reach suppressed reports too. `refund` is included so an already-archived but
-    # billed report can still be refunded. Mutating-by-ID actions (delete, reingest) are
+    # billed report can still be refunded, and `feedback` because the detail view the
+    # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
+    # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund"})
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund", "feedback"})
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
@@ -1680,6 +1713,43 @@ class SignalReportViewSet(
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
+    @extend_schema(
+        summary="Leave feedback on a report",
+        description=(
+            "Record a note left with the thumbs rating at the end of a report. The rating itself is a "
+            "product-analytics event; this endpoint exists to carry the note into the scout steering "
+            "channel. For a report authored by a scout, the note is forwarded to that scout as a "
+            "steering note it reads on its next run; for any other report there is nothing to steer and "
+            "the call is a no-op success. The report's state is never changed."
+        ),
+        request=SignalReportFeedbackRequestSerializer,
+        responses={200: SignalReportFeedbackResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    def feedback(self, request, pk=None, **kwargs):
+        """Forward a report's feedback note to the scout that authored it.
+
+        Feedback-only: unlike `state`, this never transitions the report. The note is a derived
+        convenience — the durable record of the rating is the analytics event the client fires —
+        so forwarding is best-effort and never fails the request.
+        """
+        report = cast(SignalReport, self.get_object())
+
+        serializer = SignalReportFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        note_id = forward_feedback_note(
+            team=self.team,
+            report_id=str(report.id),
+            sentiment=data["sentiment"],
+            note=data["note"],
+            user_id=request.user.id if isinstance(request.user, User) else None,
+            scoped_team_ids=get_authenticator_scoped_team_ids(request.successful_authenticator),
+            api_scopes=get_authenticator_scopes(request.successful_authenticator),
+        )
+        return Response(SignalReportFeedbackResponseSerializer({"forwarded": note_id is not None}).data)
+
     def _forward_dismissal_note(
         self,
         *,
@@ -2011,12 +2081,12 @@ class SignalReportViewSet(
             # Computed once and frozen onto the refund row below: the credited-path sync must
             # report the period the refund was accepted in, not whatever period is current when
             # the Celery task eventually reaches billing.
-            period_start, period_end = current_billing_period_bounds(self.organization)
+            period = current_billing_period_bounds(self.organization)
             ineligibility = refund_ineligibility_reason(
                 has_refund=False,  # the idempotent 200 above already handled existing refunds
                 billing_exempt=bool(report.billing_exempt_reason),
                 billable_run_at=billable_run.created_at if billable_run else None,
-                period=(period_start, period_end),
+                period=period,
             )
             if ineligibility is not None:
                 return Response(
@@ -2054,8 +2124,8 @@ class SignalReportViewSet(
                         credits=SIGNALS_CREDITS_PER_REPORT_WITH_PR,
                         pr_url=billable_run.pr_url,
                         pr_run_created_at=billable_run.created_at,
-                        period_start=period_start,
-                        period_end=period_end,
+                        period_start=period.start,
+                        period_end=period.end,
                     )
             except IntegrityError:
                 existing = SignalReportRefund.objects.filter(report_id=report.id).first()
@@ -2136,15 +2206,15 @@ class SignalReportViewSet(
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
 
-        period_start, period_end = current_billing_period_bounds(self.organization)
+        period = current_billing_period_bounds(self.organization)
         aggregates = (
             # Org-wide on purpose (unscoped + org filter): the usage this offsets is org-level.
             SignalReportRefund.objects.unscoped()
             .filter(
                 team__organization_id=self.organization.id,
                 billing_path=SignalReportRefund.BillingPath.CREDITED,
-                pr_run_created_at__gte=period_start,
-                pr_run_created_at__lt=period_end,
+                pr_run_created_at__gte=period.start,
+                pr_run_created_at__lt=period.end,
             )
             .aggregate(credited_refund_count=Count("id"), credited_credits=Sum("credits"))
         )
@@ -2152,9 +2222,7 @@ class SignalReportViewSet(
             {
                 "credited_refund_count": aggregates["credited_refund_count"] or 0,
                 "credited_credits": aggregates["credited_credits"] or 0,
-                "period_billable_credits": period_billable_credits_for_org(
-                    self.organization.id, period_start, period_end
-                ),
+                "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
             }
         )
 
@@ -2196,8 +2264,7 @@ class SignalReportViewSet(
         parsed = GitHubIntegration.parse_pull_request_url(pr_url)
         if parsed is None:
             return None
-        owner, repo, pr_number = parsed
-        return f"{owner}/{repo}", pr_number
+        return parsed.repository, parsed.number
 
     @extend_schema(
         responses={
