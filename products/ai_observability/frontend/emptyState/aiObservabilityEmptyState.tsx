@@ -22,15 +22,15 @@ export const aiObservabilityEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogMagnifyingGlass,
         text: {
             'needs-setup': {
-                headline: 'Know what your LLM calls cost and why they fail',
-                lead: 'Capture every generation your app makes: the full conversation, model, latency, and cost, tied to the users and sessions behind it.',
+                headline: 'See how people use your AI product and where it breaks',
+                lead: 'Capture every generation with its full conversation, tied to the user and session behind it, so you can watch real usage and debug what went wrong.',
                 hint: 'Point Wizard at your project. The setup agent instruments your LLM calls for you:',
             },
         },
         wizard: { slug: 'ai-observability', pinProjectId: true },
         docsUrl: 'https://posthog.com/docs/ai-observability',
         manualSetupUrl: 'https://posthog.com/docs/ai-observability/installation',
-        previewLabel: 'Generations, once connected',
+        previewLabel: 'Sessions, once connected',
         Preview: AIObservabilityTracePreview,
     },
 }
