@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { validate as isUuid } from 'uuid'
 
 import { KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
@@ -138,26 +139,35 @@ export class CdpEventsConsumer<
         }
         // Resolve the workflows in a single batch lookup (mirrors EmailTrackingService.trackLogs) rather
         // than awaiting getHogFlow per event, so a batch carrying many opens doesn't serialize N lookups.
+        // Only look up well-formed UUIDs: `$notification_workflow_id` is client-supplied, and a
+        // non-UUID value would make the `id = ANY(...)` lookup throw on Postgres's uuid cast. Dropping
+        // malformed ids here also keeps one spoofed value from suppressing the rest of the batch.
         const workflowIds = Array.from(
             new Set(
                 opens
                     .map((g) => g.event.properties['$notification_workflow_id'])
-                    .filter((id): id is string => typeof id === 'string')
+                    .filter((id): id is string => typeof id === 'string' && isUuid(id))
             )
         )
         if (!workflowIds.length) {
             return
         }
-        const hogFlows = await this.hogFlowManager.getHogFlows(workflowIds)
-        for (const g of opens) {
-            const workflowId = g.event.properties['$notification_workflow_id']
-            if (typeof workflowId !== 'string') {
-                continue
+        // Open tracking is best-effort: a flow-lookup failure must not abort the batch (that would stall
+        // Hog-function and workflow processing for every event and force a Kafka replay). Log and skip.
+        try {
+            const hogFlows = await this.hogFlowManager.getHogFlows(workflowIds)
+            for (const g of opens) {
+                const workflowId = g.event.properties['$notification_workflow_id']
+                if (typeof workflowId !== 'string') {
+                    continue
+                }
+                const metric = buildPushOpenedMetric(g.event.properties, g.project.id, hogFlows[workflowId] ?? null)
+                if (metric) {
+                    this.hogFunctionMonitoringService.queueAppMetric(metric, 'hog_flow')
+                }
             }
-            const metric = buildPushOpenedMetric(g.event.properties, g.project.id, hogFlows[workflowId] ?? null)
-            if (metric) {
-                this.hogFunctionMonitoringService.queueAppMetric(metric, 'hog_flow')
-            }
+        } catch (error) {
+            logger.error('[CdpEventsConsumer] Failed to track push notification opens', { error })
         }
     }
 

@@ -33,6 +33,16 @@ describe('buildPushOpenedMetric', () => {
         expect(metric?.instance_id).toBe('inv-1')
     })
 
+    it('leaves instance_id undefined when both action and invocation ids are empty strings', () => {
+        // Empty strings must fall through to undefined, not be used as the instance_id.
+        const metric = buildPushOpenedMetric(
+            { $notification_workflow_id: 'wf-1', $notification_action_id: '', $notification_invocation_id: '' },
+            1,
+            flow
+        )
+        expect(metric?.instance_id).toBeUndefined()
+    })
+
     it('does not count an event whose workflow belongs to another team', () => {
         // Guards against a spoofed $push_notification_opened inflating a different team's metrics: the
         // captured event's team (2) does not own the resolved workflow (team 1).

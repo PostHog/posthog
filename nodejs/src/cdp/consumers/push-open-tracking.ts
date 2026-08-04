@@ -30,7 +30,7 @@ export function buildPushOpenedMetric(
         instance_id:
             typeof actionId === 'string' && actionId
                 ? actionId
-                : typeof invocationId === 'string'
+                : typeof invocationId === 'string' && invocationId
                   ? invocationId
                   : undefined,
         metric_name: 'push_opened',
