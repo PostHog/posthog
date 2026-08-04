@@ -15,12 +15,13 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { panelLayoutLogic } from '../panelLayoutLogic'
 
 export const SyncMoreNotice = (): JSX.Element | null => {
-    const { hasNonPosthogSources, syncMoreNoticeDismissed, databaseLoading } = useValues(queryDatabaseLogic)
+    const { hasNonPosthogSources, syncMoreNoticeDismissed, databaseLoading, databaseLoadError } =
+        useValues(queryDatabaseLogic)
     const { setSyncMoreNoticeDismissed } = useActions(queryDatabaseLogic)
     const { addProductIntent } = useActions(teamLogic)
     const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
 
-    if (hasNonPosthogSources || syncMoreNoticeDismissed || databaseLoading) {
+    if (hasNonPosthogSources || syncMoreNoticeDismissed || databaseLoading || databaseLoadError) {
         return null
     }
 
