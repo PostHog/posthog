@@ -104,11 +104,12 @@ UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Models reserved for a specific internal evaluation product must stay restricted even when a
-# product otherwise allows every model (`allowed_models=None`). This is an authorization boundary,
-# not merely a model-registry advertising filter; the registry also derives its advertising from it
-# so the two can't drift. Keys must be lowercase.
+# Models reserved for specific products must stay restricted even when a product otherwise allows
+# every model (`allowed_models=None`). This is an authorization boundary, not merely a
+# model-registry advertising filter; the registry also derives its advertising from it so the two
+# can't drift. Keys must be lowercase.
 RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
+    # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
 }
 

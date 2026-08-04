@@ -387,18 +387,16 @@ class TestBasetenModelAdvertising:
             return_value=create_mock_settings(baseten=True),
         ):
             assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "review_hog") is True
-            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "llm_gateway") is False
             assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "posthog_code") is True
-            assert any(
-                model.id == "deepseek-ai/deepseek-v4-flash-0731"
-                for model in ModelRegistryService.get_instance().get_available_models("posthog_code")
-            )
-            model = next(
-                model
-                for model in ModelRegistryService.get_instance().get_available_models("review_hog")
-                if model.id == "deepseek-ai/deepseek-v4-flash-0731"
-            )
-            assert model.context_window == 1_048_000
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "llm_gateway") is False
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "slack_app") is False
+            for product in ("review_hog", "posthog_code"):
+                model = next(
+                    model
+                    for model in ModelRegistryService.get_instance().get_available_models(product)
+                    if model.id == "deepseek-ai/deepseek-v4-flash-0731"
+                )
+                assert model.context_window == 1_048_000
 
 
 class TestModelMatchesAllowlist:

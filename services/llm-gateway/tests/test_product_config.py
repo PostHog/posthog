@@ -181,12 +181,21 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
     def test_posthog_code_allows_restricted_models_with_valid_app_id(self, model: str):
         allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    def test_slack_app_rejects_deepseek_despite_shared_allowlist(self):
+        allowed, error = check_product_access(
+            "slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "deepseek-ai/deepseek-v4-flash-0731"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     @pytest.mark.parametrize(
         "model",
