@@ -53,7 +53,8 @@ export interface TimeSeriesBarChartConfig {
     fillStyle?: BarFillStyle
     /** Inner gap between bars as a fraction of the band slot (0–1). See {@link BarsConfig.bandPadding}. */
     bandPadding?: number
-    /** Px floor on a bar's height, so a tiny non-zero value stays visible. See {@link BarsConfig.minBarSize}. */
+    /** Px floor on a bar's thickness along the value axis, so a tiny non-zero value stays visible.
+     *  See {@link BarsConfig.minBarSize}. */
     minBarSize?: number
     /** Per-side overrides on the computed chart margins — see {@link ChartConfig.margins}. */
     margins?: Partial<ChartMargins>

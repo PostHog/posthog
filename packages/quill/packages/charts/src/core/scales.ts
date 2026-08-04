@@ -564,9 +564,11 @@ export interface BarScaleSet {
      *  the primary (left) axis scale. */
     yAxes?: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
     /** Px floor on bar thickness along the value axis — see {@link BarsConfig.minBarSize}. A layout
-     *  parameter rather than a scale, but carried here because every path that resolves a bar rect
-     *  (static draw, hover overlay, tooltip narrowing, click routing) already reads the committed
-     *  scale set, so the floor can't drift between them. */
+     *  parameter rather than a scale, but carried here because every path that resolves a bar *rect*
+     *  (static draw, hover overlay, click routing) already reads the committed scale set, so the
+     *  floor can't drift between them. Tooltip/value-label anchoring (`buildTooltipContext`) is a
+     *  separate path that positions off the unfloored value, not the drawn rect — a floored bucket's
+     *  anchor can land inside the bar it labels. */
     minBarSize?: number
 }
 

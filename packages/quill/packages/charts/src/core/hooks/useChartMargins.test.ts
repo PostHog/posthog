@@ -31,8 +31,6 @@ describe('useChartMargins', () => {
             expect(render({ override: { top: 30, left: 24 } })).toMatchObject({ top: 30, left: 24 })
         })
 
-        // A caller building the override conditionally (`{ top: reserveOrUndefined }`) used to write
-        // the undefined straight through, so the plot geometry went NaN and the chart rendered blank.
         it('leaves a side alone when its override is undefined', () => {
             const withUndefined = render({ override: { top: undefined, left: 24 } })
             expect(withUndefined.top).toBe(DEFAULT_MARGINS.top)

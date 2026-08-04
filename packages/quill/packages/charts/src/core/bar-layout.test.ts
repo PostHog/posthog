@@ -298,30 +298,97 @@ describe('hog-charts bar-layout', () => {
 
     describe('computeSeriesBars — minBarSize', () => {
         // Volume sparklines floor tiny buckets so "one error happened here" stays visible next to a
-        // spike. Guards the two ways that goes wrong: flooring empty buckets into phantom bars, and
-        // flooring a bar that is already tall enough.
+        // spike. Guards the ways that goes wrong: flooring empty buckets into phantom bars, flooring
+        // a bar that is already tall enough, and — since `height` is `Math.abs`, blind to direction —
+        // flooring toward the wrong edge (a bar that hangs off the plot instead of growing from its
+        // baseline). Covers both `grouped` and `stacked` call sites, and both value signs.
+        // `edge` picks which computed pixel to compare against `expected`: the bar's top (`y`),
+        // bottom (`y + height`), right (`x + width`), or its `height` alone.
         it.each([
-            { name: 'tiny non-zero value is floored', value: 1, expectedHeight: 6 },
-            { name: 'zero value stays empty', value: 0, expectedHeight: 0 },
-            { name: 'value above the floor is left exact', value: 1000, expectedHeight: 100 },
-        ])('$name', ({ value, expectedHeight }) => {
+            {
+                name: 'stacked vertical positive: tiny value floors up from the baseline',
+                layout: 'stacked' as const,
+                isHorizontal: false,
+                value: 1,
+                valueDomain: [0, 1000] as [number, number],
+                // baseline (value 0) sits at plotHeight (100); floored cap grows 6px above it — the
+                // bar's top edge (smaller y) is the cap here.
+                edge: 'top' as const,
+                expected: 94,
+            },
+            {
+                name: 'stacked vertical: zero value stays empty (not floored)',
+                layout: 'stacked' as const,
+                isHorizontal: false,
+                value: 0,
+                valueDomain: [0, 1000] as [number, number],
+                edge: 'height' as const,
+                expected: 0,
+            },
+            {
+                name: 'stacked vertical: value above the floor is left exact',
+                layout: 'stacked' as const,
+                isHorizontal: false,
+                value: 1000,
+                valueDomain: [0, 1000] as [number, number],
+                edge: 'top' as const,
+                expected: 0,
+            },
+            {
+                name: 'grouped vertical positive: tiny value floors up from the baseline',
+                layout: 'grouped' as const,
+                isHorizontal: false,
+                value: 1,
+                valueDomain: [0, 1000] as [number, number],
+                edge: 'top' as const,
+                expected: 94,
+            },
+            {
+                name: 'grouped vertical negative: tiny value floors down from the baseline (symmetric domain)',
+                layout: 'grouped' as const,
+                isHorizontal: false,
+                value: -1,
+                valueDomain: [-1000, 1000] as [number, number],
+                // baseline (value 0) sits at plotHeight / 2 (50) on a symmetric domain; the floored cap
+                // grows 6px below it — the bar's *bottom* edge (larger y) is the cap here, so asserting
+                // the top alone (which stays pinned to the baseline) would pass even if it floored upward.
+                edge: 'bottom' as const,
+                expected: 56,
+            },
+            {
+                name: 'grouped horizontal positive: tiny value floors right from the baseline',
+                layout: 'grouped' as const,
+                isHorizontal: true,
+                value: 1,
+                valueDomain: [0, 1000] as [number, number],
+                // baseline (value 0) sits at x=0; floored cap grows 6px right of it.
+                edge: 'right' as const,
+                expected: 6,
+            },
+        ])('$name', ({ layout, isHorizontal, value, valueDomain, edge, expected }) => {
             const labels = ['a']
             const s = makeSeries({ key: 's', data: [value] })
             const scales = createBarScales([s], labels, PIXEL_TEST_DIMENSIONS, {
-                barLayout: 'stacked',
+                barLayout: layout,
+                axisOrientation: isHorizontal ? 'horizontal' : 'vertical',
                 minBarSize: 6,
                 // Pin the domain so the floor, not the auto-scaled axis, is what the assertion reads.
-                valueDomain: [0, 1000],
+                valueDomain,
             })
-            const bars = layoutOf({
+            const bars = computeSeriesBars({
                 series: s,
                 labels,
                 scales,
-                layout: 'stacked',
-                stackedBand: computeStackData([s], labels).get('s'),
+                layout,
+                isHorizontal,
+                stackedBand: layout === 'grouped' ? undefined : computeStackData([s], labels).get('s'),
                 isTopOfStack: true,
             })
-            expect(bars[0]?.height).toBeCloseTo(expectedHeight, 5)
+            const bar = bars[0]!
+            const actual = { top: bar.y, bottom: bar.y + bar.height, right: bar.x + bar.width, height: bar.height }[
+                edge
+            ]
+            expect(actual).toBeCloseTo(expected, 5)
         })
     })
 

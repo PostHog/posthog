@@ -280,22 +280,22 @@ export function buildBarLayers({
 
 /** Push a bar's value-axis edge out to `minBarSize` px from its baseline-side edge when the bar
  *  would otherwise be thinner, so a tiny non-zero value still reads as a bar. Zero-valued bars keep
- *  their exact (empty) extent. `raw`'s sign picks the direction the bar grows: positives grow up on
- *  a vertical chart and right on a horizontal one. */
-function floorValuePixel(
-    valuePixel: number,
-    basePixel: number,
-    raw: number,
-    isHorizontal: boolean,
-    minBarSize: number | undefined
-): number {
-    if (!minBarSize || minBarSize <= 0 || raw === 0) {
+ *  their exact (empty) extent. The direction to grow is taken from the segment's own geometry
+ *  (`valuePixel` vs `basePixel`), not from `raw`'s sign — a stacked/percent layout clamps negative
+ *  data to a zero-extent segment (`raw !== 0` but `valuePixel === basePixel`), and a diverging
+ *  stack's negative segment has `valuePixel > basePixel`, both of which disagree with `raw`'s sign.
+ *  The `raw === 0` guard still keys off the value, not the geometry: on the grouped path a clamped
+ *  baseline (e.g. a fixed `valueDomain` excluding 0) can make a zero-valued bar geometrically
+ *  non-empty, and that must stay unfloored. */
+function floorValuePixel(valuePixel: number, basePixel: number, raw: number, minBarSize: number | undefined): number {
+    const direction = Math.sign(valuePixel - basePixel)
+    if (!minBarSize || minBarSize <= 0 || raw === 0 || direction === 0) {
         return valuePixel
     }
     if (Math.abs(valuePixel - basePixel) >= minBarSize) {
         return valuePixel
     }
-    return basePixel + (raw > 0 === isHorizontal ? minBarSize : -minBarSize)
+    return basePixel + direction * minBarSize
 }
 
 export interface ComputeBarAtIndexOptions {
@@ -361,7 +361,7 @@ export function computeBarAtIndex({
         // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
         const [r0, r1] = valueScale.range()
         const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
-        const cap = floorValuePixel(valuePixel, baseline, raw, isHorizontal, scales.minBarSize)
+        const cap = floorValuePixel(valuePixel, baseline, raw, scales.minBarSize)
         return makeBarRect(isHorizontal, slot.x, slot.width, baseline, cap, corners, dataIndex)
     }
 
@@ -374,8 +374,19 @@ export function computeBarAtIndex({
         return null
     }
     // Floored against this segment's own bottom, not the axis baseline, so a floored segment grows
-    // out of where it actually starts in the stack.
-    const topPixel = floorValuePixel(rawTopPixel, bottomPixel, raw, isHorizontal, scales.minBarSize)
+    // out of where it actually starts in the stack. Only a pixel the floor itself pushed out is
+    // clamped back into the value scale's range (mirrors the grouped branch's baseline clamp above)
+    // — an unfloored `rawTopPixel` outside the range is legitimate (e.g. a `valueDomain` narrower
+    // than the stack total) and hit-testing above the plot still needs to resolve to it, so clamping
+    // unconditionally would break that.
+    const flooredTopPixel = floorValuePixel(rawTopPixel, bottomPixel, raw, scales.minBarSize)
+    let topPixel = flooredTopPixel
+    if (flooredTopPixel !== rawTopPixel) {
+        const [valueRangeA, valueRangeB] = valueScale.range()
+        const valueRangeMin = Math.min(valueRangeA, valueRangeB)
+        const valueRangeMax = Math.max(valueRangeA, valueRangeB)
+        topPixel = Math.min(Math.max(flooredTopPixel, valueRangeMin), valueRangeMax)
+    }
     // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
     const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel

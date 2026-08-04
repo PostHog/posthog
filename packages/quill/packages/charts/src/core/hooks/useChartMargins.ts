@@ -248,6 +248,11 @@ export function useChartMargins({
         const right = Math.max(rightFloor, rightLabelReserve, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
         return override ? applyMarginOverride(computed, override) : computed
+        // Depend on the individual sides, not `override` by identity — callers are expected to build
+        // the override object inline and conditionally (`{ top: reserveOrUndefined }`), which is a
+        // fresh identity every render, and keying off it here would reintroduce the referential churn
+        // this hook's memoization is meant to contain.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         hideXAxis,
         hideYAxis,
@@ -257,6 +262,9 @@ export function useChartMargins({
         xLabelHalfWidth,
         normalizedXAxisLabel,
         titleReserve,
-        override,
+        override?.top,
+        override?.right,
+        override?.bottom,
+        override?.left,
     ])
 }
