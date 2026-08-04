@@ -154,8 +154,8 @@ class SandboxUsageByTeam:
 @dataclass(frozen=True)
 class SandboxComputeUsageByTeam:
     credits: list[tuple[int, int]]
-    cpu_core_seconds: list[tuple[int, float]]
-    memory_gib_seconds: list[tuple[int, float]]
+    cpu_millicore_seconds: list[tuple[int, int]]
+    memory_mib_seconds: list[tuple[int, int]]
     cpu_cost_microusd: list[tuple[int, int]]
     memory_cost_microusd: list[tuple[int, int]]
 
@@ -200,22 +200,22 @@ def get_billable_sandbox_compute_usage_by_team(
         totals[3] += cost.memory_cost_usd
 
     credits: list[tuple[int, int]] = []
-    cpu_core_seconds: list[tuple[int, float]] = []
-    memory_gib_seconds: list[tuple[int, float]] = []
+    cpu_millicore_seconds: list[tuple[int, int]] = []
+    memory_mib_seconds: list[tuple[int, int]] = []
     cpu_cost_microusd: list[tuple[int, int]] = []
     memory_cost_microusd: list[tuple[int, int]] = []
     for team_id, totals in usage.items():
         cpu_quantity, memory_quantity, cpu_usd, memory_usd = totals
         credits.append((team_id, int(((cpu_usd + memory_usd) * 100).to_integral_value(rounding=ROUND_HALF_EVEN))))
-        cpu_core_seconds.append((team_id, float(cpu_quantity)))
-        memory_gib_seconds.append((team_id, float(memory_quantity)))
+        cpu_millicore_seconds.append((team_id, int((cpu_quantity * 1000).to_integral_value(rounding=ROUND_HALF_EVEN))))
+        memory_mib_seconds.append((team_id, int((memory_quantity * 1024).to_integral_value(rounding=ROUND_HALF_EVEN))))
         cpu_cost_microusd.append((team_id, int((cpu_usd * 1_000_000).to_integral_value(rounding=ROUND_HALF_EVEN))))
         memory_cost_microusd.append(
             (team_id, int((memory_usd * 1_000_000).to_integral_value(rounding=ROUND_HALF_EVEN)))
         )
 
     return SandboxComputeUsageByTeam(
-        credits, cpu_core_seconds, memory_gib_seconds, cpu_cost_microusd, memory_cost_microusd
+        credits, cpu_millicore_seconds, memory_mib_seconds, cpu_cost_microusd, memory_cost_microusd
     )
 
 

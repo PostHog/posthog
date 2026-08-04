@@ -299,8 +299,8 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
-        assert usage.cpu_core_seconds == [(self.team.id, 14400.0)]
-        assert usage.memory_gib_seconds == [(self.team.id, 57600.0)]
+        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
+        assert usage.memory_mib_seconds == [(self.team.id, 58_982_400)]
         assert usage.cpu_cost_microusd == [(self.team.id, 14_400_000)]
         assert usage.memory_cost_microusd == [(self.team.id, 5_760_000)]
         assert usage.credits == [(self.team.id, 2016)]
@@ -312,7 +312,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
-        assert usage.cpu_core_seconds == [(self.team.id, 14400.0)]
+        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
         assert usage.credits == [(self.team.id, 2016)]
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
@@ -342,6 +342,24 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.cpu_cost_microusd == [(self.team.id, 5000)]
         assert usage.memory_cost_microusd == [(self.team.id, 5000)]
 
+    def test_integer_resource_units_round_only_after_exact_aggregation(self):
+        for sandbox_id in ("sb-units-a", "sb-units-b"):
+            self._session(
+                sandbox_id=sandbox_id,
+                client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+                cpu_request_cores=0.125,
+                memory_request_mb=384,
+                ended_at=self.BEGIN + timedelta(seconds=1),
+                user_attributed_at=self.BEGIN,
+            )
+
+        usage = get_billable_sandbox_compute_usage_by_team(
+            self.BEGIN, self.BEGIN + timedelta(microseconds=500_000), rate_cards=(self._rate(),)
+        )
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 125)]
+        assert usage.memory_mib_seconds == [(self.team.id, 384)]
+
     def test_compute_before_first_rate_is_free_and_rate_changes_are_applied(self):
         self._session(
             client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
@@ -364,7 +382,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=rates)
 
-        assert usage.cpu_core_seconds == [(self.team.id, 2.0)]
+        assert usage.cpu_millicore_seconds == [(self.team.id, 2000)]
         assert usage.cpu_cost_microusd == [(self.team.id, 3000)]
         assert usage.memory_cost_microusd == [(self.team.id, 300)]
 
