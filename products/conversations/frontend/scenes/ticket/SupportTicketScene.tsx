@@ -11,7 +11,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -160,6 +160,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
           }[emailReplyBlockedReason]
         : undefined
 
+    const canEditTicket = accessLevelSatisfied(
+        AccessControlResourceType.Ticket,
+        ticket?.user_access_level ?? AccessControlLevel.None,
+        AccessControlLevel.Editor
+    )
+
     const sendDisabledReason =
         getAccessControlDisabledReason(
             AccessControlResourceType.Ticket,
@@ -258,6 +264,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
                         currentUserId={user?.id ?? null}
+                        canEditTicket={canEditTicket}
                         editingMessageId={editingMessageId}
                         onEditMessage={startEditingMessage}
                         onDeleteMessage={deleteMessage}

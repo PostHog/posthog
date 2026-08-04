@@ -35,6 +35,8 @@ export interface MessageListProps {
      * customer-facing view never receives team-only content. */
     extras?: TimelineExtra[]
     currentUserId?: number | null
+    /** False when the caller lacks ticket editor access (e.g. viewer-only). */
+    canEditTicket?: boolean
     onEditMessage?: (message: ChatMessage) => void
     onDeleteMessage?: (messageId: string) => void
 }
@@ -66,6 +68,7 @@ export function MessageList({
     onSubmitAiReplyFeedback,
     extras = [],
     currentUserId = null,
+    canEditTicket = false,
     onEditMessage,
     onDeleteMessage,
 }: MessageListProps): JSX.Element {
@@ -202,6 +205,7 @@ export function MessageList({
         ...messages.map((message) => {
             const isCustomer = message.authorType === 'customer'
             const canModify =
+                canEditTicket &&
                 !!message.isPrivate &&
                 message.authorType === 'human' &&
                 !!currentUserId &&

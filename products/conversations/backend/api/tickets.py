@@ -103,7 +103,10 @@ class TicketNoteUpdateRequestSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="Optional TipTap rich content JSON for formatted messages.",
+        help_text=(
+            "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content "
+            "so the thread falls back to the markdown message."
+        ),
     )
 
     def validate_message(self, value: str) -> str:
@@ -1292,8 +1295,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     status=drf_status.HTTP_403_FORBIDDEN,
                 )
             locked.content = data["message"]
-            if "rich_content" in data:
-                locked.rich_content = data["rich_content"]
+            # Always write rich_content: omitting it clears stale TipTap JSON so markdown-only
+            # MCP/API edits don't keep rendering the previous note body.
+            locked.rich_content = data.get("rich_content")
             locked.version = locked.version + 1
             locked.save(update_fields=["content", "rich_content", "version"])
 

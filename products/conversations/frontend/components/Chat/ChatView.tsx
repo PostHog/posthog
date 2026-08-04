@@ -64,6 +64,8 @@ export interface ChatViewProps {
     aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
     currentUserId?: number | null
+    /** False when the caller lacks ticket editor access (e.g. viewer-only). */
+    canEditTicket?: boolean
     editingMessageId?: string | null
     onEditMessage?: (message: ChatMessage) => void
     onDeleteMessage?: (messageId: string) => void
@@ -104,6 +106,7 @@ export function ChatView({
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
     currentUserId,
+    canEditTicket = false,
     editingMessageId,
     onEditMessage,
     onDeleteMessage,
@@ -133,6 +136,7 @@ export function ChatView({
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
                 extras={threadExtras}
                 currentUserId={currentUserId}
+                canEditTicket={canEditTicket}
                 onEditMessage={onEditMessage}
                 onDeleteMessage={onDeleteMessage}
             />

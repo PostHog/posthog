@@ -2840,6 +2840,16 @@ class TestTicketNoteAPI(APIBaseTest):
         assert self.note.content == "Updated note"
         assert self.note.version == 1
 
+    def test_patch_message_only_clears_stale_rich_content(self, mock_on_commit):
+        response = self.client.patch(self.url, {"message": "Markdown-only update"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["content"] == "Markdown-only update"
+        assert response.json()["rich_content"] is None
+
+        self.note.refresh_from_db()
+        assert self.note.content == "Markdown-only update"
+        assert self.note.rich_content is None
+
     def test_delete_soft_deletes_and_hides_from_messages(self, mock_on_commit):
         response = self.client.delete(self.url)
         assert response.status_code == status.HTTP_204_NO_CONTENT
