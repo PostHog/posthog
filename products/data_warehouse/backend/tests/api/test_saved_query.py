@@ -15,7 +15,7 @@ from parameterized import parameterized
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
-from products.data_modeling.backend.facade.api import mark_node_suspended, suspension_state
+from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -243,6 +243,38 @@ class TestSavedQuery(APIBaseTest):
             mock_unpause.assert_not_called()
             # But should still update the schedule
             mock_sync.assert_called_once()
+
+    def test_materialize_leaves_nothing_persisted_when_the_frequency_is_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 201
+        saved_query_id = response.data["id"]
+
+        with patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            side_effect=UnsatisfiableFrequencyError(
+                "Requested freshness (1day) is less frequent than a downstream consumer requires "
+                "(tightest downstream target: 15min)"
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
+            )
+
+        assert response.status_code == 400
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.is_materialized is False
+        assert saved_query.sync_frequency_interval is None
 
     def test_materialize_action_with_managed_viewset_fails(self):
         """Test that materializing a managed viewset query fails"""
