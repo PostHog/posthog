@@ -182,7 +182,10 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // Access-denied 403s we've already decided are expected control flow (the toast
+                // above is suppressed for the same reason) shouldn't be reported as exceptions
+                // either - otherwise every gated loader mints a fresh error-tracking issue.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isAccessDenied) {
                     posthog.captureException(error)
                 }
             },
