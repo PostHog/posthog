@@ -296,6 +296,7 @@ the row lists both.
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
 | gusto                            | HTTP                        | requests                                                        | ✅                          |
+| harvest                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | harvey                           | HTTP                        | requests                                                        | ✅                          |
 | hatchet                          | HTTP                        | requests                                                        | ✅                          |
 | healthchecks                     | HTTP                        | requests                                                        | ✅                          |
@@ -1021,7 +1022,6 @@ doesn't conflict with concurrent PRs.
 - harness
 - harness_ccm
 - harness_sei
-- harvest
 - harvey
 - healthie
 - heap
