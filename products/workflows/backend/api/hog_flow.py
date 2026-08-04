@@ -815,6 +815,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
             "to reference a cohort. "
+            "batch triggers may set filters.properties_operator: 'AND' (default, a person must match every "
+            "audience condition) or 'OR' (a person matching any one condition is included). "
             "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
             "audience fans out one run per customer analytics account and takes account filters instead: "
             "properties entries of type 'account_custom_property' (key = definition id), plus "
