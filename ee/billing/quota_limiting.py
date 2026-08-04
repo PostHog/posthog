@@ -25,6 +25,7 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
     get_signals_credited_refund_credits_for_org,
@@ -32,11 +33,12 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_billable_sandbox_compute_usage_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_logs_bytes_in_period,
-    get_teams_with_posthog_code_credits_used_in_period,
+    get_teams_with_posthog_code_token_credits_used_in_period,
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_rows_exported_in_period,
@@ -132,7 +134,7 @@ GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
 }
 
 
-# These should be kept in sync with OrganizationUsageInfo and QuotaResource values.
+# These should be kept in sync with OrganizationUsageInfo and CURRENT_USAGE_RESOURCES.
 class UsageCounters(TypedDict):
     events: int
     exceptions: int
@@ -147,11 +149,28 @@ class UsageCounters(TypedDict):
     ai_credits: int
     signals_credits: int
     posthog_code_credits: int
+    posthog_code_token_credits: int
+    sandbox_compute_credits: int
+    sandbox_compute_cpu_core_seconds: float
+    sandbox_compute_memory_gib_seconds: float
+    sandbox_compute_cpu_cost_microusd: int
+    sandbox_compute_memory_cost_microusd: int
     workflow_emails: int
     workflow_push: int
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
     replay_vision_credits: int
+
+
+INFORMATIONAL_USAGE_RESOURCES = (
+    "posthog_code_token_credits",
+    "sandbox_compute_credits",
+    "sandbox_compute_cpu_core_seconds",
+    "sandbox_compute_memory_gib_seconds",
+    "sandbox_compute_cpu_cost_microusd",
+    "sandbox_compute_memory_cost_microusd",
+)
+CURRENT_USAGE_RESOURCES = tuple(resource.value for resource in QuotaResource) + INFORMATIONAL_USAGE_RESOURCES
 
 
 # -------------------------------------------------------------------------------------------------
@@ -802,12 +821,13 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
-    for resource in QuotaResource:
-        field = resource.value
+    for field in CURRENT_USAGE_RESOURCES:
         original_field_usage = original_usage.get(field, {}) if original_usage else {}
         resource_usage = cast(dict, new_usage.get(field, {"limit": None, "usage": 0, "todays_usage": 0}))
 
         if not resource_usage:
+            if field in INFORMATIONAL_USAGE_RESOURCES and original_field_usage:
+                cast(dict, new_usage)[field] = original_field_usage
             continue
 
         # Preserve quota_limited_until and quota_limiting_suspended_until if it exists
@@ -874,7 +894,7 @@ def _patch_organization_usage_jsonb(organization: Organization, ops: Sequence[tu
 
 def _patch_todays_usage(organization: Organization, todays_report: "UsageCounters") -> bool:
     """
-    Cron-only: patches `usage[resource].todays_usage` for each `QuotaResource` where the
+    Cron-only: patches `usage[resource].todays_usage` for each current usage resource where the
     org has a non-empty resource dict. Mutates `organization.usage` in-memory and emits a
     single targeted UPDATE via `_patch_organization_usage_jsonb` so billing-owned fields
     (`usage`, `limit`, `period`) are not clobbered by stale snapshots. Returns True if
@@ -885,8 +905,7 @@ def _patch_todays_usage(organization: Organization, todays_report: "UsageCounter
 
     ops: list[tuple[list[str], Any]] = []
 
-    for resource in QuotaResource:
-        field = resource.value
+    for field in CURRENT_USAGE_RESOURCES:
         existing_resource = organization.usage.get(field)
         if not existing_resource:
             continue
@@ -1013,6 +1032,18 @@ def update_all_orgs_billing_quotas(
     _, exception_metrics = _timed_query(
         "exceptions_captured", get_teams_with_exceptions_captured_in_period, period_start, period_end
     )
+    token_credits = convert_team_usage_rows_to_dict(
+        _timed_query(
+            "posthog_code_token_credits",
+            get_teams_with_posthog_code_token_credits_used_in_period,
+            period_start,
+            period_end,
+        )
+    )
+    sandbox_compute_usage = _timed_query(
+        "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period_start, period_end
+    )
+    compute_credits = convert_team_usage_rows_to_dict(sandbox_compute_usage.credits)
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1063,10 +1094,23 @@ def update_all_orgs_billing_quotas(
         "teams_with_signals_credits_used_in_period": convert_team_usage_rows_to_dict(
             _timed_query("signals_credits", get_teams_with_signals_credits_used_in_period, period_start, period_end)
         ),
-        "teams_with_posthog_code_credits_used_in_period": convert_team_usage_rows_to_dict(
-            _timed_query(
-                "posthog_code_credits", get_teams_with_posthog_code_credits_used_in_period, period_start, period_end
-            )
+        "teams_with_posthog_code_credits_used_in_period": {
+            team_id: combine_posthog_code_credits(token_credits.get(team_id, 0), compute_credits.get(team_id, 0))
+            for team_id in token_credits.keys() | compute_credits.keys()
+        },
+        "teams_with_posthog_code_token_credits_used_in_period": token_credits,
+        "teams_with_sandbox_compute_credits_used_in_period": compute_credits,
+        "teams_with_sandbox_compute_cpu_core_seconds_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.cpu_core_seconds
+        ),
+        "teams_with_sandbox_compute_memory_gib_seconds_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.memory_gib_seconds
+        ),
+        "teams_with_sandbox_compute_cpu_cost_microusd_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.cpu_cost_microusd
+        ),
+        "teams_with_sandbox_compute_memory_cost_microusd_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.memory_cost_microusd
         ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
@@ -1143,6 +1187,20 @@ def update_all_orgs_billing_quotas(
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
             posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
+            posthog_code_token_credits=all_data["teams_with_posthog_code_token_credits_used_in_period"].get(team.id, 0),
+            sandbox_compute_credits=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),
+            sandbox_compute_cpu_core_seconds=all_data["teams_with_sandbox_compute_cpu_core_seconds_in_period"].get(
+                team.id, 0
+            ),
+            sandbox_compute_memory_gib_seconds=all_data["teams_with_sandbox_compute_memory_gib_seconds_in_period"].get(
+                team.id, 0
+            ),
+            sandbox_compute_cpu_cost_microusd=all_data["teams_with_sandbox_compute_cpu_cost_microusd_in_period"].get(
+                team.id, 0
+            ),
+            sandbox_compute_memory_cost_microusd=all_data[
+                "teams_with_sandbox_compute_memory_cost_microusd_in_period"
+            ].get(team.id, 0),
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),

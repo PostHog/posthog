@@ -2322,7 +2322,7 @@ class TestQuotaLimiting(BaseTest):
         mock_update_remote_config.apply_async.assert_not_called()
 
 
-def _full_usage_counters(**overrides: int) -> UsageCounters:
+def _full_usage_counters(**overrides: int | float) -> UsageCounters:
     base = UsageCounters(
         events=0,
         exceptions=0,
@@ -2335,6 +2335,12 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         ai_credits=0,
         signals_credits=0,
         posthog_code_credits=0,
+        posthog_code_token_credits=0,
+        sandbox_compute_credits=0,
+        sandbox_compute_cpu_core_seconds=0,
+        sandbox_compute_memory_gib_seconds=0,
+        sandbox_compute_cpu_cost_microusd=0,
+        sandbox_compute_memory_cost_microusd=0,
         cdp_trigger_events=0,
         rows_exported=0,
         workflow_emails=0,
@@ -2586,6 +2592,60 @@ class TestPatchTodaysUsage(BaseTest):
         changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
 
         assert changed is False
+
+    def test_patches_desktop_components_without_changing_units_or_double_counting(self) -> None:
+        self.organization.usage = {
+            "posthog_code_credits": {"usage": 100, "limit": 2_000, "todays_usage": 0},
+            "posthog_code_token_credits": {"usage": 80, "limit": None, "todays_usage": 0},
+            "sandbox_compute_credits": {"usage": 20, "limit": None, "todays_usage": 0},
+            "sandbox_compute_cpu_core_seconds": {"usage": 1.5, "limit": None, "todays_usage": 0},
+            "sandbox_compute_memory_gib_seconds": {"usage": 4.5, "limit": None, "todays_usage": 0},
+            "sandbox_compute_cpu_cost_microusd": {"usage": 7, "limit": None, "todays_usage": 0},
+            "sandbox_compute_memory_cost_microusd": {"usage": 11, "limit": None, "todays_usage": 0},
+            "period": _PERIOD,
+        }
+        self.organization.save()
+        todays_usage = _full_usage_counters(
+            posthog_code_credits=15,
+            posthog_code_token_credits=12,
+            sandbox_compute_credits=3,
+            sandbox_compute_cpu_core_seconds=2.25,
+            sandbox_compute_memory_gib_seconds=6.75,
+            sandbox_compute_cpu_cost_microusd=13,
+            sandbox_compute_memory_cost_microusd=17,
+        )
+
+        assert _patch_todays_usage(self.organization, todays_usage) is True
+        assert _patch_todays_usage(self.organization, todays_usage) is False
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["posthog_code_credits"]["todays_usage"] == 15
+        assert self.organization.usage["posthog_code_token_credits"]["todays_usage"] == 12
+        assert self.organization.usage["sandbox_compute_credits"]["todays_usage"] == 3
+        assert self.organization.usage["sandbox_compute_cpu_core_seconds"]["todays_usage"] == 2.25
+        assert self.organization.usage["sandbox_compute_memory_gib_seconds"]["todays_usage"] == 6.75
+        assert self.organization.usage["sandbox_compute_cpu_cost_microusd"]["todays_usage"] == 13
+        assert self.organization.usage["sandbox_compute_memory_cost_microusd"]["todays_usage"] == 17
+
+    def test_missing_billing_components_preserve_the_last_known_breakdown(self) -> None:
+        existing_component = {"usage": 10, "limit": None, "todays_usage": 3}
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
+            "sandbox_compute_credits": existing_component,
+            "period": _PERIOD,
+        }
+
+        new_usage = cast(
+            OrganizationUsageInfo,
+            {
+                "events": {"usage": 101, "limit": 1_000},
+                "sandbox_compute_credits": {},
+                "period": _PERIOD,
+            },
+        )
+
+        assert set_org_usage_summary(self.organization, new_usage=new_usage) is True
+        assert self.organization.usage["sandbox_compute_credits"] == existing_component
 
     def test_returns_false_when_no_resources_to_patch(self) -> None:
         # Org has only `period` — no per-resource dicts to patch.
