@@ -117,9 +117,12 @@ class MADDetector(BaseDetector):
 
     @classmethod
     def get_default_config(cls) -> dict:
+        # Scores the raw level, not the first difference. Differencing turns every
+        # step inside a gradual ramp into a candidate anomaly (flagging an ordinary
+        # step) while a sustained level shift reads as a series of small, unremarkable
+        # diffs (missing the regime change) - the opposite of what MAD is meant to catch.
         return {
             "type": DetectorType.MAD.value,
             "threshold": cls.DEFAULT_THRESHOLD,
             "window": 30,
-            "preprocessing": {"diffs_n": 1},
         }

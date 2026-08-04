@@ -126,7 +126,6 @@ function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorC
             type: 'mad',
             threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
             window,
-            preprocessing: { diffs_n: 1 },
         },
         iqr: { type: 'iqr', multiplier: 1.5, window },
         threshold: { type: 'threshold' },
@@ -180,7 +179,6 @@ function getDefaultEnsemble(window: number): EnsembleDetectorConfig {
                 type: 'mad',
                 threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
                 window,
-                preprocessing: { diffs_n: 1 },
             },
         ],
     }

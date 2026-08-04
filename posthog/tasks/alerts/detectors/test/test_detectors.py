@@ -264,6 +264,32 @@ class TestStatisticalDetectors:
         detector.detect(data)
         detector.detect_batch(data)
 
+    def test_default_config_catches_sustained_shift_that_differencing_missed(self) -> None:
+        # get_default_config() used to default to differencing (diffs_n=1), which scores
+        # the change between buckets rather than the level. That flags an ordinary step
+        # inside a gradual ramp as an outlier while a sustained level shift reads as a
+        # string of small, unremarkable diffs after the initial jump - so a differenced
+        # MAD detector fires once on the transition into a regime shift and then goes
+        # silent for the rest of the elevated plateau. Scoring the level catches the whole
+        # plateau and ignores the isolated mid-ramp bump.
+        baseline = [10, 15, 20, 28, 20, 15, 10, 15, 20, 28, 20, 15, 10, 15, 20, 28, 20, 15, 10, 15]
+        mid_ramp_bump = [22]
+        more_baseline = [15, 20, 15, 10, 15, 20]
+        plateau = [45, 47, 46, 48]
+        data = np.array(baseline + mid_ramp_bump + more_baseline + plateau, dtype=float)
+        mid_ramp_index = len(baseline)
+        plateau_indices = range(len(data) - len(plateau), len(data))
+
+        config = MADDetector.get_default_config()
+        config["window"] = 20
+
+        level_result = MADDetector(config).detect_batch(data)
+        assert mid_ramp_index not in level_result.triggered_indices
+        assert all(i in level_result.triggered_indices for i in plateau_indices)
+
+        diffed_result = MADDetector({**config, "preprocessing": {"diffs_n": 1}}).detect_batch(data)
+        assert not any(i in diffed_result.triggered_indices for i in list(plateau_indices)[1:])
+
     @parameterized.expand(
         [
             (f"{name}_diffs_{diffs_n}", detector_type, detector_cls, diffs_n)
