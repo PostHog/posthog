@@ -4,7 +4,6 @@ from typing import cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -12,7 +11,7 @@ _PIPELINE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pip
 
 
 @pytest.mark.asyncio
-async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_import_error(monkeypatch):
+async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_import_error():
     # Regression: run()'s finally used to call get_delta_table() (object-storage I/O) purely for
     # memory cleanup, even on a run that failed before ever fetching a delta table (nothing
     # cached, nothing to clean up). A transient object-storage blip on that spurious call then
@@ -23,7 +22,6 @@ async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_impor
     pipeline = PipelineNonDLT.__new__(PipelineNonDLT)
     pipeline._logger = AsyncMock()
     pipeline._resumable_source_manager = None
-    pipeline._cdp_producer = cast(CDPProducer, object())  # unused: the patched clear-chunks ignores it
     pipeline._resource = cast(SourceResponse, object())
     delta_table_ref = AsyncMock()
     delta_table_ref.get_delta_table.cache_pop.return_value = None
@@ -32,13 +30,7 @@ async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_impor
     class ImportError_(Exception):
         pass
 
-    async def _raise_import_error(_cdp_producer):
-        raise ImportError_("Can't connect to MySQL server on")
-
-    monkeypatch.setattr(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.cdp_producer_clear_chunks",
-        _raise_import_error,
-    )
+    pipeline._sinks = MagicMock(clear=AsyncMock(side_effect=ImportError_("Can't connect to MySQL server on")))
 
     with pytest.raises(ImportError_, match="Can't connect to MySQL server on"):
         await pipeline.run()

@@ -17,7 +17,6 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
-    NULL_SURFACING_SCORE_FALLBACK,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
     surfacing_score_predicate,
@@ -158,8 +157,10 @@ def test_surfacing_score_predicate_rejects_unknown_mode():
         surfacing_score_predicate("focussed")
 
 
-def test_null_fallback_stays_below_balanced_threshold():
-    assert NULL_SURFACING_SCORE_FALLBACK < BALANCED_SURFACING_THRESHOLD
+def test_unscored_fallback_passes_filtered_thresholds():
+    from posthog.session_recordings.queries.session_recording_list_from_query import UNSCORED_SURFACING_SCORE
+
+    assert UNSCORED_SURFACING_SCORE >= FOCUSED_SURFACING_THRESHOLD
 
 
 @pytest.mark.parametrize(
