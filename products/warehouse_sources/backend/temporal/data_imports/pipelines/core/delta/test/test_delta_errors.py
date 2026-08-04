@@ -5,6 +5,7 @@ import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
@@ -32,6 +33,11 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+            # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
+            # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
+            # further up the stack that catches broadly and re-runs this classifier on the caught
+            # exception sees the wrapper, not the original — it must still read as transient.
+            ("already_wrapped_transient_error", TransientObjectStoreError("Please reduce your request rate"), True),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
