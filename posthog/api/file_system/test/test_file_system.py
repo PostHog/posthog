@@ -59,6 +59,30 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response_data["count"], 0)
         self.assertEqual(response_data["results"], [])
 
+    def test_legacy_desktop_canvas_rows_remain_readable_during_client_rollout(self):
+        canvas = FileSystem.objects.create(
+            team=self.team,
+            path="general/Existing canvas",
+            depth=2,
+            type="dashboard",
+            surface="desktop",
+            created_by=self.user,
+            meta={"code": "export default function Canvas() {}"},
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="general/Web dashboard",
+            depth=2,
+            type="dashboard",
+            surface="web",
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/?parent=general&type=dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([row["id"] for row in response.json()["results"]], [str(canvas.id)])
+
     def test_create_file(self):
         """
         Ensure that we can create a FileSystem object for our team.

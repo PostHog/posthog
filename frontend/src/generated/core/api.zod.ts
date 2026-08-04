@@ -9015,6 +9015,259 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemCreateBodyTypeMax = 100
+
+export const desktopFileSystemCreateBodyRefMax = 100
+
+export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemUpdateBodyTypeMax = 100
+
+export const desktopFileSystemUpdateBodyRefMax = 100
+
+export const DesktopFileSystemUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemUpdateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemUpdateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemPartialUpdateBodyTypeMax = 100
+
+export const desktopFileSystemPartialUpdateBodyRefMax = 100
+
+export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().optional(),
+    type: zod.string().max(desktopFileSystemPartialUpdateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemPartialUpdateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Get count of all files in a folder.
+ */
+export const desktopFileSystemCountCreateBodyTypeMax = 100
+
+export const desktopFileSystemCountCreateBodyRefMax = 100
+
+export const DesktopFileSystemCountCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCountCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCountCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemLinkCreateBodyTypeMax = 100
+
+export const desktopFileSystemLinkCreateBodyRefMax = 100
+
+export const DesktopFileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemLinkCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemLinkCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemMoveCreateBodyTypeMax = 100
+
+export const desktopFileSystemMoveCreateBodyRefMax = 100
+
+export const DesktopFileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemMoveCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemMoveCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Get count of all files in a folder.
+ */
+export const desktopFileSystemCountByPathCreateBodyTypeMax = 100
+
+export const desktopFileSystemCountByPathCreateBodyRefMax = 100
+
+export const DesktopFileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCountByPathCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCountByPathCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemLogViewCreateBodyTypeMax = 100
+
+export const desktopFileSystemLogViewCreateBodyRefMax = 100
+
+export const DesktopFileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemLogViewCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemLogViewCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemUndoDeleteCreateBodyTypeMax = 100
+
+export const desktopFileSystemUndoDeleteCreateBodyRefMax = 100
+
+export const DesktopFileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemUndoDeleteCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemUndoDeleteCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemShortcutCreateBodyTypeMax = 100
+
+export const desktopFileSystemShortcutCreateBodyRefMax = 100
+
+export const desktopFileSystemShortcutCreateBodyOrderMin = -2147483648
+export const desktopFileSystemShortcutCreateBodyOrderMax = 2147483647
+
+export const DesktopFileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(desktopFileSystemShortcutCreateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(desktopFileSystemShortcutCreateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(desktopFileSystemShortcutCreateBodyOrderMin)
+        .max(desktopFileSystemShortcutCreateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemShortcutUpdateBodyTypeMax = 100
+
+export const desktopFileSystemShortcutUpdateBodyRefMax = 100
+
+export const desktopFileSystemShortcutUpdateBodyOrderMin = -2147483648
+export const desktopFileSystemShortcutUpdateBodyOrderMax = 2147483647
+
+export const DesktopFileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(desktopFileSystemShortcutUpdateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(desktopFileSystemShortcutUpdateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(desktopFileSystemShortcutUpdateBodyOrderMin)
+        .max(desktopFileSystemShortcutUpdateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Temporary compatibility API for desktop clients from before the canvas remodel.
+ */
+export const desktopFileSystemShortcutPartialUpdateBodyTypeMax = 100
+
+export const desktopFileSystemShortcutPartialUpdateBodyRefMax = 100
+
+export const desktopFileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
+export const desktopFileSystemShortcutPartialUpdateBodyOrderMax = 2147483647
+
+export const DesktopFileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().optional().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(desktopFileSystemShortcutPartialUpdateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(desktopFileSystemShortcutPartialUpdateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(desktopFileSystemShortcutPartialUpdateBodyOrderMin)
+        .max(desktopFileSystemShortcutPartialUpdateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
+ */
+export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
+    ordered_ids: zod.array(zod.uuid()).describe("IDs of the current user's shortcuts in the desired display order."),
+})
+
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),

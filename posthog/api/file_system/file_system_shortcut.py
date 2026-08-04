@@ -147,3 +147,10 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         refreshed = self.filter_queryset(self.get_queryset())
         return Response(self.get_serializer(refreshed, many=True).data)
+
+
+@extend_schema(extensions={"x-product": "core"})
+class DesktopFileSystemShortcutViewSet(FileSystemShortcutViewSet):
+    """Temporary compatibility API for desktop clients from before the canvas remodel."""
+
+    file_system_surface = "desktop"

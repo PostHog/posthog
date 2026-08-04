@@ -981,3 +981,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if items_to_update:
             for item in items_to_update:
                 item.save()
+
+
+@extend_schema(extensions={"x-product": "core"})
+class DesktopFileSystemViewSet(FileSystemViewSet):
+    """Temporary compatibility API for desktop clients from before the canvas remodel."""
+
+    file_system_surface = "desktop"
+
+    def _scope_by_project(self, queryset: QuerySet) -> QuerySet:
+        queryset = super()._scope_by_project(queryset)
+        is_personal_space = Q(path="me") | Q(path__startswith="me/")
+        return queryset.filter(~is_personal_space | Q(created_by=self.request.user))
