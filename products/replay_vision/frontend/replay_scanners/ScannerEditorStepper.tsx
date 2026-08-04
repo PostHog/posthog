@@ -41,7 +41,7 @@ export function ScannerEditorStepper({
                             <div
                                 className={cn(
                                     'w-6 h-px transition-colors duration-150',
-                                    hasErrors && isCurrent
+                                    hasErrors
                                         ? 'bg-warning'
                                         : isCompleted || isCurrent
                                           ? 'bg-success'
@@ -60,7 +60,10 @@ export function ScannerEditorStepper({
                             )}
                             aria-current={isCurrent ? 'step' : undefined}
                         >
-                            {hasErrors && isCurrent ? (
+                            {/* Errors are shown on whichever step owns the offending field, current or not:
+                                the form validates every step at once, so the step blocking the wizard is
+                                often not the one being looked at. */}
+                            {hasErrors ? (
                                 <IconWarning className="size-5 text-warning" />
                             ) : isCompleted ? (
                                 <IconCheckCircle className="size-5 text-success" />
