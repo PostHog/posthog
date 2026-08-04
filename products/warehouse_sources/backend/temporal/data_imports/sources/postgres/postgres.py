@@ -2587,7 +2587,18 @@ class PostgreSQLColumn(Column):
 
 
 def _is_read_replica(cursor: psycopg.Cursor) -> bool:
-    cursor.execute("SELECT pg_is_in_recovery()")
+    try:
+        cursor.execute("SELECT pg_is_in_recovery()")
+    except Exception as e:
+        # Postgres-wire-compatible engines (e.g. DuckDB-backed proxies) accept the connection but
+        # don't implement `pg_is_in_recovery` — a Postgres-only replication concept. Such an engine
+        # is never a physical hot-standby, so degrade to "not a replica" like the other best-effort
+        # probes on this connection (mirrors `_is_unsupported_function_error` callers). The setup
+        # connection runs autocommit, so this failed statement can't poison later probes on it.
+        if not _is_unsupported_function_error(e, "pg_is_in_recovery"):
+            raise
+        return False
+
     row = cursor.fetchone()
     if row is None:
         return False
