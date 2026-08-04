@@ -68,7 +68,7 @@ function createInitialEventsPayload(personId: string): DataTableNode {
             kind: NodeKind.EventsQuery,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
-            after: '-24h',
+            after: '-90d',
         },
     }
 }
@@ -84,7 +84,7 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
             event: '$exception',
-            after: '-24h',
+            after: '-90d',
         },
     }
 }
@@ -123,6 +123,7 @@ export interface personsLogicValues {
     eventsQuery: DataTableNode | null
     eventsQueryIsDirty: boolean
     exceptionsQuery: DataTableNode | null
+    exceptionsQueryIsDirty: boolean
     exporterProps: TriggerExportProps[]
     feedEnabled: boolean
     hiddenListProperties: AnyPropertyFilter[]
@@ -247,6 +248,9 @@ export interface personsLogicActions {
     resetEventsQuery: () => {
         value: true
     }
+    resetExceptionsQuery: () => {
+        value: true
+    }
     setActiveTab: (tab: PersonsTabType) => {
         tab: PersonsTabType
     }
@@ -308,6 +312,7 @@ export interface personsLogicMeta {
         feedEnabled: (featureFlags: FeatureFlagsSet) => boolean
         primaryDistinctId: (person: PersonType | null) => string | null
         eventsQueryIsDirty: (eventsQuery: DataTableNode | null, person: PersonType | null) => boolean
+        exceptionsQueryIsDirty: (exceptionsQuery: DataTableNode | null, person: PersonType | null) => boolean
     }
 }
 
@@ -359,6 +364,7 @@ export const personsLogic = kea<personsLogicType>([
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
         setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
         resetEventsQuery: true,
+        resetExceptionsQuery: true,
     }),
     loaders(({ values, actions, props }) => {
         const setupPersonQueries = (person: PersonType): void => {
@@ -655,12 +661,27 @@ export const personsLogic = kea<personsLogicType>([
                 return !objectsEqual(eventsQuery, createInitialEventsPayload(person.id))
             },
         ],
+        exceptionsQueryIsDirty: [
+            (s) => [s.exceptionsQuery, s.person],
+            (exceptionsQuery: DataTableNode | null, person: PersonType | null): boolean => {
+                if (!exceptionsQuery || !person?.id) {
+                    return false
+                }
+                return !objectsEqual(exceptionsQuery, createInitialExceptionsPayload(person.id))
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         resetEventsQuery: () => {
             const person = values.person
             if (person?.id != null) {
                 actions.setEventsQuery(createInitialEventsPayload(person.id))
+            }
+        },
+        resetExceptionsQuery: () => {
+            const person = values.person
+            if (person?.id != null) {
+                actions.setExceptionsQuery(createInitialExceptionsPayload(person.id))
             }
         },
         editProperty: async ({ key, newValue }) => {

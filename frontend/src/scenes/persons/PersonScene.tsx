@@ -209,6 +209,7 @@ export function PersonScene(): JSX.Element | null {
         eventsQuery,
         eventsQueryIsDirty,
         exceptionsQuery,
+        exceptionsQueryIsDirty,
         surveyResponsesQuery,
     } = useValues(mountedPersonsLogic)
     const {
@@ -221,6 +222,7 @@ export function PersonScene(): JSX.Element | null {
         setEventsQuery,
         resetEventsQuery,
         setExceptionsQuery,
+        resetExceptionsQuery,
         setSurveyResponsesQuery,
     } = useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
@@ -360,6 +362,10 @@ export function PersonScene(): JSX.Element | null {
                                         dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
+                                    emptyStateHeading: eventsQueryIsDirty ? undefined : 'No events in the last 90 days',
+                                    emptyStateDetail: eventsQueryIsDirty
+                                        ? undefined
+                                        : 'Widen the date range to look further back.',
                                     customActions: (
                                         <LemonButton
                                             key="reset-events-filters"
@@ -447,6 +453,27 @@ export function PersonScene(): JSX.Element | null {
                                 attachTo={mountedPersonsLogic}
                                 query={exceptionsQuery}
                                 setQuery={(q) => setExceptionsQuery(q)}
+                                context={{
+                                    emptyStateHeading: exceptionsQueryIsDirty
+                                        ? undefined
+                                        : 'No exceptions in the last 90 days',
+                                    emptyStateDetail: exceptionsQueryIsDirty
+                                        ? undefined
+                                        : 'Widen the date range to look further back.',
+                                    customActions: (
+                                        <LemonButton
+                                            key="reset-exceptions-filters"
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => resetExceptionsQuery()}
+                                            disabledReason={exceptionsQueryIsDirty ? undefined : 'No active filters'}
+                                            data-attr="person-exceptions-reset-filters"
+                                        >
+                                            Reset all filters
+                                        </LemonButton>
+                                    ),
+                                }}
                             />
                         ),
                     },

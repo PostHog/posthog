@@ -573,9 +573,33 @@ describe('personsLogic', () => {
             expect(resetSource).toMatchObject({
                 kind: NodeKind.EventsQuery,
                 personId: 'person-1',
-                after: '-24h',
+                after: '-90d',
             })
             expect(resetSource.events).toBeUndefined()
+        })
+
+        it('resetExceptionsQuery restores the initial query', async () => {
+            const current = logic.values.exceptionsQuery!
+            logic.actions.setExceptionsQuery({
+                ...current,
+                source: { ...current.source, after: '-7d' } as any,
+            } as DataTableNode)
+
+            await expectLogic(logic).toMatchValues({ exceptionsQueryIsDirty: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.resetExceptionsQuery()
+            })
+                .toDispatchActions(['resetExceptionsQuery', 'setExceptionsQuery'])
+                .toMatchValues({ exceptionsQueryIsDirty: false })
+
+            const resetSource = logic.values.exceptionsQuery?.source as any
+            expect(resetSource).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                personId: 'person-1',
+                event: '$exception',
+                after: '-90d',
+            })
         })
     })
 })
