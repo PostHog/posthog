@@ -673,6 +673,7 @@ jobs:
                       products/desktop/apps/code/scripts/generate-release-download-tables.mjs
                       products/desktop/apps/code/scripts/build-releases-feed.mjs
                       products/desktop/apps/code/scripts/inject-release-notes.mjs
+                      .github/scripts/desktop/generate-release-notes.mjs
                   sparse-checkout-cone-mode: false
 
             - name: Setup Node.js
@@ -723,34 +724,7 @@ jobs:
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
                   CURRENT_TAG="desktop-v$APP_VERSION"
-                  PREVIOUS_TAG=$(git tag --merged "$CURRENT_TAG" --list 'desktop-v*' --sort=-v:refname \
-                    | grep -Fxv "$CURRENT_TAG" | head -1)
-
-                  if [ -z "$PREVIOUS_TAG" ]; then
-                    echo "No previous desktop release tag found for $CURRENT_TAG"
-                    exit 1
-                  fi
-
-                  echo "## What's Changed" > /tmp/release-notes.md
-                  while IFS=$'\t' read -r SHA SUBJECT; do
-                    if [[ "$SUBJECT" =~ ^(.*)\ \(#([0-9]+)\)$ ]]; then
-                      TITLE="${BASH_REMATCH[1]}"
-                      PR_NUMBER="${BASH_REMATCH[2]}"
-                      AUTHOR=$(gh api "repos/PostHog/posthog/pulls/$PR_NUMBER" --jq '.user.login' 2>/dev/null || true)
-                      if [ -n "$AUTHOR" ]; then
-                        printf '* %s by @%s in https://github.com/PostHog/posthog/pull/%s\n' \
-                          "$TITLE" "$AUTHOR" "$PR_NUMBER" >> /tmp/release-notes.md
-                        continue
-                      fi
-                    fi
-                    printf '* %s ([commit](https://github.com/PostHog/posthog/commit/%s))\n' \
-                      "$SUBJECT" "$SHA" >> /tmp/release-notes.md
-                  done < <(git log --format=$'%H\t%s' "$PREVIOUS_TAG..$CURRENT_TAG" -- products/desktop/)
-
-                  printf '\n' >> /tmp/release-notes.md
-                  printf '**Full Changelog**: https://github.com/PostHog/posthog/compare/%s...%s\n' \
-                    "$PREVIOUS_TAG" "$CURRENT_TAG" >> /tmp/release-notes.md
-                  printf '\n' >> /tmp/release-notes.md
+                  node .github/scripts/desktop/generate-release-notes.mjs "$CURRENT_TAG" > /tmp/release-notes.md
                   node products/desktop/apps/code/scripts/generate-release-download-tables.mjs "$APP_VERSION" /tmp/checksums >> /tmp/release-notes.md
                   gh release edit "v$APP_VERSION" --repo PostHog/code --draft=false --notes-file /tmp/release-notes.md
 
