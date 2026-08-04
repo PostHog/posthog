@@ -1,12 +1,11 @@
-import { CaretRightIcon, StarIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, GearSixIcon } from "@phosphor-icons/react";
+import { isOwnedBy } from "@posthog/core/canvas/channelItems";
 import { Button, cn, Skeleton } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
-import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
@@ -20,65 +19,36 @@ import { useMemo, useState } from "react";
 
 const RECENTS_CAP = 10;
 
-// An overlay rather than a sibling: the header button fills the row, and
-// nesting the star inside it would be a button within a button (see
-// ChannelBackRow). Hidden at rest — every pinned row wearing a star reads as a
-// column of noise; the row being here at all already says "pinned".
-function RowStar({ channel }: { channel: Channel }) {
-  const { isStarred, toggleStar } = useChannelStarToggle(channel);
-  return (
-    <Button
-      variant="default"
-      size="icon-sm"
-      aria-label={isStarred ? "Unpin space" : "Pin space"}
-      onClick={() => {
-        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-          action_type: isStarred ? "unstar" : "star",
-          surface: "sidebar",
-          channel_id: channel.id,
-        });
-        toggleStar();
-      }}
-      className={cn(
-        "-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground transition-opacity",
-        "opacity-0 focus-visible:opacity-100 group-hover/space:opacity-100",
-      )}
-    >
-      <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
-    </Button>
-  );
-}
-
 /**
- * One pinned space in the static sidebar. The row itself opens the space (its
- * feed) and expands it; the disclosure caret toggles the expansion alone, so
- * you can fold a space away without leaving where you are. Beneath it, the
- * space's tasks as ChannelItemRows — the space's pages (Feed/Recents/…) live
- * in the channel header's tabs, not here.
+ * One pinned space in the static sidebar. The whole row is one click target:
+ * it folds the space's task list open and closed (caret included — no separate
+ * hover zones). The hover gear on the right is what opens the space itself in
+ * the main view, where the header tabs (Feed/Context/Loops/Artifacts) live.
+ * #me wears its lock in the same right-hand well, stepping aside for the gear
+ * on hover.
  *
  * Expand state is local view state in `spacesSidebarStore`; the space's
- * presence in the sidebar is its star.
+ * presence in the sidebar is its star, managed from the All spaces directory.
  */
 export function SpaceSection({ channel }: { channel: Channel }) {
   const open = useSpacesSidebarStore((s) => !!s.openSections[channel.id]);
   const toggle = useSpacesSidebarStore((s) => s.toggle);
-  const setOpen = useSpacesSidebarStore((s) => s.setOpen);
+  const onlyMine = useSpacesSidebarStore((s) => s.onlyMyTasks);
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const base = `/website/${channel.id}`;
   const isActive = pathname === base || pathname.startsWith(`${base}/`);
   const isUnread = useIsChannelUnread()(channel.name);
-  const isPersonal = channel.name === PERSONAL_CHANNEL_NAME;
-  // Only #me carries a glyph under the layout (its lock); a cube in front of
-  // every space said nothing the name didn't — same rule as ChannelBackRow.
+  // Only #me has a glyph under the layout (its lock) — same rule as
+  // ChannelBackRow; it sits in the trailing well, not in front of the name.
   const glyph = channelGlyph(channel.name, {
     size: 14,
     space: true,
     className: "text-muted-foreground",
   });
 
-  const { items, actions, isLoading } = useChannelItems(channel.id);
+  const { items, actions, isLoading, me } = useChannelItems(channel.id);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const { renameTask } = useRenameTask();
 
@@ -99,15 +69,21 @@ export function SpaceSection({ channel }: { channel: Channel }) {
     return task ? `task:${task[1]}` : null;
   }, [pathname]);
 
+  // The sidebar-wide "My tasks" toggle narrows every space's list to items the
+  // viewer created — the same fail-closed ownership rule #me itself uses.
+  const visibleItems = useMemo(
+    () => (onlyMine ? items.filter((i) => isOwnedBy(i, me)) : items),
+    [items, onlyMine, me],
+  );
   const sectionItems = useMemo(
     () =>
       [
-        ...items.filter((i) => i.pinned),
-        ...items.filter((i) => !i.pinned),
+        ...visibleItems.filter((i) => i.pinned),
+        ...visibleItems.filter((i) => !i.pinned),
       ].slice(0, RECENTS_CAP),
-    [items],
+    [visibleItems],
   );
-  const overflowCount = items.length - sectionItems.length;
+  const overflowCount = visibleItems.length - sectionItems.length;
 
   const commandCenterAssigner = (taskId: string) => {
     const cellIndex = commandCenterCells.findIndex(
@@ -124,7 +100,6 @@ export function SpaceSection({ channel }: { channel: Channel }) {
       channel_id: channel.id,
     });
     setCurrentChannel(channel.id);
-    setOpen(channel.id, true);
     void navigate({
       to: "/website/$channelId",
       params: { channelId: channel.id },
@@ -137,15 +112,18 @@ export function SpaceSection({ channel }: { channel: Channel }) {
         <Button
           variant="default"
           left
+          aria-expanded={open}
           data-selected={isActive || undefined}
-          className="w-full gap-1.5 pl-7 text-left data-selected:bg-fill-selected"
-          onClick={openSpace}
+          className="w-full gap-1.5 text-left data-selected:bg-fill-selected"
+          onClick={() => toggle(channel.id)}
         >
-          {glyph && (
-            <span className="flex w-4 shrink-0 items-center justify-center">
-              {glyph}
-            </span>
-          )}
+          <CaretRightIcon
+            size={12}
+            className={cn(
+              "shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
+          />
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-[13px]",
@@ -159,25 +137,29 @@ export function SpaceSection({ channel }: { channel: Channel }) {
           >
             {channel.name}
           </span>
-          {/* Star well, reserved so the name truncates before running under
-              the hover star rather than shifting when it appears. */}
-          {!isPersonal && <span aria-hidden className="size-6 shrink-0" />}
+          {/* Trailing well, reserved so the name truncates clear of the lock
+              and hover gear rather than shifting when they appear. */}
+          <span aria-hidden className="size-6 shrink-0" />
         </Button>
-        {/* Overlays, not children — the row is a button already. */}
+        {/* Overlays, not children — the row is a button already. The lock
+            yields its spot to the gear on hover so the well never doubles up. */}
+        {glyph && (
+          <span
+            aria-hidden
+            className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-[11px] flex items-center transition-opacity group-hover/space:opacity-0"
+          >
+            {glyph}
+          </span>
+        )}
         <Button
           variant="default"
           size="icon-sm"
-          aria-label={`${open ? "Collapse" : "Expand"} ${channel.name}`}
-          aria-expanded={open}
-          onClick={() => toggle(channel.id)}
-          className="-translate-y-1/2 absolute top-1/2 left-px text-muted-foreground"
+          aria-label={`Open ${channel.name}`}
+          onClick={openSpace}
+          className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/space:opacity-100"
         >
-          <CaretRightIcon
-            size={12}
-            className={cn("transition-transform", open && "rotate-90")}
-          />
+          <GearSixIcon size={14} />
         </Button>
-        {!isPersonal && <RowStar channel={channel} />}
       </div>
 
       {/* Tasks under the space, pinned first. Same inset as the channel
@@ -191,7 +173,7 @@ export function SpaceSection({ channel }: { channel: Channel }) {
             </div>
           ) : sectionItems.length === 0 ? (
             <div className="px-2 py-1.5 text-[12px] text-muted-foreground">
-              No tasks yet
+              {onlyMine ? "None of your tasks here" : "No tasks yet"}
             </div>
           ) : (
             <>
@@ -252,7 +234,7 @@ export function SpaceSection({ channel }: { channel: Channel }) {
                     })
                   }
                 >
-                  View all ({items.length})
+                  View all ({visibleItems.length})
                 </Button>
               )}
             </>

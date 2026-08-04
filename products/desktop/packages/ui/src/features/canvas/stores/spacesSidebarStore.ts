@@ -9,9 +9,11 @@ import { persist } from "zustand/middleware";
 interface SpacesSidebarState {
   openSections: Record<string, boolean>;
   openAddSpace: boolean;
-  setOpen: (channelId: string, open: boolean) => void;
+  /** Narrow every space's task list to items the viewer created. */
+  onlyMyTasks: boolean;
   toggle: (channelId: string) => void;
   toggleAddSpace: () => void;
+  toggleOnlyMyTasks: () => void;
 }
 
 export const useSpacesSidebarStore = create<SpacesSidebarState>()(
@@ -21,10 +23,7 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
       // Open by default: with nothing pinned yet, a collapsed directory left
       // the sidebar looking empty. Returning users keep whatever they chose.
       openAddSpace: true,
-      setOpen: (channelId, open) =>
-        set((state) => ({
-          openSections: { ...state.openSections, [channelId]: open },
-        })),
+      onlyMyTasks: false,
       toggle: (channelId) =>
         set((state) => ({
           openSections: {
@@ -34,6 +33,8 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
         })),
       toggleAddSpace: () =>
         set((state) => ({ openAddSpace: !state.openAddSpace })),
+      toggleOnlyMyTasks: () =>
+        set((state) => ({ onlyMyTasks: !state.onlyMyTasks })),
     }),
     { name: "spaces-sidebar" },
   ),

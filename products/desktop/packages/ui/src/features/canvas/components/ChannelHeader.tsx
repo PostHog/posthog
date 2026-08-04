@@ -15,9 +15,9 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 
 // The shared channel header. Every space scene renders the same breadcrumb —
 // the root segment is identical whether or not there's a leaf, so the space
-// name doesn't change size between the space home and its sub-pages. The new
-// layout drops the section tab strip (the channel sidebar carries those
-// entries); flag off keeps it. Starring lives on the sidebar back row and the
+// name doesn't change size between the space home and its sub-pages. Both
+// layouts carry the section tab strip (the new one trails it after the
+// breadcrumb, Feed included). Starring lives on the sidebar back row and the
 // channel list, not here.
 export function ChannelHeader({
   channelId,
@@ -48,6 +48,10 @@ export function ChannelHeader({
       channelId={channelId}
       leafIcon={page ? channelPageIcon(page, { size: 12 }) : undefined}
       leafLabel={page ? channelPageLabel(page) : undefined}
+      // The static sidebar's rows only fold their task lists, so the space's
+      // pages need a switcher in the main view — the same strip the legacy
+      // header carries, with Feed leading back to the root.
+      trailing={<ChannelTabs channelId={channelId} includeHome />}
     />
   );
 }

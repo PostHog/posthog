@@ -133,13 +133,12 @@ export function ChannelsSidebar() {
             </Box>
             {/* The static spaces sidebar (prototype): one nav where every space
                 expands inline with its tasks beneath it. Replaces the panes
-                slider under this flag. The Fab keeps create (task, canvas,
-                space) in the same corner as the panes layout; bottom padding
-                keeps the last row reachable under it. */}
+                slider under this flag. The nav owns its own scroll regions
+                (pinned spaces scroll; All spaces docks at the bottom); the Fab
+                keeps create (task, canvas, space) in the same corner as the
+                panes layout. */}
             <Box className="relative min-h-0 flex-1">
-              <Box className="h-full overflow-y-auto pb-16">
-                <SpacesSidebarNav />
-              </Box>
+              <SpacesSidebarNav />
               <ChannelsFab />
             </Box>
           </>

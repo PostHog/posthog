@@ -37,7 +37,9 @@ export interface ChannelItemOwner {
 // A display name is NOT an identity — two users can share one — so it must never
 // gate the private `#me` space. Items without a creator uuid fail closed
 // (excluded from #me); `authorName`/`authorUser` are display-only.
-function isOwnedBy(
+// Exported for the sidebar's "my tasks" filter, which applies the same
+// fail-closed ownership rule to any channel's list.
+export function isOwnedBy(
   item: Pick<ChannelItemModel, "authorUuid">,
   owner: ChannelItemOwner,
 ): boolean {

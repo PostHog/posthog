@@ -1,11 +1,5 @@
-import {
-  CaretDownIcon,
-  CaretRightIcon,
-  CubeFocusIcon,
-  PlusIcon,
-  StarIcon,
-} from "@phosphor-icons/react";
-import { Button, cn, MenuLabel } from "@posthog/quill";
+import { CaretRightIcon, PlusIcon, StarIcon } from "@phosphor-icons/react";
+import { Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import {
@@ -26,11 +20,12 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 /**
- * The project's space directory. A section label (like Starred/Spaces in the
- * channel list) that folds open to every shared space, alphabetically.
- * Clicking a row opens the space; the hover star is what pins it into the
- * sidebar above — pinned rows wear their star filled so the directory shows
- * what's already up there. The personal space isn't listed: it can't be
+ * The project's space directory, docked at the bottom of the sidebar. The
+ * header is shaped exactly like a pinned space row (same caret, same inset) and
+ * folding it open grows the section upward to a capped height, then the list
+ * scrolls. Clicking a row opens the space; the hover star is what pins it into
+ * the sidebar above — pinned rows wear their star filled so the directory
+ * shows what's already up there. The personal space isn't listed: it can't be
  * pinned or shared, and it's always first in the pinned list anyway.
  */
 export function AllSpacesSection() {
@@ -82,89 +77,94 @@ export function AllSpacesSection() {
   };
 
   return (
-    <div className="flex flex-col gap-px px-2 pb-2">
-      {/* Same header shape as the channel list's groups: MenuLabel carries the
-          sidebar's label styling, and the section glyph swaps to a disclosure
-          caret on hover or keyboard focus. */}
-      <MenuLabel
-        render={
-          <button
-            type="button"
-            onClick={toggle}
-            aria-expanded={open}
-            className="group/all-spaces flex w-full items-center gap-2"
-          />
-        }
+    <div className="shrink-0 border-border border-t">
+      <div
+        className={cn(
+          "flex flex-col gap-px px-2 pt-1",
+          // Open, the section ends in rows with hover controls at their right
+          // edge — clear the floating create button. The bare header can share
+          // its row with it.
+          open ? "pb-12" : "pb-2",
+        )}
       >
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="group-hover/all-spaces:hidden group-focus-visible/all-spaces:hidden">
-            <CubeFocusIcon size={14} />
-          </span>
-          {open ? (
-            <CaretDownIcon
-              size={14}
-              className="hidden group-hover/all-spaces:block group-focus-visible/all-spaces:block"
-            />
-          ) : (
-            <CaretRightIcon
-              size={14}
-              className="hidden group-hover/all-spaces:block group-focus-visible/all-spaces:block"
-            />
-          )}
-        </span>
-        All spaces
-      </MenuLabel>
-
-      {open && (
-        <>
-          {spaces.map((channel) => {
-            const shortcutId = starredRefToShortcutId.get(channel.path);
-            const base = `/website/${channel.id}`;
-            const isActive =
-              pathname === base || pathname.startsWith(`${base}/`);
-            return (
-              // Overlay, not endContent: the row is a button already, and a
-              // star nested inside it would be a button within a button.
-              <div key={channel.id} className="group/space relative">
-                <SidebarItem
-                  depth={1}
-                  label={channel.name}
-                  isActive={isActive}
-                  onClick={() => openSpace(channel)}
-                  // Star well, so the name truncates clear of the hover star.
-                  endContent={<span aria-hidden className="size-5 shrink-0" />}
-                />
-                <Button
-                  variant="default"
-                  size="icon-sm"
-                  aria-label={shortcutId ? "Unpin space" : "Pin space"}
-                  onClick={() => togglePin(channel)}
-                  className={cn(
-                    "-translate-y-1/2 absolute top-1/2 right-[2px] text-muted-foreground transition-opacity",
-                    shortcutId
-                      ? "opacity-100"
-                      : "opacity-0 focus-visible:opacity-100 group-hover/space:opacity-100",
-                  )}
-                >
-                  <StarIcon
-                    size={13}
-                    weight={shortcutId ? "fill" : "regular"}
-                  />
-                </Button>
-              </div>
-            );
-          })}
-          {/* The directory is also where a space that doesn't exist yet would
-              be — so creating one starts here. */}
-          <SidebarItem
-            depth={1}
-            icon={<PlusIcon size={14} className="text-muted-foreground" />}
-            label={<span className="text-muted-foreground">New space</span>}
-            onClick={() => setCreateOpen(true)}
+        {/* Same shape as a pinned space row, so the carets line up. */}
+        <Button
+          variant="default"
+          left
+          aria-expanded={open}
+          onClick={toggle}
+          className="w-full gap-1.5 text-left"
+        >
+          <CaretRightIcon
+            size={12}
+            className={cn(
+              "shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
           />
-          <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
-        </>
-      )}
+          <span className="min-w-0 flex-1 truncate font-medium text-[13px] text-muted-foreground group-hover/button:text-foreground">
+            All spaces
+          </span>
+        </Button>
+
+        {open && (
+          <>
+            <div className="flex max-h-64 flex-col gap-px overflow-y-auto">
+              {spaces.map((channel) => {
+                const shortcutId = starredRefToShortcutId.get(channel.path);
+                const base = `/website/${channel.id}`;
+                const isActive =
+                  pathname === base || pathname.startsWith(`${base}/`);
+                return (
+                  // Overlay, not endContent: the row is a button already, and
+                  // a star nested inside it would be a button within a button.
+                  <div key={channel.id} className="group/space relative">
+                    <SidebarItem
+                      depth={1}
+                      label={channel.name}
+                      isActive={isActive}
+                      onClick={() => openSpace(channel)}
+                      // Star well, so the name truncates clear of the star.
+                      endContent={
+                        <span aria-hidden className="size-5 shrink-0" />
+                      }
+                    />
+                    <Button
+                      variant="default"
+                      size="icon-sm"
+                      aria-label={shortcutId ? "Unpin space" : "Pin space"}
+                      onClick={() => togglePin(channel)}
+                      className={cn(
+                        "-translate-y-1/2 absolute top-1/2 right-[2px] text-muted-foreground transition-opacity",
+                        shortcutId
+                          ? "opacity-100"
+                          : "opacity-0 focus-visible:opacity-100 group-hover/space:opacity-100",
+                      )}
+                    >
+                      <StarIcon
+                        size={13}
+                        weight={shortcutId ? "fill" : "regular"}
+                      />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Below the scroll region so it's reachable without scrolling
+                the whole directory. */}
+            <SidebarItem
+              depth={1}
+              icon={<PlusIcon size={14} className="text-muted-foreground" />}
+              label={<span className="text-muted-foreground">New space</span>}
+              onClick={() => setCreateOpen(true)}
+            />
+            <CreateChannelModal
+              open={createOpen}
+              onOpenChange={setCreateOpen}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }
