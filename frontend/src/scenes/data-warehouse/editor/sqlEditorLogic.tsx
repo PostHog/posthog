@@ -251,7 +251,10 @@ export interface QueryTab {
 export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
 
 export interface DataWarehouseAccessControlModalProps {
-    resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
+    resource:
+        | AccessControlResourceType.WarehouseTable
+        | AccessControlResourceType.WarehouseView
+        | AccessControlResourceType.ExternalDataSource
     resourceId: string
     name: string
 }
@@ -840,6 +843,13 @@ export interface sqlEditorLogicActions {
     reportAIQueryRejected: () => {
         value: true
     }
+    reviewViewUpdate: (
+        view: UpdateViewPayload,
+        draftId?: string
+    ) => {
+        draftId: string | undefined
+        view: UpdateViewPayload
+    }
     runQuery: (
         queryOverride?: string,
         switchTab?: boolean
@@ -1310,6 +1320,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
+            view,
+            draftId,
+        }),
         updateView: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -2772,16 +2786,43 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
             },
+            reviewViewUpdate: ({ view, draftId }) => {
+                // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate
+                // modal: show the saved query alongside the user's edits, and only run the update
+                // once they accept. Mirrors the conflict-review diff in updateView below.
+                const savedQuery = values.activeTab?.view?.query?.query ?? ''
+                const editedQuery = values.queryInput ?? ''
+                if (savedQuery === editedQuery) {
+                    actions.updateView(view, draftId)
+                    return
+                }
+                actions._setSuggestionPayload({
+                    suggestedValue: editedQuery,
+                    originalValue: savedQuery,
+                    acceptText: view.shouldRematerialize ? 'Update and re-materialize view' : 'Update view',
+                    rejectText: 'Cancel',
+                    diffShowRunButton: false,
+                    onAccept: () => {
+                        actions.updateView(view, draftId)
+                    },
+                    onReject: () => {},
+                })
+            },
             updateView: async ({ view, draftId }) => {
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
-                // Only check for conflicts if there's an activity log (latest_history_id exists)
-                // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
-                // and we should allow the update to proceed without showing a false conflict
-                if (
+                // A real conflict means someone else changed the query text since this edit began.
+                // Detect it by comparing the server's current query against the baseline this edit
+                // started from (the tab's saved query) — not against the user's edited query, which
+                // always differs. Keying off history ids alone gives false positives when the
+                // editor's cached head has drifted from the server's (e.g. the head advanced for a
+                // non-query reason, or the view was opened without one), wrongly telling a sole
+                // editor the view was changed by someone else.
+                const baselineQuery = values.activeTab?.view?.query?.query
+                const foreignEdit =
                     latestView?.latest_history_id != null &&
-                    view.edited_history_id !== latestView.latest_history_id &&
-                    view.query?.query !== latestView?.query?.query
-                ) {
+                    baselineQuery != null &&
+                    latestView.query?.query !== baselineQuery
+                if (foreignEdit) {
                     actions._setSuggestionPayload({
                         suggestedValue: values.queryInput!,
                         originalValue: latestView?.query?.query,
@@ -2800,7 +2841,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                     lemonToast.error('View has been edited by another user. Review changes to update.')
                 } else {
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(view)
+                    // No foreign edit — send the server's current head so the backend's own
+                    // edited_history_id check accepts the save even if the editor's cached head drifted.
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                        ...view,
+                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
+                    })
                     actions.updateViewSuccess(view, draftId)
                 }
             },

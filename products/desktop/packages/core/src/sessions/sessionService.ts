@@ -87,6 +87,7 @@ import {
   formatPermissionAnswerPrompt,
   type PermissionSelectionPlan,
   planPermissionResponse,
+  resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
 import {
   convertStoredEntriesToEvents,
@@ -6504,7 +6505,11 @@ export class SessionService {
     };
   }
 
-  async handoffToLocal(taskId: string, repoPath: string): Promise<void> {
+  async handoffToLocal(
+    taskId: string,
+    repoPath: string,
+    repositoryPaths?: Record<string, string>,
+  ): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) {
       this.d.log.warn("No session found for handoff", { taskId });
@@ -6518,20 +6523,31 @@ export class SessionService {
     this.d.store.updateSession(runId, { handoffInProgress: true });
 
     try {
-      const preflight = await this.runHandoffPreflight(
-        taskId,
-        runId,
-        repoPath,
-        auth,
-      );
+      const paths = [...new Set(Object.values(repositoryPaths ?? {}))];
+      if (!paths.includes(repoPath)) paths.unshift(repoPath);
+      let localGitState:
+        | Awaited<
+            ReturnType<typeof this.d.trpc.handoff.preflight.query>
+          >["localGitState"]
+        | undefined;
+      for (const path of paths) {
+        const preflight = await this.runHandoffPreflight(
+          taskId,
+          runId,
+          path,
+          auth,
+        );
+        if (path === repoPath) localGitState = preflight.localGitState;
+      }
       this.stopCloudTaskWatch(taskId);
       this.d.store.updateSession(runId, { status: "connecting" });
       await this.executeHandoff(
         taskId,
         runId,
         repoPath,
+        repositoryPaths,
         auth,
-        preflight.localGitState,
+        localGitState,
       );
       this.transitionToLocalSession(runId);
       this.subscribeToChannel(runId);
@@ -6721,6 +6737,7 @@ export class SessionService {
     taskId: string,
     runId: string,
     repoPath: string,
+    repositoryPaths: Record<string, string> | undefined,
     auth: { apiHost: string; projectId: number },
     localGitState?: Awaited<
       ReturnType<typeof this.d.trpc.handoff.preflight.query>
@@ -6730,6 +6747,7 @@ export class SessionService {
       taskId,
       runId,
       repoPath,
+      repositoryPaths,
       apiHost: auth.apiHost,
       teamId: auth.projectId,
       localGitState,
@@ -7118,23 +7136,11 @@ export class SessionService {
     });
   }
 
-  public resolveAllowAlwaysUpgradeMode(
-    modeOption: SessionConfigOption | undefined,
-  ): string | undefined {
-    if (modeOption?.type !== "select") return undefined;
-    const availableIds = new Set(
-      flattenSelectOptions(modeOption.options).map((opt) => opt.value),
-    );
-    if (availableIds.has("acceptEdits")) return "acceptEdits";
-    if (availableIds.has("auto")) return "auto";
-    return undefined;
-  }
-
   public applyAllowAlwaysUpgrade(
     taskId: string,
     modeOption: SessionConfigOption | undefined,
   ): void {
-    const upgradeMode = this.resolveAllowAlwaysUpgradeMode(modeOption);
+    const upgradeMode = resolveAllowAlwaysUpgradeMode(modeOption);
     if (!upgradeMode) return;
     this.setSessionConfigOptionByCategory(taskId, "mode", upgradeMode);
   }

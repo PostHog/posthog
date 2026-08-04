@@ -52,14 +52,16 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
-from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
-from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import DuckLakeRegisterDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
+from products.managed_warehouse.backend.facade.temporal import (
+    ACTIVITIES as DUCKLAKE_ACTIVITIES,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -72,7 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job i
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
@@ -205,7 +207,7 @@ class _PostgresQueueReplay:
         schema_id: str,
         run_uuid: str,
         batch_index: int,
-        delta_table_helper: Any = None,
+        delta_table_ref: Any = None,
     ) -> bool:
         key = (run_uuid, batch_index)
         if key in self._processed_batches:
@@ -2190,7 +2192,14 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     )
     await postgres_connection.commit()
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
+    # The rollout flag gates the queued rewrite, not just detection, so a table whose repartition is
+    # already pending is still released when the flag is off. Force it on for the run under test.
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
+        "repartition_table.is_auto_repartition_enabled",
+        return_value=True,
+    ):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
@@ -3402,7 +3411,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
     the Redis idempotency flag is missing.
 
     This exercises the writer-side idempotency gap: if the writer crashes between
-    `write_to_deltalake` committing and `mark_batch_as_processed` running, Kafka redelivery
+    `DeltaWriter.write` committing and `mark_batch_as_processed` running, Kafka redelivery
     would otherwise re-write the same batch and produce duplicate rows. The delta-history
     fallback closes that gap.
     """
@@ -3447,14 +3456,14 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
         DATA_WAREHOUSE_REDIS_PORT="6379",
         DATAWAREHOUSE_BUCKET=BUCKET_NAME,
     ):
-        delta_table_helper = DeltaTableHelper(
+        delta_table_ref = DeltaTableRef(
             resource_name=STRIPE_CUSTOMER_RESOURCE_NAME,
             job=job,
             logger=mock.MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()),
         )
 
         # 1. Every commit written by the v3 writer should carry userMetadata with (run_uuid, batch_index).
-        delta_table = await delta_table_helper.get_delta_table()
+        delta_table = await delta_table_ref.get_delta_table()
         assert delta_table is not None
 
         # delta-rs 1.x inlines `CommitProperties.custom_metadata` entries directly
@@ -3483,7 +3492,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
             schema_id=str(inputs.external_data_schema_id),
             run_uuid=run_uuid,
             batch_index=known_batch_index,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
         )
         assert found is True, "delta-history fallback should detect a committed batch"
 
@@ -3493,7 +3502,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
             schema_id=str(inputs.external_data_schema_id),
             run_uuid="never-existed-run-uuid",
             batch_index=0,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
         )
         assert not_found is False
 

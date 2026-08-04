@@ -1,3 +1,4 @@
+import { parseRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { inject, injectable } from "inversify";
 import { SESSION_SERVICE, type SessionService } from "./sessionService";
@@ -27,12 +28,23 @@ export interface LocalHandoffHost {
     folderPath: string;
     remoteUrl?: string;
   }): Promise<unknown>;
+  getWorktreeLocation(): Promise<string>;
+  cloneRepository(input: {
+    repoUrl: string;
+    targetPath: string;
+    cloneId: string;
+  }): Promise<unknown>;
+  addAdditionalDirectory(input: {
+    taskId: string;
+    path: string;
+  }): Promise<void>;
 }
 
 export interface LocalHandoffPending {
   taskId: string;
   repoPath: string;
   branchName: string | null;
+  repositoryPaths?: Record<string, string>;
 }
 
 export interface ContinueAfterDirtyTreeContext {
@@ -61,6 +73,28 @@ export interface LocalHandoffNotifier {
   error(message: string): void;
   warn(message: string, data?: unknown): void;
   logError(message: string, data?: unknown): void;
+}
+
+// Only validated GitHub slugs may reach git clone or filesystem paths.
+const SAFE_REPO_SEGMENT = /^[A-Za-z0-9._-]+$/;
+
+function canonicalRepository(
+  repository: string,
+): { slug: string; key: string } | null {
+  const parsed = parseRepository(repository);
+  if (!parsed) return null;
+  const { organization, repoName } = parsed;
+  for (const segment of [organization, repoName]) {
+    if (
+      !SAFE_REPO_SEGMENT.test(segment) ||
+      segment === "." ||
+      segment === ".."
+    ) {
+      return null;
+    }
+  }
+  const slug = `${organization}/${repoName}`;
+  return { slug, key: slug.toLowerCase() };
 }
 
 @injectable()
@@ -98,11 +132,19 @@ export class LocalHandoffService {
 
   public async start(taskId: string, task: Task): Promise<void> {
     try {
+      const repositories = task.repository ? [task.repository] : [];
+      const repositoryPaths = await this.resolveRepositoryPaths(repositories);
+      const paths = Object.values(repositoryPaths);
       const targetPath =
-        (await this.resolveRepoPathFromRemote(task.repository)) ??
-        (await this.resolveRepoPathFromPicker(task.repository));
+        paths[0] ?? (await this.resolveRepoPathFromPicker(task.repository));
 
       if (!targetPath) return;
+
+      await Promise.all(
+        paths
+          .slice(1)
+          .map((path) => this.host.addAdditionalDirectory({ taskId, path })),
+      );
 
       const preflight = await this.sessionService.preflightToLocal(
         taskId,
@@ -111,7 +153,11 @@ export class LocalHandoffService {
 
       if (preflight.canHandoff) {
         this.closeConfirm();
-        await this.sessionService.handoffToLocal(taskId, targetPath);
+        await this.sessionService.handoffToLocal(
+          taskId,
+          targetPath,
+          repositoryPaths,
+        );
         return;
       }
 
@@ -120,6 +166,7 @@ export class LocalHandoffService {
           taskId,
           repoPath: targetPath,
           branchName: preflight.localGitState?.branch ?? null,
+          repositoryPaths,
         });
         return;
       }
@@ -162,6 +209,7 @@ export class LocalHandoffService {
       await this.sessionService.handoffToLocal(
         pending.taskId,
         pending.repoPath,
+        pending.repositoryPaths,
       );
     } catch (error) {
       this.notifier.logError("Failed to resume handoff to local", error);
@@ -178,6 +226,43 @@ export class LocalHandoffService {
       remoteUrl,
     });
     return repo?.path ?? null;
+  }
+
+  private async resolveRepositoryPaths(
+    repositories: string[],
+  ): Promise<Record<string, string>> {
+    if (repositories.length === 0) return {};
+    const cloneRoot = `${(await this.host.getWorktreeLocation()).replace(/\/$/, "")}/linked-repositories`;
+
+    // Sequential clones prevent aliases racing on the same target path.
+    const resolved: Record<string, string> = {};
+    const clonedTargets = new Set<string>();
+    for (const repository of repositories) {
+      const existing = await this.resolveRepoPathFromRemote(repository);
+      if (existing) {
+        resolved[repository.toLowerCase()] = existing;
+        continue;
+      }
+      const canonical = canonicalRepository(repository);
+      if (!canonical) {
+        this.notifier.warn(
+          `Skipping repository with an unexpected name: ${repository}`,
+        );
+        continue;
+      }
+      if (clonedTargets.has(canonical.key)) continue;
+      clonedTargets.add(canonical.key);
+      const targetPath = `${cloneRoot}/${canonical.key}`;
+      const repoUrl = `https://github.com/${canonical.slug}.git`;
+      await this.host.cloneRepository({
+        repoUrl,
+        targetPath,
+        cloneId: globalThis.crypto.randomUUID(),
+      });
+      await this.host.addFolder({ folderPath: targetPath, remoteUrl: repoUrl });
+      resolved[canonical.key] = targetPath;
+    }
+    return resolved;
   }
 
   private async resolveRepoPathFromPicker(

@@ -3950,6 +3950,30 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    it("describes every repository in a shared multi-repository workspace", () => {
+      const s = createServer({
+        repositoryPath: undefined,
+      }) as unknown as TestableServer & { taskRepositories: string[] };
+      s.taskRepositories = ["PostHog/posthog", "PostHog/posthog-js"];
+
+      const prompt = s.buildCloudSystemPrompt();
+
+      expect(prompt).toContain(
+        "PostHog/posthog: /tmp/workspace/repos/posthog/posthog",
+      );
+      expect(prompt).toContain(
+        "PostHog/posthog-js: /tmp/workspace/repos/posthog/posthog-js",
+      );
+      expect(prompt).toContain(
+        "Apply the repository workflow below separately in every repository you change",
+      );
+      expect(prompt).toContain("stop with local changes ready for review");
+      expect(prompt).toContain(
+        "If the user explicitly asks you to open a pull request",
+      );
+      expect(prompt).not.toContain("No Repository Mode");
+    });
+
     it("returns review-first prompt for existing PRs on non-Slack runs", () => {
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
@@ -4331,6 +4355,10 @@ describe("AgentServer HTTP Mode", () => {
           expect(prompt).toContain("# Identity");
           expect(prompt).toContain("PostHog Slack app");
           expect(prompt).toContain("Do NOT refer to yourself as Claude");
+          expect(prompt).toContain("# PostHog products first");
+          expect(prompt).toContain(
+            "Never send the user to a third-party product for something PostHog does",
+          );
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         },
       );
@@ -4406,6 +4434,7 @@ describe("AgentServer HTTP Mode", () => {
         ).buildCloudSystemPrompt();
         expect(prompt).not.toContain("# Identity");
         expect(prompt).not.toContain("PostHog Slack app");
+        expect(prompt).not.toContain("# PostHog products first");
         delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
       });
     });

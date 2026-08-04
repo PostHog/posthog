@@ -850,9 +850,10 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes";
+  setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
   new_value: boolean | number;
-  old_value: boolean | number;
+  /** Null when the backend predates the setting and never sent a value. */
+  old_value: boolean | number | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
@@ -967,6 +968,8 @@ export type ChannelActionType =
   | "view_activity"
   | "open_mention"
   | "canvas_mode_toggle"
+  /** Submitted a canvas-mode prompt (the agent resolves or creates the canvas). */
+  | "canvas_generate"
   | "activity_tab_change"
   | "artifacts_view_change";
 
@@ -989,6 +992,7 @@ export interface ChannelActionProperties {
   armed?: boolean;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
+  /** For artifacts_view_change: the selected layout. */
   view_mode?: "list" | "grid" | "masonry";
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
@@ -998,8 +1002,6 @@ export type DashboardActionType =
   | "open"
   | "create"
   | "delete"
-  /** The delete was undone inside its undo window, so nothing was removed. */
-  | "delete_undo"
   | "rename"
   | "save"
   | "fork"
@@ -1009,6 +1011,7 @@ export type DashboardActionType =
   | "poll_mode_change"
   | "date_range_apply"
   | "link_copied"
+  | "delete_undo"
   | "pin"
   | "unpin";
 
@@ -1267,6 +1270,11 @@ export interface LoopRunViewedProperties {
   is_manual_run: boolean;
 }
 
+export interface LoopLinkCopiedProperties {
+  loop_id: string;
+  visibility: "personal" | "team";
+}
+
 // Event names as constants
 export const ANALYTICS_EVENTS = {
   // App lifecycle
@@ -1451,6 +1459,7 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_STARTED: "Loop run started",
   LOOP_RUN_BLOCKED: "Loop run blocked",
   LOOP_RUN_VIEWED: "Loop run viewed",
+  LOOP_LINK_COPIED: "Loop link copied",
 } as const;
 
 // Event property mapping
@@ -1629,6 +1638,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_STARTED]: LoopRunStartedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_BLOCKED]: LoopRunBlockedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
+  [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
 };
 
 /**

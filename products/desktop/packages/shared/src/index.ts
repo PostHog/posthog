@@ -65,6 +65,8 @@ export {
   type WindowBounds,
   windowBoundsSchema,
 } from "./browser-tabs-schemas";
+export * from "./canvas-contracts";
+export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 export {
   CLOUD_PROMPT_PREFIX,
@@ -88,9 +90,11 @@ export {
   getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
+  isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
+  isDeepseekModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -100,6 +104,7 @@ export {
 } from "./cloud-task-models";
 export {
   buildInboxDeeplink,
+  buildLoopDeeplink,
   buildScoutDeeplink,
   DEEPLINK_PROTOCOL_DEVELOPMENT,
   DEEPLINK_PROTOCOL_PRODUCTION,
@@ -118,6 +123,7 @@ export {
   isDismissalReasonSnooze,
 } from "./dismissal-reasons";
 export {
+  type ArtifactSource,
   type ArtifactType,
   type CloudPermissionOption,
   type CloudTaskErrorUpdate,
@@ -161,10 +167,7 @@ export {
 } from "./execution-modes";
 export * from "./flags";
 export * from "./git-domain";
-export type {
-  GitHandoffCheckpoint,
-  HandoffLocalGitState,
-} from "./git-handoff";
+export type { GitHandoffCheckpoint, HandoffLocalGitState } from "./git-handoff";
 export * from "./git-naming";
 export type { GitFileStatus } from "./git-types";
 export type {
@@ -251,10 +254,7 @@ export {
   pathToFileUri,
   toRelativePath,
 } from "./path";
-export type {
-  PiMessagingMode,
-  PiRuntimeHealth,
-} from "./pi-session";
+export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   buildPrOutput,
   mergePrUrls,
@@ -262,10 +262,7 @@ export {
   readPrSummaries,
   readPrUrls,
 } from "./pr-urls";
-export {
-  isPrivateIpv4Octets,
-  isPrivateIpv6Literal,
-} from "./private-network";
+export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
 export {
   type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,
@@ -285,12 +282,7 @@ export {
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
-export {
-  Saga,
-  type SagaLogger,
-  type SagaResult,
-  type SagaStep,
-} from "./saga";
+export { Saga, type SagaLogger, type SagaResult, type SagaStep } from "./saga";
 export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
   type AcpMessage,
@@ -336,6 +328,7 @@ export type {
   UploadableSkillSource,
 } from "./skills";
 export {
+  DISABLE_MODEL_INVOCATION_METADATA_KEY,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,

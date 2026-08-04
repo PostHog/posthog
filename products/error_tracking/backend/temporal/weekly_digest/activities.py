@@ -1,3 +1,5 @@
+import json
+
 from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
@@ -9,13 +11,17 @@ from temporalio.exceptions import ApplicationError
 from posthog.cloud_utils import is_cloud
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.messaging import MessagingRecord
+from posthog.storage import object_storage
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.user_permissions import UserPermissions
 
 from products.error_tracking.backend import weekly_digest
 from products.error_tracking.backend.temporal.weekly_digest.types import (
+    CleanupDigestOrgsInputs,
     GetDigestOrgsInputs,
+    GetDigestOrgsResult,
+    LoadPageOrgsInputs,
     SendOrgDigestInputs,
     SendOrgDigestResult,
 )
@@ -23,37 +29,61 @@ from products.error_tracking.backend.temporal.weekly_digest.types import (
 logger = structlog.get_logger(__name__)
 
 
-def _get_digest_orgs(inputs: GetDigestOrgsInputs) -> list[str]:
-    """Resolve one keyset page of org ids for this run.
+def _get_digest_orgs(inputs: GetDigestOrgsInputs) -> GetDigestOrgsResult:
+    """Resolve the full sorted set of org ids for this run and stash it in object storage.
 
     An explicit ``org_ids`` (manual targeted runs) bypasses discovery; scheduled runs
-    discover every org with exceptions.
+    discover every org with exceptions. Discovery's exception-count scan runs once per
+    run instead of once per page; page children read their slice back via
+    ``load_page_orgs_activity``, so the full list never rides through a Temporal payload.
 
-    The candidate set is sorted and sliced to (``after``, ``after`` + ``limit``] so the
-    workflow can page with only a cursor. Recomputing candidates each page is safe: an
-    org shifting in or out between pages is either <= cursor (already processed) or
-    > cursor (still pending), never both.
+    Writing before returning makes retries idempotent: a retry overwrites the same key
+    with a fresh list and the count always describes the object that was just written.
     """
     # Checked before org_ids so a targeted manual run can't route around the cloud gate. Returning
-    # no orgs is what keeps the send activity from being scheduled at all.
+    # no orgs is what keeps the page children from being scheduled at all.
     if not is_cloud():
         logger.info("Skipping Error Tracking weekly digest outside PostHog Cloud")
-        return []
+        return GetDigestOrgsResult(total_orgs=0)
 
     if inputs.org_ids is not None:
-        candidates = sorted(str(org_id) for org_id in inputs.org_ids)
+        org_ids = sorted(str(org_id) for org_id in inputs.org_ids)
     else:
-        candidates = sorted(str(org_id) for org_id in weekly_digest.get_org_ids_with_exceptions())
+        org_ids = sorted(str(org_id) for org_id in weekly_digest.get_org_ids_with_exceptions())
 
-    if inputs.after is not None:
-        candidates = [org_id for org_id in candidates if org_id > inputs.after]
-    return candidates[: inputs.limit]
+    if org_ids:
+        object_storage.write(inputs.storage_key, json.dumps(org_ids))
+    return GetDigestOrgsResult(total_orgs=len(org_ids))
 
 
 @activity.defn
-def get_digest_orgs_activity(inputs: GetDigestOrgsInputs) -> list[str]:
+def get_digest_orgs_activity(inputs: GetDigestOrgsInputs) -> GetDigestOrgsResult:
     close_old_connections()
     return _get_digest_orgs(inputs)
+
+
+def _load_page_orgs(inputs: LoadPageOrgsInputs) -> list[str]:
+    """Read one page's org ids back from the list discovery stored.
+
+    A missing object raises (activity retries): the parent always writes before starting
+    children, so absence means storage trouble, not an empty page.
+    """
+    content = object_storage.read(inputs.storage_key)
+    if content is None:
+        raise ApplicationError(f"Digest org list not found in object storage at {inputs.storage_key}")
+    org_ids = json.loads(content)
+    start = (inputs.page_number - 1) * inputs.page_size
+    return org_ids[start : start + inputs.page_size]
+
+
+@activity.defn
+def load_page_orgs_activity(inputs: LoadPageOrgsInputs) -> list[str]:
+    return _load_page_orgs(inputs)
+
+
+@activity.defn
+def cleanup_digest_orgs_activity(inputs: CleanupDigestOrgsInputs) -> None:
+    object_storage.delete(inputs.storage_key)
 
 
 def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigestResult:
