@@ -254,8 +254,8 @@ _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-concurrent-followup-steering"
 # schedule it. Same two-step cleanup lifecycle as the patches above.
 _PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING = "tasks-drop-slack-post-after-provisioning"
 
-# Self-driving-origin implementation runs periodically re-check the team's self-driving credits quota and
-# cancel themselves before opening the billable PR when the team crossed its limit mid-run. Gates
+# Self-driving-origin implementation runs periodically re-check the org's self-driving credits quota and
+# cancel themselves before opening the billable PR when the org crossed its limit mid-run. Gates
 # the recheck timer + activity commands so pre-rollout histories replay without them.
 _PATCH_ID_SELF_DRIVING_QUOTA_KILL = "tasks-self-driving-quota-kill"
 

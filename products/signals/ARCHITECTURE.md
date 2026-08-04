@@ -968,7 +968,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
 - `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
-- `signal_report_quota_paused` — a quota gate observed the team over its self-driving credits limit (+ `stage`: `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research` | `autostart` | `implementation_run`, `enforced`, `report_id`). See Billing limit enforcement
+- `signal_report_quota_paused` — a quota gate observed the team's org over its self-driving credits limit (+ `stage`: `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research` | `autostart` | `implementation_run`, `enforced`, `report_id`). See Billing limit enforcement
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
@@ -1166,9 +1166,11 @@ Preserved: canonical scouts and the `authoring-scouts` companion, identified by 
 ## Billing limit enforcement
 
 Self-driving bills a flat credit charge per report that ships an implementation PR (see `backend/billing.py`),
-so a team over its `signals_credits` quota must stop generating new research and PRs — including flows already mid-pipeline.
+so a team whose org is over its `signals_credits` quota must stop generating new research and PRs — including flows already mid-pipeline.
 The authority for "over quota" is the Redis quota-limiter flag (`ee.billing.quota_limiting`, resource `signals_credits`),
 read through `quota.is_team_signals_quota_limited()` and bundled with the rollout flag by `quota.self_driving_quota_gate()`.
+The quota is org-level (the org's billing cap): usage from every team in the org counts against one shared limit.
+When the org crosses it, the quota cron fans the limited flag out to every team token in the org, so the per-team check reads an org-wide verdict and all of an org's teams pause together.
 
 **Enforcement is feature-flag-gated for rollout** (`self-driving-quota-enforcement`, org-keyed).
 Gates always run and emit telemetry when the team is limited;

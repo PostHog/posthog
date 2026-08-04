@@ -642,7 +642,7 @@ async def maybe_autostart_implementation_task(
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
 
     # Quota gate: the implementation task is the step that leads to the billable PR, so a team
-    # over its self-driving credits quota starts none, on any path (pipeline, custom agent, scout, or
+    # whose org is over its self-driving credits quota starts none, on any path (pipeline, custom agent, scout, or
     # a user's reviewer edit). The report stays ready; the next new-signal research cycle after
     # the quota lifts re-evaluates auto-start.
     team = await Team.objects.select_related("organization").aget(pk=team_id)
@@ -654,7 +654,7 @@ async def maybe_autostart_implementation_task(
             "self-driving auto-start skipped",
             report_id=report_id,
             team_id=team_id,
-            reason="team over self-driving credits quota",
+            reason="org over self-driving credits quota",
         )
         return
 

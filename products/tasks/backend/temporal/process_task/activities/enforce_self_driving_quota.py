@@ -44,8 +44,8 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
     - ``stop_checking``: the run is not self-driving-billable (wrong origin, already terminal) or has
       already recorded its PR URL. A shipped PR means the report is already billed, so letting the
       run finish (and its CI follow-ups run) costs the customer nothing more.
-    - ``proceed``: the team is under its quota, or enforcement is off. Check again later.
-    - ``cancelled``: the team is over quota with enforcement on. The run was cancelled through the
+    - ``proceed``: the team's org is under its quota, or enforcement is off. Check again later.
+    - ``cancelled``: the team's org is over quota with enforcement on. The run was cancelled through the
       standard cancellation path (agent interrupted, workflow signalled its own completion) and
       the report's auto-start records were released so a later cycle can re-implement it with
       "only the report" left behind.

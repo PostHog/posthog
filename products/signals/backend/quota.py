@@ -91,10 +91,16 @@ def self_driving_quota_enforcement_enabled(team: "Team") -> bool:
 
 
 def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
-    """Resolve the quota gate for one team: over the self-driving credits quota, and is enforcement on.
+    """Resolve the quota gate for one team: is it quota-limited, and is enforcement on.
 
-    The flag is only read when the team is actually limited, so the fleet-wide hot paths pay a
-    single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from async code.
+    The limit itself is org-level (the org's billing cap): the quota cron sums usage across all
+    of the org's teams and, when the org crosses its limit, writes every one of the org's team
+    tokens into the Redis limited set. This per-team check therefore reads an org-wide verdict,
+    and all teams in an org pause together.
+
+    The enforcement flag is only read when the team is actually limited, so the fleet-wide hot
+    paths pay a single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from
+    async code.
     """
     if not is_team_signals_quota_limited(team.api_token):
         return SelfDrivingQuotaGate(limited=False, enforced=False)
@@ -102,8 +108,8 @@ def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
 
 
 def capture_signal_report_quota_paused(team: "Team", *, report_id: str | None, stage: str, enforced: bool) -> None:
-    """`signal_report_quota_paused` — a pipeline gate observed the team over its self-driving credits
-    quota at `stage`. `enforced=false` rows are dark-launch would-blocks. Best-effort: telemetry
+    """`signal_report_quota_paused`: a pipeline gate observed the team's org over its self-driving
+    credits quota at `stage`. `enforced=false` rows are dark-launch would-blocks. Best-effort: telemetry
     must never fail the pipeline step that emitted it. Requires `team.organization` to be loaded.
     """
     try:

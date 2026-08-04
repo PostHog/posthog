@@ -818,7 +818,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
             ):
                 if suppress_promotion:
-                    # Team over its self-driving credits quota with enforcement on: the signal is still
+                    # The team's org is over its self-driving credits quota with enforcement on: the signal is still
                     # assigned, weighted, and emitted, but no summary run spawns. The status is left
                     # untouched, so the first matching signal after the quota lifts re-evaluates
                     # promotion under the same rules.

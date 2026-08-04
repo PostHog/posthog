@@ -2193,7 +2193,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 
 
 def enforce_self_driving_pr_quota(team: Team) -> None:
-    """Refuse to create a self-driving implementation task while the team is over its self-driving credits
+    """Refuse to create a self-driving implementation task while the team's org is over its self-driving credits
     quota with enforcement on. The implementation task is the step that leads to the billable PR,
     so the manual create-from-report path must respect the same limit as the pipeline auto-start
     gate (products/signals/backend/auto_start.py). Raises ``QuotaLimitExceeded`` (402).
