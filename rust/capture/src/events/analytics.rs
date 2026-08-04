@@ -7,7 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::DateTime;
-use common_ingestion_warnings::{WarningEmitter, CAPTURE_LEGACY_RATE_LIMIT};
+use common_ingestion_warnings::{
+    WarningEmitter, CAPTURE_LEGACY_ANALYTICS, CAPTURE_LEGACY_RATE_LIMIT,
+};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -25,10 +27,8 @@ use crate::{
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
-        emit_rate_limit_warning,
-        legacy::{
-            emit_distinct_id_truncated_warning, emit_processing_abort_warning, request_context,
-        },
+        emit_distinct_id_truncated_warning, emit_rate_limit_warning,
+        legacy::{emit_processing_abort_warning, request_context},
     },
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
@@ -593,6 +593,7 @@ async fn process_events_inner(
         emit_distinct_id_truncated_warning(
             ingestion_warning_emitter.as_deref(),
             &request_context(context),
+            CAPTURE_LEGACY_ANALYTICS,
             truncated_sample.filter(|_| truncated_count == 1),
             truncated_count,
         );
