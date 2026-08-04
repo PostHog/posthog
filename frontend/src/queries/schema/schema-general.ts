@@ -2090,9 +2090,25 @@ export type PathsV2Edge = {
     count: number
 }
 
+/**
+ * A concrete anchored chain from the anchor and the unique actors whose single sequence begins with
+ * exactly these path items. Powers the hover funnel preview over the journey grid.
+ */
+export type PathsV2Prefix = {
+    /** The chain's path items in order, starting at the anchor. */
+    items: PathsV2Item[]
+    /** Unique actors whose anchored sequence begins with exactly these items. */
+    count: number
+}
+
 export type PathsV2Results = {
     steps: PathsV2Step[]
     edges: PathsV2Edge[]
+    /**
+     * Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty
+     * in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain.
+     */
+    prefixes: PathsV2Prefix[]
 }
 
 export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase {
@@ -2100,6 +2116,23 @@ export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
+
+/** Whether an anchored chart is built around the journeys' start or their end. */
+export enum PathsV2AnchorType {
+    Start = 'start',
+    End = 'end',
+}
+
+/** The start or end point an anchored-mode chart is built around. */
+export type PathsV2Anchor = {
+    /**
+     * `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the
+     * anchor item. Either way the anchor is the grid's single 100% node.
+     */
+    type: PathsV2AnchorType
+    /** The path item the chart anchors on. Its event must be one of the step sources. */
+    item: PathsV2Item
+}
 
 export type PathsV2Filter = {
     /**
@@ -2109,6 +2142,22 @@ export type PathsV2Filter = {
      * @maxItems 20
      */
     stepSources?: PathsV2StepSource[]
+    /**
+     * Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by
+     * the conversion window, so every displayed segment equals a plain funnel. Absent selects open
+     * mode, which splits an actor's events into journeys on the inactivity gap instead.
+     */
+    anchor?: PathsV2Anchor
+    /**
+     * Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the
+     * emitted funnel's window. Bounds per unit are validated server-side against
+     * CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap.
+     * @asType integer
+     * @default 30
+     */
+    conversionWindowInterval?: number
+    /** @default minute */
+    conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnit
     /**
      * Number of journey steps (columns) shown.
      * @asType integer

@@ -12,6 +12,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     DateRange,
     FunnelConversionWindowTimeUnit,
+    PathsV2Anchor,
+    PathsV2AnchorType,
     PathsV2Filter,
     PathsV2Item,
     PathsV2Query,
@@ -83,7 +85,10 @@ class TestPathsV2FilterConstraints(SimpleTestCase):
         self.assertEqual(paths_filter.gapInterval, 30)
         self.assertEqual(paths_filter.gapIntervalUnit, FunnelConversionWindowTimeUnit.MINUTE)
         self.assertEqual(paths_filter.collapseRepeats, True)
+        self.assertEqual(paths_filter.conversionWindowInterval, 30)
+        self.assertEqual(paths_filter.conversionWindowIntervalUnit, FunnelConversionWindowTimeUnit.MINUTE)
         self.assertIsNone(paths_filter.stepSources)
+        self.assertIsNone(paths_filter.anchor)
 
 
 class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
@@ -125,6 +130,38 @@ class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
     def test_invalid_step_sources_reject(self, _name: str, sources: list[PathsV2StepSource]) -> None:
         runner = self._runner(PathsV2Filter(stepSources=sources))
         with self.assertRaisesMessage(ValidationError, "stepSources"):
+            runner.validate()
+
+    @parameterized.expand(
+        [
+            ("second_above_max", 3601, FunnelConversionWindowTimeUnit.SECOND),
+            ("minute_above_max", 1441, FunnelConversionWindowTimeUnit.MINUTE),
+            ("day_above_max", 366, FunnelConversionWindowTimeUnit.DAY),
+            ("minute_below_min", 0, FunnelConversionWindowTimeUnit.MINUTE),
+        ]
+    )
+    def test_out_of_bounds_window_rejects(
+        self, _name: str, interval: int, unit: FunnelConversionWindowTimeUnit
+    ) -> None:
+        runner = self._runner(PathsV2Filter(conversionWindowInterval=interval, conversionWindowIntervalUnit=unit))
+        with self.assertRaisesMessage(ValidationError, "conversionWindowInterval"):
+            runner.validate()
+
+    def test_window_bounds_are_inclusive(self) -> None:
+        self._runner(
+            PathsV2Filter(
+                conversionWindowInterval=1440, conversionWindowIntervalUnit=FunnelConversionWindowTimeUnit.MINUTE
+            )
+        ).validate()
+
+    def test_anchor_event_must_be_a_step_source(self) -> None:
+        runner = self._runner(
+            PathsV2Filter(
+                stepSources=_sources("a", "b"),
+                anchor=PathsV2Anchor(type=PathsV2AnchorType.START, item=PathsV2Item(event="missing")),
+            )
+        )
+        with self.assertRaisesMessage(ValidationError, "must be one of the step sources"):
             runner.validate()
 
 
@@ -532,4 +569,191 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("node", 1, ("c", ""), ("", "")),
                 ("dropoff", 1, ("", ""), ("", "")),
             ],
+        )
+
+
+def _anchor(event: str, anchor_type: PathsV2AnchorType = PathsV2AnchorType.START) -> PathsV2Anchor:
+    return PathsV2Anchor(type=anchor_type, item=PathsV2Item(event=event))
+
+
+def _prefix(items: list[tuple[str, str | None]], count: float) -> tuple[tuple[tuple[str, str | None], ...], float]:
+    return (tuple(items), count)
+
+
+class TestPathsV2AnchoredMode(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
+    def _run(self, query: PathsV2Query) -> Any:
+        return PathsV2QueryRunner(query=query, team=self.team).calculate().results
+
+    def _steps(self, results: Any) -> list[tuple[int, list[PathsV2Row], float, float]]:
+        return [(step.stepIndex, step.rows, step.otherCount, step.dropOffCount) for step in results.steps]
+
+    def _edges(self, results: Any) -> list[tuple[int, PathsV2Item | None, PathsV2Item | None, float]]:
+        return [(edge.stepIndex, edge.source, edge.target, edge.count) for edge in results.edges]
+
+    def _prefixes(self, results: Any) -> set[tuple[tuple[tuple[str, str | None], ...], float]]:
+        return {(tuple((item.event, item.label) for item in prefix.items), prefix.count) for prefix in results.prefixes}
+
+    def test_anchored_start_journey_grid(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "a", "b", "c"),
+                **_timeline("p2", "a", "b", "d"),
+                **_timeline("p3", "a", "x"),
+                # z precedes the anchor, so the prefilter drops it and the sequence starts at a.
+                **_timeline("p4", "z", "a", "b"),
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                stepSources=_sources("a", "b", "c", "d", "x", "z"), anchor=_anchor("a"), maxRowsPerStep=10
+            ),
+        )
+        results = self._run(query)
+
+        # One sequence per actor from the anchor: p1 [a,b,c], p2 [a,b,d], p3 [a,x], p4 [a,b]. The anchor
+        # is the single 100% node; drop-offs count actors whose sequence ends at that step.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("a", 4)], 0, 0),
+                (1, [_row("b", 3), _row("x", 1)], 0, 2),
+                (2, [_row("c", 1), _row("d", 1)], 0, 2),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [
+                _edge(0, _item("a"), _item("b"), 3),
+                _edge(0, _item("a"), _item("x"), 1),
+                _edge(1, _item("b"), _item("c"), 1),
+                _edge(1, _item("b"), _item("d"), 1),
+            ],
+        )
+        # Prefix counts nest into the chain tree the hover preview walks.
+        self.assertEqual(
+            self._prefixes(results),
+            {
+                _prefix([("a", None)], 4),
+                _prefix([("a", None), ("b", None)], 3),
+                _prefix([("a", None), ("x", None)], 1),
+                _prefix([("a", None), ("b", None), ("c", None)], 1),
+                _prefix([("a", None), ("b", None), ("d", None)], 1),
+            },
+        )
+
+    def test_anchored_prefilter_bounds_actors_to_the_window(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                # b sits 40 min past the anchor, beyond the 30 min window, so it never joins the sequence.
+                "p1": [
+                    {"event": "a", "timestamp": "2023-03-10 10:00:00"},
+                    {"event": "b", "timestamp": "2023-03-10 10:40:00"},
+                ],
+                # No anchor event at all, so this actor is excluded entirely.
+                **_timeline("p2", "b", "c"),
+                # Anchor plus an in-window step.
+                "p3": [
+                    {"event": "a", "timestamp": "2023-03-10 10:00:00"},
+                    {"event": "b", "timestamp": "2023-03-10 10:20:00"},
+                ],
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c"), anchor=_anchor("a"), maxRowsPerStep=10),
+        )
+        results = self._run(query)
+
+        self.assertEqual(
+            self._steps(results),
+            [(0, [_row("a", 2)], 0, 1), (1, [_row("b", 1)], 0, 1)],
+        )
+        self.assertEqual(self._edges(results), [_edge(0, _item("a"), _item("b"), 1)])
+        self.assertEqual(
+            self._prefixes(results),
+            {_prefix([("a", None)], 2), _prefix([("a", None), ("b", None)], 1)},
+        )
+
+    def test_anchored_keeps_single_sequence_across_a_gap(self):
+        # A 45 min gap would split into two journeys in open mode (gap G defaults to 30 min); anchored
+        # mode never splits, so with a 60 min window the two events stay one sequence and the edge exists.
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "a", "timestamp": "2023-03-10 10:00:00"},
+                    {"event": "b", "timestamp": "2023-03-10 10:45:00"},
+                ]
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                stepSources=_sources("a", "b"),
+                anchor=_anchor("a"),
+                conversionWindowInterval=60,
+                conversionWindowIntervalUnit=FunnelConversionWindowTimeUnit.MINUTE,
+            ),
+        )
+        results = self._run(query)
+
+        self.assertEqual(
+            self._steps(results),
+            [(0, [_row("a", 1)], 0, 0), (1, [_row("b", 1)], 0, 1)],
+        )
+        self.assertEqual(self._edges(results), [_edge(0, _item("a"), _item("b"), 1)])
+
+    def test_anchored_end_anchor_reads_backward(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "a", "b", "x"),
+                **_timeline("p2", "c", "b", "x"),
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                stepSources=_sources("a", "b", "c", "x"),
+                anchor=_anchor("x", PathsV2AnchorType.END),
+                maxRowsPerStep=10,
+            ),
+        )
+        results = self._run(query)
+
+        # End anchor: x is the single 100% node at step 0 and the grid reads backward in time toward it,
+        # so p1 becomes [x, b, a] and p2 becomes [x, b, c].
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("x", 2)], 0, 0),
+                (1, [_row("b", 2)], 0, 0),
+                (2, [_row("a", 1), _row("c", 1)], 0, 2),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [
+                _edge(0, _item("x"), _item("b"), 2),
+                _edge(1, _item("b"), _item("a"), 1),
+                _edge(1, _item("b"), _item("c"), 1),
+            ],
+        )
+        self.assertEqual(
+            self._prefixes(results),
+            {
+                _prefix([("x", None)], 2),
+                _prefix([("x", None), ("b", None)], 2),
+                _prefix([("x", None), ("b", None), ("a", None)], 1),
+                _prefix([("x", None), ("b", None), ("c", None)], 1),
+            },
         )
