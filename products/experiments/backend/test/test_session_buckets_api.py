@@ -58,6 +58,13 @@ REPEATED_STEP_FUNNEL_METRIC = {
     "name": "Second upload",
     "series": [{"kind": "EventsNode", "event": "uploaded file"}, {"kind": "EventsNode", "event": "uploaded file"}],
 }
+SINGLE_STEP_FUNNEL_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "funnel",
+    "uuid": "99999999-9999-9999-9999-999999999999",
+    "name": "Purchase funnel",
+    "series": [{"kind": "EventsNode", "event": "purchase"}],
+}
 RETENTION_METRIC = {
     "kind": "ExperimentMetric",
     "metric_type": "retention",
@@ -268,57 +275,53 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # Distinct entry and completion events: entering is one event, completing is the other.
-            ("distinct_steps", CHECKOUT_FUNNEL_METRIC, "cart viewed", "purchase"),
-            # One event repeated as two steps ("the second upload"): entry and completion match the
-            # same event, so only the occurrence count tells them apart.
-            ("repeated_step", REPEATED_STEP_FUNNEL_METRIC, "uploaded file", "uploaded file"),
+            # Firing an earlier series step still isn't completing.
+            ("distinct_steps", CHECKOUT_FUNNEL_METRIC, ["cart viewed"], ["cart viewed", "purchase"]),
+            # One event repeated as two steps ("the second upload"): completing means firing it as
+            # many times as it appears, so a single occurrence is still a drop-off.
+            ("repeated_step", REPEATED_STEP_FUNNEL_METRIC, ["uploaded file"], ["uploaded file", "uploaded file"]),
+            # A single-step funnel is exposure → event; an unrelated event isn't the completion.
+            ("single_step", SINGLE_STEP_FUNNEL_METRIC, ["cart viewed"], ["purchase"]),
         ]
     )
-    def test_funnel_dropoff_returns_entered_but_not_completed(
-        self, _name: str, metric: dict[str, Any], entry_event: str, completion_event: str
+    def test_funnel_dropoff_returns_exposed_sessions_that_never_completed(
+        self, _name: str, metric: dict[str, Any], partial_events: list[str], completing_events: list[str]
     ) -> None:
         experiment = self._create_experiment(metrics=[metric])
-        dropped_off = self._session(events=[(entry_event, datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
-        completed = self._session(
+        exposed_only = self._session()
+        partial = self._session(
             events=[
-                (entry_event, datetime(2026, 1, 9, 10, 5, tzinfo=UTC)),
-                (completion_event, datetime(2026, 1, 9, 10, 7, tzinfo=UTC)),
+                (event, datetime(2026, 1, 9, 10, 5 + index, tzinfo=UTC)) for index, event in enumerate(partial_events)
             ]
         )
-        never_entered = self._session()
+        completed = self._session(
+            events=[
+                (event, datetime(2026, 1, 9, 10, 5 + index, tzinfo=UTC))
+                for index, event in enumerate(completing_events)
+            ]
+        )
         flush_persons_and_events()
 
         response = self._post_bucket(experiment, bucket="funnel_dropoff", metric_uuids=[metric["uuid"]])
 
+        # The exposure is the funnel's first step, the same as in the experiment analysis, so
+        # being exposed is entering the funnel; not completing is what puts a session here.
         assert response.status_code == status.HTTP_200_OK, response.json()
         session_ids = response.json()["session_ids"]
-        assert session_ids == [dropped_off]
+        assert set(session_ids) == {exposed_only, partial}
         assert completed not in session_ids
-        assert never_entered not in session_ids
 
     @parameterized.expand(
         [
-            # The completion side: without the check every session that entered comes back as
-            # "didn't finish", including the ones whose purchase really did happen.
+            # Without the check every exposed session comes back as "didn't finish", including
+            # the ones whose purchase really did happen.
             (
                 "server_side_completion",
                 _funnel("a1111111-1111-1111-1111-111111111111", "Checkout", [CART, SERVER_CHARGE]),
                 "captured server-side",
             ),
-            # The entry side fails the other way, to a silently empty bucket.
-            (
-                "server_side_entry",
-                _funnel("a2222222-2222-2222-2222-222222222222", "Charge then buy", [SERVER_CHARGE, PURCHASE]),
-                "captured server-side",
-            ),
-            # A data-warehouse step is dropped from the metric's sources, so the positional read
-            # would silently promote an inner step to the funnel's boundary.
-            (
-                "data_warehouse_entry",
-                _funnel("a3333333-3333-3333-3333-333333333333", "Charge first", [DATA_WAREHOUSE_STEP, CART, PURCHASE]),
-                "data warehouse",
-            ),
+            # A data-warehouse completion is dropped from the metric's sources, so the positional
+            # read would silently promote an inner step to the funnel's completion.
             (
                 "data_warehouse_completion",
                 _funnel("a4444444-4444-4444-4444-444444444444", "Charge last", [CART, PURCHASE, DATA_WAREHOUSE_STEP]),
@@ -326,7 +329,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
             ),
         ]
     )
-    def test_funnel_dropoff_refuses_when_a_boundary_step_cannot_be_matched(
+    def test_funnel_dropoff_refuses_when_the_completion_step_cannot_be_matched(
         self, _name: str, metric: dict[str, Any], expected_reason: str
     ) -> None:
         experiment = self._create_experiment(metrics=[metric])
@@ -340,13 +343,13 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
         response = self._post_bucket(experiment, bucket="funnel_dropoff", metric_uuids=[metric["uuid"]])
 
-        # Drop-off is the count of the funnel's first step against its last one. When either can't
-        # appear in a recording the predicate answers a question nobody asked, and every exposed
-        # session lands in (or out of) the bucket with nothing on screen saying why.
+        # Drop-off counts the funnel's last step. When that step can't appear in a recording the
+        # predicate answers a question nobody asked, and every exposed session lands in the
+        # bucket with nothing on screen saying why.
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert expected_reason in response.json()["detail"]
 
-    def test_funnel_dropoff_boundary_check_survives_an_action_step(self) -> None:
+    def test_funnel_dropoff_completion_check_survives_an_action_step(self) -> None:
         action = Action.objects.create(team=self.team, name="Viewed cart", steps_json=[{"event": "cart viewed"}])
         metric = _funnel(
             "a7777777-7777-7777-7777-777777777777",
@@ -360,19 +363,43 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         response = self._post_bucket(experiment, bucket="funnel_dropoff", metric_uuids=[metric["uuid"]])
 
         # An action among the steps makes the metric's event names unresolvable as a whole, but the
-        # boundary steps are still concrete events. Looking names up per metric rather than per
-        # source would leave the completion event out of the linkability read, and the boundary
+        # completion step is still a concrete event. Looking names up per metric rather than per
+        # source would leave the completion event out of the linkability read, and the completion
         # check would pass on a name it never asked about.
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "captured server-side" in response.json()["detail"]
 
-    def test_funnel_dropoff_allows_an_unmatchable_step_between_the_boundaries(self) -> None:
-        metric = _funnel("a5555555-5555-5555-5555-555555555555", "Checkout", [CART, SERVER_CHARGE, PURCHASE])
+    @parameterized.expand(
+        [
+            # The funnel's entry is the exposure, so a first series step no recording can show
+            # doesn't gate the question the way the completion does.
+            (
+                "server_side_first_step",
+                _funnel("a2222222-2222-2222-2222-222222222222", "Charge then buy", [SERVER_CHARGE, PURCHASE]),
+                [],
+            ),
+            (
+                "server_side_middle_step",
+                _funnel("a5555555-5555-5555-5555-555555555555", "Checkout", [CART, SERVER_CHARGE, PURCHASE]),
+                ["cart viewed"],
+            ),
+            (
+                "data_warehouse_first_step",
+                _funnel("a3333333-3333-3333-3333-333333333333", "Charge first", [DATA_WAREHOUSE_STEP, CART, PURCHASE]),
+                ["cart viewed"],
+            ),
+        ]
+    )
+    def test_funnel_dropoff_allows_unmatchable_steps_before_the_completion(
+        self, _name: str, metric: dict[str, Any], dropped_events: list[str]
+    ) -> None:
         experiment = self._create_experiment(metrics=[metric])
-        dropped_off = self._session(events=[("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
+        dropped_off = self._session(
+            events=[(event, datetime(2026, 1, 9, 10, 5, tzinfo=UTC)) for event in dropped_events]
+        )
         completed = self._session(
             events=[
-                ("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC)),
+                *[(event, datetime(2026, 1, 9, 10, 5, tzinfo=UTC)) for event in dropped_events],
                 ("purchase", datetime(2026, 1, 9, 10, 7, tzinfo=UTC)),
             ]
         )
@@ -380,8 +407,8 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
         response = self._post_bucket(experiment, bucket="funnel_dropoff", metric_uuids=[metric["uuid"]])
 
-        # Only the two boundary steps are read, so a server-side step between them costs nothing.
-        # Refusing here would take drop-off away from funnels it answers correctly.
+        # Only the completion step is read, so steps before it that no recording can show cost
+        # nothing. Refusing here would take drop-off away from funnels it answers correctly.
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["session_ids"] == [dropped_off]
         assert completed not in response.json()["session_ids"]
