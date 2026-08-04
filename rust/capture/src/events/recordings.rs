@@ -327,18 +327,18 @@ impl From<CaptureError> for ReplayAbort {
 }
 
 impl ReplayAbort {
-    fn session_id(reason: SessionIdRejection, bytes: Option<usize>) -> Self {
+    fn invalid_session_id(reason: SessionIdRejection, bytes: Option<usize>) -> Self {
         Self {
             error: CaptureError::InvalidSessionId,
-            reason: Some(ReplayRejectionReason::SessionId(reason)),
+            reason: Some(ReplayRejectionReason::InvalidSessionId(reason)),
             session_id_bytes: bytes,
         }
     }
 
-    fn snapshot_data(reason: SnapshotDataRejection) -> Self {
+    fn missing_snapshot_data(reason: SnapshotDataRejection) -> Self {
         Self {
             error: CaptureError::MissingSnapshotData,
-            reason: Some(ReplayRejectionReason::SnapshotData(reason)),
+            reason: Some(ReplayRejectionReason::MissingSnapshotData(reason)),
             session_id_bytes: None,
         }
     }
@@ -406,9 +406,9 @@ async fn process_replay_events_inner(
     // length is still evaluated first so an id that breaks both reports length.
     let session_id_str = session_id
         .as_str()
-        .ok_or_else(|| ReplayAbort::session_id(SessionIdRejection::NotAString, None))?;
+        .ok_or_else(|| ReplayAbort::invalid_session_id(SessionIdRejection::NotAString, None))?;
     if session_id_str.len() > 70 {
-        return Err(ReplayAbort::session_id(
+        return Err(ReplayAbort::invalid_session_id(
             SessionIdRejection::TooLong,
             Some(session_id_str.len()),
         ));
@@ -417,7 +417,7 @@ async fn process_replay_events_inner(
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-')
     {
-        return Err(ReplayAbort::session_id(
+        return Err(ReplayAbort::invalid_session_id(
             SessionIdRejection::InvalidCharset,
             Some(session_id_str.len()),
         ));
@@ -481,7 +481,9 @@ async fn process_replay_events_inner(
 
     // Process first event's snapshot_data
     let Some(snapshot_data) = first_event.properties.snapshot_data.take() else {
-        return Err(ReplayAbort::snapshot_data(SnapshotDataRejection::Absent));
+        return Err(ReplayAbort::missing_snapshot_data(
+            SnapshotDataRejection::Absent,
+        ));
     };
     match snapshot_data {
         Value::Array(mut arr) => {
@@ -491,7 +493,7 @@ async fn process_replay_events_inner(
             snapshot_items.push(Value::Object(obj));
         }
         _ => {
-            return Err(ReplayAbort::snapshot_data(
+            return Err(ReplayAbort::missing_snapshot_data(
                 SnapshotDataRejection::WrongJsonType,
             ));
         }
@@ -500,7 +502,9 @@ async fn process_replay_events_inner(
     // Process remaining events' snapshot_data
     for mut event in events_iter {
         let Some(snapshot_data) = event.properties.snapshot_data.take() else {
-            return Err(ReplayAbort::snapshot_data(SnapshotDataRejection::Absent));
+            return Err(ReplayAbort::missing_snapshot_data(
+                SnapshotDataRejection::Absent,
+            ));
         };
         match snapshot_data {
             Value::Array(mut arr) => {
@@ -510,7 +514,7 @@ async fn process_replay_events_inner(
                 snapshot_items.push(Value::Object(obj));
             }
             _ => {
-                return Err(ReplayAbort::snapshot_data(
+                return Err(ReplayAbort::missing_snapshot_data(
                     SnapshotDataRejection::WrongJsonType,
                 ));
             }

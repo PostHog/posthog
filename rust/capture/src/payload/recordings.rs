@@ -16,7 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
-    ingestion_warnings::replay::attribution_from_first_event,
+    ingestion_warnings::replay::attribution_from_event,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -128,7 +128,7 @@ pub async fn handle_recording_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
-        sdk_attribution: attribution_from_first_event(&events[0], metadata.user_agent),
+        sdk_attribution: attribution_from_event(&events[0], metadata.user_agent),
     };
 
     // Apply all billing limit quotas and drop partial or whole

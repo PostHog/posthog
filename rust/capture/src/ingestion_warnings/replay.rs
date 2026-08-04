@@ -69,29 +69,32 @@ impl SnapshotDataRejection {
 /// The `reason` detail to ship with a replay abort, when the error has one.
 ///
 /// `CaptureError` collapses distinguishable conditions into single variants
-/// (`InvalidSessionId` covers three, `MissingSnapshotData` two), and the HTTP
-/// status and metric tags depend on that collapsing, so the pipeline reports the
-/// specific reason alongside the error instead of splitting the variants.
+/// (`CaptureError::InvalidSessionId` covers three, `CaptureError::MissingSnapshotData`
+/// two), and the HTTP status and metric tags depend on that collapsing, so the
+/// pipeline reports the specific reason alongside the error instead of splitting
+/// the variants. Each variant here is named for the error it accompanies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReplayRejectionReason {
-    SessionId(SessionIdRejection),
-    SnapshotData(SnapshotDataRejection),
+    InvalidSessionId(SessionIdRejection),
+    MissingSnapshotData(SnapshotDataRejection),
 }
 
 impl ReplayRejectionReason {
     fn as_str(self) -> &'static str {
         match self {
-            Self::SessionId(reason) => reason.as_str(),
-            Self::SnapshotData(reason) => reason.as_str(),
+            Self::InvalidSessionId(reason) => reason.as_str(),
+            Self::MissingSnapshotData(reason) => reason.as_str(),
         }
     }
 }
 
-/// Take attribution from a replay batch's first event.
+/// Read SDK attribution off one snapshot event, falling back to the request's
+/// user agent.
 ///
-/// One batch is one SDK in every real client, matching the reasoning behind
-/// [`super::SdkAttribution::from_first_event`], and replay reads all its other
-/// metadata from the first event too.
+/// Callers pass the batch's first event, which is sound because one batch is one
+/// SDK in every real client (the reasoning behind
+/// [`super::SdkAttribution::from_first_event`], which takes the whole batch) and
+/// because replay reads all its other metadata from the first event too.
 ///
 /// `lib` falls back to the user agent through the same helper the pipeline uses
 /// to label the ingested recording, so a warning names the library the customer
@@ -99,7 +102,7 @@ impl ReplayRejectionReason {
 /// There is no such fallback for `lib_version`: nothing else in the request
 /// carries it, so an absent one stays absent and projects to
 /// `UNKNOWN_ATTRIBUTION`.
-pub fn attribution_from_first_event(event: &RawRecording, user_agent: &str) -> SdkAttribution {
+pub fn attribution_from_event(event: &RawRecording, user_agent: &str) -> SdkAttribution {
     let lib = event
         .properties
         .lib
@@ -386,7 +389,7 @@ mod tests {
             Some(&emitter),
             &context,
             &CaptureError::InvalidSessionId,
-            Some(ReplayRejectionReason::SessionId(
+            Some(ReplayRejectionReason::InvalidSessionId(
                 SessionIdRejection::InvalidCharset,
             )),
             Some(71),
@@ -537,7 +540,7 @@ mod tests {
         #[case] expected_lib: Option<&str>,
         #[case] expected_version: Option<&str>,
     ) {
-        let attribution = attribution_from_first_event(&recording(properties), user_agent);
+        let attribution = attribution_from_event(&recording(properties), user_agent);
 
         assert_eq!(attribution.lib.as_deref(), expected_lib);
         assert_eq!(attribution.lib_version.as_deref(), expected_version);
@@ -549,7 +552,7 @@ mod tests {
     fn oversized_snapshot_attribution_is_dropped_at_extraction() {
         let over_bound = "w".repeat(MAX_SDK_ATTRIBUTION_LEN + 1);
 
-        let attribution = attribution_from_first_event(
+        let attribution = attribution_from_event(
             &recording(json!({"$lib": over_bound, "$lib_version": over_bound})),
             "posthog-js/1.0.0",
         );
