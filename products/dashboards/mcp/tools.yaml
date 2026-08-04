@@ -96,66 +96,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-    dashboard-group-create:
-        operation: dashboards_groups_create
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{params.id}'
-        title: Create dashboard group
-        description: Create a named group at the bottom of a dashboard.
-        param_overrides:
-            id:
-                cast: string-int
-    dashboard-group-update:
-        operation: dashboards_groups_update_create
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{params.id}'
-        title: Update dashboard group
-        description: Rename a dashboard group or update its full-width grid position.
-        param_overrides:
-            id:
-                cast: string-int
-    dashboard-group-move-tile:
-        operation: dashboards_groups_move_tile_create
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{params.id}'
-        title: Move tile to dashboard group
-        description: Move a content tile into a group or into the ungrouped section.
-        param_overrides:
-            id:
-                cast: string-int
-    dashboard-group-delete:
-        operation: dashboards_groups_delete_create
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        enrich_url: '{params.id}'
-        title: Delete dashboard group
-        description: Delete a group and either delete its member tiles or move them to the ungrouped section.
-        param_overrides:
-            id:
-                cast: string-int
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -253,6 +193,66 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+    dashboard-group-create:
+        operation: dashboards_groups_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Create dashboard group
+        description: Create a named group at the bottom of a dashboard.
+        param_overrides:
+            id:
+                cast: string-int
+    dashboard-group-delete:
+        operation: dashboards_groups_delete_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Delete dashboard group
+        description: Delete a group and either delete its member tiles or move them to the ungrouped section.
+        param_overrides:
+            id:
+                cast: string-int
+    dashboard-group-move-tile:
+        operation: dashboards_groups_move_tile_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Move tile to dashboard group
+        description: Move a content tile into a group or into the ungrouped section.
+        param_overrides:
+            id:
+                cast: string-int
+    dashboard-group-update:
+        operation: dashboards_groups_update_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Update dashboard group
+        description: Rename a dashboard group or update its full-width grid position.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-insights-run:
         operation: dashboards_run_insights_retrieve
         enabled: true

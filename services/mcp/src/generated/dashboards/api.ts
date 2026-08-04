@@ -1243,6 +1243,54 @@ export const DashboardsGroupsMoveTileCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional new layout for the moved tile.'),
 })
 
+export const DashboardsGroupsUpdateCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DashboardsGroupsUpdateCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const dashboardsGroupsUpdateCreateBodyNameMax = 400
+
+export const DashboardsGroupsUpdateCreateBody = /* @__PURE__ */ zod.object({
+    group_id: zod.string().describe('Dashboard group ID to update.'),
+    name: zod
+        .string()
+        .min(1)
+        .max(dashboardsGroupsUpdateCreateBodyNameMax)
+        .optional()
+        .describe('New group name. Omit to keep the existing name.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe('New grid layout for the group row. Omit to keep its current layout.'),
+})
+
 export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
