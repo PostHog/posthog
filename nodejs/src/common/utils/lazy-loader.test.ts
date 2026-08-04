@@ -381,6 +381,27 @@ describe('LazyLoader', () => {
             expect(loadSpy).toHaveBeenCalledTimes(0)
             expect(loader).toHaveBeenCalledTimes(0)
         })
+
+        it('re-caches a key that reloads from null to null', async () => {
+            loader.mockResolvedValueOnce({ key1: 'value1' })
+            expect(await lazyLoader.get('key1')).toBe('value1')
+
+            // Past refreshAgeMs, so this get reloads. The loader omits key1, caching it as null.
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 2.5)
+            loader.mockResolvedValue({})
+            expect(await lazyLoader.get('key1')).toBeNull()
+
+            // Past the null TTL, so this get reloads and the loader omits key1 again. The reload
+            // has to stamp a fresh null TTL, otherwise the entry stays expired forever.
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 5)
+            expect(await lazyLoader.get('key1')).toBeNull()
+            loader.mockClear()
+
+            // Inside the new null TTL, so this is a cache hit rather than another blocking load.
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 5.5)
+            expect(await lazyLoader.get('key1')).toBeNull()
+            expect(loader).toHaveBeenCalledTimes(0)
+        })
     })
 
     describe('LRU eviction with maxSize', () => {

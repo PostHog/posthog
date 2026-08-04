@@ -338,7 +338,10 @@ export class LazyLoader<T> {
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i]
             const entry = this.cache[key]
-            if (results[i] === null && entry?.value !== null) {
+            // An entry already holding null is rewritten once its deadline has lapsed. Nothing else
+            // would refresh it, since `setValues` only touches keys the loader returned, so leaving
+            // it alone would strand it permanently expired and make every later lookup block.
+            if (results[i] === null && (!entry || entry.value !== null || entry.cacheUntil <= now)) {
                 if (!entry) {
                     this.cacheSize++
                 }
