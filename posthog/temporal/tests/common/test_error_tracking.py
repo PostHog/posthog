@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -157,6 +159,29 @@ class WorkerShuttingDownActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             worker_shutting_down_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@dataclass
+class FailingWithMessageInputs:
+    message: str
+
+
+@activity.defn
+async def db_error_with_message_activity(inputs: FailingWithMessageInputs) -> None:
+    raise OperationalError(inputs.message)
+
+
+@workflow.defn
+class DbErrorWithMessageActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: FailingWithMessageInputs) -> None:
+        await workflow.execute_activity(
+            db_error_with_message_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -384,6 +409,74 @@ async def test_worker_shutting_down_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "could not receive data from server: query_wait_timeout exceeded",
+        "server closed the connection unexpectedly",
+        "connection failed: connection to server was lost",
+    ],
+)
+async def test_transient_db_pool_error_is_not_captured(message: str, temporal_client: Client):
+    """A PgBouncer pool-wait timeout or dropped connection is fleet-wide pool pressure, not a defect
+    in this activity, and Temporal already retries it — so the interceptor must re-raise it without
+    reporting it to error tracking, the same way cancellations and worker shutdowns are exempted."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[DbErrorWithMessageActivityWorkflow],
+            activities=[db_error_with_message_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "DbErrorWithMessageActivityWorkflow",
+                    FailingWithMessageInputs(message=message),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unmatched_db_error_is_still_captured(temporal_client: Client):
+    """An OperationalError whose message doesn't match a known transient-pool marker (e.g. a real
+    query defect) must still be captured — the exemption is narrowly scoped to known pool-pressure
+    substrings, not every OperationalError, so a genuine bug in a query keeps surfacing."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[DbErrorWithMessageActivityWorkflow],
+            activities=[db_error_with_message_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "DbErrorWithMessageActivityWorkflow",
+                    FailingWithMessageInputs(message='relation "nonexistent_table" does not exist'),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        assert mock_ph_capture.call_count == 1
+        activity_call = mock_ph_capture.call_args_list[0]
+        assert isinstance(activity_call[0][0], OperationalError)
 
 
 @pytest.mark.asyncio

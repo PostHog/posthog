@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 
 from posthog.models.utils import UUIDModel
 
@@ -64,6 +65,15 @@ class ReplayScannerPromptSuggestion(UUIDModel):
         blank=True,
         help_text="Test-before-apply results: the suggested prompt re-run against rated sessions.",
     )
+
+    class Meta:
+        indexes = [
+            # in_flight_evaluation_credits (prompt_evaluation.py) filters on this exact
+            # predicate per quota check; without it, Postgres scans every row for the org's
+            # teams since evaluation->>'status' is otherwise unindexed. Running suggestions
+            # are rare, so the partial index stays tiny.
+            models.Index(fields=["team"], name="replay_sugg_running_idx", condition=Q(evaluation__status="running")),
+        ]
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: suggestion.team_id must match scanner.team_id.

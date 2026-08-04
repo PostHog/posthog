@@ -1,6 +1,8 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+from django.db import OperationalError
+
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
@@ -27,6 +29,19 @@ logger = get_write_only_logger()
 # probes, retryable transient-infra re-raises), not defects — same reasoning as the
 # EgressBudgetExhausted exemption below.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled", "TransientRepartitionError"})
+
+# Substrings identifying a transient Postgres pool blip (PgBouncer rejecting a query with
+# `query_wait_timeout` under saturation, or a dropped/reset backend connection) rather than a
+# query defect. Same markers as posthog.api.oauth.views._TRANSIENT_DB_ERROR_MARKERS.
+_TRANSIENT_DB_POOL_ERROR_MARKERS = (
+    "query_wait_timeout",
+    "server closed the connection unexpectedly",
+    "connection failed",
+)
+
+
+def _is_transient_db_pool_error(e: Exception) -> bool:
+    return isinstance(e, OperationalError) and any(marker in str(e) for marker in _TRANSIENT_DB_POOL_ERROR_MARKERS)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -79,9 +94,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
             # signal that our rate limiter already records via record_outbound_decision), errors
             # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
-            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
-            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
-            # error tracking.
+            # API serving a login page instead of JSON), expected-control-flow ApplicationErrors
+            # (activity-retry-as-poll probes), and a transient Postgres pool blip (fleet-wide
+            # pressure, not a defect in this activity) are not defects — re-raise without
+            # reporting them to error tracking. Temporal retries the activity regardless.
             if (
                 temporalio.exceptions.is_cancelled_exception(e)
                 or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
@@ -89,6 +105,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                     isinstance(e, temporalio.exceptions.ApplicationError)
                     and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
                 )
+                or _is_transient_db_pool_error(e)
             ):
                 raise
             activity_info = activity.info()
