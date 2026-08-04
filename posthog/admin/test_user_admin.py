@@ -1,5 +1,6 @@
 import uuid
 from importlib import import_module
+from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -42,6 +43,34 @@ class TestUserAdminSessions(BaseTest):
         self.assertEqual(count, 2)
         self.assertFalse(Session.objects.filter(session_key__in=keys).exists())
         self.assertTrue(Session.objects.filter(session_key=other_key).exists())  # other user untouched
+
+
+class TestUserAdminLoginasTicket(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.admin = UserAdmin(User, AdminSite())
+
+    def _changelist(self, query: dict):
+        request = RequestFactory().get("/admin/posthog/user/", query)
+        request.user = self.user
+        return self.admin.get_changelist_instance(request)
+
+    def test_ticket_param_does_not_break_changelist_and_is_carried_onto_result_urls(self):
+        # Support agents open this changelist as ?ticket=<conversation URL>. Without stripping it
+        # from the lookup params the changelist raises IncorrectLookupParameters; without carrying
+        # it onto the row URL the change page loses its "Log in as user" reason prefill.
+        ticket_url = "https://us.posthog.com/support/tickets/123"
+
+        changelist = self._changelist({"q": self.user.email, "ticket": ticket_url})
+
+        self.assertEqual(changelist.loginas_ticket, ticket_url)
+        result_query = parse_qs(urlparse(changelist.url_for_result(self.user)).query)
+        self.assertEqual(result_query["ticket"], [ticket_url])
+
+    def test_result_urls_are_unchanged_without_a_ticket_param(self):
+        changelist = self._changelist({"q": self.user.email})
+
+        self.assertNotIn("ticket=", changelist.url_for_result(self.user))
 
 
 class TestUserAdminPasswordReset(BaseTest):

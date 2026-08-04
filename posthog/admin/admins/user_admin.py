@@ -1,6 +1,8 @@
 import datetime
+from urllib.parse import urlencode
 
 from django.contrib import admin, messages
+from django.contrib.admin.views.main import ChangeList
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
 from django.core.exceptions import ValidationError
@@ -55,6 +57,26 @@ class UserChangeForm(DjangoUserChangeForm):
         if value and not WebauthnCredential.objects.filter(user=self.instance, verified=True).exists():
             raise ValidationError("Cannot enable passkeys for 2FA — this user has no verified passkey.")
         return value
+
+
+class UserChangeList(ChangeList):
+    # Support agents reach this changelist from a conversation via ?ticket=<link>.
+    # Carry that link onto each result's change URL so the "Log in as user" modal on
+    # the change page can prefill its reason with the originating conversation.
+    loginas_ticket: str | None = None
+
+    def get_filters_params(self, params=None):
+        # ?ticket= is ours, not a model field — drop it so the changelist doesn't
+        # try to filter the queryset by it (which would raise IncorrectLookupParameters).
+        lookup_params = super().get_filters_params(params)
+        lookup_params.pop("ticket", None)
+        return lookup_params
+
+    def url_for_result(self, result) -> str:
+        url = super().url_for_result(result)
+        if self.loginas_ticket:
+            url = f"{url}?{urlencode({'ticket': self.loginas_ticket})}"
+        return url
 
 
 @admin.register(User)
@@ -127,6 +149,15 @@ class UserAdmin(DjangoUserAdmin):
         "date_joined",
     ]
     ordering = ("email",)
+
+    def get_changelist(self, request, **kwargs):
+        return UserChangeList
+
+    def get_changelist_instance(self, request):
+        changelist = super().get_changelist_instance(request)
+        # Propagate the support ticket link (if any) onto result-row change URLs.
+        changelist.loginas_ticket = request.GET.get("ticket")
+        return changelist
 
     @admin.display(description="Current Team")
     def current_team_link(self, user: User):

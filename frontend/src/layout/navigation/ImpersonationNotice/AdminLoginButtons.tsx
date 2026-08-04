@@ -27,7 +27,7 @@ export function AdminLoginButtons({
                         key={region}
                         type="secondary"
                         size="small"
-                        tooltip="This currently redirects to the admin login page, but in future will log you in directly."
+                        tooltip="Opens the admin page for this user with the loginas reason pre-filled with this ticket. In future this will log you in directly."
                         onClick={() => window.open(url, '_blank')}
                     >
                         Login as {ticketContext?.email}

@@ -1004,6 +1004,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     ticketId: ticket.id,
                     email: ticket.anonymous_traits?.email || '',
                     region: regionFromUrl(ticket.session_context?.current_url),
+                    ticketUrl: ticket.ticket_number
+                        ? window.location.origin + urls.supportTicketDetail(ticket.ticket_number)
+                        : undefined,
                 })
 
                 // Load session context data
