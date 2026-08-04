@@ -4,7 +4,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
 
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.marketing_analytics.backend.services.cost_precompute_invalidation import (
@@ -24,12 +23,20 @@ _FACTORY = f"{_SERVICE}.MarketingSourceFactory"
 def _insert_query(source_id: str, grain) -> ast.SelectQuery:
     """Stand-in for a real materialization query. Shape doesn't matter, but it must be a resolvable
     SelectQuery and must vary by (source, grain) the way a real one does — the adapter is built with
-    the grain in its QueryContext and selects grain-specific columns, so each grain is its own hash."""
-    query = parse_select(
-        f"SELECT '{source_id}' AS source_id, '{grain.value}' AS grain, {{time_window_min}} AS cost_date"
+    the grain in its QueryContext and selects grain-specific columns, so each grain is its own hash.
+
+    Built as AST rather than parsed from a string: interpolating the source id into HogQL text trips
+    `hogql-fstring-audit`, and the rule is right to be blunt about it even in a test. Constructing the
+    nodes keeps `time_window_min` an unresolved Placeholder, which parsing with partial placeholders
+    could not — `replace_placeholders` evaluates every placeholder it walks, so passing only some fails.
+    """
+    return ast.SelectQuery(
+        select=[
+            ast.Alias(alias="source_id", expr=ast.Constant(value=source_id)),
+            ast.Alias(alias="grain", expr=ast.Constant(value=grain.value)),
+            ast.Alias(alias="cost_date", expr=ast.Placeholder(expr=ast.Field(chain=["time_window_min"]))),
+        ]
     )
-    assert isinstance(query, ast.SelectQuery)
-    return query
 
 
 class CostPrecomputeInvalidationTest(APIBaseTest):
