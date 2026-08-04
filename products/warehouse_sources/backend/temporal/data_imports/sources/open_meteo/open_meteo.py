@@ -37,6 +37,11 @@ MAX_LOCATIONS = 25
 # roughly 18k hourly rows.
 ARCHIVE_WINDOW_DAYS = 31
 
+# Labels are stamped onto every row of every batch, so an oversized one is amplified by the row
+# count (a whole hourly window is ~744 rows per location). Cap it at something comfortably longer
+# than any real place name.
+MAX_LABEL_LENGTH = 256
+
 # Used as the archive backfill start when the user leaves the start date blank. The archive reaches
 # back to 1940, so defaulting to "everything" would be a multi-decade first sync nobody asked for.
 DEFAULT_ARCHIVE_BACKFILL_DAYS = 365
@@ -109,6 +114,12 @@ def parse_locations(raw: str | None) -> list[Location]:
             )
 
         label = parts[2].strip() if len(parts) > 2 else None
+        # The label is copied onto every row, so a huge one is multiplied by the batch's row count.
+        if label is not None and len(label) > MAX_LABEL_LENGTH:
+            raise ValueError(
+                f"Line {line_number} has a label of {len(label)} characters: at most {MAX_LABEL_LENGTH} are allowed."
+            )
+
         location = Location(latitude=latitude, longitude=longitude, label=label or None)
 
         # Duplicates would collide on the `location_id` primary key and merge into one row.
@@ -173,6 +184,28 @@ def _redact_apikey(text: str) -> str:
     return _APIKEY_RE.sub(r"\1REDACTED", text)
 
 
+def _get_with_redacted_errors(session: requests.Session, url: str) -> requests.Response:
+    """`session.get` with the API key stripped from any transport-level failure.
+
+    urllib3 builds connection, timeout and retry-exhausted messages out of the full URL, query
+    string included, and those exceptions propagate out of the sync all the way to
+    `ExternalDataJob.latest_error` and the operational logs. `make_tracked_session(redact_values=...)`
+    only masks the session's own log lines, not the exception it raises, so the key is scrubbed here.
+    `from None` keeps the unredacted original off the chained traceback too.
+    """
+    try:
+        return session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException as exc:
+        redacted = _redact_apikey(str(exc))
+        try:
+            # The concrete class is preserved so callers keep classifying the failure as before.
+            rebuilt: requests.RequestException = type(exc)(redacted)
+        except Exception:
+            # A subclass with a stricter signature (e.g. `JSONDecodeError`) still must not leak.
+            rebuilt = requests.RequestException(redacted)
+        raise rebuilt from None
+
+
 def _fetch(session: requests.Session, url: str) -> dict[str, Any]:
     """Fetch one Open-Meteo response.
 
@@ -180,7 +213,7 @@ def _fetch(session: requests.Session, url: str) -> dict[str, Any]:
     layered on top here. Open-Meteo answers a bad request with a 4xx whose body carries a `reason`
     string; that is surfaced verbatim because it names the offending parameter.
     """
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    response = _get_with_redacted_errors(session, url)
 
     if not response.ok:
         reason: str | None = None

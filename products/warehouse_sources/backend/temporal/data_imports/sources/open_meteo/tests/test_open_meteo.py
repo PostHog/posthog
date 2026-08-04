@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo import (
     ARCHIVE_WINDOW_DAYS,
     DEFAULT_ARCHIVE_BACKFILL_DAYS,
+    MAX_LABEL_LENGTH,
     MAX_LOCATIONS,
     Location,
     OpenMeteoResumeConfig,
@@ -140,6 +141,16 @@ class TestParseLocations:
     def test_allows_exactly_max_locations(self) -> None:
         raw = "\n".join(f"{index}.5,0" for index in range(MAX_LOCATIONS))
         assert len(parse_locations(raw)) == MAX_LOCATIONS
+
+    def test_rejects_an_oversized_label(self) -> None:
+        # The label is copied onto every row of every batch, so an unbounded one is amplified by the
+        # batch's row count and can exhaust the worker.
+        with pytest.raises(ValueError, match="label of"):
+            parse_locations(f"51.5,-0.12,{'x' * (MAX_LABEL_LENGTH + 1)}")
+
+    def test_allows_a_label_of_exactly_the_maximum_length(self) -> None:
+        label = "x" * MAX_LABEL_LENGTH
+        assert parse_locations(f"51.5,-0.12,{label}") == [Location(51.5, -0.12, label)]
 
 
 class TestParseStartDate:
@@ -300,6 +311,42 @@ class TestFetch:
 
         assert "Open-Meteo rejected" not in str(excinfo.value)
         assert "apikey=REDACTED" in str(excinfo.value)
+
+    def test_falls_back_to_the_http_reason_when_the_error_body_is_not_json(self) -> None:
+        response = _response(400, {})
+        response.json.side_effect = ValueError("no json here")
+        session = _fake_session([response])
+
+        with pytest.raises(requests.HTTPError, match="Bad Request"):
+            _fetch(session, "https://archive-api.open-meteo.com/v1/archive")
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            requests.ConnectionError(
+                "HTTPSConnectionPool(host='customer-api.open-meteo.com', port=443): Max retries exceeded "
+                "with url: /v1/forecast?latitude=51.5&apikey=super-secret&hourly=temperature_2m"
+            ),
+            requests.Timeout("Read timed out for url: /v1/forecast?apikey=super-secret"),
+            requests.exceptions.RetryError("too many retries: /v1/archive?apikey=super-secret&start_date=2024-01-01"),
+        ],
+    )
+    def test_transport_errors_never_carry_the_api_key(self, error: Exception) -> None:
+        # These propagate out of the sync into `ExternalDataJob.latest_error` and the logs, so the
+        # commercial key must not survive in the message. The exception type is kept intact so
+        # callers classify the failure exactly as they did before.
+        session = mock.MagicMock()
+        session.get.side_effect = error
+
+        with pytest.raises(requests.RequestException) as excinfo:
+            _fetch(session, "https://customer-api.open-meteo.com/v1/forecast?apikey=super-secret")
+
+        assert isinstance(excinfo.value, type(error))
+        assert "super-secret" not in str(excinfo.value)
+        assert "apikey=REDACTED" in str(excinfo.value)
+        # The original, unredacted exception must not ride along as the chained cause either.
+        assert excinfo.value.__cause__ is None
+        assert excinfo.value.__context__ is None or excinfo.value.__suppress_context__
 
 
 class TestResolveArchiveRange:
@@ -541,6 +588,17 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None and expected_message in error
+
+    def test_non_json_error_body_still_reports_the_status(self) -> None:
+        response = _response(500, {})
+        response.json.side_effect = ValueError("not json")
+        session = _fake_session([response])
+
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            ok, error = validate_credentials("51.5,-0.12", None, None)
+
+        assert ok is False
+        assert error == "Open-Meteo returned status 500"
 
     def test_unreachable_api_is_reported_as_a_retryable_message(self) -> None:
         session = mock.MagicMock()
