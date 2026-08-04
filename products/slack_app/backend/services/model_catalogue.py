@@ -24,7 +24,13 @@ def _runtime_adapter_by_provider() -> dict[str, str]:
     provider. Providers with no adapter (bedrock, vertex) are simply absent, which is
     what drops their models from the catalogue.
     """
-    from products.tasks.backend.facade.run_config import RuntimeAdapter, get_provider_for_runtime_adapter
+    # The tasks facade imports the tasks ORM, so it is loaded on use rather than at
+    # module scope — that keeps it off the slack_app import path, and lets the
+    # product's tests swap the facade in `sys.modules`.
+    from products.tasks.backend.facade.run_config import (  # noqa: PLC0415
+        RuntimeAdapter,
+        get_provider_for_runtime_adapter,
+    )
 
     by_provider = {}
     for adapter in RuntimeAdapter:
@@ -69,8 +75,8 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
     offer" rather than falling back to a hardcoded list, so a gateway outage can't
     route a run to a model the gateway would reject anyway.
     """
-    from products.slack_app.backend.services.llm_models import list_slack_app_models
-    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
+    from products.slack_app.backend.services.llm_models import list_slack_app_models  # noqa: PLC0415
+    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts  # noqa: PLC0415
 
     by_provider = _runtime_adapter_by_provider()
     choices = []
@@ -96,7 +102,7 @@ def runtime_adapter_for(model: str | None) -> str | None:
     deriving it is what keeps a `(runtime_adapter, model)` pair from ever disagreeing.
     `None` for a model the tasks product has no runtime for.
     """
-    from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
+    from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter  # noqa: PLC0415
 
     if not model:
         return None
@@ -105,6 +111,19 @@ def runtime_adapter_for(model: str | None) -> str | None:
         if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
             return adapter.value
     return None
+
+
+def provider_for_model(model: str | None) -> str:
+    """Gateway provider that serves this model, or `""` when we can't tell.
+
+    Lets a caller holding only a model id (a stored preference, a run's state) format
+    it the way the picker does, instead of guessing the provider or dropping the
+    casing rules that depend on it.
+    """
+    adapter = runtime_adapter_for(model)
+    if adapter is None:
+        return ""
+    return next((provider for provider, value in _runtime_adapter_by_provider().items() if value == adapter), "")
 
 
 def provider_for_runtime_adapter(runtime_adapter: str | None) -> str:
@@ -152,5 +171,6 @@ __all__ = [
     "format_model_id",
     "label_for",
     "provider_for_runtime_adapter",
+    "provider_for_model",
     "runtime_adapter_for",
 ]

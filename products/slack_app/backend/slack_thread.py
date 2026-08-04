@@ -7,6 +7,7 @@ from slack_sdk import WebClient
 
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.slack_app.backend.services.run_preferences import describe_run_model
 from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
 
 logger = structlog.get_logger(__name__)
@@ -297,8 +298,6 @@ class SlackThreadHandler:
         model is running is a property of the task, and the thread already has one
         place that describes the task while it works.
         """
-        from products.slack_app.backend.services.run_preferences import describe_run_model
-
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},

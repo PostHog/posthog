@@ -16,7 +16,6 @@ itself would refuse.
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from products.slack_app.backend.services.model_catalogue import (
@@ -25,6 +24,7 @@ from products.slack_app.backend.services.model_catalogue import (
     available_model_choices,
     format_model_id,
     label_for,
+    provider_for_model,
     runtime_adapter_for,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_ai_preferences
@@ -36,16 +36,6 @@ if TYPE_CHECKING:
 # Chosen here rather than left to the agent server so the App Home card and the run
 # itself agree on what "unset" means.
 SLACK_DEFAULT_MODEL = "claude-opus-5"
-
-# Words that survive the model-id split but read as ordinary English, so they would
-# make the pre-filter fire on unrelated mentions.
-_TOKEN_STOPLIST = frozenset({"com", "org"})
-
-# Words that signal a reasoning-effort ask without naming a model. The bare effort
-# values ("high", "max") are deliberately absent — they collide with everyday Slack
-# English ("high priority", "max from support"), and a missed override just means the
-# resolved preferences apply, which is the status quo.
-_EFFORT_TERMS = frozenset({"effort", "reasoning", "thinking", "ultracode"})
 
 
 def coherent_preferences(
@@ -60,7 +50,7 @@ def coherent_preferences(
     doesn't support is dropped. `fallback_runtime_adapter` covers a model the tasks
     catalogue no longer lists, where a stored adapter is the best information left.
     """
-    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
+    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts  # noqa: PLC0415
 
     runtime_adapter = runtime_adapter_for(model) or fallback_runtime_adapter
     effort = reasoning_effort.strip().lower() if reasoning_effort else None
@@ -111,33 +101,10 @@ def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> Mo
     return next((c for c in choices if c.model.lower() == normalized), None)
 
 
-def mentions_model_choice(text: str, choices: tuple[ModelChoice, ...]) -> bool:
-    """Whether `text` is worth sending to the model classifier at all.
-
-    A cheap word-boundary scan over the catalogue's own vocabulary — model ids, the
-    words inside them, the runtime adapter names, and the effort terms — so the common
-    mention never pays for an LLM call. Recall is deliberately imperfect: a request
-    phrased without naming a model or the word "effort" ("use the smart one") is
-    missed, and the run proceeds on the resolved preferences.
-    """
-    terms = set(_EFFORT_TERMS)
-    for choice in choices:
-        terms.add(choice.model.lower())
-        terms.add(choice.runtime_adapter.lower())
-        terms.update(
-            word
-            for word in re.split(r"[^a-z0-9]+", choice.model.lower())
-            if word.isalpha() and len(word) >= 3 and word not in _TOKEN_STOPLIST
-        )
-
-    pattern = r"(?<![a-z0-9])(?:" + "|".join(re.escape(t) for t in sorted(terms)) + r")(?![a-z0-9])"
-    return bool(re.search(pattern, text.lower()))
-
-
 def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
     """Render the model a run is on, in one phrasing shared by the App Home card and
     the progress message in the Slack thread."""
-    label = format_model_id(model, owned_by="") if model else "—"
+    label = format_model_id(model, owned_by=provider_for_model(model)) if model else "—"
     if not reasoning_effort:
         return f"*{label}*"
     return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
@@ -148,6 +115,5 @@ __all__ = [
     "coherent_preferences",
     "describe_run_model",
     "find_model_choice",
-    "mentions_model_choice",
     "resolve_run_preferences",
 ]

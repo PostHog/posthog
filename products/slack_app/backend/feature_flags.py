@@ -23,7 +23,6 @@ import posthoganalytics
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -94,23 +93,18 @@ def is_slack_app_home_enabled(integration: Integration) -> bool:
         return False
 
 
-def is_slack_app_model_classifier_enabled(user: User, integration: Integration) -> bool:
+def is_slack_app_model_classifier_enabled(integration: Integration) -> bool:
     """Gate for reading a one-off model choice out of the mention text ("use fable
-    for this one") and running that task on it.
+    for this one") and running that task on it. Keyed on the Slack workspace +
+    PostHog org, matching the other Slack-app gates.
 
-    Keyed on the mentioning user's ``distinct_id`` rather than the workspace, so the
-    rollout can target individual people (email allowlist) the way the tasks flag
-    does — the feature is a personal habit, not a workspace-wide behaviour change.
     Independent of ``slack-app-home``: an override applies whether or not the
     workspace has opted into the settings tab."""
-    if not user.distinct_id:
-        # Nothing to evaluate a person-level rule against, so stay closed.
-        return False
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 SLACK_APP_MODEL_CLASSIFIER_FLAG,
-                user.distinct_id,
+                f"slack_workspace:{integration.integration_id}",
                 groups={"organization": str(integration.team.organization_id)},
                 person_properties=_region_properties(),
                 only_evaluate_locally=False,
@@ -121,7 +115,6 @@ def is_slack_app_model_classifier_enabled(user: User, integration: Integration) 
         logger.exception(
             "slack_app_model_classifier_feature_flag_check_failed",
             integration_id=integration.id,
-            user_id=user.id,
         )
         return False
 

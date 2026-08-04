@@ -8,7 +8,6 @@ from temporalio import activity
 from posthog.llm.gateway_client import get_llm_client
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.models.user import User
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
@@ -21,7 +20,6 @@ from products.slack_app.backend.facade.slack_settings import (
     available_model_choices,
     find_model_choice,
     is_slack_app_model_classifier_enabled,
-    mentions_model_choice,
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -412,32 +410,24 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     recorded in workflow history once: task creation retries, and re-running a
     classifier there could hand the second attempt a different model.
 
-    Gates run cheapest-first: most mentions name no model, and the catalogue lookup
-    that decides so is one cache read, against two Postgres queries and a remote
-    flag evaluation for the rest.
+    Every mention behind the flag reaches the classifier. A keyword pre-filter would
+    save the Haiku call on the majority that name no model, but it also decides — on
+    a substring match — which phrasings can ever steer a run, and that judgement
+    belongs to the model reading the sentence, not to a word list.
     """
-    choices = available_model_choices()
-    if not choices:
-        # The gateway is the source of truth for what can run; with no catalogue we
-        # cannot validate a request, and guessing is worse than doing nothing.
-        logger.info("slack_app_model_override_empty_catalogue", integration_id=input.integration_id)
-        return None
-
-    if not mentions_model_choice(input.event_text, choices):
-        return None
-
     integration = Integration.objects.select_related("team").get(
         id=input.integration_id,
         kind="slack",
         integration_id=input.slack_team_id,
     )
-
-    try:
-        user = User.objects.get(id=input.user_id)
-    except User.DoesNotExist:
+    if not is_slack_app_model_classifier_enabled(integration):
         return None
 
-    if not is_slack_app_model_classifier_enabled(user, integration):
+    choices = available_model_choices()
+    if not choices:
+        # The gateway is the source of truth for what can run; with no catalogue we
+        # cannot validate a request, and guessing is worse than doing nothing.
+        logger.info("slack_app_model_override_empty_catalogue", integration_id=input.integration_id)
         return None
 
     override = classify_slack_app_model_override(input.event_text, choices)

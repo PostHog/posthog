@@ -112,7 +112,6 @@ class SlackAppModelOverrideInput(BaseModel):
 
     integration_id: int
     slack_team_id: str
-    user_id: int
     event_text: str
 
 

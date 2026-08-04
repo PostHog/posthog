@@ -320,7 +320,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     SlackAppModelOverrideInput(
                         integration_id=inputs.integration_id,
                         slack_team_id=inputs.slack_team_id,
-                        user_id=user_id,
                         event_text=event.get("text", ""),
                     ),
                 )

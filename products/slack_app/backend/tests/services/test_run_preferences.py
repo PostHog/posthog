@@ -6,7 +6,6 @@ from products.slack_app.backend.services.model_catalogue import ModelChoice, ava
 from products.slack_app.backend.services.run_preferences import (
     SLACK_DEFAULT_MODEL,
     describe_run_model,
-    mentions_model_choice,
     resolve_run_preferences,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
@@ -84,27 +83,6 @@ class TestResolveRunPreferences:
         adapter the model actually runs on."""
         saved = AIPreferences(runtime_adapter="codex", model="claude-fable-5", reasoning_effort=None)
         assert _resolve(saved).runtime_adapter == "claude"
-
-
-class TestMentionsModelChoice:
-    @pytest.mark.parametrize(
-        "text,expected",
-        [
-            ("use fable for this one", True),
-            ("run it on claude-fable-5 please", True),
-            ("do this with max effort", True),
-            ("give it more thinking", True),
-            ("fix the flaky checkout test", False),
-            # Bare effort words are deliberately not triggers — they are ordinary
-            # Slack English and would send every mention to the classifier.
-            ("this is high priority, please look now", False),
-            # Model ids contribute their word parts, so the match has to respect word
-            # boundaries: `sol` from gpt-5.6-sol must not fire on `solution`.
-            ("ship the solution we discussed", False),
-        ],
-    )
-    def test_pre_filter(self, text, expected):
-        assert mentions_model_choice(text, CATALOGUE) is expected
 
 
 class TestDescribeRunModel:

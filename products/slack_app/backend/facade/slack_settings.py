@@ -10,7 +10,6 @@ from products.slack_app.backend.services.model_catalogue import ModelChoice, ava
 from products.slack_app.backend.services.run_preferences import (
     describe_run_model,
     find_model_choice,
-    mentions_model_choice,
     resolve_run_preferences,
 )
 from products.slack_app.backend.services.slack_settings import (
@@ -27,7 +26,6 @@ __all__ = [
     "describe_run_model",
     "find_model_choice",
     "is_slack_app_model_classifier_enabled",
-    "mentions_model_choice",
     "resolve_ai_preferences",
     "resolve_run_preferences",
     "validate_ai_preferences",

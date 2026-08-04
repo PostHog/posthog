@@ -2,9 +2,9 @@
 
 The classifier's own prompt/parse behaviour is covered in
 ``posthog/temporal/tests/ai/test_classify_slack_app_model_override.py``. What
-matters here is everything guarding it: the feature flag, the pre-filter, and an
-unreachable model catalogue. Each of them must produce "no override" without the
-LLM ever being called.
+matters here is what guards it: the feature flag and an unreachable model
+catalogue, each of which must produce "no override" without the LLM ever being
+called.
 """
 
 import pytest
@@ -49,26 +49,37 @@ def _input(integration: Integration, user: User, text: str) -> SlackAppModelOver
 
 class TestClassifySlackAppModelOverrideActivity:
     @pytest.mark.parametrize(
-        "flag_on,catalogue,text",
+        "flag_on,catalogue",
         [
-            (False, CATALOGUE, "use fable for this one"),
+            (False, CATALOGUE),
             # The gateway is the source of truth for what can run; with no catalogue
             # there is nothing to validate a request against.
-            (True, (), "use fable for this one"),
-            # No model-ish word, so the mention never reaches the LLM at all.
-            (True, CATALOGUE, "fix the flaky checkout test"),
+            (True, ()),
         ],
     )
-    def test_gates_return_no_override_without_calling_the_llm(self, slack_user, flag_on, catalogue, text):
+    def test_gates_return_no_override_without_calling_the_llm(self, slack_user, flag_on, catalogue):
         integration, user = slack_user
         with (
             patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=flag_on),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=catalogue),
-            patch(f"{ACTIVITY_MODULE}.mentions_model_choice", side_effect=lambda t, _choices: "fable" in t),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override") as classify,
         ):
-            assert classify_slack_app_model_override_activity(_input(integration, user, text)) is None
+            result = classify_slack_app_model_override_activity(_input(integration, user, "use fable for this one"))
+        assert result is None
         classify.assert_not_called()
+
+    def test_classifies_a_mention_that_names_no_model(self, slack_user):
+        """No keyword gate stands in front of the classifier, so deciding that a
+        mention carries no model instruction is the model's call."""
+        integration, user = slack_user
+        with (
+            patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=True),
+            patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=CATALOGUE),
+            patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override", return_value=None) as classify,
+        ):
+            text = "fix the flaky checkout test"
+            assert classify_slack_app_model_override_activity(_input(integration, user, text)) is None
+        classify.assert_called_once_with(text, CATALOGUE)
 
     def test_returns_the_classified_override(self, slack_user):
         integration, user = slack_user
@@ -76,7 +87,6 @@ class TestClassifySlackAppModelOverrideActivity:
         with (
             patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=True),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=CATALOGUE),
-            patch(f"{ACTIVITY_MODULE}.mentions_model_choice", return_value=True),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override", return_value=override),
         ):
             assert classify_slack_app_model_override_activity(_input(integration, user, "use fable")) == override
