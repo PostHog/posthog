@@ -23,7 +23,9 @@ from posthog.scopes import (
     filter_to_unprivileged_scopes,
     get_oauth_scopes_supported,
     get_scope_descriptions,
+    grantable_ceiling,
     narrow_scopes_to_ceiling,
+    resolve_ceiling,
     scopes_outside_ceiling,
     scopes_within_ceiling,
 )
@@ -250,6 +252,15 @@ class TestScopesWithinCeiling(SimpleTestCase):
         self, _name: str, app_scopes: list[str], requested: list[str], expected: list[str]
     ) -> None:
         assert clamp_scopes_to_ceiling(requested, app_scopes) == expected
+
+    def test_read_halves_do_not_reach_the_literal_ceiling(self) -> None:
+        # `create_wizard_oauth_access_token_for_user` and the provisioning account-request
+        # path mint `resolve_ceiling`/`effective_ceiling` verbatim as a token. Adding read
+        # halves there would hand out scope strings nobody asked for, so the expansion
+        # lives in `grantable_ceiling`, which only decides what a request may name.
+        assert resolve_ceiling(["insight:write"]) == frozenset({"insight:write"})
+        assert effective_ceiling(["insight:write"]) == frozenset({"insight:write"})
+        assert grantable_ceiling(["insight:write"]) == frozenset({"insight:write", "insight:read"})
 
     @parameterized.expand(
         [

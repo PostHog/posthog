@@ -66,6 +66,7 @@ from posthog.scopes import (
     effective_ceiling,
     get_oauth_scopes_supported,
     get_scope_descriptions,
+    grantable_ceiling,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
     scopes_outside_ceiling,
@@ -1120,11 +1121,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # resolution `validate_scopes` enforces — the frontend's scope list
                 # drifts from the server's (both over- and under-granting otherwise).
                 "wildcard_read_scopes": sorted(
-                    scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                    scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
                 ),
                 # The same resolution `validate_scopes` clamps against, so the consent screen
                 # can drop requested scopes the grant will not include instead of promising them.
-                "grantable_scopes": sorted(effective_ceiling(application.ceiling_scopes)),
+                "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
             }
         }
 

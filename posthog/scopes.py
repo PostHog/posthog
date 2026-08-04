@@ -343,19 +343,17 @@ def resolve_ceiling(app_scopes: Iterable[str]) -> frozenset[str] | None:
     a non-empty ceiling stays an exhaustive allow-list. Entries are stripped so a
     fat-fingered `" @default"` still resolves (real scopes never have whitespace).
 
-    A `<object>:write` entry also admits `<object>:read`, mirroring
-    `APIScopePermission`, which already accepts a `:write` token wherever `:read` is
-    required. Without this a client asking for the narrower half of a write-only
-    ceiling is refused access the token would have carried anyway, which is what the
-    consent screen's read-only toggle does."""
+    This is the literal ceiling, which is also what a token carries on the paths that
+    mint the whole thing (`create_wizard_oauth_access_token_for_user`, provisioning
+    account requests). Read halves are added by `grantable_ceiling` at admission time
+    instead, so testing a request against the ceiling can't quietly widen those."""
     app = {s.strip() for s in (app_scopes or [])}
     app.discard("")
     if not app:
         return None
-    resolved: set[str] = (
-        set(UNPRIVILEGED_SCOPES | (app - {DEFAULT_CEILING_SENTINEL})) if DEFAULT_CEILING_SENTINEL in app else set(app)
-    )
-    return frozenset(resolved | {scope.replace(":write", ":read") for scope in resolved if scope.endswith(":write")})
+    if DEFAULT_CEILING_SENTINEL in app:
+        return frozenset(UNPRIVILEGED_SCOPES | (app - {DEFAULT_CEILING_SENTINEL}))
+    return frozenset(app)
 
 
 def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
@@ -363,6 +361,24 @@ def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
     or the broad `UNPRIVILEGED_SCOPES` default when the app has none."""
     ceiling = resolve_ceiling(app_scopes)
     return ceiling if ceiling is not None else UNPRIVILEGED_SCOPES
+
+
+def grantable_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
+    """The scopes a request may name: `effective_ceiling` plus the read half of every
+    `<object>:write` entry.
+
+    `APIScopePermission` already accepts a `:write` token wherever `:read` is required,
+    so refusing a request for the narrower half denies access the token would have
+    carried anyway. That is what the consent screen's read-only toggle asks for.
+
+    Distinct from `effective_ceiling` because the read halves must not reach the paths
+    that mint the whole ceiling as a token: widening those would hand partners and the
+    wizard scope strings they never asked for, for no extra capability."""
+    return _with_read_halves(effective_ceiling(app_scopes))
+
+
+def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
+    return frozenset(scopes | {scope.replace(":write", ":read") for scope in scopes if scope.endswith(":write")})
 
 
 def scopes_within_ceiling(
@@ -396,7 +412,7 @@ def scopes_within_ceiling(
     if not to_check:
         return True
     if ceiling is not None:
-        return "*" not in to_check and to_check.issubset(ceiling)
+        return "*" not in to_check and to_check.issubset(_with_read_halves(ceiling))
     allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
     return to_check.issubset(allowed)
 
@@ -420,7 +436,8 @@ def scopes_outside_ceiling(
         return []
     if ceiling is not None:
         # `*` is never grantable under an explicit ceiling, even if listed.
-        return sorted(s for s in to_check if s == "*" or s not in ceiling)
+        admissible = _with_read_halves(ceiling)
+        return sorted(s for s in to_check if s == "*" or s not in admissible)
     allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
     return sorted(to_check - allowed)
 
@@ -465,7 +482,7 @@ def clamp_scopes_to_ceiling(
 
     ceiling = resolve_ceiling(app_scopes)
     if ceiling is not None:
-        granted = (ceiling - {"*"}) if "*" in resource_requested else (resource_requested & ceiling)
+        granted = (ceiling - {"*"}) if "*" in resource_requested else (resource_requested & _with_read_halves(ceiling))
     else:
         allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
         granted = resource_requested & allowed
