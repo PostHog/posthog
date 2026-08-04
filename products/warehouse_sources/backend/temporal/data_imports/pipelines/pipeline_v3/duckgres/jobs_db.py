@@ -700,7 +700,7 @@ class DuckgresBatchQueue:
         hard-blocked schema (failure streak at threshold / needs_resync);
         counted separately so one wedged schema can neither trigger nor mask
         the page. Durable per-schema failure tracking lives on
-        DuckgresSinkSchemaState (this count ages out with queue retention).
+        sink state (this count ages out with queue retention).
         """
         scoped = team_ids is not None
         async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
