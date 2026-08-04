@@ -1193,6 +1193,8 @@ Gates, in pipeline order:
 **The billable event re-evaluates the quota immediately.**
 When a self-driving-origin run records its first PR URL (agent report, PATCH, or GitHub webhook backstop), the tasks facade queues `refresh_org_self_driving_quota` (Celery), which recomputes the org's live `signals_credits` usage and re-runs the Redis limiter — so the PR that crosses the limit flips the flag within seconds instead of at the next 15-minute quota cron tick.
 The cron remains the backstop.
+One timing edge: the live count is keyed to the implementation run's creation day (UTC), so a PR recorded just after midnight by a run created before midnight falls in the previous day's window and does not move the live counters.
+It reaches enforcement hours later, via that day's usage report; the charge itself still lands in the correct day.
 
 **A quota-cancelled run leaves only the report.**
 `release_quota_cancelled_implementation` removes the run's `SignalReportTask` gate row and implementation `task_run` artefact (which would otherwise permanently block re-implementation) and appends a system `note` artefact explaining the stop.

@@ -2170,8 +2170,9 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     """Queue an org-level self-driving quota re-evaluation when a self-driving-origin run records its first
     PR URL. That write is the report's billable moment (products/signals/backend/billing.py), so
     re-evaluating now lets the quota limiter flag the org within seconds of the PR that crosses
-    its limit; the 15-minute quota cron only re-reads usage on its next tick. Dispatched on
-    commit so the task reads the committed pr_url; best-effort because the cron is the backstop.
+    its limit (for runs created the same UTC day; `refresh_org_self_driving_quota` documents the
+    cross-midnight gap); the 15-minute quota cron only re-reads usage on its next tick. Dispatched
+    on commit so the task reads the committed pr_url; best-effort because the cron is the backstop.
     """
     if old_pr_url:
         return

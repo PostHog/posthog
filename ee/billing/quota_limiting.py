@@ -746,6 +746,12 @@ def refresh_org_self_driving_quota(organization_id: str) -> None:
     row, and this path only ever raises `todays_usage`: it fires exclusively because a PR landed,
     so a slower refresh that counted usage before a newer PR must not overwrite the fresher value
     and momentarily unpause the org. Decreases (refunds, cron corrections) stay the cron's job.
+
+    Scope caveat: the recount covers today's UTC window keyed on the implementation run's
+    `created_at`, so a PR recorded after midnight by a run created before midnight falls in
+    yesterday's window and is invisible to this refresh and to the cron. It reaches enforcement
+    hours later, when the previous day's usage report lands in `organization.usage`; billing
+    itself stays correct because that report queries yesterday's window with the PR present.
     """
     organization = Organization.objects.filter(id=organization_id).first()
     if organization is None or not organization.usage:
