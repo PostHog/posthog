@@ -133,7 +133,7 @@ from ee.hogai.session_summaries.tracking import (
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 
 from ..models.product_intent.product_intent import ProductIntent
-from .queries.combine_session_ids_for_filtering import combine_session_id_filters
+from .queries.combine_session_ids_for_filtering import combine_session_id_filters, extract_session_id_property_filter
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
 MAX_RECORDINGS_PER_BULK_ACTION = 20
@@ -926,6 +926,7 @@ class SessionRecordingViewSet(
                 allow_event_property_expansion = params.pop("add_events_to_property_queries", "0") == "1"
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
+                    query = extract_session_id_property_filter(query)
 
                 gate_surfacing_score_order(query, cast(User, request.user))
 
