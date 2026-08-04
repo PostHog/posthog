@@ -64,7 +64,13 @@ jobs:
         # trunk-merge/** is the same story for Trunk's merge queue: it opens a real
         # PR batching several already-checked PRs, so a desktop PR riding along with
         # an unrelated backend PR would fail a coupling that no author introduced.
-        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+        # The skip is scoped to same-repo heads so a fork can't opt out of the gate
+        # by naming its branch trunk-merge/**; only write access can create one here.
+        if: |
+            github.event_name == 'pull_request' && !(
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
