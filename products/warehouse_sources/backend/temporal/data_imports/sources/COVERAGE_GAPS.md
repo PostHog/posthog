@@ -188,26 +188,45 @@ while in here.
 
 ### GitHub — spec-verified
 
-Diffed against [github/rest-api-description](https://github.com/github/rest-api-description).
-Ten tables focused on code and CI.
-The gaps make review-latency and issue-lifecycle analysis impossible, which is the main
-engineering-analytics use case.
+Re-diffed 2026-08-04 against [github/rest-api-description](https://github.com/github/rest-api-description)
+`descriptions/api.github.com/api.github.com.2022-11-28.json`, the description for the API version the
+source pins.
+The original ten tables have grown to 54, so everything the first audit flagged now ships except
+Discussions, and the remaining gaps are narrow.
 
-- [ ] `issues/comments` and `pulls/comments` — no comment data at all, so review latency and discussion volume are unavailable.
-- [ ] `issues/events` — labeled, assigned, closed, reopened transitions. Needed for time-in-state.
-- [ ] Repository metadata itself. There is no `repositories` table, so stars/forks/language/visibility per repo are unavailable even though the source is repo-scoped.
-- [ ] `branches`, `tags`.
-- [ ] `contributors`, `collaborators`.
-- [ ] `labels`, `milestones`.
-- [ ] `deployments`, `environments`.
-- [ ] `traffic/views`, `traffic/clones`, plus referrers and popular paths.
-- [ ] `stats/contributors`, `stats/commit_activity`, `stats/participation`, `stats/code_frequency`.
-- [ ] Check runs and commit statuses — CI signal at commit granularity, complementing `workflow_runs`.
-- [ ] `actions/workflows`, `actions/artifacts`, `actions/runners`, `actions/caches`.
-- [ ] `code-scanning/alerts`, `dependabot/alerts`, `secret-scanning/alerts` — security posture over time.
-- [ ] `forks`, `subscribers` (watchers), `topics`.
-- [ ] `rulesets`, `security-advisories`, `hooks`, `languages`, `community/profile`, `dependency-graph/sbom`.
-- [ ] Discussions.
+Have: `issues`, `issue_comments`, `issue_events`, `issue_types`, `labels`, `milestones`,
+`pull_requests`, `pull_request_comments`, `reviews`, `commits`, `commit_comments`,
+`commit_statuses`, `check_runs`, `branches`, `tags`, `forks`, `stargazers`, `subscribers`,
+`contributors`, `collaborators`, `teams`, `team_members`, `repository_teams`, `repository`,
+`repository_activity`, `topics`, `languages`, `community_profile`, `releases`, `workflows`,
+`workflow_runs`, `workflow_jobs`, `artifacts`, `runners`, `actions_caches`, `deployments`,
+`deployment_statuses`, `environments`, `code_scanning_alerts`, `dependabot_alerts`,
+`secret_scanning_alerts`, `security_advisories`, `dependency_sbom`, `rulesets`, `hooks`,
+`traffic_views`, `traffic_clones`, `traffic_referrers`, `traffic_paths`, `contributor_stats`,
+`commit_activity_stats`, `participation_stats`, `code_frequency_stats`, `punch_card_stats`.
+
+- [x] `issues/comments` and `pulls/comments` — no comment data at all, so review latency and discussion volume are unavailable.
+- [x] `issues/events` — labeled, assigned, closed, reopened transitions. Needed for time-in-state.
+- [x] Repository metadata itself. There is no `repositories` table, so stars/forks/language/visibility per repo are unavailable even though the source is repo-scoped.
+- [x] `branches`, `tags`.
+- [x] `contributors`, `collaborators`.
+- [x] `labels`, `milestones`.
+- [x] `deployments`, `environments`.
+- [x] `traffic/views`, `traffic/clones`, plus referrers and popular paths.
+- [x] `stats/contributors`, `stats/commit_activity`, `stats/participation`, `stats/code_frequency`.
+- [x] Check runs and commit statuses — CI signal at commit granularity, complementing `workflow_runs`.
+- [x] `actions/workflows`, `actions/artifacts`, `actions/runners`, `actions/caches`.
+- [x] `code-scanning/alerts`, `dependabot/alerts`, `secret-scanning/alerts` — security posture over time.
+- [x] `forks`, `subscribers` (watchers), `topics`.
+- [x] `rulesets`, `security-advisories`, `hooks`, `languages`, `community/profile`, `dependency-graph/sbom`.
+- [ ] Discussions (skipped: GraphQL only. The 2026-08-04 description carries no discussion path at all — repository Discussions have never had a REST endpoint, and the old team-discussion endpoints are gone from both the spec and the REST reference. Reaching them means a second transport, a point-metered rate limit the egress limiter does not model, and a GitHub App permission every existing installation would have to re-accept.)
+- [x] `repos/{repo}/activity` — pushes, force pushes, merges, branch creations and deletions. The only record that a force push or branch deletion happened, since both rewrite the history `commits` reads.
+- [x] `repos/{repo}/comments` — commit comments, the third comment surface next to issue and review comments.
+- [x] `repos/{repo}/issue-types` — lookup for the type an issue carries, which `issues` otherwise stores as an opaque nested object.
+- [x] `repos/{repo}/teams` — the teams granted access to the repository, for ownership analysis without the org grant.
+- [x] `stats/punch_card` — commit counts per weekday and hour, completing the statistics family.
+- [ ] `code-quality/findings` and `pulls/stacks` (skipped: both back GitHub features that are still rolling out, and neither endpoint returns anything on an account without the feature enabled, so they would ship as tables that stay empty or error for nearly everyone. Worth revisiting once the features are generally available).
+- [ ] `repos/{repo}/events` (skipped: GitHub caps this feed at 300 events over 90 days and it restates what `repository_activity`, `issues`, and `pull_requests` already carry).
 
 ### HubSpot — our side code-verified, vendor side needs confirmation
 
