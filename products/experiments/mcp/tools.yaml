@@ -834,8 +834,8 @@ tools:
             idempotent: true
         title: List LLM prompt metric templates
         description: >
-            List the metric templates accepted by experiment-create-from-prompt. Each entry has a key (the value to
-            pass in that tool's templates parameter), a label, and a description of what the metric measures.
+            List the metric templates accepted by experiment-create-from-prompt. Each entry has a key (the value to pass
+            in that tool's templates parameter), a label, and a description of what the metric measures.
     experiment-reset:
         operation: experiments_reset_create
         enabled: true
