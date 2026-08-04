@@ -1,43 +1,72 @@
 import {
+  CaretDownIcon,
   CaretRightIcon,
-  CheckIcon,
-  CubeIcon,
+  CubeFocusIcon,
+  PlusIcon,
   StarIcon,
 } from "@phosphor-icons/react";
-import { cn } from "@posthog/quill";
+import { Button, cn, MenuLabel } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import {
   useChannelStarMutations,
   useChannelStars,
 } from "@posthog/ui/features/canvas/hooks/useChannelStars";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import {
+  type Channel,
+  useChannels,
+} from "@posthog/ui/features/canvas/hooks/useChannels";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { useMemo } from "react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 
 /**
- * The "All spaces" toggle: every space in the project as a row with a hover
- * pin/star. Under the new sidebar the starred spaces are the pinned ones, so
- * this list is the project's directory — clicking a row pins it (stars), and
- * the row carries the star back out again. Personal channel is listed by
- * name only (it can't be pinned).
+ * The project's space directory. A section label (like Starred/Spaces in the
+ * channel list) that folds open to every shared space, alphabetically.
+ * Clicking a row opens the space; the hover star is what pins it into the
+ * sidebar above — pinned rows wear their star filled so the directory shows
+ * what's already up there. The personal space isn't listed: it can't be
+ * pinned or shared, and it's always first in the pinned list anyway.
  */
 export function AllSpacesSection() {
   const open = useSpacesSidebarStore((s) => s.openAddSpace);
   const toggle = useSpacesSidebarStore((s) => s.toggleAddSpace);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const { channels } = useChannels();
   const { starredRefToShortcutId } = useChannelStars();
   const { star, unstar } = useChannelStarMutations();
+  const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const allSpaces = useMemo(() => channels, [channels]);
+  const spaces = useMemo(
+    () =>
+      channels
+        .filter((c) => c.name !== PERSONAL_CHANNEL_NAME)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [channels],
+  );
 
-  const togglePin = (channelId: string) => {
-    const channel = channels.find((c) => c.id === channelId);
-    if (!channel || channel.name === PERSONAL_CHANNEL_NAME) return;
+  const openSpace = (channel: Channel) => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "nav_click",
+      surface: "sidebar",
+      channel_id: channel.id,
+    });
+    setCurrentChannel(channel.id);
+    void navigate({
+      to: "/website/$channelId",
+      params: { channelId: channel.id },
+    });
+  };
+
+  const togglePin = (channel: Channel) => {
     const shortcutId = starredRefToShortcutId.get(channel.path);
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: shortcutId ? "unstar" : "star",
@@ -53,72 +82,89 @@ export function AllSpacesSection() {
   };
 
   return (
-    <div className="flex flex-col gap-px">
-      <div className="group/allspaces">
-        <SidebarItem
-          depth={0}
-          icon={<CubeIcon size={16} />}
-          label="All spaces"
-          badge={
-            <CaretRightIcon
-              size={12}
-              className={cn(
-                "text-muted-foreground transition-transform",
-                open && "rotate-90",
-              )}
+    <div className="flex flex-col gap-px px-2 pb-2">
+      {/* Same header shape as the channel list's groups: MenuLabel carries the
+          sidebar's label styling, and the section glyph swaps to a disclosure
+          caret on hover or keyboard focus. */}
+      <MenuLabel
+        render={
+          <button
+            type="button"
+            onClick={toggle}
+            aria-expanded={open}
+            className="group/all-spaces flex w-full items-center gap-2"
+          />
+        }
+      >
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="group-hover/all-spaces:hidden group-focus-visible/all-spaces:hidden">
+            <CubeFocusIcon size={14} />
+          </span>
+          {open ? (
+            <CaretDownIcon
+              size={14}
+              className="hidden group-hover/all-spaces:block group-focus-visible/all-spaces:block"
             />
-          }
-          onClick={toggle}
-          aria-expanded={open}
-        />
-      </div>
-      {open &&
-        allSpaces.map((channel) => {
-          const shortcutId = starredRefToShortcutId.get(channel.path);
-          const isPersonal = channel.name === PERSONAL_CHANNEL_NAME;
-          return (
-            <div key={channel.id} className="group/space">
-              <SidebarItem
-                depth={1}
-                label={
-                  <>
-                    {shortcutId ? (
-                      <CheckIcon
-                        size={12}
-                        className="mr-1 inline-block text-yellow-9"
-                      />
-                    ) : null}
-                    {channel.name}
-                  </>
-                }
-                onClick={() => togglePin(channel.id)}
-                endContent={
-                  isPersonal ? undefined : (
-                    <button
-                      type="button"
-                      aria-label={shortcutId ? "Unpin space" : "Pin space"}
-                      className={cn(
-                        "flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-opacity hover:bg-(--gray-4) focus:opacity-100",
-                        shortcutId
-                          ? "text-yellow-9 opacity-100"
-                          : "opacity-0 group-hover/space:opacity-100",
-                      )}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        togglePin(channel.id);
-                      }}
-                    >
-                      <StarIcon
-                        size={13}
-                        weight={shortcutId ? "fill" : "regular"}
-                      />
-                    </button>
-                  )
-                }
-              />
-            </div>
-          );
-        })}
+          ) : (
+            <CaretRightIcon
+              size={14}
+              className="hidden group-hover/all-spaces:block group-focus-visible/all-spaces:block"
+            />
+          )}
+        </span>
+        All spaces
+      </MenuLabel>
+
+      {open && (
+        <>
+          {spaces.map((channel) => {
+            const shortcutId = starredRefToShortcutId.get(channel.path);
+            const base = `/website/${channel.id}`;
+            const isActive =
+              pathname === base || pathname.startsWith(`${base}/`);
+            return (
+              // Overlay, not endContent: the row is a button already, and a
+              // star nested inside it would be a button within a button.
+              <div key={channel.id} className="group/space relative">
+                <SidebarItem
+                  depth={1}
+                  label={channel.name}
+                  isActive={isActive}
+                  onClick={() => openSpace(channel)}
+                  // Star well, so the name truncates clear of the hover star.
+                  endContent={<span aria-hidden className="size-5 shrink-0" />}
+                />
+                <Button
+                  variant="default"
+                  size="icon-sm"
+                  aria-label={shortcutId ? "Unpin space" : "Pin space"}
+                  onClick={() => togglePin(channel)}
+                  className={cn(
+                    "-translate-y-1/2 absolute top-1/2 right-[2px] text-muted-foreground transition-opacity",
+                    shortcutId
+                      ? "opacity-100"
+                      : "opacity-0 focus-visible:opacity-100 group-hover/space:opacity-100",
+                  )}
+                >
+                  <StarIcon
+                    size={13}
+                    weight={shortcutId ? "fill" : "regular"}
+                  />
+                </Button>
+              </div>
+            );
+          })}
+          {/* The directory is also where a space that doesn't exist yet would
+              be — so creating one starts here. */}
+          <SidebarItem
+            depth={1}
+            icon={<PlusIcon size={14} className="text-muted-foreground" />}
+            label={<span className="text-muted-foreground">New space</span>}
+            onClick={() => setCreateOpen(true)}
+          />
+          <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
+        </>
+      )}
     </div>
   );
 }

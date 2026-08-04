@@ -18,7 +18,9 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
   persist(
     (set) => ({
       openSections: {},
-      openAddSpace: false,
+      // Open by default: with nothing pinned yet, a collapsed directory left
+      // the sidebar looking empty. Returning users keep whatever they chose.
+      openAddSpace: true,
       setOpen: (channelId, open) =>
         set((state) => ({
           openSections: { ...state.openSections, [channelId]: open },
