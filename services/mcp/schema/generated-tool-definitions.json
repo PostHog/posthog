@@ -2229,7 +2229,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-certification-propose": {
-        "description": "Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from).",
+        "description": "Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or wrong source; an approver settles the proposal with the certify or deprecate tool.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Propose a table/view certification",
