@@ -58,6 +58,7 @@ from products.tasks.backend.facade import (
     contracts as tasks_contracts,
 )
 from products.tasks.backend.facade.access import cloud_usage_limit_response, code_access_required_response
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,
@@ -343,7 +344,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
-        task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
+        task = tasks_facade.create_task(
+            self.team_id,
+            self._user_id(),
+            validated_data=dict(serializer.validated_data),
+            client_provenance=get_task_client_provenance(request),
+        )
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
@@ -788,6 +794,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             reasoning_effort=request.validated_data.get("reasoning_effort"),
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
+            client_provenance=get_task_client_provenance(request),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
