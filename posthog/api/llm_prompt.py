@@ -153,10 +153,15 @@ class LLMPromptViewSet(
         prompt["outline"] = get_prompt_outline(prompt.get("prompt"))
         if content_mode == "none":
             prompt.pop("prompt", None)
+            prompt.pop("config", None)
         elif content_mode == "preview":
             original = prompt.pop("prompt", "")
             display_value = original if isinstance(original, str) else json.dumps(original, ensure_ascii=False)
             prompt["prompt_preview"] = display_value[:160] + ("..." if len(display_value) > 160 else "")
+            prompt.pop("config", None)
+        else:
+            # .get, not [] — cache entries written before the config field existed lack the key.
+            prompt["config"] = prompt.get("config")
         return prompt
 
     def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
@@ -169,6 +174,7 @@ class LLMPromptViewSet(
             "prompt_label": prompt.get("label"),
             "prompt_is_latest": prompt["is_latest"],
             "prompt_first_version_created_at": prompt["first_version_created_at"],
+            "prompt_has_config": prompt.get("config") is not None,
         }
         if not settings.TEST:
             try:
@@ -240,6 +246,7 @@ class LLMPromptViewSet(
                 "prompt_id": str(instance.id),
                 "prompt_name": instance.name,
                 "prompt_version": instance.version,
+                "has_config": instance.config is not None,
             },
             team=self.team,
             request=self.request,
@@ -288,6 +295,8 @@ class LLMPromptViewSet(
                 prompt_name=prompt_name,
                 prompt_payload=payload.validated_data.get("prompt"),
                 edits=payload.validated_data.get("edits"),
+                config=payload.validated_data.get("config"),
+                config_provided="config" in payload.validated_data,
                 base_version=payload.validated_data["base_version"],
                 version_description=payload.validated_data.get("version_description"),
             )
@@ -328,6 +337,8 @@ class LLMPromptViewSet(
                 "prompt_name": published_prompt.name,
                 "prompt_version": published_prompt.version,
                 "base_version": payload.validated_data["base_version"],
+                "config_provided": "config" in payload.validated_data,
+                "has_config": published_prompt.config is not None,
             },
             team=self.team,
             request=request,

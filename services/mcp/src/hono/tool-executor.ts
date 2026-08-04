@@ -24,7 +24,13 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
-import { trackExecuteSqlGeneration, trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
+import {
+    trackExecuteSqlGeneration,
+    trackToolCall,
+    trackToolSpan,
+    trackToolsList,
+    type ToolCallIntentMeta,
+} from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -141,6 +147,18 @@ export class ToolExecutor {
         )
     }
 
+    // execute-sql is the one tool whose advertised description is formatted per
+    // request (the schema-discovery splice varies by feature flag) instead of served
+    // from the catalog, on both the native tools/list path and exec's `info` output.
+    // trackToolCall stamps the catalog text by default, so it needs the served text
+    // for this tool or $mcp_tool_description records words the agent never saw.
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
+        if (toolName === EXECUTE_SQL_TOOL_NAME) {
+            return this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags)
+        }
+        return undefined
+    }
+
     // Pull the agent's stated intent off the injected `context` arg and strip it so
     // tool schemas/handlers never see it (validation is `.strict()` in places). The
     // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
@@ -224,7 +242,8 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -236,6 +255,13 @@ export class ToolExecutor {
                     intentMeta
                 )
             }
+
+            void trackToolSpan(tool.name, state, {
+                durationMs: duration,
+                isError: false,
+                input: validation.data,
+                output: response,
+            })
 
             return response
         } catch (error: unknown) {
@@ -249,7 +275,8 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -265,6 +292,13 @@ export class ToolExecutor {
                     intentMeta
                 )
             }
+
+            void trackToolSpan(tool.name, state, {
+                durationMs: Date.now() - startMs,
+                isError: true,
+                errorMessage: error instanceof Error ? error.message : String(error),
+                input: validation.data,
+            })
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
@@ -325,7 +359,8 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(execToolName(), state)
             )
 
             return response
@@ -344,7 +379,8 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(metricTool, state)
             )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -391,6 +427,13 @@ export class ToolExecutor {
                     intentMeta
                 )
             }
+            void trackToolSpan(toolName, state, {
+                durationMs: properties.duration_ms,
+                isError: !properties.success,
+                errorMessage: properties.error_message,
+                input: properties.input,
+                output: properties.output,
+            })
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 

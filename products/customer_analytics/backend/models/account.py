@@ -10,19 +10,15 @@ from pydantic import BaseModel, ConfigDict
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
 
-class AccountAssignment(BaseModel):
-    id: int
-    email: str
+# Role assignments moved to the relationship tables. Stored rows may carry these keys until
+# `backfill_account_relationships` has run in the environment (see COMPROMISES.md).
+RETIRED_ROLE_KEYS = ("csm", "account_executive", "account_owner")
 
 
 class AccountProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-    # Key roles
-    csm: AccountAssignment | None = None
-    account_executive: AccountAssignment | None = None
-    account_owner: AccountAssignment | None = None
 
     # External connections
     stripe_customer_id: str | None = None
@@ -32,6 +28,7 @@ class AccountProperties(BaseModel):
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
     @classmethod
     def from_input(cls, data: "dict | AccountProperties") -> "AccountProperties":
@@ -46,6 +43,8 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     external_id = models.CharField(max_length=400, null=True, blank=True)
     name = models.CharField(max_length=400)
     _properties = JSONField(default=dict, db_column="properties")
+    # NULL = periodic Slack channel summaries off for this account.
+    slack_summary_cadence = models.CharField(max_length=10, choices=SlackSummaryCadence.choices, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -58,7 +57,8 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
 
     @property
     def properties(self) -> AccountProperties:
-        return AccountProperties.model_validate(self._properties or {})
+        stored = self._properties or {}
+        return AccountProperties.model_validate({k: v for k, v in stored.items() if k not in RETIRED_ROLE_KEYS})
 
     @properties.setter
     def properties(self, value: "dict | AccountProperties") -> None:

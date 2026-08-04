@@ -110,6 +110,14 @@ XMIN_PROJECTED_COLUMN = "_ph_xmin"
 # xmin replication relies on `pg_snapshot_xmin` / `xid8`, both PG13+.
 XMIN_MIN_SERVER_VERSION = 130000
 
+# Raised when `xmin` (type `IncrementalFieldType.XID`) is configured as a plain incremental/append
+# field instead of going through the dedicated xmin replication sync type. Matched verbatim in
+# `PostgresSource.get_non_retryable_errors`.
+XMIN_AS_INCREMENTAL_FIELD_ERROR = (
+    "'xmin' incremental field type is only valid for the xmin replication sync type, not for "
+    "incremental or append syncs"
+)
+
 # In-process retries for a recovery conflict before the abort (non-retryable, see source.py). The
 # read path counts these only once the chunk has shrunk to the floor.
 _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
@@ -228,6 +236,17 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
+    # the tenant's own backend database to fetch/cache the password secret used to validate the
+    # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts
+    # managing the tenant) and the backend is briefly slow to answer, Supavisor's own wait for the
+    # secret times out and it refuses the connect with a bare OperationalError carrying its
+    # "(EAUTHQUERY)" code: "FATAL: (EAUTHQUERY) auth_query secret check timed out". This is a race in
+    # the pooler's own bookkeeping, not a rejection of the credentials, so a fresh connect once the
+    # secret is cached typically succeeds — recover by reconnecting rather than failing the whole
+    # activity. Match the stable code, distinct from genuine credential-rejection wordings
+    # ("password authentication failed", "SASL authentication failed").
+    "(eauthquery)",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
@@ -1926,6 +1945,14 @@ def _build_query(
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
+    # `xmin` is a synthetic system column with no ordering operators against a plain integer
+    # (see `_xmin_predicate`) — it only works through the dedicated xmin replication sync type,
+    # which never reaches this generic path (it always sets `xmin_bounds` and returns above).
+    # Picking `xmin` as a plain incremental/append field builds `"xmin" >= 0`, which Postgres
+    # rejects with `UndefinedFunction`.
+    if incremental_field_type == IncrementalFieldType.XID:
+        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
+
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
@@ -2049,6 +2076,9 @@ def _build_count_query(
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if incremental_field_type == IncrementalFieldType.XID:
+        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)

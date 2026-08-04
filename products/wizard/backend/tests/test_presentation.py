@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, PersonalAPIKey
+from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.wizard.backend.models import WizardSession
@@ -64,6 +64,15 @@ class TestWizardSessionViewSet(APIBaseTest):
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
 
+    def test_create_session_attributes_run_to_authenticated_user(self):
+        response = self.client.post(self._url(), self._payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_by = response.json()["created_by"]
+        self.assertEqual(created_by["id"], self.user.id)
+        self.assertEqual(created_by["email"], self.user.email)
+        self.assertEqual(created_by["first_name"], self.user.first_name)
+
     def test_completed_session_requires_event_definition_write_scope(self):
         self._authenticate_personal_api_key(["wizard_session:write"])
 
@@ -118,6 +127,21 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(data["tasks"][0]["status"], "completed")
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
+
+    def test_repost_by_a_different_user_is_forbidden(self):
+        first = self.client.post(self._url(), self._payload(), format="json")
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+
+        other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            self._url(),
+            self._payload(run_phase="completed"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_different_session_id_creates_new_row(self):
         self.client.post(self._url(), self._payload(), format="json")
@@ -349,6 +373,17 @@ class TestWizardSessionViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual(data["event_plan"], {"events": [{"name": "$pageview"}]})
         self.assertEqual(data["error"], {"type": "TimeoutError", "message": "Anthropic API timed out"})
+
+    def test_handoff_text_persists_across_pushes_without_it(self):
+        # Leading indentation must survive validation: the doc is markdown, where it is syntax.
+        doc = "    indented code block\n\n# Setup report"
+        response = self.client.post(self._url(), self._payload(handoff_text=doc), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["handoff_text"], doc)
+
+        response = self.client.post(self._url(), self._payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["handoff_text"], doc)
 
     def test_stream_requires_workflow_id(self):
         # No params → 400 from the view-level validation (workflow_id is the

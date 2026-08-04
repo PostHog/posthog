@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.db.models import Q
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -29,6 +29,8 @@ from django.utils import timezone
 
 import requests
 import structlog
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
@@ -40,8 +42,10 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from posthog.cache_utils import cache_for
+from posthog.credentials import AWSKeyPair
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -55,6 +59,7 @@ from posthog.models.utils import IntegrityError, generate_random_oauth_access_to
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
+from posthog.scopes import get_oauth_scopes_supported
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
@@ -133,6 +138,99 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 
 # `config` key flagging a grant that only the legacy fallback credentials can refresh.
 CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
+
+# `config` key holding the push device-registration identity verification policy, read by the
+# push subscriptions endpoint. Owned by the customer, not by the provider credentials.
+CONFIG_PUSH_IDENTITY_VERIFICATION = "push_identity_verification"
+PUSH_IDENTITY_VERIFICATION_MODES = ("disabled", "optional", "required")
+
+# `config` key holding the customer's EC (P-256) public key(s) used to verify ES256 identity tokens.
+# Public halves only — the private key stays on the customer's backend. At most two, so a key can be
+# rotated (register the new one, cut over, drop the old) without a gap, mirroring the secret's
+# primary/backup pair.
+CONFIG_PUSH_IDENTITY_PUBLIC_KEYS = "push_identity_public_keys"
+MAX_PUSH_IDENTITY_PUBLIC_KEYS = 2
+
+
+def _validate_push_identity_public_keys(public_keys: list[str]) -> None:
+    if not isinstance(public_keys, list) or not all(isinstance(key, str) for key in public_keys):
+        raise ValidationError("push_identity_public_keys must be a list of PEM-encoded public key strings")
+    if len(public_keys) > MAX_PUSH_IDENTITY_PUBLIC_KEYS:
+        raise ValidationError(f"push_identity_public_keys accepts at most {MAX_PUSH_IDENTITY_PUBLIC_KEYS} keys")
+    for key in public_keys:
+        try:
+            loaded = serialization.load_pem_public_key(key.encode())
+        except Exception:
+            raise ValidationError("Each push_identity_public_key must be a valid PEM-encoded public key")
+        # ES256 is defined over P-256 specifically. Accepting another curve (P-384/P-521) would store a
+        # key the verifier can't use — jwt.decode raises InvalidKeyError against it — so reject it here.
+        if not isinstance(loaded, ec.EllipticCurvePublicKey) or not isinstance(loaded.curve, ec.SECP256R1):
+            raise ValidationError("push_identity_public_keys must be P-256 (secp256r1) EC public keys for ES256")
+
+
+def preserved_push_config(
+    team_id: int,
+    kind: str,
+    integration_id: str,
+    push_identity_verification: str | None,
+    push_identity_public_keys: list[str] | None = None,
+) -> dict:
+    """Config keys a push credential upsert must carry over rather than drop.
+
+    Connecting a push integration is an upsert, and the provider helpers rebuild `config` from the
+    credentials they were handed. Anything they don't know about would be lost, so rotating a Firebase
+    key or APNs .p8 would silently reset an enabled identity verification policy (its mode and its
+    registered public keys) back to nothing, reopening the device takeover it exists to prevent. Carry
+    each existing value forward unless the caller explicitly sets a new one; pass an empty list to
+    clear the public keys.
+    """
+    if push_identity_verification is not None and push_identity_verification not in PUSH_IDENTITY_VERIFICATION_MODES:
+        raise ValidationError(
+            f"push_identity_verification must be one of: {', '.join(PUSH_IDENTITY_VERIFICATION_MODES)}"
+        )
+    if push_identity_public_keys is not None:
+        _validate_push_identity_public_keys(push_identity_public_keys)
+
+    # Serialize concurrent setup of this one integration for the rest of the caller's transaction.
+    # `select_for_update` alone only locks a row that already exists, so two first-time setups could
+    # both read "no policy" and the later write would clobber a policy the earlier one had just set.
+    # An advisory lock covers the not-yet-created case too, keyed on the integration's identity so it
+    # only serializes writers racing for the same integration. Every writer takes it, including one
+    # setting explicit values — otherwise it could slip its row in between a preserving writer's read
+    # and write, and have its policy dropped.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"{kind}:{integration_id}"])
+
+    existing = (
+        Integration.objects.select_for_update()
+        .filter(team_id=team_id, kind=kind, integration_id=integration_id)
+        .only("config")
+        .first()
+    )
+    existing_config = (existing.config or {}) if existing else {}
+    result: dict = {}
+
+    if push_identity_verification is not None:
+        result[CONFIG_PUSH_IDENTITY_VERIFICATION] = push_identity_verification
+    else:
+        # Drop a stored mode we don't recognize rather than carrying it forward. The push endpoint
+        # already treats an unknown mode as disabled, so preserving it would keep dead data alive, and
+        # raising here would leave a corrupted integration unable to rotate its credentials.
+        existing_mode = existing_config.get(CONFIG_PUSH_IDENTITY_VERIFICATION)
+        if existing_mode in PUSH_IDENTITY_VERIFICATION_MODES:
+            result[CONFIG_PUSH_IDENTITY_VERIFICATION] = existing_mode
+
+    if push_identity_public_keys is not None:
+        # A non-empty list sets/replaces; an empty list clears (omit the key entirely).
+        if push_identity_public_keys:
+            result[CONFIG_PUSH_IDENTITY_PUBLIC_KEYS] = push_identity_public_keys
+    else:
+        existing_keys = existing_config.get(CONFIG_PUSH_IDENTITY_PUBLIC_KEYS)
+        if isinstance(existing_keys, list) and existing_keys:
+            result[CONFIG_PUSH_IDENTITY_PUBLIC_KEYS] = existing_keys
+
+    return result
+
 
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
@@ -389,6 +487,7 @@ class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
+        AWS_REDSHIFT = "aws-redshift"
         AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
@@ -414,8 +513,10 @@ class Integration(models.Model):
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
+        PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
+        POSTHOG = "posthog"
         REDDIT_ADS = "reddit-ads"
         RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"
@@ -474,7 +575,8 @@ class Integration(models.Model):
             # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
             return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
-            oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
+            region = self.config.get("region") if self.kind == "posthog" else None
+            oauth_config = OauthIntegration.oauth_config_for_kind(self.kind, region)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
@@ -600,9 +702,86 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
     return f"https://{host}"
 
 
+# Kinds authorized against Salesforce's OAuth server, so they share its quirks: the token
+# response often omits expires_in, and refresh/revoke must go to the org's own instance host
+# rather than the hardcoded login host (sandbox orgs reject the prod endpoints).
+SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
+
+
+# PostHog connect. Unlike every other OAuth kind — which points at a fixed third-party provider —
+# the `posthog` kind points at *another PostHog project*, in a region chosen by the user at connect
+# time. That region may differ from the connecting project's or be the same one (same-region is just
+# region == your own). So its authorize/token/userinfo URLs and client credentials are resolved per
+# target region rather than baked into a static config. The connecting side is the OAuth client; the
+# target region is the authorization server (its /oauth/authorize, /oauth/token, /oauth/userinfo,
+# /oauth/revoke already exist). `openid`+`email` are always requested on top of the user-selected
+# scopes so /oauth/userinfo can identify the connected account (`sub`/`email`).
+POSTHOG_CONNECT_KIND = "posthog"
+# `DEV` points at a local/self-hosted cell (`POSTHOG_CONNECT_BASE_URL_DEV` defaults to
+# http://localhost:8000) and the token exchange is a server-side POST, so a production instance must
+# never treat `DEV` as a real, connectable region — otherwise an org member could point the backend
+# at a URL of their choosing. Gate it behind an explicit dev/test context rather than relying on the
+# client id/secret env vars being unset.
+_POSTHOG_CONNECT_ALLOW_DEV = bool(settings.DEBUG or settings.TEST or settings.E2E_TESTING)
+POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", *(("DEV",) if _POSTHOG_CONNECT_ALLOW_DEV else ()))
+POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
+POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
+# A connection can proxy any request the granted scopes allow, so the user may pick from the full set
+# of user-grantable OAuth scopes (the same set the consent screen advertises — excludes internal,
+# hidden, and privileged scopes). The real bound is enforced twice more downstream: the target cell's
+# OAuthApplication.allowed_scopes at consent time, and the target's per-request scope checks. Identity
+# scopes are auto-added and not part of this set.
+POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(get_oauth_scopes_supported())
+
+
+def _posthog_connect_target(region: str | None) -> tuple[str, str, str]:
+    """Resolve (base_url, client_id, client_secret) for a remote target cell.
+
+    Raises NotImplementedError for an unknown or unconfigured region so the connect/refresh
+    paths fail closed (surfaced to the user as a reconnect error) rather than silently hitting
+    the wrong cell.
+    """
+    normalized = (region or "").upper()
+    if normalized == "DEV" and not _POSTHOG_CONNECT_ALLOW_DEV:
+        # Defense in depth: even if a `DEV` region row somehow reaches here in production, refuse to
+        # resolve it so the backend never POSTs a token exchange to the dev base URL.
+        raise NotImplementedError("PostHog connect DEV region is only available in dev/test")
+    targets = {
+        "US": (
+            settings.POSTHOG_CONNECT_BASE_URL_US,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_US,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US,
+        ),
+        "EU": (
+            settings.POSTHOG_CONNECT_BASE_URL_EU,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU,
+        ),
+        "DEV": (
+            settings.POSTHOG_CONNECT_BASE_URL_DEV,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV,
+        ),
+    }
+    if normalized not in targets:
+        raise NotImplementedError(f"PostHog connect OAuth not supported for region {region!r}")
+    base_url, client_id, client_secret = targets[normalized]
+    if not base_url or not client_id or not client_secret:
+        raise NotImplementedError(f"PostHog connect app not configured for region {normalized}")
+    return base_url.rstrip("/"), client_id, client_secret
+
+
+def posthog_connect_base_url(region: str | None) -> str:
+    """Public base URL of a remote target cell (e.g. https://eu.posthog.com), for callers that
+    need to reach its API with a `posthog` integration token. Raises for unknown/unconfigured regions."""
+    base_url, _, _ = _posthog_connect_target(region)
+    return base_url
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
+        "posthog",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -619,6 +798,7 @@ class OauthIntegration:
         "linear",
         "clickup",
         "jira",
+        "pardot",
         "pinterest-ads",
         "stripe",
         "resend",
@@ -633,8 +813,11 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
-        config = cls._build_oauth_config(kind)
+    def oauth_config_for_kind(cls, kind: str, region: str | None = None) -> OauthConfig:
+        # `region` only applies to the `posthog` remote kind, whose endpoints depend on the
+        # target cell. cache_for keys on all args, so each (kind, region) pair caches separately;
+        # every other kind is called without region and keeps its single cached entry.
+        config = cls._build_oauth_config(kind, region)
         fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
         if fallback and fallback.get("client_secret"):
             config.client_secret_fallback = fallback["client_secret"]
@@ -642,7 +825,24 @@ class OauthIntegration:
         return config
 
     @classmethod
-    def _build_oauth_config(cls, kind: str) -> OauthConfig:
+    def _build_oauth_config(cls, kind: str, region: str | None = None) -> OauthConfig:
+        if kind == "posthog":
+            base_url, client_id, client_secret = _posthog_connect_target(region)
+            return OauthConfig(
+                authorize_url=f"{base_url}/oauth/authorize",
+                token_url=f"{base_url}/oauth/token",
+                token_info_url=f"{base_url}/oauth/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_revoke_url=f"{base_url}/oauth/revoke",
+                client_id=client_id,
+                client_secret=client_secret,
+                # Default only; authorize_url overrides with the user-selected scopes (plus the
+                # identity scopes). Token exchange/refresh don't send scope, so this is unused there.
+                scope=" ".join([*POSTHOG_CONNECT_DEFAULT_SCOPES, *POSTHOG_CONNECT_IDENTITY_SCOPES]),
+                id_path="sub",
+                name_path="email",
+                pkce=True,
+            )
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -690,6 +890,26 @@ class OauthIntegration:
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
+                id_path="instance_url",
+                name_path="instance_url",
+                pkce=True,
+            )
+        elif kind == "pardot":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            # Account Engagement (formerly Pardot) authorizes against Salesforce, so this reuses the
+            # Salesforce connected app rather than registering a second one. It needs its own kind
+            # because `pardot_api` is not covered by the `full` scope the `salesforce` kind requests:
+            # a Salesforce integration authorized for the CRM cannot call the Account Engagement API,
+            # and a token scoped for Account Engagement should not appear in the CRM picker.
+            return OauthConfig(
+                authorize_url="https://login.salesforce.com/services/oauth2/authorize",
+                token_url="https://login.salesforce.com/services/oauth2/token",
+                token_revoke_url="https://login.salesforce.com/services/oauth2/revoke",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="pardot_api refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
                 pkce=True,
@@ -1007,10 +1227,33 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
-        oauth_config = cls.oauth_config_for_kind(kind)
+    def authorize_url(
+        cls,
+        kind: str,
+        token: str,
+        next: str = "",
+        *,
+        region: str | None = None,
+        scopes: list[str] | None = None,
+        team_id: int | None = None,
+    ) -> str:
+        oauth_config = cls.oauth_config_for_kind(kind, region)
 
+        # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
+        # project-scoped, so without this the SPA re-resolves to the user's default team on
+        # reload and the integration lands on the wrong project.
         state_payload: dict[str, str] = {"next": next, "token": token}
+        if team_id is not None:
+            state_payload["team_id"] = str(team_id)
+
+        scope = oauth_config.scope
+        if kind == "posthog":
+            # The target cell is the authorization server, so the callback (which runs on the
+            # connecting cell) needs to know which region to exchange the code against — carry it
+            # in state. Always append the identity scopes so /oauth/userinfo can name the account.
+            state_payload["region"] = (region or "").upper()
+            requested = list(scopes) if scopes else list(POSTHOG_CONNECT_DEFAULT_SCOPES)
+            scope = " ".join(dict.fromkeys([*requested, *POSTHOG_CONNECT_IDENTITY_SCOPES]))
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -1022,7 +1265,7 @@ class OauthIntegration:
         else:
             query_params = {
                 "client_id": oauth_config.client_id,
-                "scope": oauth_config.scope,
+                "scope": scope,
                 "redirect_uri": cls.redirect_uri(kind),
                 "response_type": "code",
                 "state": urlencode(state_payload),
@@ -1046,7 +1289,13 @@ class OauthIntegration:
     def integration_from_oauth_response(
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
-        oauth_config = cls.oauth_config_for_kind(kind)
+        region: str | None = None
+        if kind == "posthog":
+            # The target region was stashed in state at authorize time; the token exchange must hit
+            # that same cell. Missing/invalid region fails closed via _posthog_connect_target.
+            region = (parse_qs(params.get("state", "")).get("region", [""])[0] or "").upper()
+
+        oauth_config = cls.oauth_config_for_kind(kind, region)
 
         code_verifier: str | None = None
         if oauth_config.pkce:
@@ -1059,6 +1308,10 @@ class OauthIntegration:
             # requires PKCE). Log it so the gap is visible before we enforce PKCE provider-side.
             if not code_verifier:
                 logger.warning("oauth_pkce_verifier_missing", kind=kind, has_state_token=bool(state_token))
+                # posthog is a first-party flow we control both ends of — a missing verifier is never
+                # a legacy-provider compat case here, so fail closed rather than exchanging without PKCE.
+                if kind == "posthog":
+                    raise ValidationError("Remote authorization failed: missing PKCE verifier. Please retry.")
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
@@ -1192,12 +1445,16 @@ class OauthIntegration:
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     json={"query": oauth_config.token_info_graphql_query},
                     timeout=10,
+                    # This call carries the access token; don't let a misconfigured/compromised
+                    # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
+                    allow_redirects=False,
                 )
             else:
                 token_info_res = requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     timeout=10,
+                    allow_redirects=False,
                 )
 
             if token_info_res.status_code == 200:
@@ -1323,6 +1580,17 @@ class OauthIntegration:
                 logger.exception("Failed to fetch Stripe account name")
                 config["account_name"] = str(integration_id)
 
+        # Persist the target region and namespace the dedup key by it, so the same PostHog account
+        # connected in two different cells yields two distinct integrations instead of colliding on
+        # `sub`. `region` also drives config/refresh/revoke lookups for the lifetime of the row.
+        if kind == "posthog" and integration_id:
+            config["region"] = region
+            integration_id = f"{region}:{integration_id}"
+            # Persist the resource scopes the target actually granted (obj:action only, dropping the
+            # openid/email identity scopes). The connection proxy uses this to require a caller's own
+            # token to cover these scopes before it will wield the connection's grant.
+            config["granted_scopes"] = sorted({s for s in (config.get("scope") or "").split() if ":" in s})
+
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
         elif isinstance(integration_id, list) and len(integration_id) > 0:
@@ -1363,7 +1631,7 @@ class OauthIntegration:
         }
 
         # Handle case where Salesforce doesn't provide expires_in in initial response
-        if not config.get("expires_in") and kind == "salesforce":
+        if not config.get("expires_in") and kind in SALESFORCE_OAUTH_KINDS:
             # Default to 1 hour for Salesforce if not provided (conservative)
             config["expires_in"] = 3600
 
@@ -1419,7 +1687,8 @@ class OauthIntegration:
         after a disconnect. Callers treat this as best-effort — the local deletion proceeds
         regardless.
         """
-        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
+        oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
         if not oauth_config.token_revoke_url:
             return
 
@@ -1431,11 +1700,11 @@ class OauthIntegration:
             return
 
         revoke_url = oauth_config.token_revoke_url
-        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only
-        # a token-exchange fallback), so the static prod revoke URL would miss them. Revoke at
-        # the validated instance host so a stray write to config can't redirect the token to
+        # Salesforce sandbox integrations are stored under the production kind (the sandbox is
+        # only a token-exchange fallback), so the static prod revoke URL would miss them. Revoke
+        # at the validated instance host so a stray write to config can't redirect the token to
         # an attacker origin.
-        if self.integration.kind == "salesforce":
+        if self.integration.kind in SALESFORCE_OAUTH_KINDS:
             allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
             if allowed_host:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
@@ -1471,7 +1740,7 @@ class OauthIntegration:
         if not refresh_token:
             return False
 
-        if not expires_in and self.integration.kind == "salesforce":
+        if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
             # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
             expires_in = 3600
 
@@ -1543,13 +1812,13 @@ class OauthIntegration:
             )
         else:
             token_url = oauth_config.token_url
-            # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox
+            # Salesforce sandbox integrations are stored under the production kind (the sandbox
             # is only a token-exchange fallback in the OAuth callback), so the static prod
             # token URL would refuse a sandbox-issued refresh_token. Refresh at the org's
             # own instance host instead. Validate the host before sending client_secret +
             # refresh_token so a stray write to config can't exfiltrate the fleet-wide
             # Salesforce app secret; fall back to the hardcoded prod URL on rejection.
-            if kind == "salesforce":
+            if kind in SALESFORCE_OAUTH_KINDS:
                 allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
                 if allowed_host:
                     token_url = f"{allowed_host}/services/oauth2/token"
@@ -1578,7 +1847,8 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
+        oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -1643,7 +1913,7 @@ class OauthIntegration:
 
             # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
-            if not expires_in and self.integration.kind == "salesforce":
+            if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
                 expires_in = 3600
             if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
@@ -1795,8 +2065,14 @@ class SlackIntegration:
         return config
 
 
-def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
-    """Sign a body with the Slack HMAC-SHA256 scheme; returns (signature, timestamp).
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SlackRequestSignature:
+    signature: str
+    timestamp: str
+
+
+def sign_slack_request(body: bytes, signing_secret: str) -> SlackRequestSignature:
+    """Sign a body with the Slack HMAC-SHA256 scheme.
 
     Used by both prod (PostHog→PostHog cross-region calls that reuse the Slack signing scheme)
     and tests. The matching verifier is `validate_slack_request` below.
@@ -1804,7 +2080,7 @@ def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
     ts = str(int(time.time()))
     sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
     signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
-    return signature, ts
+    return SlackRequestSignature(signature=signature, timestamp=ts)
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
@@ -1843,6 +2119,21 @@ def google_ads_hierarchy_level(account: dict) -> int:
     """Depth of an account below the manager the walk started from. Google's REST responses omit proto3
     defaults, so a level-0 account carries no `level` key at all, and deeper ones arrive as strings."""
     return int(account.get("level") or 0)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(2),
+    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    reraise=True,
+)
+def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
+    """`requests.request` with retries for a transient timeout/connection blip.
+
+    `list_google_ads_accessible_accounts` walks the account hierarchy with a chain of sequential
+    requests, so a single transient blip on any one of them would otherwise fail the whole walk.
+    """
+    return requests.request(method, url, **kwargs)
 
 
 class GoogleAdsIntegration:
@@ -1904,7 +2195,7 @@ class GoogleAdsIntegration:
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
-        response = requests.request(
+        response = _google_ads_request(
             "GET",
             "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
             headers={
@@ -1944,7 +2235,7 @@ class GoogleAdsIntegration:
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
                 accounts = []
-            response = requests.request(
+            response = _google_ads_request(
                 "POST",
                 f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
                 json={
@@ -2232,7 +2523,14 @@ class FirebaseIntegration:
         self.integration = integration
 
     @classmethod
-    def integration_from_key(cls, key_info: dict, team_id: int, created_by: User | None = None) -> "Integration":
+    def integration_from_key(
+        cls,
+        key_info: dict,
+        team_id: int,
+        created_by: User | None = None,
+        push_identity_verification: str | None = None,
+        push_identity_public_keys: list[str] | None = None,
+    ) -> "Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
         try:
@@ -2245,23 +2543,28 @@ class FirebaseIntegration:
         if not project_id:
             raise ValidationError("Service account key must contain a project_id")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="firebase",
-            integration_id=project_id,
-            defaults={
-                "config": {
-                    "project_id": project_id,
-                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                    "refreshed_at": int(time.time()),
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="firebase",
+                integration_id=project_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(
+                            team_id, "firebase", project_id, push_identity_verification, push_identity_public_keys
+                        ),
+                        "project_id": project_id,
+                        "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                        "refreshed_at": int(time.time()),
+                    },
+                    "sensitive_config": {
+                        "key_info": key_info,
+                        "access_token": credentials.token,
+                    },
+                    "created_by": created_by,
                 },
-                "sensitive_config": {
-                    "key_info": key_info,
-                    "access_token": credentials.token,
-                },
-                "created_by": created_by,
-            },
-        )
+            )
 
         if integration.errors:
             integration.errors = ""
@@ -2342,6 +2645,8 @@ class ApplePushIntegration:
         team_id: int,
         created_by: User | None = None,
         environment: str = "production",
+        push_identity_verification: str | None = None,
+        push_identity_public_keys: list[str] | None = None,
     ) -> "Integration":
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
@@ -2349,22 +2654,28 @@ class ApplePushIntegration:
         if environment not in ("production", "sandbox"):
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="apns",
-            integration_id=f"{team_id_apple}.{bundle_id}",
-            defaults={
-                "config": {
-                    "team_id": team_id_apple,
-                    "bundle_id": bundle_id,
-                    "key_id": key_id,
-                    "environment": environment,
+        integration_id = f"{team_id_apple}.{bundle_id}"
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="apns",
+                integration_id=integration_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(
+                            team_id, "apns", integration_id, push_identity_verification, push_identity_public_keys
+                        ),
+                        "team_id": team_id_apple,
+                        "bundle_id": bundle_id,
+                        "key_id": key_id,
+                        "environment": environment,
+                    },
+                    "sensitive_config": {
+                        "signing_key": signing_key,
+                    },
                 },
-                "sensitive_config": {
-                    "signing_key": signing_key,
-                },
-            },
-        )
+            )
 
         if created and created_by is not None:
             integration.created_by = created_by
@@ -3981,11 +4292,10 @@ class S3CredentialIntegrationError(Exception):
     pass
 
 
-def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
+def _read_s3_credentials(integration: Integration) -> AWSKeyPair:
     try:
-        return (
-            integration.sensitive_config["aws_access_key_id"],
-            integration.sensitive_config["aws_secret_access_key"],
+        return AWSKeyPair.unsafe_from_strings(
+            integration.sensitive_config["aws_access_key_id"], integration.sensitive_config["aws_secret_access_key"]
         )
     except KeyError as e:
         raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
@@ -4129,7 +4439,9 @@ class AwsS3Integration:
                 f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
             )
         self.integration = integration
-        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+        credentials = _read_s3_credentials(integration)
+        self.aws_access_key_id = credentials.access_key_id
+        self.aws_secret_access_key = credentials.secret_access_key
 
     @property
     def aws_account_id(self) -> str | None:
@@ -4228,7 +4540,9 @@ class S3CompatibleIntegration:
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
         self.integration = integration
-        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+        credentials = _read_s3_credentials(integration)
+        self.aws_access_key_id = credentials.access_key_id
+        self.aws_secret_access_key = credentials.secret_access_key
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:

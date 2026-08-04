@@ -5,8 +5,10 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -560,6 +562,14 @@ export const loginLogic = kea<loginLogicType>([
                             `For your security, we've emailed a 6-digit verification code to ${emailAddress}. Enter it below to finish logging in.`
                         )
                         throw e
+                    }
+                    // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a
+                    // dropped connection) leaves code/detail null, so the user gets the generic catch-all
+                    // message below. Capture the underlying status/message so these aren't untraceable.
+                    if (!code && !detail) {
+                        posthog.captureException(e, {
+                            extra: { status: (e as ApiError)?.status, message: (e as ApiError)?.message },
+                        })
                     }
                     actions.setGeneralError(code, detail)
                     throw e

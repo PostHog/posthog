@@ -270,6 +270,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # The user must fix the source view/column; retrying just spams error tracking. Matched on
             # BigQuery's stable wording, not the volatile job id/URL.
             "Invalid NUMERIC value: NaN": "BigQuery couldn't complete a query for this source because it produced a NaN (not-a-number) value in a column typed NUMERIC, which that type can't represent. This is usually caused by a computed column or view doing arithmetic like division by zero. Please fix the underlying view or column in BigQuery, then re-enable the source.",
+            # Raised as a 400 BadRequest (reason `invalidQuery`) when the table or view being synced
+            # has a column name BigQuery can't resolve to a single source, e.g. "Column name x is
+            # ambiguous". We select each configured column by its own unqualified name (see
+            # `_get_query`/`_bq_select_clause` in `bigquery.py`), so this only happens when the
+            # underlying relation itself has the conflict — a view that joins tables sharing a column
+            # name, or a table/external table with two columns differing only by letter case. It's a
+            # deterministic property of the customer's view/table definition: the same query fails
+            # identically on every retry, so it just hammers BigQuery and spams error tracking. The
+            # user must fix the view or table definition. Matched on BigQuery's stable wording, not
+            # the volatile column name or [row:col] location.
+            "is ambiguous": "BigQuery couldn't run a query for this source because a column name in the table or view being synced is ambiguous. This usually happens when a view joins tables that share a column name, or two columns differ only by letter case. Retrying won't help — please update the view or table definition to remove the naming conflict (for example by aliasing the duplicate column), then reconnect the source.",
         }
 
     def validate_credentials(
@@ -305,6 +316,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["bq", "gbq", "sql"],
             featured=True,
             iconPath="/static/services/bigquery.png",
             caption=(

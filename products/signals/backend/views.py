@@ -1,6 +1,6 @@
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, timedelta
 from typing import Any, cast
 
@@ -56,9 +56,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.permissions import APIScopePermission
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -86,6 +88,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
@@ -112,6 +115,11 @@ from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCommentsResponseSerializer,
+    PullRequestReviewCommentCreateResponseSerializer,
+    PullRequestReviewCommentCreateSerializer,
+    PullRequestReviewCommentReactionCreateResponseSerializer,
+    PullRequestReviewCommentReactionCreateSerializer,
+    PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -142,6 +150,7 @@ from products.signals.backend.temporal.reingestion import SignalReportReingestio
 from products.signals.backend.temporal.signal_queries import (
     fetch_live_report_ids_for_source_ids,
     fetch_report_ids_for_scout_names,
+    fetch_report_ids_for_scout_prefix,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
 )
@@ -576,6 +585,36 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
+# The thumbs rating at the end of the report body carries an optional note, capped in the UI at the
+# same length as the dismissal note.
+SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
+
+
+class SignalReportFeedbackRequestSerializer(serializers.Serializer):
+    sentiment = serializers.ChoiceField(
+        choices=[("positive", "positive"), ("negative", "negative")],
+        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+    )
+    note = serializers.CharField(
+        max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
+        help_text=(
+            "Free-form note explaining the rating. Capped at "
+            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Only submitted alongside a note — a "
+            "bare thumb carries none — and, for a report authored by a scout, forwarded to that scout "
+            "as a steering note."
+        ),
+    )
+
+
+class SignalReportFeedbackResponseSerializer(serializers.Serializer):
+    forwarded = serializers.BooleanField(
+        help_text=(
+            "Whether the note was forwarded to the report's authoring scout as a steering note. False "
+            "when the report has no resolvable authoring scout, or the caller lacks scout-steering access."
+        ),
+    )
+
+
 # Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
 # organization, matching the refund window (the org's billing period).
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
@@ -726,6 +765,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
+        qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
@@ -774,10 +814,12 @@ class SignalReportViewSet(
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
     # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
     # can reach suppressed reports too. `refund` is included so an already-archived but
-    # billed report can still be refunded. Mutating-by-ID actions (delete, reingest) are
+    # billed report can still be refunded, and `feedback` because the detail view the
+    # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
+    # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund"})
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund", "feedback"})
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
@@ -894,6 +936,14 @@ class SignalReportViewSet(
 
         report_ids_with_scout = fetch_report_ids_for_scout_names(self.team, scout_names)
         return queryset.filter(id__in=report_ids_with_scout)
+
+    def _apply_signal_report_scout_prefix_filter(self, queryset):
+        scout_prefix = (self.request.query_params.get("scout_prefix") or "").strip()
+        if not scout_prefix:
+            return queryset
+
+        report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
+        return queryset.filter(id__in=report_ids_with_prefix)
 
     def _latest_suggested_reviewers_qs(self):
         """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
@@ -1380,6 +1430,18 @@ class SignalReportViewSet(
                 ),
             ),
             OpenApiParameter(
+                name="scout_prefix",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at "
+                    "least one of their contributing signals was authored by a scout whose skill_name starts "
+                    "with this prefix — new scouts in the family match without callers listing every name. "
+                    "Combines with the other filters as an AND."
+                ),
+            ),
+            OpenApiParameter(
                 name="suggested_reviewers",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1672,6 +1734,43 @@ class SignalReportViewSet(
         )
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @extend_schema(
+        summary="Leave feedback on a report",
+        description=(
+            "Record a note left with the thumbs rating at the end of a report. The rating itself is a "
+            "product-analytics event; this endpoint exists to carry the note into the scout steering "
+            "channel. For a report authored by a scout, the note is forwarded to that scout as a "
+            "steering note it reads on its next run; for any other report there is nothing to steer and "
+            "the call is a no-op success. The report's state is never changed."
+        ),
+        request=SignalReportFeedbackRequestSerializer,
+        responses={200: SignalReportFeedbackResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    def feedback(self, request, pk=None, **kwargs):
+        """Forward a report's feedback note to the scout that authored it.
+
+        Feedback-only: unlike `state`, this never transitions the report. The note is a derived
+        convenience — the durable record of the rating is the analytics event the client fires —
+        so forwarding is best-effort and never fails the request.
+        """
+        report = cast(SignalReport, self.get_object())
+
+        serializer = SignalReportFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        note_id = forward_feedback_note(
+            team=self.team,
+            report_id=str(report.id),
+            sentiment=data["sentiment"],
+            note=data["note"],
+            user_id=request.user.id if isinstance(request.user, User) else None,
+            scoped_team_ids=get_authenticator_scoped_team_ids(request.successful_authenticator),
+            api_scopes=get_authenticator_scopes(request.successful_authenticator),
+        )
+        return Response(SignalReportFeedbackResponseSerializer({"forwarded": note_id is not None}).data)
 
     def _forward_dismissal_note(
         self,
@@ -2004,12 +2103,12 @@ class SignalReportViewSet(
             # Computed once and frozen onto the refund row below: the credited-path sync must
             # report the period the refund was accepted in, not whatever period is current when
             # the Celery task eventually reaches billing.
-            period_start, period_end = current_billing_period_bounds(self.organization)
+            period = current_billing_period_bounds(self.organization)
             ineligibility = refund_ineligibility_reason(
                 has_refund=False,  # the idempotent 200 above already handled existing refunds
                 billing_exempt=bool(report.billing_exempt_reason),
                 billable_run_at=billable_run.created_at if billable_run else None,
-                period=(period_start, period_end),
+                period=period,
             )
             if ineligibility is not None:
                 return Response(
@@ -2047,8 +2146,8 @@ class SignalReportViewSet(
                         credits=SIGNALS_CREDITS_PER_REPORT_WITH_PR,
                         pr_url=billable_run.pr_url,
                         pr_run_created_at=billable_run.created_at,
-                        period_start=period_start,
-                        period_end=period_end,
+                        period_start=period.start,
+                        period_end=period.end,
                     )
             except IntegrityError:
                 existing = SignalReportRefund.objects.filter(report_id=report.id).first()
@@ -2129,15 +2228,15 @@ class SignalReportViewSet(
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
 
-        period_start, period_end = current_billing_period_bounds(self.organization)
+        period = current_billing_period_bounds(self.organization)
         aggregates = (
             # Org-wide on purpose (unscoped + org filter): the usage this offsets is org-level.
             SignalReportRefund.objects.unscoped()
             .filter(
                 team__organization_id=self.organization.id,
                 billing_path=SignalReportRefund.BillingPath.CREDITED,
-                pr_run_created_at__gte=period_start,
-                pr_run_created_at__lt=period_end,
+                pr_run_created_at__gte=period.start,
+                pr_run_created_at__lt=period.end,
             )
             .aggregate(credited_refund_count=Count("id"), credited_credits=Sum("credits"))
         )
@@ -2145,9 +2244,7 @@ class SignalReportViewSet(
             {
                 "credited_refund_count": aggregates["credited_refund_count"] or 0,
                 "credited_credits": aggregates["credited_credits"] or 0,
-                "period_billable_credits": period_billable_credits_for_org(
-                    self.organization.id, period_start, period_end
-                ),
+                "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
             }
         )
 
@@ -2189,8 +2286,7 @@ class SignalReportViewSet(
         parsed = GitHubIntegration.parse_pull_request_url(pr_url)
         if parsed is None:
             return None
-        owner, repo, pr_number = parsed
-        return f"{owner}/{repo}", pr_number
+        return parsed.repository, parsed.number
 
     @extend_schema(
         responses={
@@ -2241,6 +2337,349 @@ class SignalReportViewSet(
         return self._pr_github_passthrough(
             cast(SignalReport, self.get_object()), "get_pull_request_comments", "comments", "comments"
         )
+
+    @extend_schema(
+        request=PullRequestReviewCommentCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=PullRequestReviewCommentCreateResponseSerializer,
+                description="The created review comment, in the normalized PR-comment shape.",
+            ),
+            400: OpenApiResponse(description="Invalid comment payload."),
+            403: OpenApiResponse(
+                description="Not a signed-in user, or the requesting user has no usable personal GitHub "
+                "connection (reconnect GitHub)."
+            ),
+            404: OpenApiResponse(
+                description="Report has no implementation PR, or no GitHub integration can access it."
+            ),
+            502: OpenApiResponse(description="GitHub rejected the comment."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="Post an inline review comment on a report's implementation PR",
+        description=(
+            "Post an inline review comment on the report's implementation pull request, attributed to the "
+            "requesting user's own GitHub identity via their personal GitHub connection. Either replies to "
+            "an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`)."
+        ),
+        operation_id="signals_report_pr_review_comments_create",
+    )
+    @action(detail=True, methods=["post"], url_path="pr_review_comments", required_scopes=["task:write"])
+    def pr_review_comments(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        serializer = PullRequestReviewCommentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        params = serializer.validated_data
+
+        resolved = self._resolve_user_github_and_pr(report, request)
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        commit_id: str | None = None
+        if not params.get("in_reply_to"):
+            # New threads anchor to the PR head commit; resolve it via the team integration
+            # (read path), so the user token is only used for the write itself.
+            github, repository, pr_number, error = self._github_for_report_pr(report, reference=(repository, pr_number))
+            if error is not None:
+                return error
+            assert github is not None
+            pr_details = github.get_pull_request(repository, pr_number)
+            commit_id = pr_details.get("head_sha") if pr_details.get("success") else None
+            if not commit_id:
+                return Response(
+                    {"error": "Could not resolve the pull request's head commit."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+        result = self._run_user_github_write(
+            lambda: user_github.create_pull_request_review_comment(
+                repository,
+                pr_number,
+                params["body"],
+                in_reply_to=params.get("in_reply_to"),
+                commit_id=commit_id,
+                path=params.get("path"),
+                line=params.get("line"),
+                side=params.get("side"),
+            ),
+            repository,
+            pr_number,
+            noun="comment",
+        )
+        if isinstance(result, Response):
+            return result
+
+        self._bust_pr_comments_cache(repository, pr_number)
+        return self._pr_review_comment_response(result["comment"], status_code=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        methods=["PATCH"],
+        parameters=[OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        request=PullRequestReviewCommentUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=PullRequestReviewCommentCreateResponseSerializer,
+                description="The edited review comment, in the normalized PR-comment shape.",
+            ),
+            403: OpenApiResponse(
+                description="Not a signed-in user, no usable personal GitHub connection, or not the comment's author."
+            ),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
+            502: OpenApiResponse(description="GitHub rejected the edit."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="Edit one of the requesting user's own review comments",
+        operation_id="signals_report_pr_review_comment_update",
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        parameters=[OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={
+            204: OpenApiResponse(description="Comment deleted."),
+            403: OpenApiResponse(
+                description="Not a signed-in user, no usable personal GitHub connection, or not the comment's author."
+            ),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
+            502: OpenApiResponse(description="GitHub rejected the delete."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="Delete one of the requesting user's own review comments",
+        operation_id="signals_report_pr_review_comment_destroy",
+    )
+    @action(
+        detail=True,
+        methods=["patch", "delete"],
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)",
+        required_scopes=["task:write"],
+    )
+    def pr_review_comment(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        comment_id = str(kwargs["comment_id"])
+        resolved = self._resolve_user_github_and_pr(report, request, comment_id=comment_id)
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        def run() -> dict[str, Any]:
+            if request.method == "DELETE":
+                return user_github.delete_pull_request_review_comment(repository, comment_id)
+            serializer = PullRequestReviewCommentUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            return user_github.update_pull_request_review_comment(
+                repository, comment_id, serializer.validated_data["body"]
+            )
+
+        result = self._run_user_github_write(run, repository, pr_number, noun="comment")
+        if isinstance(result, Response):
+            return result
+
+        self._bust_pr_comments_cache(repository, pr_number)
+        if request.method == "DELETE":
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return self._pr_review_comment_response(result["comment"], status_code=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=PullRequestReviewCommentReactionCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=PullRequestReviewCommentReactionCreateResponseSerializer,
+                description="The created reaction.",
+            ),
+            403: OpenApiResponse(description="Not a signed-in user, or no usable personal GitHub connection."),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
+            502: OpenApiResponse(description="GitHub rejected the reaction."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="React to a review comment as the requesting user",
+        operation_id="signals_report_pr_review_comment_reactions_create",
+        parameters=[OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions",
+        required_scopes=["task:write"],
+    )
+    def pr_review_comment_reactions(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        comment_id = str(kwargs["comment_id"])
+        serializer = PullRequestReviewCommentReactionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        resolved = self._resolve_user_github_and_pr(report, request, comment_id=comment_id)
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        result = self._run_user_github_write(
+            lambda: user_github.add_pull_request_review_comment_reaction(
+                repository, comment_id, serializer.validated_data["content"]
+            ),
+            repository,
+            pr_number,
+            noun="reaction",
+        )
+        if isinstance(result, Response):
+            return result
+
+        self._bust_pr_comments_cache(repository, pr_number)
+        raw = result.get("reaction") or {}
+        reaction = {
+            "id": str(raw["id"]) if raw.get("id") is not None else "",
+            "content": raw.get("content"),
+            "user_login": (raw.get("user") or {}).get("login"),
+        }
+        return Response({"reaction": reaction}, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Reaction removed."),
+            403: OpenApiResponse(description="Not a signed-in user, or no usable personal GitHub connection."),
+            404: OpenApiResponse(description="Report has no implementation PR, or the comment isn't on it."),
+            502: OpenApiResponse(description="GitHub rejected the removal."),
+            503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
+        },
+        summary="Remove one of the requesting user's own reactions from a review comment",
+        operation_id="signals_report_pr_review_comment_reaction_destroy",
+        parameters=[
+            OpenApiParameter("comment_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("reaction_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+    )
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions/(?P<reaction_id>[0-9]+)",
+        required_scopes=["task:write"],
+    )
+    def pr_review_comment_reaction(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        comment_id = str(kwargs["comment_id"])
+        reaction_id = str(kwargs["reaction_id"])
+        resolved = self._resolve_user_github_and_pr(report, request, comment_id=comment_id)
+        if isinstance(resolved, Response):
+            return resolved
+        user_github, repository, pr_number = resolved
+
+        result = self._run_user_github_write(
+            lambda: user_github.delete_pull_request_review_comment_reaction(repository, comment_id, reaction_id),
+            repository,
+            pr_number,
+            noun="reaction",
+        )
+        if isinstance(result, Response):
+            return result
+        self._bust_pr_comments_cache(repository, pr_number)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _bust_pr_comments_cache(self, repository: str, pr_number: int) -> None:
+        """Drop the short PR-comments read cache so a just-made change shows on the next fetch."""
+        cache.delete(f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:get_pull_request_comments")
+
+    @staticmethod
+    def _pr_review_comment_response(raw: object, *, status_code: int) -> Response:
+        """Shape a raw GitHub review comment via the shared read-path normalizer (a fresh write never
+        carries reactions). The shared transport treats a body-less success as valid, so a write result
+        we can't normalize is an upstream failure rather than anything the caller did wrong."""
+        normalized = GitHubIntegrationBase.normalize_pr_comment(raw, "review")
+        if normalized is None:
+            return Response(
+                {"error": "GitHub returned the comment in an unexpected format. Reload to see the latest."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"comment": normalized}, status=status_code)
+
+    def _resolve_user_github_and_pr(
+        self, report: SignalReport, request: Request, *, comment_id: str | None = None
+    ) -> tuple[UserGitHubIntegration, str, int] | Response:
+        """Resolve the requesting user's personal GitHub integration and the report's PR, or a Response
+        error (404 no PR, 403 not a human caller or no personal GitHub connection) to return as-is.
+
+        Every write that reaches GitHub under a human's own identity funnels through here, so the
+        human-caller check lives here too rather than on each action. It admits only a browser
+        session instead of rejecting known token types, because every credential that authenticates
+        *as* the user would otherwise inherit their linked GitHub account: a sandbox agent token is
+        minted as the task actor and carries ``task:write``, and a personal API key holding the same
+        scope is issued for automation rather than for acting as that person on GitHub. Either one
+        could comment, edit, delete, or merge as them.
+
+        ``comment_id``, when given, is resolved and required to sit on the report's own PR. GitHub's
+        review-comment edit, delete, and reaction endpoints are repository-wide, so this is the only
+        thing keeping a report from reaching comments on every other PR in its repository.
+        """
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return Response(
+                {"error": "This must be done by a signed-in user, not an automated token."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        user = cast(User, request.user)
+        reference = self._resolve_report_pr_reference(report)
+        if reference is None:
+            return Response(
+                {"error": "This report has no implementation pull request."}, status=status.HTTP_404_NOT_FOUND
+            )
+        user_integration = (
+            UserIntegration.objects.filter(user=user, kind=UserIntegration.IntegrationKind.GITHUB)
+            .order_by("created_at")
+            .first()
+        )
+        if user_integration is None:
+            return Response(
+                {"error": "Connect your GitHub account in settings to comment on pull requests."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        repository, pr_number = reference
+        user_github = UserGitHubIntegration(user_integration)
+        if comment_id is not None:
+            lookup = self._run_user_github_write(
+                lambda: user_github.get_pull_request_review_comment(repository, comment_id),
+                repository,
+                pr_number,
+                noun="comment",
+            )
+            if isinstance(lookup, Response):
+                return lookup
+            # Matched on the suffix, not the whole URL: the repository is already pinned by the path we
+            # just fetched, while the report's stored PR URL can differ from GitHub's canonical casing.
+            pull_request_url = (lookup.get("comment") or {}).get("pull_request_url")
+            if not isinstance(pull_request_url, str) or not pull_request_url.endswith(f"/pulls/{pr_number}"):
+                return Response(
+                    {"error": "This comment isn't on this report's pull request. Refresh the page and try again."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        return user_github, repository, pr_number
+
+    def _run_user_github_write(
+        self, fn: Callable[[], dict[str, Any]], repository: str, pr_number: int, *, noun: str
+    ) -> dict[str, Any] | Response:
+        """Run a user-authored GitHub write, mapping the shared failure modes to Responses. Returns the
+        call's result dict on success, or a Response to return as-is. GitHub 403 (e.g. editing someone
+        else's comment) surfaces as a 403."""
+        try:
+            result = fn()
+        except ReauthorizationRequired:
+            return Response(
+                {"error": "Your GitHub connection has expired. Reconnect GitHub in settings."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except GitHubEgressBudgetExhausted:
+            return Response(
+                {"error": "GitHub is temporarily busy. Try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning(f"signals pr review {noun} write errored", repository=repository, pr_number=pr_number)
+            return Response({"error": f"GitHub could not accept the {noun}."}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not result.get("success"):
+            forbidden = result.get("status_code") == 403
+            return Response(
+                {"error": result.get("error") or f"GitHub could not accept the {noun}."},
+                status=status.HTTP_403_FORBIDDEN if forbidden else status.HTTP_502_BAD_GATEWAY,
+            )
+        return result
 
     def _pr_github_passthrough(self, report: SignalReport, fetch_name: str, key: str, noun: str) -> Response:
         """Shared body for the ``pr_checks`` / ``pr_comments`` actions: resolve the report's PR and the

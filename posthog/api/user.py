@@ -22,6 +22,7 @@ from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
+import pydantic
 import requests
 import structlog
 import posthoganalytics
@@ -42,6 +43,8 @@ from rest_framework.views import APIView
 from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
+
+from posthog.schema import UserUIConfiguration
 
 from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import (
@@ -78,6 +81,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -234,6 +238,15 @@ class UserSerializer(serializers.ModelSerializer):
         ),
     )
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
+    ui_configuration = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers "
+            "sidebar section and item visibility. Send the complete object: it replaces the stored value "
+            "wholesale. Null means no customization; absent keys mean the element is shown."
+        ),
+    )
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
@@ -308,6 +321,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role_at_organization",
             "passkeys_enabled_for_2fa",
             "hide_mcp_hints",
+            "ui_configuration",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
             "onboarding_skipped_organization_id",
@@ -521,6 +535,12 @@ class UserSerializer(serializers.ModelSerializer):
         try:
             organization = Organization.objects.get(id=value)
             if organization.memberships.filter(user=self.context["request"].user).exists():
+                # A member the org no longer admits can't point their session back at it — this
+                # endpoint is on the enforcement whitelist, so it must refuse on its own.
+                if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+                    self.context["request"].user.email, organization
+                ):
+                    raise serializers.ValidationError(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
                 return organization
         except Organization.DoesNotExist:
             pass
@@ -627,6 +647,20 @@ class UserSerializer(serializers.ModelSerializer):
                 current_settings[key] = value
 
         return cast(Notifications, current_settings)
+
+    def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        try:
+            UserUIConfiguration.model_validate(value)
+        except pydantic.ValidationError as e:
+            errors = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
+            )
+            raise serializers.ValidationError(
+                f"Does not match the UserUIConfiguration schema: {errors}", code="invalid_input"
+            )
+        return value
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
@@ -945,6 +979,7 @@ class UserViewSet(
         "has_seen_product_intro_for",
         "events_column_config",
         "role_at_organization",
+        "ui_configuration",
     ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",
@@ -1107,6 +1142,10 @@ class UserViewSet(
         # must not become a password-backend login path around the IdP. The user logs in via SSO.
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
             return Response({"success": True, "token": token, "requires_sso": True})
+
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            return Response({"success": True, "token": token, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)

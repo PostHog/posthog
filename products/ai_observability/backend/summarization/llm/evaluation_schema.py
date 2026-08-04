@@ -2,7 +2,11 @@
 Pydantic schema for structured evaluation summary outputs.
 """
 
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+from ..constants import EVALUATION_SUMMARY_CHUNK_SIZE, EVALUATION_SUMMARY_MAX_RUNS
 
 
 class EvaluationPattern(BaseModel):
@@ -41,3 +45,33 @@ class EvaluationSummaryResponse(BaseModel):
     na_patterns: list[EvaluationPattern]
     recommendations: list[str]
     statistics: EvaluationSummaryStatistics
+
+
+class EvaluationPatternCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    result: Literal["pass", "fail", "na"] = Field(description="Result category for this candidate theme")
+    title: str = Field(max_length=60, description="Short title for the candidate theme (3-5 words)")
+    occurrence_count: int = Field(
+        ge=1,
+        le=EVALUATION_SUMMARY_MAX_RUNS,
+        description="Exact number of evaluation runs represented by this theme",
+    )
+    example_reasoning: str = Field(
+        max_length=240,
+        description="Concise reasoning from one run that demonstrates this candidate theme",
+    )
+    example_generation_ids: list[Annotated[str, Field(max_length=64)]] = Field(
+        min_length=1,
+        max_length=3,
+        description="List of 1-3 generation IDs that exemplify this theme",
+    )
+
+
+class EvaluationSummaryMapResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patterns: list[EvaluationPatternCandidate] = Field(
+        max_length=EVALUATION_SUMMARY_CHUNK_SIZE,
+        description="Candidate themes representing evaluation runs",
+    )

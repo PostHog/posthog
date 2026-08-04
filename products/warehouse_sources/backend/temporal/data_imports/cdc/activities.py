@@ -561,8 +561,7 @@ class CDCExtractActivity:
         land in a parallel Delta table no query reads. `name` and folder diverge
         for rows renamed bare→qualified (`name="public.users"`, folder `users`).
         """
-        _table_storage_name, folder_name = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-        return folder_name
+        return resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).folder_name
 
     def _partition_kwargs(self, schema: ExternalDataSchema) -> dict[str, typing.Any]:
         """Replay snapshot partitioning so CDC rows match the target Delta.
@@ -602,7 +601,7 @@ class CDCExtractActivity:
             if schema is None:
                 continue
 
-            activity.heartbeat()
+            self._safe_heartbeat()
 
             # raw_table has one row per source change event (before SCD2/dedup fan-out).
             events_extracted += raw_table.num_rows
@@ -991,6 +990,17 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
+    def _safe_heartbeat(self, *details: typing.Any) -> None:
+        """Heartbeat is a best-effort liveness signal, not a required step. The SDK relays a
+        sync activity's heartbeat through the worker's event loop with its own short internal
+        timeout, and a transient miss there must never abort an otherwise-healthy multi-hour
+        WAL read.
+        """
+        try:
+            activity.heartbeat(*details)
+        except Exception:
+            self.log.debug("cdc_heartbeat_failed", exc_info=True)
+
     def _make_read_heartbeat(self) -> Callable[[], None]:
         """Throttled ``activity.heartbeat`` for ``read_changes``' per-row callback.
 
@@ -1004,7 +1014,7 @@ class CDCExtractActivity:
             nonlocal last_heartbeat
             now = time.monotonic()
             if now - last_heartbeat >= CDC_READ_HEARTBEAT_INTERVAL_SECONDS:
-                activity.heartbeat()
+                self._safe_heartbeat()
                 last_heartbeat = now
 
         return heartbeat
@@ -1029,7 +1039,7 @@ class CDCExtractActivity:
         limit = CDC_MAX_CHANGES_PER_READ
         while True:
             for event in self.reader.read_changes(upto_nchanges=limit, on_row=on_row):
-                activity.heartbeat()
+                self._safe_heartbeat()
 
                 # Resolve to the schema's stored `name` so downstream keying lines up. Log
                 # unmatched drops: a silent drop here is how a name mismatch starves a table.
@@ -1133,7 +1143,7 @@ class CDCExtractActivity:
             self._confirm_position(commit_lsn)
             self.last_confirmed_lsn = commit_lsn
             self.last_end_lsn = commit_lsn
-            activity.heartbeat()
+            self._safe_heartbeat()
             return True
         return False
 

@@ -11,7 +11,12 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, TEST_PARTNER_SCOPES, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_CLIENT_SECRET,
+    TEST_PARTNER_SCOPES,
+    ProvisioningTestBase,
+    provisioning_config,
+)
 
 PARTNER_CALLBACK = "https://partner.example.com/callback"
 
@@ -45,9 +50,7 @@ class AuthorizeTestBase(ProvisioningTestBase):
             is_first_party=True,
             scopes=TEST_PARTNER_SCOPES,
             is_provisioning_partner=True,
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_skip_existing_user_consent=True,
+            _provisioning_config=provisioning_config(active=True, skip_existing_user_consent=True),
         )
 
 
@@ -235,8 +238,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             redirect_uris=PARTNER_CALLBACK,
             algorithm="RS256",
             is_provisioning_partner=True,
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
+            _provisioning_config=provisioning_config(active=True),
         )
         self._set_pending_auth("state_attr", self.user.email, partner=partner)
         res = self._confirm("state_attr", self.team.id)

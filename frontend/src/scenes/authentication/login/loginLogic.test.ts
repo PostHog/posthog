@@ -1,6 +1,7 @@
 import { startAuthentication } from '@simplewebauthn/browser'
 import { router } from 'kea-router'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
@@ -11,6 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
+jest.mock('posthog-js')
 
 // isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
 const WEBKIT_VENDOR = 'Apple Computer, Inc.'
@@ -205,6 +207,46 @@ describe('loginLogic', () => {
             logic.actions.exitCodeVerification()
             expect(logic.values.codeVerificationRequired).toBe(false)
             expect(logic.values.generalError).toBe(null)
+        })
+    })
+
+    describe('opaque login failure', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    // A response with no JSON body (a 5xx from the edge, a dropped connection) leaves
+                    // `code`/`detail` null on the resulting ApiError.
+                    '/api/login': () => [502],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('reports the underlying status when code and detail are both null', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            expect(logic.values.generalError?.code).toBeFalsy()
+            expect(posthog.captureException).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ extra: expect.objectContaining({ status: 502 }) })
+            )
         })
     })
 

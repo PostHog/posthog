@@ -25,6 +25,7 @@ class CockroachDBSource(SimpleSource[CockroachDBSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.COCKROACH_DB,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="CockroachDB",
             iconPath="/static/services/cockroachdb.png",
             fields=cast(list[FieldType], []),

@@ -1,9 +1,12 @@
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { certificationsLogic } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
+    dataCatalogCertificationsCreate,
     dataCatalogCertificationsDestroy,
     dataCatalogCertificationsList,
 } from './generated/api'
@@ -42,6 +45,9 @@ jest.mock('./generated/api', () => ({
     dataCatalogCertificationsDeprecateCreate: jest.fn(),
     dataCatalogCertificationsDestroy: jest.fn(),
 }))
+
+// The whole logic module is mocked above; loadDatabase is a jest.fn at runtime.
+const mockLoadDatabase = (databaseTableListLogic as unknown as { loadDatabase: jest.Mock }).loadDatabase
 
 function buildCertification(overrides: Partial<DataCatalogCertificationApi>): DataCatalogCertificationApi {
     return {
@@ -86,6 +92,24 @@ describe('certificationsLogic', () => {
         expect(logic.values.certifications.find((certification) => certification.id === 'cert-1')?.status).toEqual(
             'certified'
         )
+        // Badges elsewhere read certification state off the shared schema, so it must be refreshed.
+        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+    })
+
+    it('sends the proposal intent when creating', async () => {
+        ;(dataCatalogCertificationsCreate as jest.Mock).mockResolvedValue(
+            buildCertification({ id: 'cert-3', status: 'proposed' })
+        )
+
+        logic.actions.setNewCertificationForm({ targetName: 'stale_revenue', proposedStatus: 'deprecated' })
+        logic.actions.createCertification()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogCertificationsCreate).toHaveBeenCalledWith('1', {
+            table_name: 'stale_revenue',
+            notes: undefined,
+            proposed_status: 'deprecated',
+        })
     })
 
     it('removes the row when revoking', async () => {
@@ -95,5 +119,7 @@ describe('certificationsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.certifications.map((certification) => certification.id)).not.toContain('cert-1')
+        // Badges elsewhere read certification state off the shared schema, so it must be refreshed.
+        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
     })
 })

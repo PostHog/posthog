@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
+    _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_reparent,
     _release_streaming_cursor,
@@ -1191,6 +1192,27 @@ class TestIsTransientVitessDialTimeout:
         assert not _is_transient_vitess_dial_timeout(ValueError("dial tcp 10.0.0.1: connection timed out"))
 
 
+class TestIsTransientTooManyConnections:
+    def test_matches_too_many_connections(self):
+        assert _is_transient_too_many_connections(pymysql.err.OperationalError(1040, "Too many connections"))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_codes(self, code, message):
+        assert not _is_transient_too_many_connections(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_too_many_connections(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_too_many_connections(pymysql.err.InternalError(1040, "Too many connections"))
+
+
 class TestConnectTransientRetry:
     @pytest.mark.parametrize(
         "fail_count,expected_sleeps",
@@ -1332,6 +1354,21 @@ class TestConnectTransientRetry:
                 ),
                 conn,
             ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_too_many_connections_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[pymysql.err.OperationalError(1040, "Too many connections"), conn],
         )
 
         with MySQLImplementation().connect(_make_config()) as yielded:
@@ -1831,6 +1868,27 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # DNS resolution failure for the configured SSH tunnel host (`_pinned_ssh_host` in
+            # common/mixins.py).
+            "SSH tunnel host not allowed: Couldn't resolve the host 'bastion.example.com'. Check "
+            "that it's spelled correctly and reachable from the public internet.",
+            # Temporal-wrapped form carrying the exception class name.
+            "Exception: SSH tunnel host not allowed: Couldn't resolve the host 'bastion.example.com'. "
+            "Check that it's spelled correctly and reachable from the public internet.",
+            # The other rejection `_pinned_ssh_host` can raise: the host resolves to a private/internal address.
+            "SSH tunnel host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet.",
+        ],
+    )
+    def test_ssh_tunnel_host_not_allowed_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "SSH tunnel host not allowed" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH tunnel host rejection should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw pymysql str(error) form (classified in `_handle_import_error`).
             str(pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'")),
             # Temporal-wrapped str(e.cause) form (classified in external_data_job).
@@ -1858,6 +1916,21 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Table-not-found error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(pymysql.err.OperationalError(1049, "Unknown database 'wealth_insights'")),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "OperationalError: (1049, \"Unknown database 'wealth_insights'\")",
+        ],
+    )
+    def test_unknown_database_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unknown-database error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1933,6 +2006,45 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # MariaDB / RDS rendering seen in the wild (error 3, EE_WRITE).
+            str(
+                pymysql.err.InternalError(
+                    3, "Error writing file '/rdsdbdata/tmp/MYfd=260' (OS errno 28 - No space left on device)"
+                )
+            ),
+            # Temporal-wrapped form of the above.
+            "InternalError: (3, \"Error writing file '/rdsdbdata/tmp/MYfd=99' (OS errno 28 - No space left on device)\")",
+            # Classic MySQL storage-engine rendering (`Errcode:`, strerror quoted).
+            '(3, "Error writing file \'/tmp/MYXXXXXX\' (Errcode: 28 \\"No space left on device\\")")',
+            # A non-English OS locale translates the trailing strerror(28) text (French shown here),
+            # but the `OS errno 28 -` marker MySQL/MariaDB itself emits is not translated — this must
+            # still match, or the sync retries forever on exactly the servers this entry targets.
+            "(3, \"Error writing file '/rdsdbdata/tmp/MYfd=42' (OS errno 28 - Aucun espace disponible sur le périphérique)\")",
+        ],
+    )
+    def test_out_of_disk_space_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Out-of-disk-space error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A full disk on our *own* worker surfaces as a Python OSError, whose `[Errno 28]`
+            # rendering must NOT be swallowed by the MySQL-server disk-full match — it's a transient
+            # infra problem that should keep retrying (a fresh worker may have space).
+            str(OSError(28, "No space left on device")),
+            "[Errno 28] No space left on device: '/tmp/pipeline/part-0.parquet'",
+        ],
+    )
+    def test_worker_disk_full_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Worker-side disk-full error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # str(exc) form the sync path classifies — a zero-width space pasted into a field.
             str(UnicodeEncodeError("latin-1", "\u200b", 0, 1, "ordinal not in range(256)")),
             # `" ".join(str(arg) for arg in exc.args)` form validate_credentials builds, where the
@@ -1993,6 +2105,34 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient thread-exhaustion error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (1040, 'Too many connections')",
+            "Too many connections",
+        ],
+    )
+    def test_too_many_connections_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Too-many-connections error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (1040, 'Too many connections')",
+            "Too many connections",
+        ],
+    )
+    def test_too_many_connections_is_classified_retryable(self, source, error_msg):
+        # Already retried in-process at connect time (`_is_transient_too_many_connections`); once
+        # exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering capacity condition.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Too-many-connections error should be classified retryable: {error_msg}"
 
 
 class TestMySQLSourceValidateCredentials:
@@ -2137,3 +2277,30 @@ class TestConnectSSHTunnel:
         mock_connect.assert_not_called()
         non_retryable = MySQLSource().get_non_retryable_errors()
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
+
+class TestConnectPortCoercion:
+    def test_string_port_is_coerced_to_int(self, mocker):
+        # A config built directly (not through the int-coercing `from_dict`) can carry a string
+        # port, which pymysql rejects with `ValueError: port should be of type int`.
+        config = MySQLSourceConfig(
+            host="localhost",
+            port="3306",  # type: ignore[arg-type]
+            database="d",
+            user="u",
+            password="p",
+            schema="mydb",
+            using_ssl=False,
+            ssh_tunnel=None,
+        )
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            return_value=MagicMock(),
+        )
+
+        with MySQLImplementation().connect(config):
+            pass
+
+        passed_port = mock_connect.call_args.kwargs["port"]
+        assert passed_port == 3306
+        assert isinstance(passed_port, int)
