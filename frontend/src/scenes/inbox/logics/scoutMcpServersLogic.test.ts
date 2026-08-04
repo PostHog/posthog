@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { userLogic } from 'scenes/userLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -107,6 +109,35 @@ describe('scoutMcpServersLogic', () => {
         expect(logic.values.readyScoutServers).toEqual([linear])
         expect(logic.values.availableScoutServers).toEqual([linear])
         expect(logic.values.scoutServersNeedingSetup).toEqual([notion])
+    })
+
+    it('attributes no grants while the current user is still loading', async () => {
+        const linear = server('linear-id', 'Linear', 'ready')
+        const teammateGithub = server('github-id', 'GitHub', 'ready', TEAMMATE)
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
+                    200,
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [account('scout', [linear, teammateGithub])],
+                    },
+                ],
+            },
+        })
+
+        logic = scoutMcpServersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        userLogic.actions.loadUserSuccess(null)
+
+        expect(logic.values.currentUserId).toBeNull()
+        expect(logic.values.yourScoutServers).toEqual([])
+        expect(logic.values.teammateScoutServers).toEqual([])
+        expect(logic.values.availableScoutServers).toEqual([])
+        expect(logic.values.scoutServersNeedingSetup).toEqual([])
     })
 
     it('does not expose ready servers when MCP access is paused', async () => {

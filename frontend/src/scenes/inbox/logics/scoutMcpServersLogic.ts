@@ -120,7 +120,9 @@ export const scoutMcpServersLogic = kea<scoutMcpServersLogicType>([
         ],
         // A grant belongs to one member and a scout run mounts only the grants of the person it
         // runs for, so a teammate's grant never backs the viewer's scouts. Readiness and setup
-        // below therefore look at the viewer's own grants alone.
+        // below therefore look at the viewer's own grants alone. While the user is still loading
+        // neither partition can be attributed, so both stay empty rather than reading the
+        // viewer's own grants as teammates'.
         yourScoutServers: [
             (s) => [s.scoutServers, s.currentUserId],
             (scoutServers: MCPServiceAccountServerApi[], currentUserId: number | null): MCPServiceAccountServerApi[] =>
@@ -129,7 +131,7 @@ export const scoutMcpServersLogic = kea<scoutMcpServersLogicType>([
         teammateScoutServers: [
             (s) => [s.scoutServers, s.currentUserId],
             (scoutServers: MCPServiceAccountServerApi[], currentUserId: number | null): MCPServiceAccountServerApi[] =>
-                scoutServers.filter((server) => server.shared_by.id !== currentUserId),
+                currentUserId === null ? [] : scoutServers.filter((server) => server.shared_by.id !== currentUserId),
         ],
         readyScoutServers: [
             (s) => [s.yourScoutServers],

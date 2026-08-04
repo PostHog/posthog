@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSwitch, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { gatewayServerLogic } from './gatewayServerLogic'
-import { sharedByLabel, toProfileUser } from './gatewayUtils'
+import { RemoveAllSharesButton, sharedByLabel, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
 
 /** Access section on the server detail. Team and connection controls are
@@ -99,7 +99,8 @@ export function GatewayAccessSection(): JSX.Element | null {
                     <div className="border rounded divide-y">
                         {serviceAccounts.map((account) => {
                             const share = agentSharesByAccountId[account.id]
-                            const attribution = sharedByLabel(share?.sharedByOthers ?? [])
+                            const sharedByOthers = share?.sharedByOthers ?? []
+                            const attribution = sharedByLabel(sharedByOthers)
                             const sharedByYou = Boolean(share?.sharedByYou)
                             const needsConnection = !sharedByYou && server.your_connection === null
                             return (
@@ -114,6 +115,15 @@ export function GatewayAccessSection(): JSX.Element | null {
                                     <LemonTag type={account.status === 'paused' ? 'warning' : 'success'} size="small">
                                         {account.status === 'paused' ? 'MCP paused' : 'MCP enabled'}
                                     </LemonTag>
+                                    {sharedByOthers.length > 0 && (
+                                        <RemoveAllSharesButton
+                                            accountId={account.id}
+                                            accountName={account.name}
+                                            serverId={server.id}
+                                            serverName={server.name}
+                                            shareCount={sharedByOthers.length + (sharedByYou ? 1 : 0)}
+                                        />
+                                    )}
                                     <LemonSwitch
                                         checked={sharedByYou}
                                         loading={agentServerAccessLoadingKeys.has(
@@ -122,11 +132,6 @@ export function GatewayAccessSection(): JSX.Element | null {
                                         disabledReason={
                                             needsConnection
                                                 ? 'Connect this server before sharing it with an agent.'
-                                                : undefined
-                                        }
-                                        tooltip={
-                                            attribution
-                                                ? `Turning this off also removes the shares your teammates made with ${account.name}.`
                                                 : undefined
                                         }
                                         aria-label={`${sharedByYou ? 'Stop sharing' : 'Share'} your ${server.name} connection with ${account.name}`}

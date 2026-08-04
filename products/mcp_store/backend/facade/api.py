@@ -18,6 +18,7 @@ from products.mcp_store.backend.agents import (
     is_builtin_agent_enforcement_enabled,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.gateway import installation_for_agent_access
 from products.mcp_store.backend.models import (
     MCPServerInstallation,
     MCPServerInstallationTool,
@@ -220,6 +221,7 @@ def get_installations_for_sandbox(
         if agent_key is not None and agent_account is not None and agent_account.status != "active":
             return []
 
+        installations: list[MCPServerInstallation]
         if agent_key is not None:
             if agent_account is None or credential_owner_id is None:
                 installations = []
@@ -227,21 +229,22 @@ def get_installations_for_sandbox(
                 access_rows = list(
                     MCPServiceAccountServerAccess.objects.for_team(team_id)
                     .filter(service_account=agent_account, user_id=credential_owner_id)
-                    .values_list("installation_id", "gateway_server_id")
+                    .select_related("installation__template", "installation__gateway_server")
                 )
-                bound_servers = {
-                    installation_id: gateway_server_id
-                    for installation_id, gateway_server_id in access_rows
-                    if installation_id is not None
-                }
-                # The admin kill switch overrides grants: a server turned off
-                # for the team is withheld from agents too.
-                candidates = list(base_queryset.filter(id__in=bound_servers, gateway_server__is_team_enabled=True))
-                installations = [
-                    installation
-                    for installation in candidates
-                    if bound_servers.get(installation.id) == installation.gateway_server_id
-                ]
+                installations = []
+                for access in access_rows:
+                    # Same resolution the gateway proxy and the API serializers
+                    # use, so a grant whose credential drifted off its team,
+                    # server, or owner is dropped here too instead of being
+                    # mounted into the sandbox.
+                    installation = installation_for_agent_access(access)
+                    if installation is None or not installation.is_enabled:
+                        continue
+                    # The admin kill switch overrides grants: a server turned
+                    # off for the team is withheld from agents too.
+                    if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
+                        continue
+                    installations.append(installation)
         else:
             shared_queryset = base_queryset.filter(scope="shared")
             shared_queryset = shared_queryset.filter(

@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { userLogic } from 'scenes/userLogic'
+
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
@@ -187,6 +189,15 @@ describe('gatewayServerLogic', () => {
             'teammate-only': { sharedByYou: false, sharedByOthers: [TEAMMATE] },
             both: { sharedByYou: true, sharedByOthers: [TEAMMATE] },
             unshared: { sharedByYou: false, sharedByOthers: [] },
+        })
+    })
+
+    it('attributes no grant while the current user is still loading', () => {
+        userLogic.actions.loadUserSuccess(null)
+        parentLogic.actions.loadServiceAccountsSuccess([serviceAccount('both', [YOU, TEAMMATE])])
+
+        expect(logic.values.agentSharesByAccountId).toEqual({
+            both: { sharedByYou: false, sharedByOthers: [] },
         })
     })
 

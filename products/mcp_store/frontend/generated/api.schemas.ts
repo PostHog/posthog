@@ -788,10 +788,12 @@ export interface PatchedMCPServiceAccountUpdateApi {
 }
 
 export interface ServiceAccountAccessUpdateApi {
-    /** Gateway server to grant or revoke. */
+    /** Gateway server to share or stop sharing. */
     gateway_server_id: string
-    /** True grants access, false revokes it. */
+    /** True shares the caller's own connection with the agent, false removes the caller's share. */
     enabled: boolean
+    /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
+    all?: boolean
     /**
      * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
      * @maxItems 1000

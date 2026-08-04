@@ -1410,6 +1410,101 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert admin_revoke_response.status_code == status.HTTP_200_OK
         assert not MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(id=access.id).exists()
 
+    def _server_shared_by_two_members(self, account: MCPServiceAccount) -> tuple[MCPGatewayServer, User]:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Team Notion",
+            url="https://mcp.team-notion.example.com/mcp",
+        )
+        teammate = User.objects.create_and_join(self.organization, "teammate-share@posthog.com", "password")
+        for owner in (self.user, teammate):
+            installation = MCPServerInstallation.objects.create(
+                team=self.team,
+                user=owner,
+                display_name=server.name,
+                url=server.url,
+                auth_type="api_key",
+                sensitive_configuration={"api_key": "secret"},
+                scope="personal",
+                gateway_server=server,
+            )
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+                team=self.team,
+                user=owner,
+                service_account=account,
+                gateway_server=server,
+                installation=installation,
+                granted_by=owner,
+            )
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="create_issue",
+            scope_type="agent",
+            scope_service_account=account,
+            state="do_not_use",
+        )
+        return server, teammate
+
+    def _agent_grant_user_ids(self, account: MCPServiceAccount, server: MCPGatewayServer) -> list[int]:
+        return sorted(
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(service_account=account, gateway_server=server)
+            .values_list("user_id", flat=True)
+        )
+
+    def _agent_policy_exists(self, account: MCPServiceAccount, server: MCPGatewayServer) -> bool:
+        return (
+            MCPToolPolicy.objects.for_team(self.team.id)
+            .filter(gateway_server=server, scope_type="agent", scope_service_account=account)
+            .exists()
+        )
+
+    def test_member_unshare_leaves_teammate_shares_and_agent_tool_policies_alone(self) -> None:
+        self._make_member()
+        account = self._active_scout_account()
+        server, teammate = self._server_shared_by_two_members(account)
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._agent_grant_user_ids(account, server) == [teammate.id]
+        assert self._agent_policy_exists(account, server)
+
+    def test_admin_can_remove_every_members_share_of_a_server(self) -> None:
+        self._make_admin()
+        account = self._active_scout_account()
+        server, _teammate = self._server_shared_by_two_members(account)
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False, "all": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._agent_grant_user_ids(account, server) == []
+        assert not self._agent_policy_exists(account, server)
+
+    def test_member_cannot_remove_every_members_share_of_a_server(self) -> None:
+        self._make_member()
+        account = self._active_scout_account()
+        server, teammate = self._server_shared_by_two_members(account)
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False, "all": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert self._agent_grant_user_ids(account, server) == sorted([self.user.id, teammate.id])
+        assert self._agent_policy_exists(account, server)
+
     def test_only_admin_can_update_member_agent_access_setting(self) -> None:
         self._make_member()
         config_url = f"/api/projects/{self.team.id}/mcp_gateway/config/"

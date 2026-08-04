@@ -9,7 +9,7 @@ def backfill_agent_access_user(apps, schema_editor):
     the credential has since been deleted (installation is null) the granter is
     the next best attribution. A grant with neither is unattributable and can
     never be mounted under per-user resolution, so it is dropped rather than
-    left behind as a row that blocks the NOT NULL constraint.
+    left behind as a row no read path can ever resolve.
     """
     MCPServiceAccountServerAccess = apps.get_model("mcp_store", "MCPServiceAccountServerAccess")
 

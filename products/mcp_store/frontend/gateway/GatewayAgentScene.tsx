@@ -12,7 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { ServerIcon } from '../scene/icons'
 import { gatewayAgentLogic } from './gatewayAgentLogic'
-import { DecisionTag, sharedByLabel } from './gatewayUtils'
+import { DecisionTag, RemoveAllSharesButton, sharedByLabel } from './gatewayUtils'
 import { agentServerAccessKey } from './mcpGatewayLogic'
 
 export const scene: SceneExport<(typeof gatewayAgentLogic)['props']> = {
@@ -91,7 +91,8 @@ export function GatewayAgentScene(): JSX.Element {
                         allServers.map((server) => {
                             const share = sharesByServerId[server.id]
                             const sharedByYou = Boolean(share?.sharedByYou)
-                            const attribution = sharedByLabel(share?.sharedByOthers ?? [])
+                            const sharedByOthers = share?.sharedByOthers ?? []
+                            const attribution = sharedByLabel(sharedByOthers)
                             const shared = sharedServerIds.has(server.id)
                             const needsConnection = !sharedByYou && server.your_connection === null
                             return (
@@ -112,6 +113,15 @@ export function GatewayAgentScene(): JSX.Element {
                                             Tool policies
                                         </LemonButton>
                                     )}
+                                    {sharedByOthers.length > 0 && (
+                                        <RemoveAllSharesButton
+                                            accountId={account.id}
+                                            accountName={account.name}
+                                            serverId={server.id}
+                                            serverName={server.name}
+                                            shareCount={sharedByOthers.length + (sharedByYou ? 1 : 0)}
+                                        />
+                                    )}
                                     <LemonSwitch
                                         checked={sharedByYou}
                                         loading={agentServerAccessLoadingKeys.has(
@@ -120,11 +130,6 @@ export function GatewayAgentScene(): JSX.Element {
                                         disabledReason={
                                             needsConnection
                                                 ? 'Connect this server before sharing it with an agent.'
-                                                : undefined
-                                        }
-                                        tooltip={
-                                            attribution
-                                                ? `Turning this off also removes the shares your teammates made with ${account.name}.`
                                                 : undefined
                                         }
                                         aria-label={`${sharedByYou ? 'Stop sharing' : 'Share'} your ${server.name} connection with ${account.name}`}

@@ -1,9 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheck, IconShieldLock, IconX } from '@posthog/icons'
-import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
 
 import { MCPToolApprovalStateEnumApi, UserBasicApi } from '../generated/api.schemas'
+import { agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
 
 /** ProfilePicture wants a UserBasicType-ish shape; the generated UserBasicApi's
  * `hedgehog_config` type isn't assignable, so pass the fields it actually reads. */
@@ -23,6 +26,60 @@ export function sharedByLabel(users: UserBasicApi[]): string | null {
         return `Shared by ${name}`
     }
     return `Shared by ${name} and ${rest.length} other${rest.length === 1 ? '' : 's'}`
+}
+
+/** Admin-only escape hatch: the share switch only ever controls the viewer's own
+ * grant, so removing an agent's access for the whole project needs its own action.
+ * It stays available to an admin who never connected the server themselves. */
+export function RemoveAllSharesButton({
+    accountId,
+    accountName,
+    serverId,
+    serverName,
+    shareCount,
+}: {
+    accountId: string
+    accountName: string
+    serverId: string
+    serverName: string
+    shareCount: number
+}): JSX.Element | null {
+    const { agentServerAccessLoadingKeys, isAdmin } = useValues(mcpGatewayLogic)
+    const { removeAllAgentServerShares } = useActions(mcpGatewayLogic)
+
+    if (!isAdmin || shareCount === 0) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            status="danger"
+            size="small"
+            loading={agentServerAccessLoadingKeys.has(agentServerAccessKey(accountId, serverId))}
+            onClick={() =>
+                LemonDialog.open({
+                    title: `Remove all shares of ${serverName}?`,
+                    description: (
+                        <div className="max-w-120">
+                            {shareCount} {shareCount === 1 ? 'member has' : 'members have'} shared a {serverName}{' '}
+                            connection with {accountName}. Removing them stops {accountName} using {serverName} for
+                            everyone in this project, and clears its tool settings for this server.
+                        </div>
+                    ),
+                    secondaryButton: { type: 'secondary', children: 'Cancel' },
+                    primaryButton: {
+                        type: 'primary',
+                        status: 'danger',
+                        children: 'Remove all shares',
+                        onClick: () => removeAllAgentServerShares(accountId, serverId),
+                    },
+                })
+            }
+        >
+            Remove all shares
+        </LemonButton>
+    )
 }
 
 export const POLICY_LABELS: Record<MCPToolApprovalStateEnumApi, string> = {

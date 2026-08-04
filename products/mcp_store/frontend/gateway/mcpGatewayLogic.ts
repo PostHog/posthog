@@ -130,9 +130,14 @@ export function agentServerShare(
     serverId: string,
     currentUserId: number | null
 ): AgentServerShare {
+    // Until the user loads there is no way to tell your own grants from anyone
+    // else's, and calling them all teammates' would misattribute your own.
+    if (currentUserId === null) {
+        return { sharedByYou: false, sharedByOthers: [] }
+    }
     const grants = (account?.servers ?? []).filter((server) => server.id === serverId)
     return {
-        sharedByYou: currentUserId !== null && grants.some((server) => server.shared_by.id === currentUserId),
+        sharedByYou: grants.some((server) => server.shared_by.id === currentUserId),
         sharedByOthers: grants
             .filter((server) => server.shared_by.id !== currentUserId)
             .map((server) => server.shared_by),
@@ -343,6 +348,13 @@ export interface mcpGatewayLogicActions {
         value: true
     }
     removeServer: (serverId: string) => {
+        serverId: string
+    }
+    removeAllAgentServerShares: (
+        accountId: string,
+        serverId: string
+    ) => {
+        accountId: string
         serverId: string
     }
     setAgentServerAccess: (
@@ -580,6 +592,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             enabled,
         }),
         setAgentServerAccessComplete: (accountId: string, serverId: string) => ({ accountId, serverId }),
+        removeAllAgentServerShares: (accountId: string, serverId: string) => ({ accountId, serverId }),
         setAllServersEnabled: (enabled: boolean) => ({ enabled }),
         setAllServersEnabledComplete: true,
         setTemplateEnabled: (templateId: string, enabled: boolean) => ({ templateId, enabled }),
@@ -725,6 +738,8 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             new Set<string>(),
             {
                 setAgentServerAccess: (state, { accountId, serverId }) =>
+                    new Set(state).add(agentServerAccessKey(accountId, serverId)),
+                removeAllAgentServerShares: (state, { accountId, serverId }) =>
                     new Set(state).add(agentServerAccessKey(accountId, serverId)),
                 setAgentServerAccessComplete: (state, { accountId, serverId }) => {
                     const next = new Set(state)
@@ -1135,11 +1150,35 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 lemonToast[enabled ? 'success' : 'info'](
                     enabled
                         ? `${server?.name ?? 'Server'} shared with ${account?.name ?? 'agent'}. Only your agents use your connection.`
-                        : `${account?.name ?? 'Agent'} can no longer access ${server?.name ?? 'server'}, for you or anyone else on the team`
+                        : `Your ${server?.name ?? 'server'} connection is no longer shared with ${account?.name ?? 'this agent'}. Your teammates' shares are unchanged.`
                 )
             } catch (error: unknown) {
                 lemonToast.error(
                     errorDetail(error) ?? `Could not update server access for ${account?.name ?? 'this agent'}`
+                )
+            } finally {
+                actions.setAgentServerAccessComplete(accountId, serverId)
+            }
+        },
+        removeAllAgentServerShares: async ({ accountId, serverId }) => {
+            const account = values.serviceAccounts.find((candidate) => candidate.id === accountId)
+            const server = values.servers.find((candidate) => candidate.id === serverId)
+            try {
+                const updatedAccount = await mcpGatewayServiceAccountsAccessCreate(currentProjectId(), accountId, {
+                    gateway_server_id: serverId,
+                    enabled: false,
+                    all: true,
+                })
+                actions.loadServiceAccountsSuccess(
+                    values.serviceAccounts.map((candidate) => (candidate.id === accountId ? updatedAccount : candidate))
+                )
+                actions.loadServers()
+                lemonToast.info(
+                    `${account?.name ?? 'This agent'} can no longer use anyone's ${server?.name ?? 'server'} connection`
+                )
+            } catch (error: unknown) {
+                lemonToast.error(
+                    errorDetail(error) ?? `Could not remove the shares of ${server?.name ?? 'this server'}`
                 )
             } finally {
                 actions.setAgentServerAccessComplete(accountId, serverId)

@@ -391,7 +391,14 @@ class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
     # The person the grant belongs to. An agent run mounts a grant only when
     # this user is the run's credential owner, so one member's connection never
     # backs another member's agent run.
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    #
+    # Nullable only for the rolling deploy: pods running the previous release
+    # write grants without this column, so a NOT NULL constraint would make
+    # their inserts fail mid-deploy. Every read path filters on an explicit user
+    # id or excludes user__isnull=True, so a transient null row resolves
+    # nowhere. NOT NULL is deferred to a follow-up once no deployed code writes
+    # grants without a user.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False, null=True)
     # Null preserves the grant when its exact credential is deleted, so the UI
     # can surface that the agent needs a new connection.
     installation = models.ForeignKey(
