@@ -5,7 +5,6 @@ import type { ComponentProps, ReactElement } from 'react'
 
 import {
     IconArrowLeft,
-    IconEllipsis,
     IconEye,
     IconFolder,
     IconHide,
@@ -536,53 +535,52 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         {
             title: 'Actions',
             key: 'actions',
+            align: 'right',
+            width: 0,
             render: (_, directory) => (
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.LlmAnalytics}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <AccessControlledLemonMenu
-                        disabledReason={null}
-                        items={[
-                            {
-                                icon: <IconPencil />,
-                                label: 'Rename',
-                                onClick: () => openRenameDirectory(directory),
-                            },
-                            {
-                                icon: <IconTrash />,
-                                label: 'Delete',
-                                status: 'danger',
-                                onClick: () => {
-                                    LemonDialog.open({
-                                        title: `Delete ${directory.name}?`,
-                                        description: `${directory.evaluation_count} evaluation${
-                                            directory.evaluation_count === 1 ? '' : 's'
-                                        } will move to the top level.`,
-                                        primaryButton: {
-                                            children: 'Delete directory',
-                                            status: 'danger',
-                                            onClick: () => deleteDirectory(directory.id),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                },
-                                disabledReason:
-                                    deletingDirectoryId === directory.id ? 'Directory deletion in progress' : undefined,
-                            },
-                        ]}
+                <div className="flex justify-end gap-1">
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
                             size="small"
                             type="secondary"
-                            icon={<IconEllipsis />}
-                            loading={deletingDirectoryId === directory.id}
-                            tooltip="Directory actions"
+                            icon={<IconPencil />}
+                            tooltip="Rename directory"
+                            onClick={() => openRenameDirectory(directory)}
                         />
-                    </AccessControlledLemonMenu>
-                </AccessControlAction>
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            icon={<IconTrash />}
+                            tooltip="Delete directory"
+                            loading={deletingDirectoryId === directory.id}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: `Delete ${directory.name}?`,
+                                    description: `${directory.evaluation_count} evaluation${
+                                        directory.evaluation_count === 1 ? '' : 's'
+                                    } will move to the top level.`,
+                                    primaryButton: {
+                                        children: 'Delete directory',
+                                        status: 'danger',
+                                        onClick: () => deleteDirectory(directory.id),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            }}
+                        />
+                    </AccessControlAction>
+                </div>
             ),
         },
     ]
