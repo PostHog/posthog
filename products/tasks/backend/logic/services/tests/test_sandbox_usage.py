@@ -76,6 +76,20 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.user_attributed_at is not None
         assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
 
+    def test_warm_claim_keeps_provenance_snapshotted_at_provisioning(self):
+        run = self._run(
+            state={"await_user_message": True, "prewarmed": True},
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+        )
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-snapshot", config=_config())
+        Task.objects.filter(id=run.task_id).update(client_provenance=None)
+
+        record_task_run_user_activity(run.id, self.team.id)
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm-snapshot")
+        assert session.user_attributed_at is not None
+        assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
+
     def test_reprovisioned_session_keeps_task_provenance_snapshot(self):
         run = self._run(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
         open_sandbox_session(run_id=run.id, sandbox_id="sb-first", config=_config())

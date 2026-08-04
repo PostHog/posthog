@@ -19,7 +19,7 @@ from typing import ParamSpec, TypeVar
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, F, Q, Value, When
 from django.utils import timezone
 
 import structlog
@@ -128,7 +128,10 @@ def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
     )
     open_sessions.filter(user_attributed_at__isnull=True).update(
         user_attributed_at=now,
-        client_provenance=client_provenance,
+        client_provenance=Case(
+            When(client_provenance__isnull=True, then=Value(client_provenance)),
+            default=F("client_provenance"),
+        ),
     )
 
 
