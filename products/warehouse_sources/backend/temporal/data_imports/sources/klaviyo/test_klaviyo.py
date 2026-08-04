@@ -793,6 +793,61 @@ class TestValuesReports:
 
         assert rows[0]["conversion_metric_id"] == "M_FIRST"
 
+    def test_ineligible_conversion_metric_skips_the_report_instead_of_failing_the_sync(self, monkeypatch: Any) -> None:
+        # Klaviyo rejects some metrics (e.g. system metrics) as conversion metrics for values
+        # reports; the same metric would be re-resolved on every retry, so this can never self-heal
+        # and must not fail the whole sync.
+        response = _response_with_status(400)
+        response._content = (
+            b'{"errors":[{"status":400,"code":"invalid","title":"Invalid input.",'
+            b'"detail":"Passed in conversion metric does not support querying for values data",'
+            b'"source":{"pointer":"/data/attributes/conversion_metric_id"}}]}'
+        )
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                raise requests.HTTPError(response=response)
+            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        assert (
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="campaign_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+            == []
+        )
+
+    def test_unrelated_http_error_still_propagates(self, monkeypatch: Any) -> None:
+        # Only the specific ineligible-conversion-metric 400 should be swallowed; any other HTTP
+        # failure (e.g. a transient 500) must still fail the sync loudly rather than go silent.
+        response = _response_with_status(500)
+        response._content = b'{"errors":[{"status":500,"title":"Internal Server Error"}]}'
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                raise requests.HTTPError(response=response)
+            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        with pytest.raises(requests.HTTPError):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="campaign_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
     def test_account_with_no_metrics_yields_nothing_instead_of_posting_an_invalid_report(
         self, monkeypatch: Any
     ) -> None:
