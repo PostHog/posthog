@@ -228,16 +228,18 @@ Two small additions would unblock most real analysis.
 - [ ] Workflows.
 - [ ] Web analytics events. `WEB_ANALYTICS_EVENTS_ENDPOINT` is already defined in `hubspot/settings.py:63` but is referenced nowhere else, so this is a half-finished thread rather than a new build.
 
-### LinkedIn Ads — needs confirmation
+### LinkedIn Ads — spec-verified
 
-Seven tables, and the only ad platform that already ships `creatives`.
+Spec: <https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting> (version 202607), diffed 2026-08-04.
 
-- [ ] Member-demographic pivots: `MEMBER_COMPANY`, `MEMBER_INDUSTRY`, `MEMBER_SENIORITY`, `MEMBER_JOB_TITLE`, `MEMBER_COUNTRY_V2`, `MEMBER_COMPANY_SIZE`. This is the reason people advertise on LinkedIn and none of it is available.
-- [ ] Lead gen forms and form responses.
-- [ ] Conversions and conversion events.
-- [ ] Audiences / DMP segments.
-- [ ] Budget and bid data on campaigns.
-- [ ] Video ad analytics.
+Have: `accounts`, `campaigns`, `campaign_groups`, `creatives`, `conversions`, `campaign_stats`, `campaign_group_stats`, `creative_stats`, `member_company_stats`, `member_company_size_stats`, `member_country_stats`, `member_industry_stats`, `member_job_title_stats`, `member_seniority_stats`. The only ad platform that ships `creatives`.
+
+- [x] Member-demographic pivots: `MEMBER_COMPANY`, `MEMBER_INDUSTRY`, `MEMBER_SENIORITY`, `MEMBER_JOB_TITLE`, `MEMBER_COUNTRY_V2`, `MEMBER_COMPANY_SIZE`. This is the reason people advertise on LinkedIn and none of it is available.
+- [ ] Lead gen forms and form responses. (skipped: the Lead Sync API needs `r_marketing_leadgen_automation`, which is not in PostHog's LinkedIn OAuth app and belongs to a separate approval program)
+- [x] Conversions and conversion events. (conversion rules ship as `conversions`; the conversion-tracking reference documents no read finder for individual conversion events, so conversion counts stay available through the `externalWebsiteConversions` metric on the stats tables)
+- [ ] Audiences / DMP segments. (skipped: `dmpSegments` needs `rw_dmp_segments`, part of the Audiences program and not granted with the Marketing API program)
+- [ ] Budget and bid data on campaigns. (skipped: `dailyBudget`, `unitCost` and `costType` already sync on `campaigns` and `totalBudget` on `campaign_groups`; the remainder would mean adding columns to live tables)
+- [ ] Video ad analytics. (skipped: `videoViews` and `videoCompletions` already sync on the stats tables; the extra quartile metrics would mean adding columns to live tables)
 
 ### Google Search Console — needs confirmation
 
