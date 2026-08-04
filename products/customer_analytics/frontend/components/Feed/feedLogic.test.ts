@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
 
-import { CUSTOMER_ANALYTICS_SCOUT_NAMES, feedLogic } from './feedLogic'
+import { CUSTOMER_ANALYTICS_SCOUT_PREFIX, feedLogic } from './feedLogic'
 
 describe('feedLogic', () => {
     let logic: ReturnType<typeof feedLogic.build>
@@ -30,12 +30,12 @@ describe('feedLogic', () => {
         logic?.unmount()
     })
 
-    it('always scopes the list to the customer analytics scouts', async () => {
+    it('always scopes the list to the customer analytics scout prefix', async () => {
         logic = feedLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadReports', 'loadReportsSuccess'])
 
-        expect(lastParams?.get('scout')).toBe(CUSTOMER_ANALYTICS_SCOUT_NAMES.join(','))
+        expect(lastParams?.get('scout_prefix')).toBe(CUSTOMER_ANALYTICS_SCOUT_PREFIX)
         expect(lastParams?.get('status')).toBeNull()
         expect(lastParams?.get('suggested_reviewers')).toBeNull()
     })
@@ -51,7 +51,7 @@ describe('feedLogic', () => {
             logic.actions.setMyReportsOnly(true)
         }).toFinishAllListeners()
 
-        expect(lastParams?.get('scout')).toBe(CUSTOMER_ANALYTICS_SCOUT_NAMES.join(','))
+        expect(lastParams?.get('scout_prefix')).toBe(CUSTOMER_ANALYTICS_SCOUT_PREFIX)
         expect(lastParams?.get('status')).toBe('ready')
         expect(lastParams?.get('suggested_reviewers')).toBe('user-uuid-7')
     })

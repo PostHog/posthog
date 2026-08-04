@@ -9,7 +9,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../../../frontend/src/types'
 
-export const CUSTOMER_ANALYTICS_SCOUT_NAMES = ['signals-scout-customer-analytics', 'signals-scout-product-mix']
+// Matches every scout in the customer analytics family — new scouts only need a name
+// starting with this prefix to show up in the feed.
+export const CUSTOMER_ANALYTICS_SCOUT_PREFIX = 'signals-scout-customer-analytics'
 
 // ponytail: single page of 100; add pagination when a team's scout reports outgrow it.
 const REPORTS_LIMIT = 100
@@ -89,7 +91,7 @@ export const feedLogic = kea<feedLogicType>([
             {
                 loadReports: async (_, breakpoint) => {
                     const response = await api.signalReports.list({
-                        scout: CUSTOMER_ANALYTICS_SCOUT_NAMES.join(','),
+                        scout_prefix: CUSTOMER_ANALYTICS_SCOUT_PREFIX,
                         limit: REPORTS_LIMIT,
                         ...(values.statusFilter ? { status: values.statusFilter } : {}),
                         ...(values.myReportsOnly && values.user?.uuid ? { suggested_reviewers: values.user.uuid } : {}),

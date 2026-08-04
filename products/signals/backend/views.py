@@ -149,6 +149,7 @@ from products.signals.backend.temporal.reingestion import SignalReportReingestio
 from products.signals.backend.temporal.signal_queries import (
     fetch_live_report_ids_for_source_ids,
     fetch_report_ids_for_scout_names,
+    fetch_report_ids_for_scout_prefix,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
 )
@@ -733,6 +734,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
+        qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
@@ -901,6 +903,14 @@ class SignalReportViewSet(
 
         report_ids_with_scout = fetch_report_ids_for_scout_names(self.team, scout_names)
         return queryset.filter(id__in=report_ids_with_scout)
+
+    def _apply_signal_report_scout_prefix_filter(self, queryset):
+        scout_prefix = (self.request.query_params.get("scout_prefix") or "").strip()
+        if not scout_prefix:
+            return queryset
+
+        report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
+        return queryset.filter(id__in=report_ids_with_prefix)
 
     def _latest_suggested_reviewers_qs(self):
         """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
@@ -1384,6 +1394,18 @@ class SignalReportViewSet(
                     "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). "
                     "Reports are kept if at least one of their contributing signals was authored by one of "
                     "these scouts. Combines with source_product as an AND."
+                ),
+            ),
+            OpenApiParameter(
+                name="scout_prefix",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at "
+                    "least one of their contributing signals was authored by a scout whose skill_name starts "
+                    "with this prefix — new scouts in the family match without callers listing every name. "
+                    "Combines with the other filters as an AND."
                 ),
             ),
             OpenApiParameter(
