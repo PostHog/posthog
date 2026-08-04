@@ -302,9 +302,11 @@ If automatic creation failed due to a permissions error and you're using a restr
         # A non-4xx `stripe.APIError` (a genuine backend problem on Stripe's side) is already retried
         # in-process by the SDK's own 5xx backoff before it can reach here, so the same reasoning
         # applies. Stripe's docs describe these as safe to retry. The server-generated message text
-        # varies between at least two known phrasings, so match the boilerplate phrase both share
-        # rather than the full message.
-        return {"Request rate limit exceeded", "notified of the problem"}
+        # varies between several known phrasings, so match the boilerplate phrases they share rather
+        # than the full message: "notified of the problem" covers Stripe's backend-communication
+        # errors, and "An unknown error occurred" covers the generic 5xx it can't attribute to a more
+        # specific cause (some of which arrive without the "notified" boilerplate).
+        return {"Request rate limit exceeded", "notified of the problem", "An unknown error occurred"}
 
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "api_key":
@@ -460,7 +462,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
-        return create_webhook(api_key, config.stripe_account_id, webhook_url)
+        return create_webhook(api_key, config.stripe_account_id, webhook_url, auth_method=config.auth_method.selection)
 
     def get_desired_webhook_events(
         self, config: StripeSourceConfig, eligible_schema_names: list[str]

@@ -602,7 +602,7 @@ class TestRepartitionActivity:
                 patch.object(repartition_table, "HeartbeaterSync"),
                 patch.object(repartition_table, "repartition_table_in_place", new=mocked),
                 patch.object(repartition_table, "capture_repartition_event") as capture,
-                patch.object(repartition_table.DeltaTableHelper, "get_delta_table", new=AsyncMock(return_value=delta)),
+                patch.object(repartition_table.DeltaTableRef, "get_delta_table", new=AsyncMock(return_value=delta)),
                 patch.object(ctrl, "target_partition_bytes", return_value=1),
                 # The activity evaluates the rollout flag once and threads the verdict into detection,
                 # so patch the binding the activity reads from (not the controller's).

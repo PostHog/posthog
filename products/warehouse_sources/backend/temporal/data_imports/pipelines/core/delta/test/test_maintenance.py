@@ -5,17 +5,14 @@ import deltalake
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
 
 
-def _make_logger():
-    return MagicMock(adebug=AsyncMock(), ainfo=AsyncMock(), awarning=AsyncMock(), aexception=AsyncMock())
-
-
 def _make_maintenance(delta_table: MagicMock | None) -> DeltaMaintenance:
     table_ref = MagicMock()
-    table_ref.logger = _make_logger()
+    table_ref.logger = make_logger()
     table_ref.get_delta_table = AsyncMock(return_value=delta_table)
     return DeltaMaintenance(table_ref)
 
@@ -366,7 +363,7 @@ class TestRunScheduled:
     )
     @pytest.mark.asyncio
     async def test_never_raises(self, _name: str, error: Exception, expect_capture: bool):
-        logger = _make_logger()
+        logger = make_logger()
         table_ref = MagicMock()
         table_ref.logger = logger
         table_ref.get_delta_table = AsyncMock(return_value=MagicMock())
