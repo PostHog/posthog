@@ -78,35 +78,30 @@ export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker
     const lineColor = theme.axisLineColor ?? theme.axisColor ?? 'currentColor'
     const labelLeft = positions[positions.length - 1]
 
+    // Positions and the theme's line color resolve at runtime from the chart's scales, so they stay
+    // inline — everything static is a utility class.
     return (
         <>
             {positions.map((left, idx) => (
                 <div
                     key={`billing-period-line-${idx}`}
-                    className="BillingPeriodMarkerLine"
-                    style={
-                        {
-                            '--billing-marker-left': `${left}px`,
-                            '--billing-marker-top': `${dimensions.plotTop}px`,
-                            '--billing-marker-height': `${dimensions.plotHeight}px`,
-                            '--billing-marker-line-color': lineColor,
-                        } as React.CSSProperties
-                    }
+                    className="absolute -translate-x-1/2 border-l-2 border-dashed"
+                    style={{
+                        left,
+                        top: dimensions.plotTop,
+                        height: dimensions.plotHeight,
+                        borderLeftColor: lineColor,
+                    }}
                 />
             ))}
             <div
-                className="BillingMarker"
-                style={
-                    {
-                        '--billing-marker-left': `${labelLeft}px`,
-                        '--billing-marker-top': `${dimensions.plotTop}px`,
-                    } as React.CSSProperties
-                }
+                className="absolute -translate-x-1/2 pointer-events-auto cursor-default"
+                style={{ left: labelLeft, top: dimensions.plotTop }}
                 onMouseEnter={stopPointerPropagation}
                 onMouseMove={stopPointerPropagation}
             >
                 <Tooltip title={<BillingPeriodExplanation />} placement="bottom">
-                    <div className="BillingMarkerLabel">
+                    <div className="flex items-center gap-1 px-2 py-1 text-xs font-normal whitespace-nowrap rounded-sm border border-primary bg-surface-primary text-secondary">
                         New billing period
                         <IconInfo className="w-3 h-3" />
                     </div>

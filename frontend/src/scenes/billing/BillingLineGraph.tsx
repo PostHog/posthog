@@ -1,5 +1,3 @@
-import './BillingLineGraph.scss'
-
 import { useMemo } from 'react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
