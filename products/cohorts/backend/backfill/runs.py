@@ -17,7 +17,11 @@ from products.cohorts.backend.backfill.pinning import (
     pin_person_conditions_for_cohorts,
 )
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
-from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
+from products.cohorts.backend.backfill.sizing import (
+    PersonSeedEstimate,
+    PersonSeedEstimateScanCapExceeded,
+    estimate_person_seed_topic_bytes,
+)
 from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
     CohortBackfillKind,
@@ -58,7 +62,9 @@ def check_person_run_preconditions() -> tuple[dict[str, Any], list[str]]:
     whose retention Django cannot see (the seeder reads ``COHORT_PERSON_RECORD_TTL_DAYS``), so an
     operator has to attest it for any kind of person run. And both person creators size their seed
     emission against ``BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET``, so sizing is attested for
-    any kind of person run too.
+    any kind of person run too. An unset budget is itself a missing precondition: `over_budget` is a
+    strict comparison against it, so with the default of 0 every sized run would refuse anyway,
+    after paying for the sizing scan.
     """
     preconditions, missing = check_run_preconditions()
     preconditions["person_ttl_attested"] = settings.BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED
@@ -67,6 +73,9 @@ def check_person_run_preconditions() -> tuple[dict[str, Any], list[str]]:
     preconditions["person_sizing_attested"] = settings.BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED
     if not preconditions["person_sizing_attested"]:
         missing.append("person seed sizing")
+    preconditions["person_topic_bytes_budget"] = settings.BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET
+    if settings.BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET <= 0:
+        missing.append("person seed topic-bytes budget")
     return preconditions, missing
 
 
@@ -148,6 +157,24 @@ def _has_active_team_run(team_id: int, *, kind: CohortBackfillKind) -> bool:
         CohortBackfillRun.objects.for_team(team_id)
         .filter(scope=CohortBackfillScope.TEAM, backfill_kind=kind, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
         .exists()
+    )
+
+
+def _active_person_seed_topic_bytes(team_id: int) -> int:
+    """Sum of the sizing estimates recorded on the team's active person runs.
+
+    The budget has to bound the team's in-flight person seed bytes as a whole, not each run alone:
+    the seeder's person scan is team-wide per run, and the per-cohort uniqueness constraint lets one
+    run per cohort stack, so runs that each fit the budget can still add up to many multiples of it.
+    """
+    return sum(
+        preconditions.get("person_seed_estimated_topic_bytes", 0)
+        for preconditions in CohortBackfillRun.objects.for_team(team_id)
+        .filter(
+            backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
+            status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+        )
+        .values_list("preconditions", flat=True)
     )
 
 
@@ -308,11 +335,13 @@ def create_person_backfill_run_for_cohort(
 ) -> CohortBackfillRun | None:
     """Create one cohort's person-property run, on the signal path's contract.
 
-    Unlike ``create_person_team_backfill_run`` this never raises: it is the target of
-    ``cohort_person_shape_changed_backfill``, where a refusal has to warn and return rather than
-    fail the Celery task. That is also why the horizon defaults from settings here but is required
-    on the operator-driven team creator, and why the seed-topic-bytes gate refuses quietly, even
-    when the estimate itself fails, where the team creator raises.
+    Unlike ``create_person_team_backfill_run`` this refuses quietly where the team creator raises:
+    it is the target of ``cohort_person_shape_changed_backfill``, where a refusal must warn and
+    return rather than fail the Celery task. That is also why the horizon defaults from settings
+    here but is required on the operator-driven team creator. The one exception is a transient
+    sizing failure (a ClickHouse timeout or transport error), which propagates so the task's retry
+    machinery re-runs it; the scan's own deterministic read cap still refuses quietly, since
+    retrying it would only repeat the capped scan.
     """
     if not is_realtime_cohort_team(team_id):
         return None
@@ -356,27 +385,32 @@ def create_person_backfill_run_for_cohort(
         return None
 
     person_scan_since = django_timezone.now() - timedelta(days=horizon_days)
-    try:
-        estimate = estimate_person_seed_topic_bytes(team_id, person_scan_since, len(pinned["conditions"]))
-    except Exception as error:
-        # Fail closed without raising: a deterministic failure (the estimate's own read cap on an
-        # enormous team) would otherwise burn the task's retries on repeated full scans.
-        logger.warning(
-            "cohort_person_backfill_sizing_failed",
-            team_id=team_id,
-            cohort_id=cohort_id,
-            error=str(error),
-        )
-        return None
-    if estimate.over_budget:
-        logger.warning(
-            "cohort_person_backfill_over_budget",
-            team_id=team_id,
-            cohort_id=cohort_id,
-            estimated_topic_bytes=estimate.estimated_topic_bytes,
-            budget_bytes=estimate.budget_bytes,
-        )
-        return None
+    # With a precondition missing the run below records as `blocked`, which the seeder never claims,
+    # so paying for the sizing scan would buy nothing.
+    preconditions, missing = check_person_run_preconditions()
+    estimate: PersonSeedEstimate | None = None
+    if not missing:
+        try:
+            estimate = estimate_person_seed_topic_bytes(team_id, person_scan_since, len(pinned["conditions"]))
+        except PersonSeedEstimateScanCapExceeded as error:
+            logger.warning(
+                "cohort_person_backfill_sizing_failed",
+                team_id=team_id,
+                cohort_id=cohort_id,
+                error=str(error),
+            )
+            return None
+        active_topic_bytes = _active_person_seed_topic_bytes(team_id)
+        if estimate.estimated_topic_bytes + active_topic_bytes > estimate.budget_bytes:
+            logger.warning(
+                "cohort_person_backfill_over_budget",
+                team_id=team_id,
+                cohort_id=cohort_id,
+                estimated_topic_bytes=estimate.estimated_topic_bytes,
+                active_topic_bytes=active_topic_bytes,
+                budget_bytes=estimate.budget_bytes,
+            )
+            return None
 
     try:
         with transaction.atomic():
@@ -418,7 +452,6 @@ def create_person_backfill_run_for_cohort(
 
             filters_shape_hash = ensure_filters_shape_hash(cohort)
             person_filters_shape_hash = cohort.person_filters_shape_hash or ""
-            preconditions, missing = check_person_run_preconditions()
             status, blocked_reason = _run_status(missing)
             run = CohortBackfillRun.objects.for_team(team_id).create(
                 team_id=team_id,
@@ -430,7 +463,7 @@ def create_person_backfill_run_for_cohort(
                 timezone=cohort.team.timezone,
                 person_scan_since=person_scan_since,
                 pinned={**pinned, "person_horizon_days": horizon_days},
-                preconditions={**preconditions, **estimate.as_preconditions()},
+                preconditions={**preconditions, **(estimate.as_preconditions() if estimate else {})},
                 blocked_reason=blocked_reason,
             )
             CohortBackfillRunCohort.objects.for_team(team_id).create(

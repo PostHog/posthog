@@ -11,6 +11,11 @@ REALTIME_COHORT_TEAM_ALLOWLIST: str = os.getenv("REALTIME_COHORT_TEAM_ALLOWLIST"
 # deliberately a separate setting, an opt-in on top of realtime membership rather than something a
 # team inherits by it: replaying a team's history costs ClickHouse scans and seed-topic bytes, so it
 # stays an explicit operator decision. A team listed here but not above enqueues nothing.
+#
+# Order this against the seeder's own arming: Django cannot see `SEEDER_PERSON_SEEDS_ENABLED`, so a
+# team with person-leaf cohorts opted in before that switch files person runs that park in
+# `awaiting_boundary`, each holding its cohort's uniqueness slot and blocking the operator's team
+# command until the seeder starts discovering them.
 COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST: str = os.getenv("COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST", "none")
 BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED", False, type_cast=str_to_bool

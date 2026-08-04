@@ -260,6 +260,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
                 f"cohort_backfill_person_property_pending:{cohort.id}",
             },
         )
+        # Without nx every save enqueues a replay; without ex outliving the countdown, an expired
+        # window swallows saves forever. Both are the debounce design's whole contract.
+        for call in redis.set.call_args_list:
+            self.assertEqual(call.kwargs, {"nx": True, "ex": 300})
 
     @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
     def test_create_enqueues_one_debounced_task_per_leaf_kind(self) -> None:
@@ -308,8 +312,8 @@ class TestBehavioralBackfillDependencies(BaseTest):
             countdown=300,
         )
         self.assertEqual(
-            [call.args[0] for call in redis.set.call_args_list],
-            [f"cohort_backfill_{kind.value}_pending:{cohort.id}"] * 2,
+            redis.set.call_args_list,
+            [mock.call(f"cohort_backfill_{kind.value}_pending:{cohort.id}", 1, nx=True, ex=300)] * 2,
         )
 
     @parameterized.expand(

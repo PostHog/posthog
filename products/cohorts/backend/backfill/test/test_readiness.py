@@ -48,6 +48,7 @@ KINDS = [
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
     BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED=True,
     BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
 )
 class TestBackfillReadiness(BaseTest):
     def _filters(self, window_days: int, *, person_hash: str | None = None) -> dict:

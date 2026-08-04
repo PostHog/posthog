@@ -847,10 +847,25 @@ def collect_cohort_query_stats(
         raise
 
 
+COHORT_BACKFILL_TRIGGER_TASK_COUNTER = Counter(
+    "posthog_cohort_backfill_trigger_task_total",
+    "Outcomes of debounced cohort backfill run-creation tasks",
+    labelnames=["backfill_kind", "outcome"],
+)
+
+
 # acks_late: a countdown message acked on receipt sits in one worker's memory for the whole window
 # and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
-# the redelivery this trades into is harmless.
-@shared_task(ignore_result=True, acks_late=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+# the redelivery this trades into is harmless. The queue matches the module's other
+# ClickHouse-touching tasks: the person creator runs a sizing scan capped at 30 s.
+@shared_task(
+    ignore_result=True,
+    acks_late=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    queue=CeleryQueue.LONG_RUNNING.value,
+)
 def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind: str, backfill_kind: str) -> None:
     """Create the run a debounced cohort save asked for, reading the cohort's current definition.
 
@@ -867,6 +882,7 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
         if not is_cohort_backfill_trigger_team(team_id):
             # The enqueue-side check ran up to the debounce countdown ago; re-checking here makes
             # shrinking the allowlist stop tasks already in flight, not only new enqueues.
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="not_allowlisted").inc()
             logger.info(
                 "skipping_cohort_backfill_run_task_team_not_allowlisted",
                 cohort_id=cohort_id,
@@ -878,6 +894,9 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
         person = backfill_kind == CohortBackfillKind.PERSON_PROPERTY
         _, missing = check_person_run_preconditions() if person else check_run_preconditions()
         if missing:
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(
+                backfill_kind=backfill_kind, outcome="missing_attestations"
+            ).inc()
             logger.info(
                 "skipping_cohort_backfill_run_task_missing_attestations",
                 cohort_id=cohort_id,
@@ -893,6 +912,7 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
             else create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
         )
         if run is None:
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="refused").inc()
             logger.info(
                 "skipping_cohort_backfill_run_task",
                 cohort_id=cohort_id,
@@ -901,6 +921,7 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
                 backfill_kind=backfill_kind,
             )
             return
+        COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="created").inc()
         logger.info(
             "created_cohort_backfill_run",
             run_id=str(run.id),
@@ -911,6 +932,7 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
             status=run.status,
         )
     except Exception as error:
+        COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="error").inc()
         logger.exception(
             "failed_to_trigger_cohort_backfill_run_task",
             cohort_id=cohort_id,

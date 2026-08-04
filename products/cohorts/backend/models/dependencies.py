@@ -39,6 +39,15 @@ COHORT_REALTIME_STATE_ORPHANED_COUNTER = Counter(
     labelnames=["reason"],
 )
 
+# `not_realtime_team` is the one outcome with no log line: it fires on every save of a
+# trigger-allowlisted team the realtime allowlist misses, and logging that per save would be noise
+# while the misconfiguration itself deserves a signal an operator can alert on.
+COHORT_BACKFILL_TRIGGER_COUNTER = Counter(
+    "posthog_cohort_backfill_trigger_total",
+    "Dispatch outcomes of cohort saves that were candidates for a backfill run",
+    labelnames=["backfill_kind", "outcome"],
+)
+
 
 def _cohort_dependencies_key(cohort_id: int) -> str:
     return f"cohort:dependencies:{cohort_id}"
@@ -341,6 +350,7 @@ def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBack
         redis_client = get_redis_client()
         lock_key = f"cohort_backfill_{kind}_pending:{cohort.pk}"
         if not redis_client.set(lock_key, 1, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS):
+            COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="debounced").inc()
             logger.info(
                 "cohort_backfill_already_pending",
                 cohort_id=cohort.pk,
@@ -366,7 +376,9 @@ def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBack
             # Release the lock so the next save can retry scheduling.
             redis_client.delete(lock_key)
             raise
+        COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="enqueued").inc()
     except Exception as error:
+        COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="enqueue_failed").inc()
         logger.exception(
             "failed_to_trigger_cohort_backfill",
             cohort_id=cohort.pk,
@@ -480,7 +492,12 @@ def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
     task on every create that the creators are guaranteed to refuse, with nothing naming the cause.
     """
     try:
-        if not is_cohort_backfill_trigger_team(instance.team_id) or not is_realtime_cohort_team(instance.team_id):
+        if not is_cohort_backfill_trigger_team(instance.team_id):
+            return
+        if not is_realtime_cohort_team(instance.team_id):
+            COHORT_BACKFILL_TRIGGER_COUNTER.labels(
+                backfill_kind=CohortBackfillKind.BEHAVIORAL, outcome="not_realtime_team"
+            ).inc()
             return
         trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._leaf_shape_changed)
         if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.BEHAVIORAL):
@@ -505,7 +522,12 @@ def cohort_person_shape_changed_backfill(sender, instance, **kwargs):
     different stores and stamp different readiness columns.
     """
     try:
-        if not is_cohort_backfill_trigger_team(instance.team_id) or not is_realtime_cohort_team(instance.team_id):
+        if not is_cohort_backfill_trigger_team(instance.team_id):
+            return
+        if not is_realtime_cohort_team(instance.team_id):
+            COHORT_BACKFILL_TRIGGER_COUNTER.labels(
+                backfill_kind=CohortBackfillKind.PERSON_PROPERTY, outcome="not_realtime_team"
+            ).inc()
             return
         trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._person_shape_changed)
         if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.PERSON_PROPERTY):

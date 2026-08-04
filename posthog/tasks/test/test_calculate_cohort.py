@@ -1143,6 +1143,23 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
 
+    def test_trigger_backfill_run_task_skips_when_the_person_budget_is_unset(self) -> None:
+        # All four attestations on but no byte budget: `over_budget` is a strict comparison against
+        # it, so every sized run would refuse, after paying for a full-team sizing scan each time.
+        # The precondition check has to catch this before the scan.
+        cohort = self._backfillable_cohort()
+
+        with (
+            override_settings(**{**BACKFILL_TASK_SETTINGS, "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 0}),
+            patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes") as estimate,
+        ):
+            trigger_cohort_backfill_run_task(
+                self.team.pk, cohort.pk, "cohort_created", CohortBackfillKind.PERSON_PROPERTY.value
+            )
+
+        estimate.assert_not_called()
+        self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
+
     def test_trigger_backfill_run_task_rechecks_the_allowlist_at_execution_time(self) -> None:
         # Tasks sit in the queue for the debounce countdown, so an operator shrinking the allowlist
         # during an incident has to stop those too, not only new enqueues.
