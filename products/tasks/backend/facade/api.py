@@ -2189,9 +2189,34 @@ def exchange_task_run_port_forward_ticket(ticket: str) -> str | None:
 
     cache = get_tasks_cache()
     cache_key = _task_run_port_forward_auth_ticket_cache_key(ticket)
-    token = cache.get(cache_key)
-    cache.delete(cache_key)
+    token = _atomic_get_and_delete_cache_value(cache, cache_key)
     return token if isinstance(token, str) and token else None
+
+
+def _atomic_get_and_delete_cache_value(cache: Any, cache_key: str) -> Any:
+    django_redis_client = getattr(cache, "client", None)
+    if django_redis_client is not None:
+        redis_client = django_redis_client.get_client(write=True)
+        redis_key = django_redis_client.make_key(cache_key)
+        raw_value = redis_client.eval(
+            """
+            local value = redis.call("GET", KEYS[1])
+            if value then
+                redis.call("DEL", KEYS[1])
+            end
+            return value
+            """,
+            1,
+            redis_key,
+        )
+        return django_redis_client.decode(raw_value) if raw_value is not None else None
+
+    consumed_key = f"{cache_key}:consumed"
+    if not cache.add(consumed_key, "1", timeout=_PORT_FORWARD_AUTH_TICKET_TTL_SECONDS):
+        return None
+    value = cache.get(cache_key)
+    cache.delete(cache_key)
+    return value
 
 
 def resolve_task_run_port_forward(token: str) -> contracts.TaskRunPortForwardResolveDTO | None:

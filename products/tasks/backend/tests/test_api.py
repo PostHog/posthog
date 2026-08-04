@@ -4673,6 +4673,52 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(decoded["port"], 8000)
         self.assertEqual(decoded["user_id"], self.user.id)
 
+    def test_exchange_task_run_port_forward_ticket_consumes_atomically(self):
+        ticket = "ticket-123"
+        cache_key = f"task_run_port_forward_auth_ticket:{ticket}"
+        raw_key = f"encoded:{cache_key}"
+
+        class FakeRedisClient:
+            def __init__(self):
+                self.values = {raw_key: b"token-123"}
+                self.eval_calls: list[tuple[str, int, str]] = []
+
+            def eval(self, script: str, numkeys: int, key: str):
+                self.eval_calls.append((script, numkeys, key))
+                value = self.values.get(key)
+                if value is not None:
+                    del self.values[key]
+                return value
+
+        class FakeDjangoRedisClient:
+            def __init__(self, redis_client: FakeRedisClient):
+                self.redis_client = redis_client
+
+            def get_client(self, *, write: bool):
+                self.write = write
+                return self.redis_client
+
+            def make_key(self, key: str):
+                return f"encoded:{key}"
+
+            def decode(self, value: bytes):
+                return value.decode()
+
+        class FakeCache:
+            def __init__(self, redis_client: FakeRedisClient):
+                self.client = FakeDjangoRedisClient(redis_client)
+
+        redis_client = FakeRedisClient()
+        with patch("products.tasks.backend.redis.get_tasks_cache", return_value=FakeCache(redis_client)):
+            self.assertEqual(tasks_facade.exchange_task_run_port_forward_ticket(ticket), "token-123")
+            self.assertIsNone(tasks_facade.exchange_task_run_port_forward_ticket(ticket))
+
+        self.assertEqual(len(redis_client.eval_calls), 2)
+        self.assertIn("GET", redis_client.eval_calls[0][0])
+        self.assertIn("DEL", redis_client.eval_calls[0][0])
+        self.assertEqual(redis_client.eval_calls[0][1], 1)
+        self.assertEqual(redis_client.eval_calls[0][2], raw_key)
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @override_settings(SANDBOX_JWT_PUBLIC_KEY=None)
     def test_internal_port_forward_resolve_returns_sandbox_connection(self):
