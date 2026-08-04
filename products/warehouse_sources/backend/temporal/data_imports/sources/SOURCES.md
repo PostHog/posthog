@@ -390,7 +390,7 @@ the row lists both.
 | mem0                             | HTTP                        | requests                                                        | ✅                          |
 | mailerlite                       | HTTP                        | requests                                                        | ✅                          |
 | mailersend                       | HTTP                        | requests                                                        | ✅                          |
-| mailgun                          | HTTP                        | requests                                                        | ✅                          |
+| mailgun                          | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (API) / ➖ (webhook)     |
 | mailjet                          | HTTP                        | requests                                                        | ✅                          |
 | mailosaur                        | HTTP                        | requests                                                        | ✅                          |
 | mailtrap                         | HTTP                        | requests                                                        | ✅                          |
