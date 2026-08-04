@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
     duckgres_sink_enablement,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import BacklogStats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
 )
@@ -322,7 +323,13 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None, 0, None, 0),
+                return_value=BacklogStats(
+                    eligible_count=0,
+                    eligible_oldest_age_seconds=None,
+                    blocked_count=0,
+                    blocked_oldest_age_seconds=None,
+                    failing_blocked_count=0,
+                ),
             ) as mock_backlog,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
@@ -381,7 +388,13 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None, 0, None, 0),
+                return_value=BacklogStats(
+                    eligible_count=0,
+                    eligible_oldest_age_seconds=None,
+                    blocked_count=0,
+                    blocked_oldest_age_seconds=None,
+                    failing_blocked_count=0,
+                ),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
@@ -423,7 +436,13 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None, 0, None, 0),
+                return_value=BacklogStats(
+                    eligible_count=0,
+                    eligible_oldest_age_seconds=None,
+                    blocked_count=0,
+                    blocked_oldest_age_seconds=None,
+                    failing_blocked_count=0,
+                ),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",

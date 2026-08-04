@@ -90,8 +90,8 @@ export interface FlatThreadRow {
 
 /**
  * Completion time of an agent turn, taken from its last session-update item (a tool group counts
- * by the last step in its run). Undefined while the turn is still streaming — the timestamp only appears
- * once the whole turn is done.
+ * by the last step in its run). Undefined while the turn is still streaming, since the timestamp
+ * only appears once the whole turn is done.
  */
 export function completedTurnTimestamp(turn: AgentTurn): number | undefined {
   for (let i = turn.items.length - 1; i >= 0; i--) {
