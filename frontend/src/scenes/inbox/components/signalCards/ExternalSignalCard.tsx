@@ -40,9 +40,8 @@ export function StatePillBadge({ pill }: { pill: StatePill }): JSX.Element {
 
 /**
  * Presentational shell for external-source signal cards (GitHub, Linear, Zendesk, pganalyze).
- * Captures the common anatomy — brand-icon header, optional state pill + title, markdown body,
- * a chip meta row, and a footer with timestamps on the left and a prominent external link on the
- * right. Product-specific colourings (label chips, priority indicators) are passed in via `metaChips`.
+ * Captures the common anatomy: brand-icon header, optional state pill and title, markdown body,
+ * a chip meta row, and a prominent external link. Product-specific colors are passed in via `metaChips`.
  */
 export function ExternalSignalCard({
     signal,
@@ -50,7 +49,6 @@ export function ExternalSignalCard({
     statePill,
     children,
     metaChips,
-    footerLeft,
     link,
 }: {
     signal: SignalNode
@@ -62,8 +60,6 @@ export function ExternalSignalCard({
     children?: React.ReactNode
     /** Chip row (labels, tags, priority, status). Caller-rendered for product-specific colours. */
     metaChips?: React.ReactNode
-    /** Footer left content, typically timestamps. */
-    footerLeft?: React.ReactNode
     /** Primary external link-out. Always opens in a new tab. */
     link?: { to: string; label: string }
 }): JSX.Element {
@@ -83,19 +79,12 @@ export function ExternalSignalCard({
 
             {metaChips && <div className="flex items-center gap-1.5 flex-wrap">{metaChips}</div>}
 
-            {(footerLeft || link) && (
+            {link && (
                 <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary mt-2">
-                    {footerLeft}
                     <span className="flex-1" />
-                    {link && (
-                        <Link
-                            to={link.to}
-                            target="_blank"
-                            className="flex items-center gap-1 text-xs font-medium shrink-0"
-                        >
-                            {link.label} <IconExternal className="size-3" />
-                        </Link>
-                    )}
+                    <Link to={link.to} target="_blank" className="flex items-center gap-1 text-xs font-medium shrink-0">
+                        {link.label} <IconExternal className="size-3" />
+                    </Link>
                 </div>
             )}
         </SignalCardShell>
