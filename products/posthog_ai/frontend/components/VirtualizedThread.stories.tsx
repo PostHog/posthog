@@ -100,12 +100,50 @@ export const BoundedEmbed: Story = {
 }
 
 /**
- * Streaming — a timer appends items and grows the height of the last message; the viewport stays pinned to the
- * bottom (`turnActive` simulates the agent working, which is what gates append-following). This exercises the
- * height-only-growth stick path, the case `anchorTo: 'end'` does not cover. Timers are non-deterministic, so
- * this story is skipped in the visual-regression run.
+ * Streaming, static snapshot — the same mid-stream state as `StreamingDebug` (a few settled messages, a
+ * partially streamed tail, `turnActive`) frozen at a fixed tick, so the visual-regression run captures the
+ * bottom-pinned streaming posture without timers.
  */
 export const Streaming: Story = {
+    render: () => {
+        const items = [
+            ...makeItems(6),
+            { id: 'stream-4', role: 'assistant' as const, text: '#6 — streamed message' },
+            { id: 'stream-8', role: 'assistant' as const, text: '#7 — streamed message' },
+        ]
+        return (
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
+                <VirtualizedThread.Root
+                    items={items}
+                    getItemKey={getKey}
+                    footer={
+                        <VirtualizedThread.Row>
+                            <div className="rounded border p-3 bg-surface-primary text-sm text-muted">
+                                Thinking {LOREM.slice(0, 40)}…
+                            </div>
+                        </VirtualizedThread.Row>
+                    }
+                    stickToBottom
+                    turnActive
+                >
+                    {(item) => (
+                        <VirtualizedThread.Row>
+                            <FakeMessage role={item.role} text={item.text} />
+                        </VirtualizedThread.Row>
+                    )}
+                </VirtualizedThread.Root>
+            </div>
+        )
+    },
+}
+
+/**
+ * Streaming, live timers — appends items and grows the height of the last message; the viewport stays pinned
+ * to the bottom (`turnActive` simulates the agent working, which is what gates append-following). This
+ * exercises the height-only-growth stick path. Debugging only: timers make it non-deterministic, so it is
+ * excluded from the visual-regression run (`test-skip`) — capture `Streaming` instead.
+ */
+export const StreamingDebug: Story = {
     tags: ['test-skip'],
     render: () => {
         const [items, setItems] = useState<FakeItem[]>(() => makeItems(6))
@@ -199,6 +237,112 @@ export const HeaderFooterOnly: Story = {
             </VirtualizedThread.Root>
         </div>
     ),
+}
+
+/**
+ * Anchored open — mirrors reopening a saved conversation: the thread mounts with all items already present
+ * and `anchorItemKey` pointing at the last "user" message, which has more than a viewport of content after
+ * it. Must land with the anchor at the top of the viewport, not at the bottom. The height estimate is a
+ * deliberate undershoot (46px vs ~200px real), the same skew the real `THREAD_ITEM_HEIGHT_ESTIMATES` has.
+ */
+export const AnchoredOpen: Story = {
+    render: () => {
+        // 30 items; the anchor "user" message is #21, followed by 8 long rows (~1200px, two viewports).
+        const items = makeItems(30).map((item, i) => (i >= 21 ? { ...item, text: `#${i} — ${LOREM} ${LOREM}` } : item))
+        const anchorKey = 'item-21'
+        return (
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
+                <VirtualizedThread.Root
+                    items={items}
+                    getItemKey={getKey}
+                    estimateItemHeight={() => 46}
+                    anchorItemKey={anchorKey}
+                    stickToBottom
+                >
+                    {(item) => (
+                        <VirtualizedThread.Row>
+                            <FakeMessage role={item.role} text={item.text} />
+                        </VirtualizedThread.Row>
+                    )}
+                </VirtualizedThread.Root>
+            </div>
+        )
+    },
+}
+
+/**
+ * Anchored open, mid-turn with a short tail — reopening a thread the agent is still working on, with less
+ * than a viewport of response under the anchor so a plain scroll would clamp to the bottom. Must open with
+ * the anchor at the top over reserved space (the fresh-send posture). Static (`turnActive` but no timers),
+ * so the visual-regression run captures the reserve landing without flakes.
+ */
+export const AnchoredOpenMidTurn: Story = {
+    render: () => {
+        const items = makeItems(30).map((item, i) => (i >= 27 ? { ...item, text: `#${i} — ${LOREM} ${LOREM}` } : item))
+        return (
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
+                <VirtualizedThread.Root
+                    items={items}
+                    getItemKey={getKey}
+                    estimateItemHeight={() => 46}
+                    anchorItemKey="item-27"
+                    stickToBottom
+                    turnActive
+                >
+                    {(item) => (
+                        <VirtualizedThread.Row>
+                            <FakeMessage role={item.role} text={item.text} />
+                        </VirtualizedThread.Row>
+                    )}
+                </VirtualizedThread.Root>
+            </div>
+        )
+    },
+}
+
+/**
+ * Anchored open, mid-turn, live timers — the same short-tail reserve open as `AnchoredOpenMidTurn`, but a
+ * timer keeps appending streamed rows: the reserve absorbs them 1:1 (view static), and once the response
+ * outgrows the viewport stick-to-bottom takes over. Debugging only: excluded from the visual-regression run
+ * (`test-skip`) — capture `AnchoredOpenMidTurn` instead.
+ */
+export const AnchoredOpenMidTurnDebug: Story = {
+    tags: ['test-skip'],
+    render: () => {
+        const [items, setItems] = useState<FakeItem[]>(() =>
+            makeItems(30).map((item, i) => (i >= 27 ? { ...item, text: `#${i} — ${LOREM} ${LOREM}` } : item))
+        )
+        useEffect(() => {
+            if (inStorybookTestRunner()) {
+                return
+            }
+            const interval = setInterval(() => {
+                setItems((prev) => [
+                    ...prev,
+                    { id: `stream-${prev.length}`, role: 'assistant', text: `#${prev.length} — streamed` },
+                ])
+            }, 700)
+            return () => clearInterval(interval)
+        }, [])
+        return (
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
+                <VirtualizedThread.Root
+                    items={items}
+                    getItemKey={getKey}
+                    estimateItemHeight={() => 46}
+                    anchorItemKey="item-27"
+                    stickToBottom
+                    turnActive
+                >
+                    {(item) => (
+                        <VirtualizedThread.Row>
+                            <FakeMessage role={item.role} text={item.text} />
+                        </VirtualizedThread.Row>
+                    )}
+                </VirtualizedThread.Root>
+            </div>
+        )
+    },
 }
 
 /**

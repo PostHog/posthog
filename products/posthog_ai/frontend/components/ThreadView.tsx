@@ -88,6 +88,7 @@ export function ThreadView({
         currentRunStatus,
         contextUsage,
         runConnectionState,
+        logBootstrapLoading,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
@@ -177,6 +178,9 @@ export function ThreadView({
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
             anchorItemKey={anchorItemKey}
+            // The history replay folds in over several commits (debug rows land before the human turns);
+            // the opening scroll must wait for the full log or it opens at the bottom of a partial thread.
+            itemsLoading={logBootstrapLoading}
             header={header}
             footer={footer}
             stickToBottom
