@@ -153,8 +153,9 @@ class UserAdmin(DjangoUserAdmin):
     def get_changelist(self, request, **kwargs):
         return UserChangeList
 
-    def get_changelist_instance(self, request):
+    def get_changelist_instance(self, request) -> UserChangeList:
         changelist = super().get_changelist_instance(request)
+        assert isinstance(changelist, UserChangeList)  # narrow from ChangeList for mypy; get_changelist guarantees it
         # Propagate the support ticket link (if any) onto result-row change URLs.
         changelist.loginas_ticket = request.GET.get("ticket")
         return changelist
