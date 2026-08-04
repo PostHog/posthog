@@ -767,7 +767,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
                 loadReportDiffFailure: () =>
-                    "Couldn't load the diff — the branch may have been merged, deleted, or rewritten.",
+                    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches

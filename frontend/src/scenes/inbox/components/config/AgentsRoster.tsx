@@ -51,15 +51,9 @@ interface AgentSourceState {
 function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element {
     const meta = getSourceProductMeta(source.sourceProduct)
     const Icon = meta?.Icon
-    const color = meta?.color ?? 'var(--accent)'
     return (
-        <div
-            className="flex items-center justify-center size-8 shrink-0 rounded ring-1 ring-inset ring-primary"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}
-        >
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            {Icon ? <Icon className="size-[18px]" style={{ color }} /> : null}
+        <div className="flex size-8 shrink-0 items-center justify-center rounded bg-surface-secondary ring-1 ring-inset ring-primary">
+            {Icon ? <Icon className={`text-lg ${meta.colorClass}`} /> : null}
         </div>
     )
 }
