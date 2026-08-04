@@ -36,6 +36,11 @@ export const WithBillingPeriodMarker: Story = {
     args: { billingPeriodMarkers: [{ date: dayjs.utc('2024-03-01') }] },
 }
 
+/** A period starting on the first plotted bucket — the label is centred on the y-axis edge here. */
+export const WithMarkerAtRangeStart: Story = {
+    args: { billingPeriodMarkers: [{ date: dayjs.utc(DATES[0]) }] },
+}
+
 export const AsSpend: Story = {
     args: {
         series: [seriesFrom(0, 'Product analytics', 420, 160), seriesFrom(1, 'Session replay', 130, 40)],

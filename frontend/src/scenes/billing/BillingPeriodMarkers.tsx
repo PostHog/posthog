@@ -54,6 +54,11 @@ function BillingPeriodExplanation(): JSX.Element {
 
 /**
  * Renders as a chart overlay child, reading pixel positions off the chart's own scales.
+ *
+ * Not built on quill's `ReferenceLine`: its vertical variant resolves x through `scales.x(label)`, so
+ * it can only sit exactly on a label, and a billing period routinely starts mid-bucket on week and
+ * month intervals. Its label is also a plain string, not a node, so it can't carry the explanation
+ * tooltip. Teaching `ReferenceLine` to take an interpolated x would let this collapse into it.
  */
 export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker[] }): JSX.Element | null {
     const { labels, scales, dimensions, theme } = useChartLayout()
@@ -95,9 +100,12 @@ export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker
                     }}
                 />
             ))}
+            {/* Anchored so the label's bottom edge rests on the top of the plot. That keeps it clear of
+                the data, and puts the cursor outside the plot area while hovering it, which is what
+                makes the chart drop its own tooltip instead of showing two at once. */}
             <div
                 data-attr="billing-period-marker-label"
-                className="absolute -translate-x-1/2 pointer-events-auto cursor-default"
+                className="absolute -translate-x-1/2 -translate-y-full pointer-events-auto cursor-default"
                 style={{ left: labelLeft, top: dimensions.plotTop }}
             >
                 <Tooltip title={<BillingPeriodExplanation />} placement="bottom">

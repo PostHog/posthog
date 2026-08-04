@@ -47,18 +47,18 @@ export function BillingLineGraph({
 }: BillingLineGraphProps): JSX.Element {
     const theme = useChartTheme()
 
-    // Color by series id, not by position: hiding a series shifts positions but the ribbons in
-    // BillingDataTable stay keyed to the id, and the two have to agree.
+    // Hide via `visibility.excluded` rather than by filtering the array, so a hidden series stays
+    // listed (dimmed) if the legend is ever turned on. Color by series id, not by position: the
+    // ribbons in BillingDataTable are keyed to the id, and the two have to agree.
     const chartSeries = useMemo<Series[]>(
         () =>
-            series
-                .filter((s) => !hiddenSeries.includes(s.id))
-                .map((s) => ({
-                    key: String(s.id),
-                    label: s.label,
-                    data: s.data,
-                    color: getSeriesColor(s.id),
-                })),
+            series.map((s) => ({
+                key: String(s.id),
+                label: s.label,
+                data: s.data,
+                color: getSeriesColor(s.id),
+                visibility: { excluded: hiddenSeries.includes(s.id) },
+            })),
         [series, hiddenSeries]
     )
 
@@ -73,7 +73,9 @@ export function BillingLineGraph({
     )
 
     return (
-        <div className="relative flex flex-col h-96">
+        // pt-6 reserves room above the plot for the billing period label, which sits outside the plot
+        // area so that hovering it takes the cursor out of the chart's hover region.
+        <div className="relative flex flex-col h-96 pt-6">
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
                     <div className="text-muted">Loading...</div>
@@ -85,6 +87,9 @@ export function BillingLineGraph({
                 theme={theme}
                 config={config}
                 onError={handleChartError}
+                // The billing period label is anchored above the plot and would otherwise be clipped
+                // by the chart wrapper's own `overflow-hidden`.
+                className="!overflow-visible"
             >
                 <BillingPeriodMarkers markers={billingPeriodMarkers} />
             </TimeSeriesLineChart>
