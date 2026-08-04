@@ -8,7 +8,7 @@ description: >
   proposing that set in plain language and asking the user which ones they want, choosing the target and
   eval type (hog / llm_judge / sentiment), configuring a provider, model, and usable provider key for an
   llm_judge eval, scoping which generations trigger it via conditions, creating disabled, verifying scope,
-  and enabling. Falls back to proposing a sentiment eval when there is no AI data or no failure mode found.
+  and enabling. Falls back to proposing a sentiment eval when no failure mode is worth catching.
   Finding and ranking the failure modes worth evaluating is its own job — use exploring-ai-failures first.
   To debug or manage evaluations that already exist, use exploring-llm-evaluations.
 ---
@@ -102,9 +102,8 @@ eval rather than in place of it — a rising pass rate is how they confirm the f
 
 ### 1.3 — When nothing surfaced, propose sentiment
 
-If the project has no `$ai_generation` events, or the traces were read and no failure mode is worth an eval,
-don't invent a failure and don't come back empty-handed. Say what you looked at, then propose a `sentiment`
-eval as the floor:
+If the traces were read and no failure mode is worth an eval, don't invent a failure and don't come back
+empty-handed. Say what you looked at, then propose a `sentiment` eval as the floor:
 
 > No clear failure pattern in the last 7 days. Worth starting with:
 >
@@ -112,13 +111,19 @@ eval as the floor:
 > Shows which conversations are going badly, which is usually where the real failures hide. No judge cost.
 
 It needs no provider key, it's cheap, and it gives them a signal to come back to once there's enough traffic
-to spot patterns. If AI observability has no events at all, sentiment has nothing to score — point them at
-`instrument-llm-analytics` first.
+to spot patterns.
+
+**No generations means no eval of any kind.** Sentiment only scores matching `$ai_generation` events, so if
+the project has none, every eval you could create — sentiment included — would sit there never firing. Don't
+propose one. Point them at `instrument-llm-analytics` to get AI observability capturing generations first,
+and come back to this skill once there's traffic to read.
 
 ## Phase 2 — Build each accepted eval
 
-Run this phase once per eval the user picked. Create them all disabled first, verify each one's scope, then
-enable — never enable one before the rest are checked.
+Run 2.1 through 2.5 once per eval the user picked, so each one lands as a verified draft. **Leave every one
+of them disabled until the whole set is verified** — 2.6 is a single pass over the finished set at the end,
+not the last step of each loop. Enabling eval 1 while eval 3 is still being written puts a partially live
+set into production, which is noise and (for a judge) cost the user didn't agree to yet.
 
 ### 2.1 — Choose the eval type
 
@@ -242,20 +247,22 @@ but they do not reproduce the complete settled trace. Review the first live trac
 > **Watch out:** some orgs reuse a single `$ai_trace_id` across 100k+ events. Scoping by trace-ID prefix
 > can match far more than expected — verify volume with the SQL above before enabling.
 
-### 2.6 — Enable, then close the loop
+### 2.6 — Enable the verified set, then close the loop
+
+Only once every accepted eval is a scope-verified draft, enable them — one call each:
 
 ```json
 posthog:llma-evaluation-update
 { "evaluationId": "<uuid>", "enabled": true }
 ```
 
-It now runs on every new matching generation, or once per matching trace for a trace target. This isn't
+Each now runs on every new matching generation, or once per matching trace for a trace target. This isn't
 one-and-done: the user should be aware that they need to keep an eye on results and iterate if the outcome
 is not the expected one. To wire results into a Slack feed, see `feature-usage-feed`.
 
-When several evals were accepted, close the loop across the whole set at once — one short list of what's now
-live with a link each, not a play-by-play per eval. Mention any candidate you couldn't build (no usable
-provider key, volume too high to enable yet) and what would unblock it.
+Close the loop across the whole set at once — one short list of what's now live with a link each, not a
+play-by-play per eval. Mention any candidate you left disabled (no usable provider key, volume too high to
+enable yet) and what would unblock it.
 
 ## Scoping with conditions
 
@@ -294,8 +301,9 @@ creating so the user can review and toggle it in the UI.
   when the traces showed several modes worth watching.
 - **Propose, then create what they picked.** Show the candidate set in plain language, a line or two each,
   and wait for the user to choose. Long per-eval write-ups get skimmed, not read.
-- **Nothing found still has an answer.** Empty AI data or no failure mode worth an eval means proposing a
-  `sentiment` eval, not returning empty-handed.
+- **Nothing found still has an answer.** Traces read but no failure mode worth an eval means proposing a
+  `sentiment` eval, not returning empty-handed. No `$ai_generation` events at all is the exception — no eval
+  can fire, so send them to `instrument-llm-analytics` instead.
 - **Suggest changes along with the eval if possible.** If it's clear a prompt change would fix the issue, for
   instance, set up the eval but also suggest to the user they change the prompt: they should soon see the eval
   go from low pass rate to a higher pass rate.
