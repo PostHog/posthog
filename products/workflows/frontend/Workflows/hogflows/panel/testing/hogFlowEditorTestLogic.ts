@@ -1078,7 +1078,9 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
 
     subscriptions(({ actions }) => ({
-        // Otherwise the panel keeps showing an event that the edited trigger no longer matches
+        // Otherwise the panel keeps showing an event that the edited trigger no longer matches.
+        // Safe to fire on identity: the selector holds its reference unless the filters really
+        // changed, so an autosave rebuilding the workflow doesn't cost a query.
         matchingFilters: () => actions.refreshSampleGlobals(),
         shouldLoadSampleGlobals: () => actions.refreshSampleGlobals(),
     })),

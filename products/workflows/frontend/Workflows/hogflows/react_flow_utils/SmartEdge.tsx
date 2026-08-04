@@ -283,7 +283,7 @@ export function SmartEdge({
                 style={{
                     ...style,
                     ...(isConnectedToSelectedNode
-                        ? { stroke: 'var(--accent)', strokeWidth: 1.5 }
+                        ? { stroke: 'var(--color-accent)', strokeWidth: 1.5 }
                         : isDimmed
                           ? { opacity: 0.4 }
                           : {}),
