@@ -10,7 +10,7 @@ import {
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { Chip } from "@posthog/quill";
+import { Chip, cn } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import { usePasteUndoStore } from "../pasteUndoStore";
@@ -87,6 +87,28 @@ function DefaultChip({
   const isFolder = type === "folder";
   const isGithubRef = type === "github_issue" || type === "github_pr";
   const canOpenUrl = isGithubRef && /^https:\/\//.test(id);
+
+  // A skill reads as part of the sentence being written, not as an object
+  // attached to it, so it stays plain text rather than taking a chip's border
+  // and remove button. Selecting it — arrowing onto it, or the backspace that
+  // is about to delete it — turns the run destructive, which is the only
+  // warning left once there is no × to aim at.
+  if (isCommand) {
+    return (
+      <span
+        contentEditable={false}
+        className={cn(
+          "cli-slash-command cursor-default select-all bg-fill-hover px-0.5 font-medium",
+          selected
+            ? "rounded-xs bg-destructive text-destructive-foreground"
+            : "text-primary",
+        )}
+      >
+        {prefix}
+        {label}
+      </span>
+    );
+  }
 
   const chipContent = (
     <Chip

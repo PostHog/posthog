@@ -672,12 +672,15 @@ def _get_sslmode(require_ssl: bool) -> str:
 # Transaction-mode connection poolers reject the libpq `options` startup parameter outright:
 # Supabase's Supavisor (port 6543) and PgBouncer in transaction mode report "unsupported startup
 # parameter: options", and AWS RDS Proxy reports "RDS Proxy currently doesn't support command-line
-# options". We only send `options` to pin client_encoding=UTF8 for Redshift's legacy UNICODE alias
-# (see FORCE_UTF8_CLIENT_ENCODING), and Redshift never sits behind these poolers — so when a server
-# rejects `options`, dropping it and retrying is safe (UTF8 is the default client encoding for real
-# Postgres). The RDS Proxy text uses a typographic apostrophe, so match the apostrophe-free tail.
+# options". Neon's pooler names the offending setting instead — "unsupported startup parameter in
+# options: statement_timeout" — so match on the prefix rather than any one parameter name.
+# Beyond client_encoding=UTF8 for Redshift's legacy UNICODE alias (see FORCE_UTF8_CLIENT_ENCODING),
+# `options` only ever carries server-side timeouts that the caller's own deadlines already bound —
+# so when a server rejects it, dropping it and retrying is safe. The RDS Proxy text uses a
+# typographic apostrophe, so match the apostrophe-free tail.
 _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS = (
     "unsupported startup parameter: options",
+    "unsupported startup parameter in options",
     "support command-line options",
 )
 
