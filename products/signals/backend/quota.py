@@ -27,7 +27,9 @@ logger = structlog.get_logger(__name__)
 SIGNALS_QUOTA_ENFORCEMENT_FLAG = "signals-quota-enforcement"
 
 
-def _record_failed_open() -> None:
+def record_quota_check_failed_open() -> None:
+    """Count a signals quota check that errored and failed open (no-op outside a Temporal
+    activity). Shared by every gate whose fail-open must stay alertable."""
     # Emit the meter directly rather than via products.signals.backend.temporal.metrics: importing
     # that package runs its __init__, which imports buffer.py, which imports this module (cycle).
     if not activity.in_activity():
@@ -51,7 +53,7 @@ def is_team_signals_quota_limited(team_api_token: str) -> bool:
         )
     except Exception:
         logger.warning("signals_quota_check_failed_open", exc_info=True)
-        _record_failed_open()
+        record_quota_check_failed_open()
         return False
 
 

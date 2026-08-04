@@ -78,6 +78,82 @@ class TestEnforceSignalsRunQuotaActivity:
         assert test_task_run.status == TaskRun.Status.IN_PROGRESS
 
     @pytest.mark.django_db(transaction=True)
+    def test_dark_launch_telemetry_emits_once_per_run_not_per_recheck(
+        self, activity_environment, test_task, test_task_run
+    ):
+        # The 5-minute recheck would otherwise emit a would-block event per tick for the run's whole
+        # lifetime, corrupting the measurement the dark launch exists to produce.
+        _make_signals_run(test_task, test_task_run)
+        with (
+            patch(f"{MODULE}.signals_quota_gate", return_value=SignalsQuotaGate(limited=True, enforced=False)),
+            patch(f"{MODULE}.capture_signal_report_quota_paused") as capture_mock,
+        ):
+            assert _run_activity(activity_environment, test_task_run) == SIGNALS_QUOTA_PROCEED
+            assert _run_activity(activity_environment, test_task_run) == SIGNALS_QUOTA_PROCEED
+        assert capture_mock.call_count == 1
+
+    @pytest.mark.django_db(transaction=True)
+    def test_already_terminal_cancel_outcome_never_releases_the_report(
+        self, activity_environment, test_task, test_task_run
+    ):
+        # The un-billing race: the run finished (possibly shipping its PR) between the activity's
+        # snapshot and the cancel. Releasing would delete the SignalReportTask row the billing
+        # usage query counts that PR through.
+        report = _make_signals_run(test_task, test_task_run)
+        from products.signals.backend.task_run_artefacts import record_implementation_task
+
+        record_implementation_task(team_id=test_task.team_id, report_id=str(report.id), task_id=str(test_task.id))
+        SignalReportTask = apps.get_model("signals", "SignalReportTask")
+        with (
+            patch(f"{MODULE}.signals_quota_gate", return_value=SignalsQuotaGate(limited=True, enforced=True)),
+            patch(f"{MODULE}.capture_signal_report_quota_paused"),
+            patch(
+                "products.tasks.backend.facade.cancellation.cancel_task_run",
+                return_value=("already_terminal", None),
+            ),
+        ):
+            assert _run_activity(activity_environment, test_task_run) == SIGNALS_QUOTA_STOP_CHECKING
+        assert SignalReportTask.objects.filter(task_id=test_task.id).exists()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pr_landing_during_cancel_keeps_billing_records(self, activity_environment, test_task, test_task_run):
+        # The agent can report its PR while the cancel interrupt is in flight: the report is then
+        # billed, so its records must survive even though the run ends cancelled.
+        report = _make_signals_run(test_task, test_task_run)
+        from products.signals.backend.task_run_artefacts import record_implementation_task
+
+        record_implementation_task(team_id=test_task.team_id, report_id=str(report.id), task_id=str(test_task.id))
+        SignalReportTask = apps.get_model("signals", "SignalReportTask")
+
+        def _cancel_and_land_pr(*args, **kwargs):
+            TaskRun.objects.filter(id=test_task_run.id).update(output={"pr_url": "https://github.com/x/y/pull/2"})
+            return ("accepted", None)
+
+        with (
+            patch(f"{MODULE}.signals_quota_gate", return_value=SignalsQuotaGate(limited=True, enforced=True)),
+            patch(f"{MODULE}.capture_signal_report_quota_paused"),
+            patch("products.tasks.backend.facade.cancellation.cancel_task_run", side_effect=_cancel_and_land_pr),
+        ):
+            assert _run_activity(activity_environment, test_task_run) == SIGNALS_QUOTA_CANCELLED
+        assert SignalReportTask.objects.filter(task_id=test_task.id).exists()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_release_failure_still_reports_cancelled(self, activity_environment, test_task, test_task_run):
+        # The cancel is irreversible: a release failure must not tell the workflow to proceed as if
+        # the run were healthy.
+        _make_signals_run(test_task, test_task_run)
+        with (
+            patch(f"{MODULE}.signals_quota_gate", return_value=SignalsQuotaGate(limited=True, enforced=True)),
+            patch(f"{MODULE}.capture_signal_report_quota_paused"),
+            patch("products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None)),
+            patch(
+                "products.signals.backend.task_run_artefacts.release_quota_cancelled_implementation",
+                side_effect=RuntimeError("db down"),
+            ),
+        ):
+            assert _run_activity(activity_environment, test_task_run) == SIGNALS_QUOTA_CANCELLED
+
+    @pytest.mark.django_db(transaction=True)
     def test_enforced_over_quota_cancels_run_and_releases_report(self, activity_environment, test_task, test_task_run):
         # The core money path: a PR-less signals run on an enforced over-quota team is cancelled
         # and its report is released so a later cycle can re-implement it.

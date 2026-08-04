@@ -26,7 +26,11 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.quota import capture_signal_report_quota_paused, signals_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    record_quota_check_failed_open,
+    signals_quota_gate,
+)
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal import metrics
@@ -470,6 +474,7 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
             )
         return gate.enforced
     except Exception:
+        record_quota_check_failed_open()
         logger.exception(
             "Signals quota gate check failed open",
             report_id=input.report_id,
