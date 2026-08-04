@@ -135,9 +135,7 @@ A good test should:
 
 ### Dataclasses
 
-Prefer a small dataclass over a tuple when returning or passing multiple values:
-always when two or more elements share a type (callers can silently swap them, e.g. `(start, end)` timestamps or `(username, password)` credentials),
-and when there are roughly 3+ elements, where positional access hurts readability.
+Prefer a small dataclass over a tuple when returning or passing multiple values: always when two or more elements share a type (callers can silently swap them, e.g. `(start, end)` timestamps or `(username, password)` credentials), and when there are roughly 3+ elements, where positional access hurts readability.
 
 Use the house-default decorator:
 

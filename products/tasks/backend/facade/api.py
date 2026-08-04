@@ -74,6 +74,7 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskAutomation,
+    TaskClientProvenance,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -4180,7 +4181,13 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> contracts.TaskDetailDTO:
+def create_task(
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
     Absorbs the cross-product ``SignalReportTask`` linkage, ``generate_task_title``, and
@@ -4202,6 +4209,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    validated_data["client_provenance"] = client_provenance
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
     warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
@@ -4280,6 +4288,11 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 update_fields.append("channel")
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
+            if warm_task.client_provenance is None and client_provenance is not None:
+                Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
+                    client_provenance=client_provenance
+                )
+                warm_task.client_provenance = client_provenance
             _activate_warm_run(
                 warm_run,
                 warm_task,
@@ -4767,6 +4780,7 @@ def warm_task_sandbox(
     reasoning_effort: str | None = None,
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
+    client_provenance: TaskClientProvenance | None = None,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
@@ -4846,6 +4860,7 @@ def warm_task_sandbox(
         origin_product=Task.OriginProduct.USER_CREATED,
         user_id=user_id,
         repository=repository,
+        client_provenance=client_provenance,
     )
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
