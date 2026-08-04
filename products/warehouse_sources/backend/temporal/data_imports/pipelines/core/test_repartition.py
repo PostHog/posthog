@@ -1071,7 +1071,7 @@ class TestClaimFencing:
             partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
         )
         temp_uri = str(tmp_path / "temp")
-        with patch.object(repartition_module, "DEFAULT_MAX_TABLE_BYTES", 100):
+        with patch.object(repartition_module, "REWRITE_BUFFER_MAX_BYTES", 100):
             rows_written, _ = asyncio.run(
                 _rewrite_into_temp(
                     old_delta=live,

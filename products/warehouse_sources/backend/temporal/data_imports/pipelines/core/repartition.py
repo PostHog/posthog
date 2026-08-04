@@ -72,6 +72,13 @@ DEFAULT_REPARTITION_BATCH_SIZE = 50_000
 # 0 disables the throttle (check every batch).
 CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 
+# Arrow payload the rewrite may hold in its coalescing buffer. Half the package's per-table cap
+# deliberately: the batch that triggers a flush is already materialised and stays resident while the
+# buffer drains, so the true peak is buffer + one incoming batch. Budgeting half keeps that sum inside
+# one `DEFAULT_MAX_TABLE_BYTES` instead of letting it reach twice the cap. Coalescing loses nothing
+# that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
+REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
+
 TEMP_URI_SUFFIX = "__repartitioned"
 
 
@@ -491,13 +498,13 @@ async def _rewrite_into_temp(
         # Coalesce before writing, so commits scale with data size rather than source file count
         # (see `CLAIM_RECHECK_INTERVAL_SECONDS`). Bound the buffer by bytes as well as rows: a row
         # count says nothing about width once `evolve_pyarrow_schema` has flattened struct and list
-        # columns into JSON strings, and this package caps Arrow payload for that reason elsewhere
-        # (`DEFAULT_MAX_TABLE_BYTES`). Flush *before* appending whatever would overflow, never after,
-        # or a nearly-full buffer could still take a further full-sized batch.
+        # columns into JSON strings. Flush *before* appending whatever would overflow, never after,
+        # or a nearly-full buffer could still take a further full-sized batch. Peak residency is this
+        # buffer plus the batch in hand, which `REWRITE_BUFFER_MAX_BYTES` budgets for.
         table_bytes = table_payload_bytes(partitioned_table)
         if buffered and (
             buffered_rows + partitioned_table.num_rows > batch_size
-            or buffered_bytes + table_bytes > DEFAULT_MAX_TABLE_BYTES
+            or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
         ):
             rows_written += await flush()
         buffered.append(partitioned_table)
