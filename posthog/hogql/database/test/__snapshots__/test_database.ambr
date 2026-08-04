@@ -4005,16 +4005,6 @@
                   "table": null,
                   "type": "datetime"
               },
-              "is_home": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "is_home",
-                  "id": null,
-                  "name": "is_home",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
               "current_source_version_id": {
                   "chain": null,
                   "fields": null,
@@ -13043,16 +13033,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
-              },
-              "is_home": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "is_home",
-                  "id": null,
-                  "name": "is_home",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
               },
               "current_source_version_id": {
                   "chain": null,

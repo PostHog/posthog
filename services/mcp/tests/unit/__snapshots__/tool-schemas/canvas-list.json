@@ -5,10 +5,6 @@
             "description": "Only return canvases in this channel (channel id).",
             "type": "string"
         },
-        "is_home": {
-            "description": "Filter by channel-home status.",
-            "type": "boolean"
-        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

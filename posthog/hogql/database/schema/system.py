@@ -2218,12 +2218,6 @@ canvases: PostgresTable = PostgresTable(
             nullable=True,
             description="When the canvas was pinned to its channel; NULL if not pinned.",
         ),
-        "_is_home": BooleanDatabaseField(name="is_home", hidden=True),
-        "is_home": ExpressionField(
-            name="is_home",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_home"])]),
-            description="1 if this is the channel's home canvas (the board shown when the channel opens), 0 otherwise.",
-        ),
         "current_source_version_id": StringDatabaseField(
             name="current_source_version_id",
             nullable=True,
