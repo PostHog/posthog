@@ -13,7 +13,7 @@ import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
@@ -175,7 +175,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         return item.team.name
     }, [])
 
-    if (!isAuthenticatedTeam(currentTeam)) {
+    if (!currentTeam) {
         return null
     }
 
