@@ -9,8 +9,9 @@ import {
     IconPencil,
     IconPieChart,
     IconTrends,
+    IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSelect, LemonSnack } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { dayjs } from 'lib/dayjs'
@@ -44,13 +45,13 @@ const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.El
 ]
 
 const AGGREGATION_OPTIONS: { value: BIAggregation; label: string }[] = [
+    { value: 'custom', label: 'SQL expression' },
     { value: 'count', label: 'Count' },
     { value: 'count_distinct', label: 'Count distinct' },
     { value: 'sum', label: 'Sum' },
     { value: 'average', label: 'Average' },
     { value: 'minimum', label: 'Minimum' },
     { value: 'maximum', label: 'Maximum' },
-    { value: 'custom', label: 'SQL expression' },
 ]
 
 const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
@@ -172,27 +173,22 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     {config.values.map((value, index) => (
                         <div
                             key={`${value.field.id}-${index}`}
-                            className="flex min-w-64 flex-1 flex-col gap-2 rounded border bg-primary p-2"
+                            className="flex min-w-64 flex-1 items-center gap-2 rounded border bg-primary p-2"
                         >
-                            <div className="flex min-w-0 items-center gap-2">
-                                <LemonSelect
-                                    value={value.aggregation}
-                                    options={AGGREGATION_OPTIONS.map((option) => ({
-                                        ...option,
-                                        disabledReason:
-                                            !isNumericBIField(value.field) &&
-                                            ['sum', 'average', 'minimum', 'maximum'].includes(option.value)
-                                                ? 'This calculation requires a numeric field'
-                                                : undefined,
-                                    }))}
-                                    onChange={(aggregation) => setValueAggregation(index, aggregation)}
-                                    size="xsmall"
-                                    dropdownMatchSelectWidth={false}
-                                />
-                                <LemonSnack onClose={() => removeFieldFromShelf('values', index)}>
-                                    {value.field.name}
-                                </LemonSnack>
-                            </div>
+                            <LemonSelect
+                                value={value.aggregation}
+                                options={AGGREGATION_OPTIONS.map((option) => ({
+                                    ...option,
+                                    disabledReason:
+                                        !isNumericBIField(value.field) &&
+                                        ['sum', 'average', 'minimum', 'maximum'].includes(option.value)
+                                            ? 'This calculation requires a numeric field'
+                                            : undefined,
+                                }))}
+                                onChange={(aggregation) => setValueAggregation(index, aggregation)}
+                                size="xsmall"
+                                dropdownMatchSelectWidth={false}
+                            />
                             <ExpressionEditorButton
                                 value={value.field.expression}
                                 field={value.field}
@@ -212,6 +208,10 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                     onChange={(customExpression) => setValueCustomExpression(index, customExpression)}
                                 />
                             ) : null}
+                            <RemoveFieldButton
+                                field={value.field}
+                                onClick={() => removeFieldFromShelf('values', index)}
+                            />
                         </div>
                     ))}
                 </Shelf>
@@ -228,25 +228,20 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                         return (
                             <div
                                 key={filter.field.id}
-                                className="flex min-w-64 flex-1 flex-col gap-2 rounded border bg-primary p-2"
+                                className="flex min-w-64 flex-1 items-center gap-2 rounded border bg-primary p-2"
                             >
-                                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <LemonSnack onClose={() => removeFieldFromShelf('filters', index)}>
-                                        {filter.field.name}
-                                    </LemonSnack>
-                                    <LemonSelect
-                                        value={filter.operator}
-                                        options={FILTER_OPERATOR_OPTIONS}
-                                        onChange={(operator) => setFilterOperator(index, operator)}
-                                        size="xsmall"
-                                        dropdownMatchSelectWidth={false}
-                                    />
-                                </div>
                                 <ExpressionEditorButton
                                     value={filter.field.expression}
                                     field={filter.field}
                                     label="Edit field expression"
                                     onChange={(expression) => setFieldExpression('filters', index, expression)}
+                                />
+                                <LemonSelect
+                                    value={filter.operator}
+                                    options={FILTER_OPERATOR_OPTIONS}
+                                    onChange={(operator) => setFilterOperator(index, operator)}
+                                    size="xsmall"
+                                    dropdownMatchSelectWidth={false}
                                 />
                                 {filter.operator === 'custom' ? (
                                     <ExpressionEditorButton
@@ -279,6 +274,10 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                         />
                                     )
                                 ) : null}
+                                <RemoveFieldButton
+                                    field={filter.field}
+                                    onClick={() => removeFieldFromShelf('filters', index)}
+                                />
                             </div>
                         )
                     })}
@@ -298,15 +297,30 @@ function FieldExpressionEditor({
     onRemove: () => void
 }): JSX.Element {
     return (
-        <div className="flex min-w-64 flex-1 flex-col gap-2 rounded border bg-primary p-2">
-            <LemonSnack onClose={onRemove}>{field.name}</LemonSnack>
+        <div className="flex min-w-64 flex-1 items-center gap-2 rounded border bg-primary p-2">
             <ExpressionEditorButton
                 value={field.expression}
                 field={field}
                 label="Edit field expression"
                 onChange={onChange}
             />
+            <RemoveFieldButton field={field} onClick={onRemove} />
         </div>
+    )
+}
+
+function RemoveFieldButton({ field, onClick }: { field: BIField; onClick: () => void }): JSX.Element {
+    return (
+        <LemonButton
+            icon={<IconX />}
+            size="xsmall"
+            type="tertiary"
+            noPadding
+            className="shrink-0"
+            tooltip={`Remove ${field.name}`}
+            aria-label={`Remove ${field.name}`}
+            onClick={onClick}
+        />
     )
 }
 
