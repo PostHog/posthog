@@ -149,6 +149,7 @@ class TaskClientProvenance(models.TextChoices):
 
 class Task(DeletedMetaFields, models.Model):
     _creation_event_properties: dict[str, Any]
+
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"

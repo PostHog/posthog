@@ -3024,7 +3024,10 @@ export const tasksSpawnCreateBodyTitleMax = 255
 export const tasksSpawnCreateBodyRepositoryMax = 255
 
 export const TasksSpawnCreateBody = /* @__PURE__ */ zod.object({
-    parent_run_id: zod.uuid().describe('Cloud run that is spawning this child task.'),
+    parent_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Cloud run that is spawning this child task. Defaults to the calling task-run context.'),
     title: zod.string().max(tasksSpawnCreateBodyTitleMax).describe('Title for the child task.'),
     description: zod.string().describe('Prompt passed verbatim to the child task.'),
     repository: zod

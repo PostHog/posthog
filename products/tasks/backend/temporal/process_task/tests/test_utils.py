@@ -279,6 +279,16 @@ class TestGetSandboxMcpConfigs(TestCase):
                 {"name": "X-PostHog-Task-Id", "value": "task-uuid-123"},
             ]
 
+    def test_task_run_id_adds_context_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, task_run_id="run-uuid-123")
+            assert configs[0].headers == [
+                *self._expected_headers(),
+                {"name": "X-PostHog-Task-Run-Id", "value": "run-uuid-123"},
+            ]
+
     def test_no_task_id_omits_attribution_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None

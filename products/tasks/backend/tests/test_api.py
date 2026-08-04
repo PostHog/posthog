@@ -1045,7 +1045,8 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
     @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
     @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
-    def test_spawn_creates_and_starts_child_with_protected_state(self, _flag, _gate, trigger):
+    @patch.object(Task, "capture_event", autospec=True)
+    def test_spawn_creates_and_starts_child_with_protected_state(self, capture_event, _flag, _gate, trigger):
         channel = Channel.objects.create(team=self.team, name="orchestration")
         parent_run = self._parent_run(channel=channel)
 
@@ -1075,6 +1076,59 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.state["parent_task_id"], str(parent_run.task_id))
         self.assertEqual(run.state["wake_on"], ["pr_merged"])
+        self.assertTrue(
+            any(
+                call.args[0].id == child.id and call.args[1] == "task_created" and call.args[2]["is_spawned"] is True
+                for call in capture_event.call_args_list
+            )
+        )
+
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_uses_parent_run_from_header(self, _flag, _gate, _trigger):
+        parent_run = self._parent_run()
+        payload = self._payload(parent_run)
+        payload.pop("parent_run_id")
+
+        response = self.client.post(
+            self.url,
+            payload,
+            format="json",
+            HTTP_X_POSTHOG_TASK_RUN_ID=str(parent_run.id),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        child_run = Task.objects.get(id=response.json()["id"]).runs.get()
+        self.assertEqual(child_run.state["parent_run_id"], str(parent_run.id))
+
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_requires_calling_task_run_context(self, _flag):
+        payload = self._payload(self._parent_run())
+        payload.pop("parent_run_id")
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["parent_run_id"], ["spawn requires a calling task-run context"])
+
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_header_parent_run_takes_precedence_over_body(self, _flag, _gate, _trigger):
+        header_parent = self._parent_run()
+        body_parent = self._parent_run()
+
+        response = self.client.post(
+            self.url,
+            self._payload(body_parent),
+            format="json",
+            HTTP_X_POSTHOG_TASK_RUN_ID=str(header_parent.id),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        child_run = Task.objects.get(id=response.json()["id"]).runs.get()
+        self.assertEqual(child_run.state["parent_run_id"], str(header_parent.id))
 
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.copy")

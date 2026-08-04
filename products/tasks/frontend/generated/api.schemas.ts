@@ -3720,8 +3720,8 @@ export const WakeOnEnumApi = {
 } as const
 
 export interface TaskSpawnRequestApi {
-    /** Cloud run that is spawning this child task. */
-    parent_run_id: string
+    /** Cloud run that is spawning this child task. Defaults to the calling task-run context. */
+    parent_run_id?: string
     /**
      * Title for the child task.
      * @maxLength 255

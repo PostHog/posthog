@@ -756,7 +756,10 @@ class TaskCreateSerializer(TaskWriteSerializer):
 
 
 class TaskSpawnRequestSerializer(serializers.Serializer):
-    parent_run_id = serializers.UUIDField(help_text="Cloud run that is spawning this child task.")
+    parent_run_id = serializers.UUIDField(
+        required=False,
+        help_text="Cloud run that is spawning this child task. Defaults to the calling task-run context.",
+    )
     title = serializers.CharField(max_length=255, help_text="Title for the child task.")
     description = serializers.CharField(help_text="Prompt passed verbatim to the child task.")
     repository = serializers.CharField(
