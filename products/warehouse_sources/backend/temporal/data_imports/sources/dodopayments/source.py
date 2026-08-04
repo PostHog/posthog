@@ -66,7 +66,7 @@ class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsR
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.canonical_descriptions import (
+        from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.canonical_descriptions import (  # noqa: PLC0415 — lazy import of sibling metadata, per the source architecture contract
             CANONICAL_DESCRIPTIONS,
         )
 
@@ -99,11 +99,20 @@ class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsR
         is_valid, status = api_client.validate_credentials(config.api_key, config.mode)
         if is_valid:
             return True, None
-        if status in (401, 403):
+        if status == 401:
             return False, (
                 f"Dodo Payments rejected the API key in {config.mode} mode. A test key only works "
                 "against test mode, and a live key only against live mode."
             )
+        if status == 403:
+            return False, (
+                "This Dodo Payments API key doesn't have permission to read. Grant it read access "
+                "in the dashboard under Developer > API keys and reconnect."
+            )
+        if status == 429:
+            return False, "Dodo Payments is rate limiting these requests. Wait a moment and try again."
+        if status is not None and status >= 500:
+            return False, "Dodo Payments returned a server error. Try again shortly."
         return False, "Could not reach Dodo Payments with these credentials"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DodoPaymentsResumeConfig]:

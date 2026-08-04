@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
     DODOPAYMENTS_ENDPOINTS,
     MODE_HOSTS,
     PAGE_SIZE,
+    REQUEST_TIMEOUT_SECONDS,
 )
 
 
@@ -150,6 +151,8 @@ def dodopayments_source(
             # than letting a redirect replay the bearer token at another origin.
             "allowed_hosts": [],
             "allow_redirects": False,
+            # Bound every request so a stalled connect or a hung read can't hold this worker forever.
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
         },
         "resources": [resource],
     }

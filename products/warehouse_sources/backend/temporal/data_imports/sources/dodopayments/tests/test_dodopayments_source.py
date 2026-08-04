@@ -125,9 +125,10 @@ class TestDodoPaymentsSource:
         [
             ((True, 200), True, None),
             ((False, 401), False, "rejected the API key"),
-            ((False, 403), False, "rejected the API key"),
+            ((False, 403), False, "permission to read"),
+            ((False, 429), False, "rate limiting"),
+            ((False, 500), False, "server error"),
             ((False, None), False, "Could not reach"),
-            ((False, 500), False, "Could not reach"),
         ],
     )
     @mock.patch(f"{API_CLIENT_PATCH}.validate_credentials")

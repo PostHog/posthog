@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.settings import (
     DODOPAYMENTS_ENDPOINTS,
     PAGE_SIZE,
+    REQUEST_TIMEOUT_SECONDS,
 )
 
 SESSION_PATCH = (
@@ -307,6 +308,13 @@ class TestSourceResponseMetadata:
         _source("payments", mode="test")
 
         assert mock_rest_api_resource.call_args.args[0]["client"]["base_url"] == "https://test.dodopayments.com"
+
+    @mock.patch(REST_RESOURCE_PATCH)
+    def test_client_bounds_every_request_with_a_timeout(self, mock_rest_api_resource):
+        # Without this a stalled connect or hung read would pin an import worker indefinitely.
+        _source("payments")
+
+        assert mock_rest_api_resource.call_args.args[0]["client"]["request_timeout"] == REQUEST_TIMEOUT_SECONDS
 
     @mock.patch(REST_RESOURCE_PATCH)
     def test_framework_incremental_injection_is_not_used(self, mock_rest_api_resource):

@@ -15,6 +15,11 @@ DEFAULT_MODE = "live"
 # Every list endpoint caps `page_size` at 100 (the default is 10).
 PAGE_SIZE = 100
 
+# `(connect, read)` seconds. Bounds every REST request so a stalled connect or a hung read cannot
+# pin an import worker indefinitely; the read budget is generous because a slow page is still worth
+# waiting for against the 240 requests/minute rate limit.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
+
 # Rows whose fields get restated after creation re-read a trailing 30 day window on every
 # incremental run. Dodo only filters on `created_at` - there is no updated-since filter anywhere
 # in the API - so a bare creation cursor would freeze `status`, `dispute_status` and
