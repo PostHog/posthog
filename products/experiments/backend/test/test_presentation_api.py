@@ -28,6 +28,10 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -38,6 +42,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
@@ -601,6 +606,66 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_legacy"])
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
+            ("before_cutoff", True, -7, "$feature_flag_called"),
+            ("after_cutoff", True, 7, "$experiment_exposure"),
+            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+        ]
+    )
+    def test_detail_reports_resolved_exposure_event(
+        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+    ) -> None:
+        # The frontend names the exposure event from this field, so it has to agree with what the
+        # results queries actually read (resolve_default_exposure_event). Resolution compares
+        # start_date against a fixed constant, so these cases need no clock control.
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="resolved-exposure-event",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"resolved-exposure-{_name}", created_by=self.user
+            ),
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+        )
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["resolved_exposure_event"], expected_event)
+
+    @parameterized.expand(
+        [("after_cutoff", 30, "$experiment_exposure"), ("before_cutoff", -30, "$feature_flag_called")]
+    )
+    def test_draft_resolves_exposure_event_against_now(
+        self, _name: str, now_offset_days: int, expected_event: str
+    ) -> None:
+        # A draft has no start_date, so the field reports what launching now would resolve to —
+        # otherwise the setup UI names the old event for an experiment about to use the new one.
+        # Serialized directly rather than over HTTP: the frozen clock would expire the session.
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="draft-resolved-exposure-event",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"draft-resolved-exposure-{_name}", created_by=self.user
+            ),
+            start_date=None,
+        )
+
+        with (
+            freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days)),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            serialized = ExperimentSerializer(
+                experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
+            ).data
+
+        self.assertEqual(serialized["resolved_exposure_event"], expected_event)
 
     def test_retrieving_experiment_refreshes_action_names(self) -> None:
         # Action-name refresh lives on the detail response — the list endpoint no longer
