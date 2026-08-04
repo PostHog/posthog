@@ -2748,8 +2748,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_client_user_agent": {
             "label": "MCP client user agent",
-            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller. One vendor typically reports the same client name across all of its products, so the parenthetical here is what separates them.",
             "examples": ["claude-code/2.1.141 (cli)", "Anthropic/ClaudeAI"],
+        },
+        "$mcp_vendor_client": {
+            "label": "MCP vendor client",
+            "description": "Vendor-specific client header identifying which of a vendor's products made the call, captured by @posthog/mcp. The $-prefixed counterpart of mcp_vendor_client, which PostHog's own MCP server stamps; harness resolution reads either.",
+            "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
         },
         "$mcp_intent": {
             "label": "MCP intent",
@@ -2931,7 +2936,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "mcp_vendor_client": {
             "label": "MCP vendor client",
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request). Stamped by PostHog's own MCP server; servers instrumented with @posthog/mcp send the same value as $mcp_vendor_client.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "mcp_session_client_name": {
