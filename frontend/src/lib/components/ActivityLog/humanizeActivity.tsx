@@ -113,7 +113,16 @@ export function humanize(
         if (!describer) {
             continue
         }
-        const { description, extendedDescription } = describer(logItem, asNotification)
+
+        let description: Description
+        let extendedDescription: ExtendedDescription
+        try {
+            ;({ description, extendedDescription } = describer(logItem, asNotification))
+        } catch (e) {
+            // A single malformed row shouldn't take down the whole activity log
+            console.error('Error describing activity log item', logItem, e)
+            continue
+        }
 
         if (description !== null) {
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
@@ -274,7 +283,7 @@ export function defaultDescriber(
                 </>
             )
         }
-        const commentContent = logItem.detail.changes?.[0].after as string | undefined
+        const commentContent = logItem.detail.changes?.[0]?.after as string | undefined
 
         return {
             description,

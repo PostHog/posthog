@@ -64,7 +64,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'split_person') {
-        const after = logItem.detail.changes?.[0].after
+        const after = logItem.detail.changes?.[0]?.after
         const distinctIds = isObject(after) ? after.distinct_ids : undefined
 
         if (Array.isArray(distinctIds)) {
