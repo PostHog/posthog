@@ -168,23 +168,30 @@ Remaining gaps are mostly breakdown views and account-config resources.
 - [ ] Device segmentation and hourly segmentation on the existing stats views.
 - [ ] Conversion stats segmented by `conversion_action` (we have the actions but not their stats).
 
-### Meta Ads — needs confirmation
+### Meta Ads — spec-verified
 
-Six tables: `campaigns`, `adsets`, `ads`, and one stats table each.
-The thinnest coverage of any tier 1 source, and the two biggest omissions are structural.
+Diffed against the [Marketing API reference](https://developers.facebook.com/docs/marketing-api/reference/)
+and the [Insights breakdowns reference](https://developers.facebook.com/docs/marketing-api/insights/breakdowns/)
+on 2026-08-04, against API version v25.0.
 
-- [ ] `adcreatives` — no creative metadata at all. You cannot tell what an ad looked like.
-- [ ] Insight breakdowns: `age`, `gender`, `country`, `region`, `publisher_platform`, `platform_position`, `impression_device`. None available.
-- [ ] Action breakdowns: `actions`, `action_values`, `cost_per_action_type` — conversion outcomes by type.
-- [ ] `ad_account` — spend caps, currency, timezone, funding. Currency especially, since stats are meaningless without it.
-- [ ] Lead gen forms and `leads` — the payload of Meta lead ads.
-- [ ] `customaudiences` and saved audiences.
-- [ ] `adimages`, `advideos` — creative assets.
-- [ ] `adspixels` and custom conversions.
-- [ ] `adrules_library` — automated rules.
+Have: `campaigns`, `campaign_stats`, `adsets`, `adset_stats`, `ads`, `ad_stats`, `ad_account`,
+`ad_creatives`, `ad_images`, `ads_pixels`, `custom_conversions`, `campaign_stats_by_age_gender`,
+`campaign_stats_by_country`, `campaign_stats_by_region`, `campaign_stats_by_platform`,
+`campaign_stats_hourly`.
 
-`schemas.py` also carries a `AdsetStats = "adset_stats"  # TODO: remove this` marker worth resolving
-while in here.
+- [x] `adcreatives` — shipped as `ad_creatives`.
+- [x] Insight breakdowns: `age`, `gender`, `country`, `region`, `publisher_platform`, `platform_position`, `impression_device`, plus hourly. Shipped as five campaign-level breakdown tables, all off by default. `device_platform` is not in Meta's valid-permutation table, so it was dropped.
+- [ ] Action breakdowns: `actions`, `action_values`, `cost_per_action_type` (skipped: already synced. All three are AdsInsights fields and are in every stats table's field list today. The `action_breakdowns` parameter only adds keys inside those nested arrays, it does not produce rows.)
+- [x] `ad_account` — shipped, including currency, timezone, spend caps and funding.
+- [ ] Lead gen forms and `leads` (skipped: reading them needs `leads_retrieval` plus Page-level access, and our OAuth consent requests `ads_read` only, so every sync would 403.)
+- [ ] `customaudiences` and saved audiences (skipped: gated behind `ads_management` and the account having accepted the Custom Audience terms of service, neither of which our consent covers.)
+- [x] `adimages` — shipped as `ad_images`.
+- [ ] `advideos` (skipped: AdVideo is a Page video object whose readable fields depend on video permissions we do not request, and its useful fields are short-lived URLs rather than warehouse-shaped data.)
+- [x] `adspixels` and custom conversions — shipped as `ads_pixels` and `custom_conversions`.
+- [ ] `adrules_library` (skipped: automated rules are configuration objects, not analytics data, and reading the rules library needs `ads_management`.)
+
+`schemas.py` still carries a `AdsetStats = "adset_stats"  # TODO: remove this` marker. Left alone:
+the table ships and has live syncs, so removing it would orphan synced data.
 
 ### GitHub — spec-verified
 
