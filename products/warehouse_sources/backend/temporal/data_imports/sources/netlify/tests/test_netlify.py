@@ -234,10 +234,12 @@ class TestPageCap:
         # Hitting the per-parent page cap must fail loudly rather than silently truncate the table.
         paginator = NetlifyCappedHeaderLinkPaginator(max_pages=2, context={"table": "builds"})
         page = [{"id": "x"}]
-        resp = _response(page, next_url=f"{BASE}/sites/s1/builds?page=2")
-        paginator.update_state(resp, page)  # page 1: under the cap
+        paginator.update_state(
+            _response(page, next_url=f"{BASE}/sites/s1/builds?page=2"), page
+        )  # page 1: under the cap
         with pytest.raises(NetlifyPageCapExceededError):
-            paginator.update_state(resp, page)  # page 2: cap reached with more pages remaining
+            # page 2: cap reached with more pages remaining
+            paginator.update_state(_response(page, next_url=f"{BASE}/sites/s1/builds?page=3"), page)
 
     def test_capped_paginator_stops_cleanly_when_no_more_pages(self) -> None:
         paginator = NetlifyCappedHeaderLinkPaginator(max_pages=2, context={"table": "builds"})

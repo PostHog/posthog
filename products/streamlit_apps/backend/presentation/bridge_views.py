@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
@@ -17,6 +18,9 @@ from posthog.rate_limit import PersonalApiKeyRateThrottle
 
 from products.streamlit_apps.backend.facade.api import execute_bridge_query, get_streamlit_oauth_app
 from products.streamlit_apps.backend.presentation.serializers import streamlit_apps_flag_enabled
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +64,8 @@ class StreamlitBridgeIPThrottle(PersonalApiKeyRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None, str | None]:
-    """Validate a bridge bearer token; returns (team_id, user_distinct_id, error).
+def _authenticate_bearer(auth_header: str) -> tuple[int | None, User | None, str | None]:
+    """Validate a bridge bearer token; returns (team_id, minting_user, error).
 
     Kept as an in-view helper rather than a DRF BaseAuthentication class on purpose:
     this is a single first-party endpoint with bespoke checks (single-team scope,
@@ -105,7 +109,7 @@ def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None, str 
     if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
         return None, None, "Token user is not a member of the team's organization."
 
-    return team_id, user.distinct_id, None
+    return team_id, user, None
 
 
 def _streamlit_apps_enabled_for_team(team_id: int, user_distinct_id: str | None) -> bool:
@@ -127,13 +131,13 @@ class StreamlitBridgeView(APIView):
         if not auth_header.startswith("Bearer "):
             return Response({"error": "Missing or invalid Authorization header."}, status=401)
 
-        team_id, user_distinct_id, error = _authenticate_bearer(auth_header)
+        team_id, token_user, error = _authenticate_bearer(auth_header)
         if team_id is None:
             return Response({"error": error}, status=401)
 
         # Same gate as the viewset: a bridge token outlives a flag rollback,
         # so the flag must be re-checked here, not just at token mint time.
-        if not _streamlit_apps_enabled_for_team(team_id, user_distinct_id):
+        if not _streamlit_apps_enabled_for_team(team_id, token_user.distinct_id if token_user else None):
             return Response({"error": "Streamlit apps is not available."}, status=403)
 
         if len(request.body) > BRIDGE_REQUEST_MAX_BYTES:
@@ -149,7 +153,7 @@ class StreamlitBridgeView(APIView):
             return Response({"error": "Missing or empty 'query' field."}, status=400)
 
         try:
-            result = execute_bridge_query(query=query, team_id=team_id)
+            result = execute_bridge_query(query=query, team_id=team_id, user=token_user)
             return Response(result)
         except Exception:
             logger.exception(

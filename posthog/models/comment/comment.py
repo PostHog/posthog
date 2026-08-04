@@ -1,6 +1,8 @@
 from typing import cast
 
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
+from django.db.models.functions import Upper
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
@@ -46,6 +48,15 @@ class Comment(UUIDTModel, RootTeamMixin):
             models.Index(
                 fields=["team_id", "scope", "item_id", "deleted", "-created_at"],
                 name="posthog_comment_convo_idx",
+            ),
+            # Trigram index for conversations ticket search on message content. On UPPER(...)
+            # because icontains compiles to UPPER(col) LIKE UPPER(pattern) on Postgres.
+            # Partial: the table is shared across products, and the search always filters
+            # on this scope.
+            GinIndex(
+                OpClass(Upper("content"), name="gin_trgm_ops"),
+                name="comment_convo_content_trgm",
+                condition=models.Q(scope="conversations_ticket"),
             ),
         ]
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -54,6 +54,7 @@ from posthog.permissions import (
     APIScopePermission,
     TeamMemberAccessPermission,
     TeamMemberAdminManagementPermission,
+    is_service_auth,
 )
 from posthog.rate_limit import (
     CustomSourceAIBuilderBurstThrottle,
@@ -61,7 +62,7 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderSustainedThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
@@ -556,6 +557,11 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
     supports_hogql = serializers.SerializerMethodField(
         help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
     )
+    description = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="User-set description of the source, shown as its display name in the connection picker when set.",
+    )
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_hogql(self, source: ExternalDataSource) -> bool:
@@ -566,8 +572,27 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
-        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
+        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
+        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
+
+
+class DirectConnectionSourceOptionSerializer(serializers.Serializer):
+    """A source type that can be added as a direct (live-query) connection, with display metadata."""
+
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        read_only=True,
+        help_text="The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').",
+    )
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        read_only=True,
+        help_text="Human-readable name to show in the picker (falls back to the source type).",
+    )
+    icon_path = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Path to the source's icon asset, or null when the source ships no icon.",
+    )
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -1293,7 +1318,11 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
     )
     prefix = serializers.CharField(
-        max_length=100, required=False, allow_null=True, allow_blank=True, help_text="Table name prefix in HogQL."
+        max_length=100,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.",
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
@@ -1358,7 +1387,10 @@ class SourceSetupSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.",
+        help_text=(
+            "Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. "
+            "Does not filter which tables are imported. Defaults to the source type."
+        ),
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
@@ -1731,6 +1763,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSource):
             if obj.is_system_managed:
                 raise PermissionDenied("This source is managed by PostHog and cannot be changed through this API.")
+
+    def _assert_can_write_schemas(self, schemas: Iterable[ExternalDataSchema]) -> None:
+        """Per-table gate for source-level endpoints that write or sync schemas.
+
+        Editor on the source isn't enough: a table can be locked below that, and these endpoints
+        never resolve a schema through DRF's object permissions, so nothing else checks it. Each
+        schema resolves like the schema viewset's permission: through its table, which falls back
+        to the source via RESOURCE_FALLBACK_MAP.
+        """
+        # Service credentials are synthetic users UserAccessControl can't evaluate; they're gated by
+        # API scope + project membership. Mirror AccessControlPermission.
+        if is_service_auth(self.request):
+            return
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table in this source.")
 
     def dangerously_get_permissions(self):
         # The account picker enumerates every account/site the connected provider exposes, so require
@@ -2169,6 +2219,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
+        except Exception as e:
+            # `get_schemas` opens its own connection, so credentials validated above can still fail
+            # here (e.g. a BigQuery service account key rotated/revoked in between). Classify via
+            # the source's own non-retryable-error map, same as `database_schema` and
+            # `refresh_schemas`, and roll back the row so a source that can't discover its schema
+            # doesn't linger half-created.
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(
+                    e,
+                    {
+                        "source_type": source_type,
+                        "team_id": self.team_id,
+                        "source_id": str(new_source_model.id),
+                    },
+                )
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": error_message},
             )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
@@ -2703,6 +2774,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .all()
         )
 
+        # Deleting the source deletes every table it synced, so it needs editor on each of them.
+        self._assert_can_write_schemas(schemas)
+
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
@@ -2794,6 +2868,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if instance.is_direct_query:
             return self.refresh_schemas(request, *args, **kwargs)
+
+        # Syncs every enabled schema, so it needs editor on each - a table locked below the source
+        # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
+        self._assert_can_write_schemas(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .exclude(deleted=True)
+            .select_related("source", "table")
+        )
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
@@ -4443,6 +4525,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer = ExternalDataSourceConnectionOptionSerializer(queryset, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
+    @extend_schema(responses=DirectConnectionSourceOptionSerializer(many=True))
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def direct_connection_options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Source types the user can add as a direct connection, driven by the direct-SQL capability
+        surface so the picker never drifts from the engines we actually support."""
+        direct_types = direct_capable_source_types()
+        options = [
+            {
+                "source_type": source_type,
+                "label": config.get("label") or source_type,
+                "icon_path": config.get("iconPath"),
+            }
+            for source_type, config in build_source_configs(include_tables=False).items()
+            if source_type in direct_types
+        ]
+        options.sort(key=lambda option: str(option["label"]).lower())
+
+        serializer = DirectConnectionSourceOptionSerializer(options, many=True)
+        return Response(status=status.HTTP_200_OK, data=serializer.data)
+
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the revenue analytics configuration and return the full external data source."""
@@ -4850,6 +4952,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if len(source_schemas_by_id) != len(schema_ids):
             raise ValidationError("One or more schemas could not be found for this source")
+
+        # Reject up front rather than per-schema, so a batch touching a locked table writes nothing.
+        self._assert_can_write_schemas(source_schemas_by_id.values())
 
         # Items that ask for sync defaults on a not-yet-configured schema get them discovered and
         # filled in up front. Tables that can't get defaults (dropped from the source, webhook-only)

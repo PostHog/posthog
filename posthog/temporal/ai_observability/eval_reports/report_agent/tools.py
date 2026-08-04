@@ -9,17 +9,23 @@ InjectedState, but whole-key replacement does not.
 
 import re
 import json
+import time
+import random
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
 from django.db.models import Q
 
 import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -27,6 +33,7 @@ from posthog.temporal.ai_observability.eval_reports.output_types import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
+    EvalReportGenerationStatus,
     ReportSection,
     calculate_boolean_pass_rate,
     calculate_result_rates,
@@ -101,6 +108,11 @@ def _report_run_target_filter(evaluation_target: str) -> Q:
     if resolve_evaluation_target(evaluation_target) == TRACE_TARGET:
         return Q(content__evaluation_target=TRACE_TARGET)
     return Q(content__evaluation_target=GENERATION_TARGET) | Q(content__evaluation_target__isnull=True)
+
+
+def _completed_report_run_filter() -> Q:
+    unavailable = EvalReportGenerationStatus.METRICS_UNAVAILABLE.value
+    return Q(content__generation_status__isnull=True) | ~Q(content__generation_status=unavailable)
 
 
 def _ch_ts(iso_str: str) -> datetime:
@@ -183,6 +195,59 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
     return ts_start, ts_end
 
 
+# Query timeouts and per-query memory limits need a narrower query, so retrying
+# them without changing the query only adds load.
+RETRIABLE_CH_ERRORS = (*CH_TRANSIENT_ERRORS, NetworkError, SocketTimeoutError)
+_CH_QUERY_MAX_RETRIES = 3
+_CH_QUERY_BASE_DELAY_SECONDS = 8.0
+
+T = TypeVar("T")
+
+
+def _is_retriable_ch_error(error: Exception) -> bool:
+    return isinstance(error, RETRIABLE_CH_ERRORS) or (
+        isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit
+    )
+
+
+def _execute_ch_query_with_retry(
+    run_query: Callable[[], T],
+    *,
+    query_type: str,
+    max_retries: int = _CH_QUERY_MAX_RETRIES,
+    base_delay: float = _CH_QUERY_BASE_DELAY_SECONDS,
+) -> T:
+    """Run a ClickHouse-backed callable, retrying transient errors with exponential backoff + jitter.
+
+    The report agent runs synchronously in a worker thread while the activity's
+    Heartbeater keeps heartbeating on the event loop, so a plain blocking sleep
+    here does not risk a heartbeat timeout. Non-transient errors propagate
+    immediately so genuine bugs still fail loudly.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return run_query()
+        except Exception as error:
+            if not _is_retriable_ch_error(error):
+                raise
+            if attempt >= max_retries:
+                raise
+            # Jitter prevents concurrent report workers from retrying together.
+            max_delay = base_delay * (2**attempt)
+            delay = random.uniform(max_delay / 2, max_delay)
+            logger.warning(
+                "llma_eval_reports_clickhouse_retry",
+                error=str(error),
+                error_type=type(error).__name__,
+                delay=round(delay, 1),
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                query_type=query_type,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable: retry loop must return or re-raise")
+
+
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
     """Execute a HogQL query against `events` and return results.
 
@@ -201,11 +266,14 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     query = parse_select(query_str)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team_id):
-        result = execute_hogql_query(
+        result = _execute_ch_query_with_retry(
+            lambda: execute_hogql_query(
+                query_type="EvalReportAgent",
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+            ),
             query_type="EvalReportAgent",
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
         )
 
     return result.results or []
@@ -230,12 +298,15 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
     # internally but not `feature`, so supply it here to keep these eval-report
     # agent reads attributed to background enrichment.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = query_ai_events(
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
+        result = _execute_ch_query_with_retry(
+            lambda: query_ai_events(
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+                query_type="EvalReportAgent",
+                fall_back_to_events=True,
+            ),
             query_type="EvalReportAgent",
-            fall_back_to_events=True,
         )
 
     return result.results or []
@@ -390,10 +461,11 @@ def list_all_eval_results(
 ) -> str:
     """Get a compact overview of evaluation results in the period.
 
-    Returns up to 500 results as condensed rows: outcome, target ID, and
-    truncated reasoning. When there are more than 500 results, returns a random
-    sample. Use this as your first scan to spot patterns before drilling into
-    specific examples with the target-specific detail tool.
+    Returns up to 500 results as condensed rows with outcome and target ID.
+    Boolean results include truncated reasoning, while sentiment results include
+    scores without classifier reasoning. When there are more than 500 results,
+    returns a random sample. Use this as your first scan to spot patterns before
+    drilling into specific examples with the target-specific detail tool.
 
     Args:
         max_reasoning_length: Truncate reasoning strings to this many characters (default 80)
@@ -462,10 +534,13 @@ def list_all_eval_results(
         target_id = str(row[0]) if row[0] else "?"
         outcome = _outcome_for_result(output_type, row[1], row[2]) or "?"
         score = f" ({row[3]:.2f})" if isinstance(row[3], int | float) else ""
-        reasoning = (row[4] or "")[:max_reasoning_length]
-        if row[4] and len(row[4]) > max_reasoning_length:
-            reasoning += "..."
-        lines.append(f"{outcome}{score} | {target_id} | {reasoning}")
+        fields = [f"{outcome}{score}", target_id]
+        if output_type != "sentiment":
+            reasoning = (row[4] or "")[:max_reasoning_length]
+            if row[4] and len(row[4]) > max_reasoning_length:
+                reasoning += "..."
+            fields.append(reasoning)
+        lines.append(" | ".join(fields))
 
     if is_sampled:
         header = f"Total: {total_count} results (showing random sample of {len(lines)})\n"
@@ -479,14 +554,17 @@ def sample_eval_results(
     state: Annotated[dict, InjectedState],
     outcome: str = "all",
     limit: int = 50,
+    order_by: Literal["recent", "score"] = "recent",
 ) -> str:
-    """Sample evaluation runs with target ID, outcome, score, and reasoning.
+    """Sample evaluation runs with target ID and outcome.
 
-    Call multiple times with different filters to understand patterns.
+    Boolean results include reasoning. Sentiment results include scores without
+    classifier reasoning and can be ordered by score.
 
     Args:
         outcome: "all" or one of the output type's supported outcomes
         limit: Maximum number of results to return (default 50)
+        order_by: "recent" or "score"; score ordering is only available for sentiment
     """
     limit = min(max(1, limit), 500)
     team_id = state["team_id"]
@@ -495,6 +573,9 @@ def sample_eval_results(
     ts_end = _ch_ts(state["period_end"])
     output_type, definition = _resolve_output_type(state.get("output_type"))
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
+    if order_by == "score" and output_type != "sentiment":
+        return json.dumps({"error": "Score ordering is only available for sentiment results"})
+    order_clause = "ORDER BY score DESC, timestamp DESC" if order_by == "score" else "ORDER BY timestamp DESC"
 
     # Whitelisted filter fragment: outcome predicates come only from the trusted
     # outcome definition, never directly from the LLM-controlled argument.
@@ -522,7 +603,7 @@ def sample_eval_results(
             AND timestamp >= {{ts_start}}
             AND timestamp < {{ts_end}}
             {filter_clause}
-        ORDER BY timestamp DESC
+        {order_clause}
         LIMIT {{limit}}
         """,
         placeholders={
@@ -540,10 +621,11 @@ def sample_eval_results(
         entry = {
             target_id_key: str(row[0]) if row[0] else "",
             "outcome": _outcome_for_result(output_type, row[1], row[3]),
-            "reasoning": row[2] or "",
         }
         if output_type == "sentiment":
             entry["score"] = row[4]
+        else:
+            entry["reasoning"] = row[2] or ""
         result.append(entry)
 
     return json.dumps(result, indent=2)
@@ -1040,6 +1122,7 @@ def list_recent_report_runs(
         period_end__gte=since,
     )
     runs = runs.filter(_report_run_target_filter(evaluation_target))
+    runs = runs.filter(_completed_report_run_filter())
     runs = runs.order_by("-period_end")[:limit]
 
     result = []
@@ -1094,6 +1177,7 @@ def get_report_run(
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     runs = EvaluationReportRun.objects.filter(id=run_id, report__evaluation_id=evaluation_id)
     runs = runs.filter(_report_run_target_filter(evaluation_target))
+    runs = runs.filter(_completed_report_run_filter())
     try:
         run = runs.get()
     except EvaluationReportRun.DoesNotExist:
@@ -1299,7 +1383,6 @@ _COMMON_OVERVIEW_TOOLS: list[BaseTool] = [
 _COMMON_FOLLOWUP_TOOLS: list[BaseTool] = [
     list_recent_report_runs,
     get_report_run,
-    get_top_outcome_reasons,
 ]
 
 _GENERATION_DETAIL_TOOLS: list[BaseTool] = [sample_generation_details, get_generation_detail, get_generation_text_repr]
@@ -1311,11 +1394,12 @@ _OUTPUT_TOOLS: list[BaseTool] = [
 ]
 
 
-def get_eval_report_tools(evaluation_target: str) -> list[BaseTool]:
-    """Return the shared report tools plus only the details relevant to this target."""
+def get_eval_report_tools(evaluation_target: str, output_type: str = "boolean") -> list[BaseTool]:
+    """Return the shared report tools plus only the tools relevant to this evaluation."""
     target = resolve_evaluation_target(evaluation_target)
     detail_tools = _TRACE_DETAIL_TOOLS if target == TRACE_TARGET else _GENERATION_DETAIL_TOOLS
-    return [*_COMMON_OVERVIEW_TOOLS, *detail_tools, *_COMMON_FOLLOWUP_TOOLS, *_OUTPUT_TOOLS]
+    reasoning_tools = [] if output_type == "sentiment" else [get_top_outcome_reasons]
+    return [*_COMMON_OVERVIEW_TOOLS, *detail_tools, *_COMMON_FOLLOWUP_TOOLS, *reasoning_tools, *_OUTPUT_TOOLS]
 
 
 # Preserve the original export for callers that build generation report agents directly.

@@ -142,6 +142,14 @@ export interface StreamlitConnectInfoApi {
     expires_in: number
 }
 
+export interface CreateVersionFromSourceInputApi {
+    /**
+     * Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version.
+     * @maxLength 1048576
+     */
+    source: string
+}
+
 export interface StreamlitAppStatusApi {
     /** Sandbox lifecycle status, or 'stopped' when no sandbox exists. */
     status: string

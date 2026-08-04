@@ -7,10 +7,11 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,7 +20,7 @@ import structlog
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -45,6 +46,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
+from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -73,9 +75,13 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius,
     get_user_blast_radius_persons,
 )
+from products.messaging.backend.api.design_operations import apply_design_operations
+from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.api.message_templates import DesignOperationSerializer
+from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.action_redirects import compute_action_redirects
-from products.workflows.backend.api.graph_operations import apply_graph_operations
+from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from products.workflows.backend.api.message_assets import (
@@ -86,15 +92,18 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.api.publish_impact import build_publish_impact
-from products.workflows.backend.models.email_reputation import EmailReputationSnapshot
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
+    SUPPORTED_ACTION_TYPES,
+    TRIGGER_TYPES,
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -108,6 +117,7 @@ from products.workflows.backend.services.timing_reschedule import (
     get_timing_reschedule_action_ids,
     use_workflows_timing_reschedule,
 )
+from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
@@ -140,6 +150,85 @@ DRAFT_CONTENT_FIELDS = (
     "abort_action",
     "variables",
 )
+
+
+# Compiled from the author's filters rather than written by them, and only present once a condition has
+# been through validation. Comparing them would make an unchanged condition look edited.
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+
+
+def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
+    """The parts of a wait condition a person actually wrote, with compiler output dropped."""
+    if not isinstance(condition, dict):
+        return condition
+    filters = condition.get("filters")
+    if not isinstance(filters, dict):
+        return condition
+    return {
+        **condition,
+        "filters": {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS},
+    }
+
+
+def _wait_condition_already_stored(action: dict, context: dict) -> bool:
+    """
+    True when this wait's condition matches the one already persisted for the same action.
+
+    The gate exists to stop *new* clock-based waits, not to make an existing workflow un-editable.
+    Every strict save re-validates the whole actions array, so without this an unrelated edit (or
+    simply resuming a paused flow) would be refused over a condition that was already accepted.
+    """
+    stored = context.get("stored_wait_conditions")
+    if not stored:
+        return False
+    action_id = action.get("id")
+    if action_id not in stored:
+        return False
+    return _authored_condition(stored[action_id]) == _authored_condition((action.get("config") or {}).get("condition"))
+
+
+def _reject_clock_based_wait(config: dict, team: Team) -> None:
+    """
+    Refuse a wait whose condition depends on the clock rather than on something happening.
+
+    Nothing notifies the matcher when time passes, so such a wait can only be advanced by the
+    periodic re-check. Rejecting it at save time is what allows that re-check to be removed.
+    """
+    filters = (config.get("condition") or {}).get("filters")
+    if not filters:
+        return
+
+    try:
+        expr = compile_filters_expr(filters, team)
+    except Exception as e:
+        # Fail closed. Nothing else inspects a wait's condition at save time, so swallowing this would
+        # let an unwakeable wait through whenever compilation trips on something the shape serializer
+        # doesn't check - a condition referencing a deleted action raises Action.DoesNotExist here, for
+        # instance. If we can't read the condition we can't claim a stream will wake it.
+        logger.warning("workflows.wait_condition_uncompilable", error=str(e))
+        raise serializers.ValidationError(
+            {
+                "config": (
+                    "This wait's condition could not be read, so we can't tell how it would be woken. "
+                    "Check the events, actions and properties it refers to still exist."
+                )
+            }
+        )
+
+    clock_function = find_clock_function(expr)
+    if not clock_function:
+        return
+
+    raise serializers.ValidationError(
+        {
+            "config": (
+                f"This wait uses {clock_function}(), so it depends on the current time rather than on "
+                "something happening, and it can only advance once the workflow checks it again. "
+                "To wait for a point in time, use a delay step, then add this condition to the step "
+                "after it."
+            )
+        }
+    )
 
 
 def snapshot_flow_content(flow: HogFlow) -> dict:
@@ -595,6 +684,66 @@ class HogFlowActionConfigField(serializers.JSONField):
     pass
 
 
+class HogFlowActionTypeField(serializers.ChoiceField):
+    """A closed set of action types, rejected at write time rather than at run time.
+
+    A type with no worker handler can never execute: it saves fine, then every run that reaches it
+    dies with "Action type 'x' not supported", and unless the step sets on_error: continue everything
+    downstream silently never happens. Keeping `choices` populated also means drf-spectacular emits
+    the enum, so generated clients and MCP tools advertise the valid values instead of callers
+    guessing them.
+
+    ChoiceField's own invalid_choice message is run through str.format, which can't carry the JSON
+    example below (its braces would be read as format placeholders), so the message is raised here.
+    """
+
+    def to_internal_value(self, data: Any) -> str:
+        # isinstance before the membership test: self.choices is a dict, so `data in self.choices`
+        # raises TypeError on an unhashable JSON object/array, which escapes DRF's validation stack
+        # (it only catches ValidationError) and 500s the endpoint.
+        if isinstance(data, str) and data in self.choices:
+            return super().to_internal_value(data)
+        raise serializers.ValidationError(
+            f"Unsupported action type {self._describe(data)}. "
+            f"Valid types are: {', '.join(SUPPORTED_ACTION_TYPES)}. "
+            "Steps that act on PostHog data don't get a type of their own - they are type 'function' "
+            f"with a template_id.{self._hint(data)}"
+        )
+
+    @staticmethod
+    def _hint(data: Any) -> str:
+        # The types actually seen in stored workflows cluster into a few mistakes, so point at the
+        # step the caller was reaching for rather than repeating one example to everyone.
+        if not isinstance(data, str):
+            return ""
+        lowered = data.lower()
+        if lowered in TRIGGER_TYPES:
+            hint = (
+                f" '{data}' is a trigger type, not an action type: the trigger is a single action of "
+                "type 'trigger' and its kind belongs in the workflow's trigger field."
+            )
+            if lowered == "webhook":
+                hint += " To call an external endpoint from a step, use template_id 'template-webhook'."
+            return hint
+        if "person" in lowered or "propert" in lowered or "contact" in lowered:
+            return (
+                " To set person properties, use template_id 'template-posthog-update-person-properties' "
+                "with inputs distinct_id, set_properties and set_once_properties."
+            )
+        if "webhook" in lowered or "http" in lowered or "request" in lowered:
+            return " To call an external endpoint, use template_id 'template-webhook'."
+        return ""
+
+    @staticmethod
+    def _describe(data: Any) -> str:
+        # Echo the value back only when it's a short string. A non-string type is a malformed
+        # payload, and interpolating a whole nested object into the message would put it in the
+        # response and the logs behind it.
+        if not isinstance(data, str):
+            return f"(expected a string, got {type(data).__name__})"
+        return f'"{data[:100]}"' if len(data) > 100 else f'"{data}"'
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
     # real ids are short generated slugs, so 200 is generous.
@@ -612,20 +761,20 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(
         required=False, default=None, allow_null=True, help_text="Property filters gating this action."
     )
-    type = serializers.CharField(
-        max_length=100,
-        help_text=(
-            "trigger | function | function_email | function_sms | delay | "
-            "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
-        ),
+    type = HogFlowActionTypeField(
+        choices=SUPPORTED_ACTION_TYPES,
+        help_text="One of: " + " | ".join(SUPPORTED_ACTION_TYPES) + ".",
     )
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and "
+            "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
+            "requires template_id: 'template-source-webhook-pixel'. "
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
-            "type: event|person|group}. "
+            "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
+            "to reference a cohort. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -937,6 +1086,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     else:
                         serializer.is_valid(raise_exception=True)
                         event_config["filters"] = serializer.validated_data
+            if strict and not _wait_condition_already_stored(data, self.context):
+                _reject_clock_based_wait(data["config"], self.context["get_team"]())
 
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")
@@ -1135,87 +1286,209 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class EmailReputationSnapshotSerializer(serializers.ModelSerializer):
-    """One email deliverability reputation snapshot (per workflow or per team, per daily evaluation run)."""
+def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
+    # Sends are counted at send time but bounces/complaints at webhook time, so feedback arriving
+    # just inside the window for sends just outside it can push the ratio past 1 (worst case: a
+    # workflow that recently stopped sending, with trailing feedback from a prior blast). Clamp to
+    # 100% — the counter metrics can't attribute feedback to its send date, and past 100% the
+    # number stops meaning anything.
+    return {
+        "bounce_rate": min(1.0, bounced / sent) if sent else 0.0,
+        "complaint_rate": min(1.0, complained / sent) if sent else 0.0,
+        "emails_sent": sent,
+    }
 
-    scope = serializers.ChoiceField(
-        choices=EmailReputationSnapshot.Scope.choices,
-        read_only=True,
-        help_text="'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.",
+
+AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
+# Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
+# re-dialled on every request, short enough that a just-fixed config recovers within a minute.
+AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS = 60
+
+
+def _aws_tenant_health(sending_status: str, reputation_impact: str | None) -> str:
+    if sending_status == "DISABLED":
+        return "suspended"
+    if reputation_impact == "HIGH":
+        return "critical"
+    if reputation_impact == "LOW":
+        return "warning"
+    return "healthy"
+
+
+def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
+    """
+    AWS-side tenant state for the reputation endpoint, cached briefly: the endpoint reloads on every
+    search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
+    Failures return None (the response field is nullable) so AWS being unreachable never breaks the
+    rates display; failures cache under a shorter TTL so a broken SES isn't re-dialled per request.
+
+    Deliberately no SES_ACCESS_KEY_ID gate: cloud pods authenticate via their IAM role and leave
+    the key env vars unset, so a key check reads as "SES not configured" exactly where SES IS
+    configured. Environments truly without SES fail the call and land in the error path below.
+    """
+    cache_key = f"workflows_ses_tenant_reputation_{team_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached["value"]
+    try:
+        raw = SESProvider().get_tenant_reputation(team_id)
+    except Exception:
+        logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
+        cache.set(cache_key, {"value": None}, AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS)
+        return None
+    value = (
+        {
+            "health": _aws_tenant_health(raw["sending_status"], raw["reputation_impact"]),
+            "sending_status": raw["sending_status"],
+            "findings": raw["findings"],
+        }
+        if raw is not None
+        else None
     )
-    state = serializers.ChoiceField(
-        choices=EmailReputationSnapshot.State.choices,
-        read_only=True,
-        help_text=(
-            "'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a "
-            "warning threshold), or 'critical' (over a critical threshold)."
-        ),
-    )
+    cache.set(cache_key, {"value": value}, AWS_TENANT_REPUTATION_CACHE_SECONDS)
+    return value
+
+
+class EmailSendingRatesSerializer(serializers.Serializer):
+    """Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics."""
+
     bounce_rate = serializers.FloatField(
         read_only=True,
-        help_text="Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded.",
-    )
-    complaint_rate = serializers.FloatField(
-        read_only=True, help_text="Spam complaints / emails sent over the evaluated volume (0-1)."
-    )
-    emails_sent = serializers.IntegerField(
-        read_only=True,
         help_text=(
-            "Emails in the evaluated window: at least the target's last day of sends and at least "
-            "the configured representative volume (SES-style), whichever covers more. 0 means no "
-            "recent sending."
+            "Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS "
+            "counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. "
+            "Bounces are counted when the feedback arrives, so the ratio is approximate at the "
+            "window boundary and capped at 1."
         ),
     )
-    evaluated_at = serializers.DateTimeField(
-        read_only=True, help_text="When this snapshot was computed; one snapshot exists per target per run."
+    complaint_rate = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted "
+            "when the feedback arrives, so the ratio is approximate at the window boundary and "
+            "capped at 1."
+        ),
     )
-
-    class Meta:
-        model = EmailReputationSnapshot
-        fields = [
-            "scope",
-            "state",
-            "bounce_rate",
-            "complaint_rate",
-            "emails_sent",
-            "evaluated_at",
-        ]
-        read_only_fields = fields
+    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent in the last 30 days.")
 
 
-class WorkflowEmailReputationSnapshotSerializer(EmailReputationSnapshotSerializer):
-    """A workflow-scoped reputation snapshot, annotated with the workflow it belongs to."""
-
-    hog_flow_id = serializers.UUIDField(read_only=True, help_text="The workflow this snapshot is for.")
+class WorkflowEmailSendingRatesSerializer(EmailSendingRatesSerializer):
+    hog_flow_id = serializers.UUIDField(read_only=True, help_text="The workflow these rates are for.")
     hog_flow_name = serializers.CharField(
-        read_only=True, source="hog_flow.name", allow_null=True, help_text="Display name of the workflow."
-    )
-    history = serializers.SerializerMethodField(
-        help_text="This workflow's snapshots from the last 7 days (oldest first, one per daily evaluation run), including the latest."
+        read_only=True, allow_blank=True, help_text="Display name of the workflow; empty for unnamed workflows."
     )
 
-    @extend_schema_field(EmailReputationSnapshotSerializer(many=True))
-    def get_history(self, obj: EmailReputationSnapshot) -> list[dict]:
-        rows = self.context.get("workflow_history", {}).get(obj.hog_flow_id, [])
-        return list(EmailReputationSnapshotSerializer(rows, many=True).data)
 
-    class Meta(EmailReputationSnapshotSerializer.Meta):
-        fields = [*EmailReputationSnapshotSerializer.Meta.fields, "hog_flow_id", "hog_flow_name", "history"]
-        read_only_fields = fields
+class AwsTenantFindingSerializer(serializers.Serializer):
+    """An open reputation finding AWS SES raised for this project's email sending."""
+
+    finding_type = serializers.ChoiceField(
+        choices=["DKIM", "DMARC", "SPF", "BIMI", "COMPLAINT", "BOUNCE", "FEEDBACK_3P", "IP_LISTING"],
+        read_only=True,
+        help_text=(
+            "What the finding is about: authentication setup (DKIM/DMARC/SPF/BIMI), recipient signals "
+            "(COMPLAINT/BOUNCE/FEEDBACK_3P), or a blocklist listing (IP_LISTING)."
+        ),
+    )
+    impact = serializers.ChoiceField(
+        choices=["LOW", "HIGH"],
+        read_only=True,
+        help_text="AWS's impact rating. HIGH-impact findings can pause the project's sending automatically.",
+    )
+    description = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text=(
+            "AWS's short description of the finding. Often a terse disambiguator (e.g. DKIM1) rather "
+            "than full remediation prose — finding_type carries the remediation category."
+        ),
+    )
+    last_updated_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When AWS last updated this finding."
+    )
+
+
+class AwsTenantReputationSerializer(serializers.Serializer):
+    """Authoritative reputation for this project's SES tenant, as judged and enforced by AWS."""
+
+    health = serializers.ChoiceField(
+        choices=["healthy", "warning", "critical", "suspended"],
+        read_only=True,
+        help_text=(
+            "Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact "
+            "findings), critical (high-impact findings — sending may be paused), suspended (the SES "
+            "tenant's sending is paused). Reflects AWS state only; PostHog-initiated suspensions are "
+            "reported separately via email_sending_suspended."
+        ),
+    )
+    sending_status = serializers.ChoiceField(
+        choices=["ENABLED", "REINSTATED", "DISABLED"],
+        read_only=True,
+        help_text=(
+            "The tenant's aggregate sending status. REINSTATED means sending was re-enabled after a "
+            "pause and AWS is re-monitoring it."
+        ),
+    )
+    findings = AwsTenantFindingSerializer(
+        many=True, read_only=True, help_text="Open findings, if any, with AWS's remediation guidance."
+    )
 
 
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
-    reputation = EmailReputationSnapshotSerializer(
+    aws = AwsTenantReputationSerializer(
         allow_null=True,
         read_only=True,
-        help_text="Latest project-wide email reputation snapshot across all workflows; null until first evaluated.",
+        help_text=(
+            "Sending health as judged and enforced by AWS SES for this project's tenant; null when "
+            "the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is "
+            "unreachable."
+        ),
     )
-    workflows = WorkflowEmailReputationSnapshotSerializer(
-        many=True,
+    reputation = EmailSendingRatesSerializer(
+        allow_null=True,
         read_only=True,
         help_text=(
-            "Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows."
+            "Project-wide rates across all workflow email in the last 30 days (including sends from "
+            "since-deleted workflows); null when nothing was sent."
         ),
+    )
+    workflows = WorkflowEmailSendingRatesSerializer(
+        many=True,
+        read_only=True,
+        help_text="Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50.",
+    )
+    email_sending_suspended = serializers.BooleanField(
+        read_only=True,
+        help_text="True while workflow email sending is suspended for this project to protect deliverability.",
+    )
+    email_sending_suspended_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When email sending was suspended; null while sending is enabled.",
+    )
+    email_sending_suspension_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
+    )
+
+
+class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
+    """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
+
+    email_sending_suspended = serializers.BooleanField(
+        read_only=True,
+        help_text="True while workflow email sending is suspended for this project to protect deliverability.",
+    )
+    email_sending_suspended_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When email sending was suspended; null while sending is enabled.",
+    )
+    email_sending_suspension_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
     )
 
 
@@ -1399,6 +1672,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+
+        # Wait conditions the live flow already carries, so per-action validation can tell a newly
+        # introduced clock condition from one we have been storing all along. Seeded here because
+        # nested action validation runs during field processing, before validate() is reached.
+        self.context["stored_wait_conditions"] = {
+            action["id"]: (action.get("config") or {}).get("condition")
+            for action in ((instance.actions if instance else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
 
         status = data.get("status")
         if status is None and instance:
@@ -1731,6 +2013,138 @@ class HogFlowGraphUpdateSerializer(serializers.Serializer):
     )
 
 
+class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
+    base_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored "
+            "workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit."
+        ),
+    )
+    operations = serializers.ListField(
+        child=DesignOperationSerializer(),
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "Ordered design edits applied atomically to this step's email design - the same operations as "
+            "the email template patch. The result is re-rendered to HTML server-side, so the sent email "
+            "always matches the patched design."
+        ),
+    )
+    email_patch = serializers.JSONField(
+        required=False,
+        help_text=(
+            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
+            "preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is "
+            "always re-rendered from it."
+        ),
+    )
+
+    def validate_email_patch(self, value: Any) -> dict:
+        if not isinstance(value, dict) or not value:
+            raise serializers.ValidationError("email_patch must be a non-empty object")
+        blocked = [key for key in ("design", "html") if key in value]
+        if blocked:
+            raise serializers.ValidationError(
+                f"email_patch can't set {', '.join(blocked)}: edit the design via operations, and html is "
+                "re-rendered from the design on every change."
+            )
+        return value
+
+    def validate(self, data: Any) -> Any:
+        if not data.get("operations") and not data.get("email_patch"):
+            raise serializers.ValidationError("Provide operations and/or email_patch.")
+        return data
+
+
+def _locate_action_email_value(actions: list[dict], action_id: str) -> dict:
+    target = next((a for a in actions if isinstance(a, dict) and a.get("id") == action_id), None)
+    if target is None:
+        raise exceptions.ValidationError({"action_id": f"Action '{action_id}' not found in this workflow."})
+    if target.get("type") != "function_email":
+        raise exceptions.ValidationError(
+            {
+                "action_id": f"Action '{action_id}' is a '{target.get('type')}' step. "
+                "Only function_email steps carry an email."
+            }
+        )
+    inputs = (target.get("config") or {}).get("inputs")
+    email_input = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    if not isinstance(value, dict):
+        raise exceptions.ValidationError(
+            {
+                "action_id": f"Action '{action_id}' has no email content yet. Set the full "
+                "config.inputs.email.value with a graph update_action first."
+            }
+        )
+    return value
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _RenderedActionEmailDesign:
+    # The design the ops were applied to, kept so the in-lock apply can detect a concurrent edit.
+    base_design: dict
+    design: dict
+    html: str
+
+
+def _render_action_email_operations(
+    actions: list[dict], action_id: str, operations: list[dict]
+) -> _RenderedActionEmailDesign:
+    # The design half of an email edit: ops applied to the step's design and the result rendered to
+    # HTML. Split from _apply_action_email_edit because rendering is a synchronous Unlayer HTTP call
+    # (up to 30s) that must run before the caller takes the row lock, never under it.
+    value = _locate_action_email_value(actions, action_id)
+    design = value.get("design")
+    if not isinstance(design, dict):
+        raise exceptions.ValidationError(
+            {
+                "operations": "This step's email has no editable design JSON to patch. Set the full "
+                "config.inputs.email.value.design with a graph update_action first, then use surgical "
+                "operations."
+            }
+        )
+    new_design = apply_design_operations(design, operations)
+    for warning in validate_design(new_design):
+        logger.info("hog_flow_action_email_design_warning", warning=warning, action_id=action_id)
+    try:
+        html = render_design_html(new_design)
+    except UnlayerNotConfiguredError:
+        raise exceptions.ValidationError(
+            {
+                "operations": "Design rendering is not configured on this instance - an administrator "
+                "must set UNLAYER_API_KEY to enable design editing."
+            }
+        )
+    except UnlayerRenderError as e:
+        raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
+    return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
+
+
+def _apply_action_email_edit(
+    actions: list[dict], action_id: str, email_patch: dict, rendered: Optional[_RenderedActionEmailDesign]
+) -> list[dict]:
+    # Twin of apply_graph_operations for one email step: returns a new actions list with the step's
+    # email value patched (the pre-rendered design installed, then the field merge).
+    new_actions = deepcopy(actions)
+    value = _locate_action_email_value(new_actions, action_id)
+
+    if rendered is not None:
+        # The render ran before the caller took the row lock, against the state read back then. A
+        # design that moved in between means the ops were applied to a stale tree, so conflict and
+        # let the caller re-read rather than silently overwrite the concurrent edit.
+        if value.get("design") != rendered.base_design:
+            raise StaleWorkflowUpdateError()
+        value["design"] = rendered.design
+        value["html"] = rendered.html
+
+    if email_patch:
+        _deep_merge(value, email_patch)
+
+    return new_actions
+
+
 class HogFlowInvocationSerializer(serializers.Serializer):
     configuration = HogFlowSerializer(
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
@@ -1755,8 +2169,8 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         default=False,
         write_only=True,
         help_text=(
-            "Test the workflow's staged draft instead of its live config. Requires an open draft; "
-            "can't be combined with an explicit configuration override."
+            "Test the workflow's staged draft instead of its live config. Set this only when workflows-get "
+            "returns a non-null 'draft'; it can't be combined with an explicit configuration override."
         ),
     )
 
@@ -1900,13 +2314,13 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
-        fields = ["id", "created_by", "created_at", "updated_at", "status"]
+        # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
+        # uuid, not pk), so it's deliberately not an exact-match field here.
+        fields = ["id", "created_at", "updated_at", "status"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
-    # Bumped from the global default of 100 so the workflows list page loads all flows in one
-    # request — the frontend list/search runs client-side over a single page (no pagination UI yet).
-    default_limit = 200
+    default_limit = 100
     max_limit = 500
 
 
@@ -1979,6 +2393,22 @@ def mint_audience_confirm_token(
 
 
 @extend_schema(extensions={"x-product": "workflows"})
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Case-insensitive search across workflow name and description.",
+            ),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                description="Filter to workflows created by the user with this uuid.",
+            ),
+        ]
+    )
+)
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
 ):
@@ -1991,6 +2421,7 @@ class HogFlowViewSet(
         "metrics_totals",
         "metrics_global",
         "team_reputation",
+        "email_sending_suspension",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -2007,6 +2438,7 @@ class HogFlowViewSet(
         "bulk_delete",
         "rerun",
         "graph",
+        "action_email",
         "publish",
         "discard_draft",
         "restore_revision",
@@ -2085,7 +2517,28 @@ class HogFlowViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.order_by("-updated_at")
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            queryset = queryset.order_by("-updated_at", "-id")
+
+            search = self.request.GET.get("search")
+            if search is not None:
+                search = search.strip()
+                if search:
+                    if len(search) > 200:
+                        raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
+                    # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
+                    # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
+                    regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
+                    queryset = queryset.filter(Q(name__iregex=regex_pattern) | Q(description__iregex=regex_pattern))
+
+            created_by = self.request.GET.get("created_by")
+            if created_by:
+                try:
+                    uuid_mod.UUID(created_by)
+                except ValueError:
+                    raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
+                queryset = queryset.filter(created_by__uuid=created_by)
 
         if self.request.GET.get("trigger"):
             try:
@@ -2498,6 +2951,113 @@ class HogFlowViewSet(
             "hog_flow_graph_updated",
             locked,
             {"operations_count": len(operations), "routed_to_draft": route_to_draft},
+        )
+
+        return Response(self.get_serializer(locked).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "action_id", str, OpenApiParameter.PATH, description="Id of the function_email step to edit."
+            )
+        ],
+        request=HogFlowActionEmailUpdateSerializer,
+        responses={200: HogFlowSerializer},
+    )
+    @action(detail=True, methods=["PATCH"], url_path=r"actions/(?P<action_id>[^/.]+)/email")
+    def action_email(self, request: Request, *args, **kwargs):
+        # Surgical email editing for one step: the library template patch's design ops applied to the
+        # email embedded in a workflow action, with html re-rendered server-side so the design and the
+        # sent content can't diverge. Rides the graph endpoint's draft/staleness/revision machinery.
+        op_serializer = HogFlowActionEmailUpdateSerializer(data=request.data)
+        op_serializer.is_valid(raise_exception=True)
+        operations = op_serializer.validated_data.get("operations") or []
+        email_patch = op_serializer.validated_data.get("email_patch") or {}
+        action_id = kwargs["action_id"]
+
+        # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
+        instance = self.get_object()
+
+        # Resolved before the write transaction: the flag check can hit the network and must not
+        # extend the select_for_update row-lock hold.
+        revisions_enabled = use_workflows_revisions(self.team)
+
+        # A doomed request must fail here, before the expensive render below, not under the lock.
+        # The locked section re-checks and stays authoritative if the status flips in between.
+        if self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE and not revisions_enabled:
+            raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+
+        # Rendering is a synchronous Unlayer HTTP call, so it also runs before the transaction,
+        # against the unlocked row. Draft routing is predicted the same way the locked section
+        # decides it; if the routing or the design moves before the lock, the apply conflicts.
+        rendered: Optional[_RenderedActionEmailDesign] = None
+        if operations:
+            predicts_draft = self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE
+            if predicts_draft and instance.draft:
+                render_base = list(instance.draft.get("actions") or [])
+            else:
+                render_base = list(instance.actions or [])
+            rendered = _render_action_email_operations(render_base, action_id, operations)
+
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+
+            route_to_draft = False
+            if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
+                if not revisions_enabled:
+                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                route_to_draft = True
+
+            # Same staleness contract as /graph: draft edits race against other draft edits, so the
+            # baseline is the draft's timestamp once one exists.
+            base_updated_at_raw = request.data.get("base_updated_at")
+            base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
+            if base_updated_at is not None and timezone.is_naive(base_updated_at):
+                base_updated_at = timezone.make_aware(base_updated_at)
+            guard_timestamp = locked.updated_at
+            if route_to_draft and locked.draft_updated_at:
+                guard_timestamp = locked.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
+                raise StaleWorkflowUpdateError()
+
+            # Draft edits compose on the staged draft, not on live - a second patch must see the first.
+            if route_to_draft and locked.draft:
+                base_actions = list(locked.draft.get("actions") or [])
+            else:
+                base_actions = list(locked.actions or [])
+
+            new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
+
+            serializer = self.get_serializer(locked, data={"actions": new_actions}, partial=True)
+            serializer.context["enforce_graph_structure"] = True
+            serializer.is_valid(raise_exception=True)
+
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
+            if route_to_draft:
+                self._write_draft(locked, locked, serializer.validated_data)
+            else:
+                bump = self._stage_revision_bump(
+                    locked, before_update, serializer.validated_data, enabled=revisions_enabled
+                )
+                # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
+                serializer.save()
+                if bump:
+                    self._append_revisions(locked, before_update)
+
+        # Unlike /graph, no action-redirect refresh or timing reschedule: an email edit can't delete
+        # steps or change timing config.
+        log_activity_from_viewset(self, locked, activity="updated", name=locked.name, previous=before_update)
+        self._emit_resource_edited(locked)
+        self._report_workflow_action(
+            "hog_flow_action_email_updated",
+            locked,
+            {
+                "operations_count": len(operations),
+                "merged_fields": sorted(email_patch.keys()),
+                "routed_to_draft": route_to_draft,
+            },
         )
 
         return Response(self.get_serializer(locked).data)
@@ -3140,100 +3700,191 @@ class HogFlowViewSet(
 
         return Response({"deleted": deleted_count})
 
-    # Severity order for the worst-offender sort; complaint rate breaks ties first (it's the more
-    # dangerous SES signal, with thresholds ~20x lower than bounce).
-    _REPUTATION_STATE_SEVERITY = {
-        EmailReputationSnapshot.State.CRITICAL: 0,
-        EmailReputationSnapshot.State.WARNING: 1,
-        EmailReputationSnapshot.State.HEALTHY: 2,
-        EmailReputationSnapshot.State.INSUFFICIENT_DATA: 3,
-    }
-
-    # Cap the per-workflow breakdown: without it, hundreds of email workflows each carrying a
-    # week of history make one unbounded response. Worst-first sorting means the cut tail is the
-    # healthiest workflows.
+    # Cap the per-workflow breakdown to bound the response; worst-first sorting means the cut
+    # tail is the healthiest workflows, and search reaches past the cap.
     WORKFLOW_REPUTATION_LIMIT = 50
-    # Workflows drop off the breakdown once the evaluator stops producing snapshots for them
-    # (i.e. no sends within its lookback), so a long-dead sender's last bad rate isn't pinned
-    # to the top of the list forever.
-    WORKFLOW_REPUTATION_RECENCY_DAYS = 7
-    # How far back each listed workflow's per-day history reaches. Deliberately short: history
-    # ships inline on the reputation endpoint (workflows x days rows per response), so widening
-    # this fans out the payload for every workflow listed.
-    WORKFLOW_REPUTATION_HISTORY_DAYS = 7
+    # Window for the on-the-fly rates. 30 days matches how the industry quotes bounce/complaint
+    # thresholds (e.g. "0.1% complaints per 30 days").
+    REPUTATION_WINDOW_DAYS = 30
 
-    @extend_schema(responses={200: TeamEmailReputationResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                str,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Case-insensitive workflow name filter. Applied before the worst-50 cap, so it "
+                    "finds workflows the unfiltered response cuts off."
+                ),
+            )
+        ],
+        responses={200: TeamEmailReputationResponseSerializer},
+    )
     @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
-        Email deliverability reputation for this project: the latest project-wide snapshot and the
-        latest recent snapshot per workflow (worst first, capped). Written daily by the Node
-        evaluator; everything is null/empty until the first run.
+        Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+        the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+        capped), together with the authoritative AWS SES tenant verdict — sending status and open
+        reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
         """
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
         # The project-wide aggregate pools ALL workflows' email (that's its point), so it can't be
         # filtered per object grant — only members with project-wide workflow read access get it.
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
 
-        # for_team(canonical=True): rows are keyed by the raw team_id the Node evaluator writes,
-        # which may be a child environment id that canonical resolution would rewrite and miss.
-        latest = (
-            EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
-            .filter(hog_flow__isnull=True)
-            .order_by("-evaluated_at")
-            .first()
-            if can_read_all_workflows
+        # Cached briefly: the UI reloads per search keystroke, but search filters in Python — the
+        # ClickHouse totals are search-independent. Session-authenticated requests bypass the
+        # default (personal-API-key-only) ClickHouse throttles, so without this a member could
+        # re-run the 30-day aggregation on every request.
+        totals_cache_key = f"workflows_email_reputation_totals_{self.team_id}"
+        totals_by_source = cache.get(totals_cache_key)
+        if totals_by_source is None:
+            after = timezone.now() - timedelta(days=self.REPUTATION_WINDOW_DAYS)
+            totals_by_source = fetch_app_metric_totals_by_source(
+                team_id=self.team_id,
+                app_source="hog_flow",
+                after=after,
+                name=["email_sent", "email_bounced_hard", "email_blocked"],
+            )
+            cache.set(totals_cache_key, totals_by_source, 60)
+
+        # email_blocked is how SES complaint events are recorded (see the plugin server's SES
+        # webhook handler), hence "complained".
+        team_sent = sum(counts.get("email_sent", 0) for counts in totals_by_source.values())
+        team_bounced = sum(counts.get("email_bounced_hard", 0) for counts in totals_by_source.values())
+        team_complained = sum(counts.get("email_blocked", 0) for counts in totals_by_source.values())
+        reputation = (
+            _email_sending_rates(team_sent, team_bounced, team_complained)
+            if can_read_all_workflows and team_sent > 0
             else None
         )
 
-        # One row per workflow per run over the history window, grouped in Python so each workflow
-        # entry carries its recent history alongside the latest snapshot.
-        now = timezone.now()
-        workflow_rows = (
-            EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
-            .filter(
-                hog_flow__isnull=False,
-                evaluated_at__gte=now - timedelta(days=self.WORKFLOW_REPUTATION_HISTORY_DAYS),
-            )
-            .order_by("hog_flow_id", "evaluated_at")
-            .select_related("hog_flow")
+        # Attribute sources to workflows: metrics are recorded under the workflow id for
+        # event-triggered runs and under the batch job id for batch runs — resolve both and fold
+        # batch-job counts into the parent workflow. Sources matching neither (deleted workflows,
+        # non-UUID ids) still count toward the team aggregate above.
+        source_ids = [source_id for source_id in totals_by_source if _looks_like_uuid(source_id)]
+        team_queryset = self.get_queryset()
+        # Only names are needed and HogFlow rows are wide (full step graphs in edges/actions/draft),
+        # so don't hydrate model instances for an uncapped id list. Unnamed flows serialize as "" to
+        # keep hog_flow_name a plain string in the generated types.
+        names_by_flow_id = {
+            str(flow_id): name or ""
+            for flow_id, name in team_queryset.filter(id__in=source_ids).values_list("id", "name")
+        }
+        unmatched_ids = [source_id for source_id in source_ids if source_id not in names_by_flow_id]
+        batch_job_to_flow = {
+            str(batch_job_id): str(flow_id)
+            for batch_job_id, flow_id in HogFlowBatchJob.objects.filter(
+                team_id=self.team_id, id__in=unmatched_ids
+            ).values_list("id", "hog_flow_id")
+        }
+        missing_flow_ids = set(batch_job_to_flow.values()) - set(names_by_flow_id)
+        names_by_flow_id.update(
+            {
+                str(flow_id): name or ""
+                for flow_id, name in team_queryset.filter(id__in=missing_flow_ids).values_list("id", "name")
+            }
         )
-        history_by_flow: dict[uuid_mod.UUID, list[EmailReputationSnapshot]] = {}
-        for row in workflow_rows:
-            if row.hog_flow_id is None:  # can't happen (hog_flow__isnull=False); narrows the nullable FK for mypy
+
+        counts_by_flow: dict[str, dict[str, int]] = {}
+        for source_id, counts in totals_by_source.items():
+            flow_id = source_id if source_id in names_by_flow_id else batch_job_to_flow.get(source_id)
+            if flow_id is None or flow_id not in names_by_flow_id:
                 continue
-            history_by_flow.setdefault(row.hog_flow_id, []).append(row)
+            folded = counts_by_flow.setdefault(flow_id, {"sent": 0, "bounced": 0, "complained": 0})
+            folded["sent"] += counts.get("email_sent", 0)
+            folded["bounced"] += counts.get("email_bounced_hard", 0)
+            folded["complained"] += counts.get("email_blocked", 0)
 
         # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
         # leak names/volumes of access-controlled workflows the list endpoint hides.
-        accessible_ids = set(
-            self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).values_list("id", flat=True)
-        )
-        recency_cutoff = now - timedelta(days=self.WORKFLOW_REPUTATION_RECENCY_DAYS)
-        workflow_snapshots = [
-            rows[-1]
-            for flow_id, rows in history_by_flow.items()
-            if flow_id in accessible_ids and rows[-1].evaluated_at >= recency_cutoff
-        ]
-        # Sort by raw state string (not the State enum constructor, which raises on values a newer
-        # evaluator may write before this code deploys); unknown states sort last.
-        severity = {state.value: rank for state, rank in self._REPUTATION_STATE_SEVERITY.items()}
-        workflow_snapshots.sort(
-            key=lambda s: (
-                severity.get(s.state, 99),
-                -s.complaint_rate,
-                -s.bounce_rate,
+        accessible_ids = {
+            str(flow_id)
+            for flow_id in self.user_access_control.filter_queryset_by_access_level(team_queryset).values_list(
+                "id", flat=True
             )
+        }
+        # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
+        # client-side could never find a healthy workflow beyond the cap.
+        search = (request.query_params.get("search") or "").strip().lower()
+        workflow_rows: list[dict[str, Any]] = [
+            {
+                "hog_flow_id": flow_id,
+                "hog_flow_name": names_by_flow_id[flow_id],
+                **_email_sending_rates(counts["sent"], counts["bounced"], counts["complained"]),
+            }
+            for flow_id, counts in counts_by_flow.items()
+            if flow_id in accessible_ids
+            and counts["sent"] > 0
+            and (not search or search in names_by_flow_id[flow_id].lower())
+        ]
+        # Complaint rate breaks ties first: it's the more dangerous SES signal, with thresholds
+        # ~20x lower than bounce.
+        workflow_rows.sort(key=lambda row: (-row["complaint_rate"], -row["bounce_rate"], -row["emails_sent"]))
+        workflow_rows = workflow_rows[: self.WORKFLOW_REPUTATION_LIMIT]
+
+        # Shown to every project member regardless of per-object grants: a suspension stops
+        # everyone's email, so hiding it would just leave silent send failures unexplained.
+        suspension = (
+            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
+            .values("email_sending_suspended_at", "email_sending_suspension_reason")
+            .first()
         )
-        workflow_snapshots = workflow_snapshots[: self.WORKFLOW_REPUTATION_LIMIT]
+        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+        suspension_reason = suspension["email_sending_suspension_reason"] if suspension else ""
 
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
-                    "reputation": latest,
-                    "workflows": workflow_snapshots,
-                },
-                context={"workflow_history": history_by_flow},
+                    # Same gate as `reputation`: the tenant verdict pools ALL workflows' email,
+                    # so members holding only object-level grants don't get it.
+                    "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
+                    "reputation": reputation,
+                    "workflows": workflow_rows,
+                    "email_sending_suspended": suspended_at is not None,
+                    "email_sending_suspended_at": suspended_at,
+                    "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
+                }
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_email_sending_suspension_retrieve",
+        responses={200: EmailSendingSuspensionStatusSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        pagination_class=None,
+        filter_backends=[],
+        url_path="email_sending_suspension",
+    )
+    def email_sending_suspension(self, request: Request, **kwargs) -> Response:
+        """
+        Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
+        with no reputation computation. Every project member sees this — a suspension stops
+        everyone's email, so hiding it would leave silent send failures unexplained.
+        """
+        suspension = (
+            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
+            .values("email_sending_suspended_at", "email_sending_suspension_reason")
+            .first()
+        )
+        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+        return Response(
+            EmailSendingSuspensionStatusSerializer(
+                {
+                    "email_sending_suspended": suspended_at is not None,
+                    "email_sending_suspended_at": suspended_at,
+                    "email_sending_suspension_reason": (
+                        suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
+                    ),
+                }
             ).data
         )
 

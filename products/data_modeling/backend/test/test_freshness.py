@@ -244,8 +244,33 @@ class TestBatchBounds(TestCase):
         [
             # chain src->a->b: the 6h source floors every descendant
             ("chain_floors_descendants", [("src", "a"), ("a", "b")], {"src": H6}, "b", H6),
-            # fan-in of two sources: the node inherits the slowest (daily)
-            ("fan_in_takes_slowest_source", [("srcA", "m"), ("srcB", "m")], {"srcA": H6, "srcB": DAY}, "m", DAY),
+            # fan-in of two sources: the join's output changes whenever any input changes,
+            # so it follows its freshest input, not its slowest
+            ("fan_in_takes_freshest_source", [("srcA", "m"), ("srcB", "m")], {"srcA": H6, "srcB": DAY}, "m", H6),
+            # a streaming input (events) removes the floor entirely, however slow the other input
+            (
+                "streaming_input_removes_floor",
+                [("srcA", "m"), ("srcB", "m")],
+                {"srcA": STREAMING, "srcB": DAY},
+                "m",
+                STREAMING,
+            ),
+            # pure slow lineage keeps its floor even when a sibling branch is fast
+            (
+                "slow_only_branch_keeps_floor",
+                [("srcSlow", "a"), ("srcFast", "b"), ("a", "c"), ("b", "c")],
+                {"srcSlow": DAY, "srcFast": H6},
+                "a",
+                DAY,
+            ),
+            # ...while the join of both branches follows the fast one
+            (
+                "join_follows_fastest_branch",
+                [("srcSlow", "a"), ("srcFast", "b"), ("a", "c"), ("b", "c")],
+                {"srcSlow": DAY, "srcFast": H6},
+                "c",
+                H6,
+            ),
             # no ancestor source -> no floor
             ("no_source_is_streaming", [("a", "b")], {}, "b", STREAMING),
         ]

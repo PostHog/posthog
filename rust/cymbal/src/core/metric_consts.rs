@@ -106,18 +106,9 @@ pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_iss
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";
 pub const SPIKE_GET_SPIKING_ISSUES_TIME: &str = "cymbal_spike_get_spiking_issues_time";
 pub const SPIKE_ACQUIRE_LOCKS_TIME: &str = "cymbal_spike_acquire_locks_time";
-pub const SPIKE_EMIT_EVENTS_TIME: &str = "cymbal_spike_emit_events_time";
 pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
 pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
-
-// Signal metrics
-pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
-pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
-pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
-
-// Fingerprint embedding metrics
-pub const FINGERPRINT_EMBEDDING_SKIPPED: &str = "cymbal_fingerprint_embedding_skipped";
 
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
@@ -136,8 +127,6 @@ pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_met
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 
 // Operators
-pub const FRAME_RESOLVER_OPERATOR: &str = "cymbal_frame_batch_time";
-pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
 pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
 pub const FINGERPRINT_LEGACY_VERSION_USED: &str = "cymbal_fingerprint_legacy_version_used";
@@ -156,7 +145,6 @@ pub const BYPASS_RULES_DISABLED: &str = "cymbal_bypass_rules_disabled";
 // fixed enums rather than free-form messages.
 pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
 pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
-pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
 pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
 pub const REMOTE_RESOLUTION_ENDPOINTS_BY_STATE: &str =
     "cymbal_remote_resolution_endpoints_by_state";

@@ -1,18 +1,51 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, FilterLogicalOperator } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    SessionRecordingSidebarTab,
+} from '~/types'
 
-import { getViewRecordingFiltersForVariant } from '../utils'
+import {
+    experimentsSessionBucketsCreate,
+    experimentsSessionContextsCreate,
+} from 'products/experiments/frontend/generated/api'
+
+import {
+    FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON,
+    FUNNEL_SERVER_SIDE_BOUNDARY_REASON,
+    getViewRecordingFiltersForVariant,
+} from '../utils'
 import { RETENTION_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
 import { experimentReplayTabLogic } from './experimentReplayTabLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntentForCrossSell: jest.fn().mockResolvedValue(null),
 }))
+
+jest.mock('products/experiments/frontend/generated/api', () => ({
+    experimentsSessionContextsCreate: jest.fn().mockResolvedValue({ results: [] }),
+    experimentsSessionBucketsCreate: jest.fn(),
+}))
+
+const BUCKET_RESPONSE = {
+    session_ids: ['bucket-1', 'bucket-2'],
+    truncated: false,
+    considered_metrics: [{ metric_uuid: 'metric-purchase', metric_name: 'Purchase' }],
+    excluded_metrics: [],
+    date_from: '2026-01-01T00:00:00Z',
+    date_to: '2026-02-01T00:00:00Z',
+    filter_test_accounts: true,
+}
 
 const PURCHASE_METRIC = {
     kind: NodeKind.ExperimentMetric,
@@ -68,6 +101,9 @@ describe('experimentReplayTabLogic', () => {
         // The facet reducer is persisted; clear so no test inherits another's selection.
         localStorage.clear()
         initKeaTests()
+        ;(experimentsSessionContextsCreate as jest.Mock).mockClear()
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockClear()
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue(BUCKET_RESPONSE)
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -165,18 +201,53 @@ describe('experimentReplayTabLogic', () => {
         ])
     })
 
-    it('flags a server-side exposure event as unlinkable, so the tab can explain the empty list', async () => {
+    it('falls back to the flag-value property filter when the default exposure event is server-side', async () => {
         seenTogetherSpy.mockResolvedValue({ $feature_flag_called: false })
         // Distinct id: both this logic and the linkability lookup are keyed by experiment id.
         const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 43 } as Experiment })
         serverSide.mount()
 
-        await expectLogic(serverSide).toFinishAllListeners().toMatchValues({ exposureUnlinkable: true })
+        await expectLogic(serverSide)
+            .toFinishAllListeners()
+            .toMatchValues({ exposureUnlinkable: false, usingExposureFallback: true })
+        expect(serverSide.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        key: '$feature/my-flag',
+                        type: PropertyFilterType.Event,
+                        value: ['control', 'test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+        serverSide.unmount()
+    })
+
+    it('flags a server-side custom exposure event as unlinkable, so the tab can explain the empty list', async () => {
+        seenTogetherSpy.mockResolvedValue({ signed_up: false })
+        const customExposure = {
+            ...EXPERIMENT,
+            id: 44,
+            exposure_criteria: {
+                exposure_config: { kind: NodeKind.ExperimentEventExposureConfig, event: 'signed_up', properties: [] },
+            },
+        } as unknown as Experiment
+        const serverSide = experimentReplayTabLogic({ experiment: customExposure })
+        serverSide.mount()
+
+        await expectLogic(serverSide)
+            .toFinishAllListeners()
+            .toMatchValues({ exposureUnlinkable: true, usingExposureFallback: false })
         serverSide.unmount()
     })
 
     it('keeps the list when the exposure event is session-linkable', async () => {
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ exposureUnlinkable: false })
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ exposureUnlinkable: false, usingExposureFallback: false })
     })
 
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {
@@ -293,33 +364,47 @@ describe('experimentReplayTabLogic', () => {
             unlinkable: false,
         })
         partiallyLinkable.actions.setMetricSelected('metric-funnel', true)
-        expect(partiallyLinkable.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: [
-                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-                    { id: 'client_step', name: 'client_step', type: 'events', properties: [] },
-                ],
-            },
-        ])
+        await expectLogic(partiallyLinkable).toFinishAllListeners()
+        // A multi-source metric resolves server-side, where the unmatchable step is simply one
+        // OR arm that never matches a session — so it drops out without narrowing anything.
+        expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 45, {
+            bucket: 'fired_any',
+            metric_uuids: ['metric-funnel'],
+            variant: null,
+        })
+        expect(partiallyLinkable.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
         partiallyLinkable.unmount()
     })
 
-    it('filters a multi-source metric on its primary event only, not every source', async () => {
-        // Both funnel steps are session-linkable here. The recordings query flattens to a single
-        // AND operand, so ANDing every step would demand a session fire *all* of them; we filter on
-        // the entry step (series[0]) instead.
+    it('resolves one multi-source metric server-side, and one single-source metric client-side', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setMetricSelected('metric-funnel', true)
+
+        // A single event is expressible as a filter: exact, uncapped, no request.
+        logic.actions.setMetricSelected('metric-purchase', true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
                 values: [
                     ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-                    { id: 'server_side_step', name: 'server_side_step', type: 'events', properties: [] },
+                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
                 ],
             },
         ])
+
+        // Several events are not: a recordings query carries one operator for its whole tree, so
+        // the filter could only match the metric's first event and would silently miss the rest.
+        logic.actions.setMetricSelected('metric-purchase', false)
+        logic.actions.setMetricSelected('metric-funnel', true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 42, {
+            bucket: 'fired_any',
+            metric_uuids: ['metric-funnel'],
+            variant: null,
+        })
+        expect(logic.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
     })
 
     it('skips metrics without a uuid — the persisted selection needs a stable identity', async () => {
@@ -389,6 +474,52 @@ describe('experimentReplayTabLogic', () => {
         failed.unmount()
     })
 
+    it('prefetches session contexts for a loaded recordings page when the flag is on', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+        logic.actions.recordingsLoaded(['s1', 's2'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(experimentsSessionContextsCreate).toHaveBeenCalledWith(expect.any(String), {
+            session_ids: ['s1', 's2'],
+        })
+    })
+
+    it('re-warms the rest of the page when a recording is opened', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+
+        // Opening before any page has loaded must not fire an empty batch (the backend 400s it).
+        logic.actions.recordingOpened('s1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
+
+        logic.actions.recordingsLoaded(['s1', 's2', 's3'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The server-side cache TTL runs from prefetch time, so each open must re-warm the
+        // page — without this, a user who watches one recording past the TTL opens every
+        // later one cold. The opened id is excluded: the player is fetching it right now.
+        logic.actions.recordingOpened('s2')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(2)
+        expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[1][1].session_ids).toEqual(['s1', 's3'])
+    })
+
+    it('never prefetches for flag-disabled viewers, and caps a batch at the backend limit', async () => {
+        // Ungated, every experiment-tab visit would fire the expensive ClickHouse scans for
+        // viewers who can't even see the experiments box.
+        logic.actions.recordingsLoaded(['s1'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
+
+        // Over-cap ids must be sliced, not sent — the backend 400s the whole batch above its cap.
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+        logic.actions.recordingsLoaded(Array.from({ length: 25 }, (_, index) => `session-${index}`))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(1)
+        expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[0][1].session_ids).toHaveLength(20)
+    })
+
     it('offers saved/shared metrics in the facet, deduped by uuid', async () => {
         const savedMetric = {
             query: {
@@ -416,5 +547,183 @@ describe('experimentReplayTabLogic', () => {
             'metric-saved',
         ])
         withSaved.unmount()
+    })
+    it('hands the list to the bucket endpoint for filters the recordings query cannot express', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSelectedVariantKey('test')
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricSelected('metric-funnel', true)
+            logic.actions.setMetricFilterMode('fired_any')
+        }).toFinishAllListeners()
+
+        expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 42, {
+            bucket: 'fired_any',
+            metric_uuids: ['metric-purchase', 'metric-funnel'],
+            variant: 'test',
+        })
+        const { recordingsFilters } = logic.values
+        expect(recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
+        // The returned set already encodes the metric condition; ANDing the event filters back in
+        // would narrow it a second time.
+        expect(recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: getViewRecordingFiltersForVariant(EXPERIMENT, 'test'),
+            },
+        ])
+    })
+
+    it('follows the playlist\'s own "Show all" back to the unbucketed list', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        }).toFinishAllListeners()
+        expect(logic.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
+
+        // The shared playlist clears session_ids itself; without following it the tab would push
+        // the same ids straight back and the control would look broken.
+        await expectLogic(logic, () => {
+            logic.actions.playlistFiltersChanged({ ...logic.values.recordingsFilters, session_ids: undefined })
+        }).toMatchValues({ metricFilterMode: 'fired_all' })
+        expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
+    })
+
+    it('takes one funnel metric for drop-off and leaves the rest unselectable', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricSelected('metric-funnel', true)
+            logic.actions.setMetricFilterMode('funnel_dropoff')
+        }).toFinishAllListeners()
+
+        // A mean metric has no steps to drop off between, and only one funnel can be compared.
+        expect(logic.values.effectiveMetricUuids).toEqual(['metric-funnel'])
+        expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 42, {
+            bucket: 'funnel_dropoff',
+            metric_uuids: ['metric-funnel'],
+            variant: null,
+        })
+    })
+
+    it.each([
+        [
+            'server-side',
+            [
+                { kind: NodeKind.EventsNode, event: 'client_step' },
+                { kind: NodeKind.EventsNode, event: 'server_side_step' },
+            ],
+            FUNNEL_SERVER_SIDE_BOUNDARY_REASON,
+        ],
+        [
+            'data warehouse',
+            [
+                { kind: NodeKind.EventsNode, event: 'client_step' },
+                { kind: NodeKind.EventsNode, event: 'purchase' },
+                { kind: NodeKind.ExperimentDataWarehouseNode, table_name: 'stripe_charges' },
+            ],
+            FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON,
+        ],
+    ])('refuses drop-off when the funnel finishes on a %s step', async (_name, series, expectedReason) => {
+        seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, server_side_step: false })
+        const unmatchableFinish = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 50,
+                metrics_secondary: [{ ...FUNNEL_METRIC, series }],
+            } as unknown as Experiment,
+        })
+        unmatchableFinish.mount()
+
+        await expectLogic(unmatchableFinish, () => {
+            unmatchableFinish.actions.setMetricSelected('metric-funnel', true)
+            unmatchableFinish.actions.setMetricFilterMode('funnel_dropoff')
+        }).toFinishAllListeners()
+
+        // Both steps between the boundaries stay matchable, so the metric is selectable in every
+        // other mode. Drop-off is the one that reads the last step, and a completion no recording
+        // can show would return everyone who entered as not having finished.
+        expect(unmatchableFinish.values.metricOptions.find((option) => option.uuid === 'metric-funnel')).toMatchObject({
+            unlinkable: false,
+            dropoffReason: expectedReason,
+        })
+        expect(unmatchableFinish.values.effectiveMetricUuids).toEqual([])
+        // Nothing is asked of the endpoint, which would refuse this funnel anyway.
+        expect(unmatchableFinish.values.sessionBucketRequest).toBeNull()
+        expect(unmatchableFinish.values.recordingsFilters.session_ids).toBeUndefined()
+        unmatchableFinish.unmount()
+    })
+
+    it('keeps the list empty when the bucket fails, rather than widening it silently', async () => {
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockRejectedValue(new Error('boom'))
+
+        await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricSelected('metric-funnel', true)
+            logic.actions.setMetricFilterMode('fired_any')
+        }).toFinishAllListeners()
+
+        // Falling back to no session_ids would show every exposed session under a label that
+        // promises a narrower set. The message is kept, not just a flag: a rejected request
+        // usually says what to fix.
+        expect(logic.values.sessionBucketError).toBe('boom')
+        expect(logic.values.recordingsFilters.session_ids).toEqual([])
+    })
+
+    it('keeps a picked mode that has nothing to filter on yet', async () => {
+        // The tab pushes no session_ids until an eligible metric is picked, and the playlist echoes
+        // that back through onFiltersChange. Reading it as the user clearing the bucket bounced the
+        // mode straight back to "Fired all" the moment it was picked.
+        const oneStepFunnel = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 47,
+                metrics_secondary: [{ ...FUNNEL_METRIC, series: [FUNNEL_METRIC.series[0]] }],
+            } as unknown as Experiment,
+        })
+        oneStepFunnel.mount()
+
+        await expectLogic(oneStepFunnel, () => {
+            oneStepFunnel.actions.setMetricFilterMode('funnel_dropoff')
+        }).toFinishAllListeners()
+        oneStepFunnel.actions.playlistFiltersChanged(oneStepFunnel.values.recordingsFilters)
+
+        expect(oneStepFunnel.values.metricFilterMode).toBe('funnel_dropoff')
+        // No funnel with two matchable steps, so nothing is asked of the endpoint either.
+        expect(oneStepFunnel.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        oneStepFunnel.unmount()
+    })
+    it("lists metrics in the experiment page's order, and never hides one missing from it", async () => {
+        // The ordering arrays are the metrics page's display order. Sorting on them keeps the two
+        // surfaces in step; filtering on them would silently drop a metric whose uuid never made
+        // it into the array (older experiments, or a row written outside the API).
+        const ordered = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 48,
+                metrics: [PURCHASE_METRIC, FUNNEL_METRIC],
+                metrics_secondary: [],
+                primary_metrics_ordered_uuids: ['metric-funnel'],
+            } as unknown as Experiment,
+        })
+        ordered.mount()
+        await expectLogic(ordered).toFinishAllListeners()
+
+        expect(ordered.values.metricOptions.map((option) => option.uuid)).toEqual(['metric-funnel', 'metric-purchase'])
+        ordered.unmount()
+    })
+
+    it('lands the player sidebar on Overview, and hands it back when the tab goes away', () => {
+        // Held mounted across the unmount below, standing in for a player that outlives this tab —
+        // the only case in which the reset has anything to do.
+        const sidebar = playerSidebarLogic()
+        sidebar.mount()
+
+        // Recordings are opened from here to see what the experiment did to a session, which is what
+        // the Overview tab shows. Landing on Inspector instead hides it behind a click.
+        expect(sidebar.values.defaultTab).toBe(SessionRecordingSidebarTab.OVERVIEW)
+
+        logic.unmount()
+        expect(sidebar.values.defaultTab).toBe(SessionRecordingSidebarTab.INSPECTOR)
+
+        sidebar.unmount()
     })
 })

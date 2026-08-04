@@ -73,6 +73,7 @@ from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refr
 from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks import (
     flush_pending_email_replies,
     poll_teams_shared_channels,
@@ -97,7 +98,11 @@ from products.feature_flags.backend.tasks import (
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.tasks import refresh_signal_repository_activity, sync_pending_signals_refund_credits
+from products.signals.backend.tasks import (
+    pause_inactive_signal_scouts,
+    refresh_signal_repository_activity,
+    sync_pending_signals_refund_credits,
+)
 from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -107,7 +112,9 @@ from products.streamlit_apps.backend.facade.api import (
     stop_idle_streamlit_sandboxes,
 )
 from products.tasks.backend.facade.tasks import (
+    bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
+    refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
@@ -282,11 +289,38 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=10 * 60,
     )
 
+    # Rebake the prebaked dev-stack VM image nightly so the baked migration state
+    # stays close to master. No-ops unless the tasks-dev-stack-image-bake flag
+    # enables this deployment's region.
+    sender.add_periodic_task(
+        crontab(hour="6", minute="45"),
+        bake_dev_stack_image_task.s(),
+        name="bake prebaked dev-stack VM image",
+    )
+
+    # Fast lane mirroring the custom-image refresh above: rebake the prebaked
+    # dev-stack image when the VM base image digest changes (e.g. a new
+    # agent-server release), at most once per new digest.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        refresh_dev_stack_image_task.s(),
+        name="refresh prebaked dev-stack VM image on base change",
+        expires_seconds=10 * 60,
+    )
+
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
     sender.add_periodic_task(
         crontab(hour="*", minute="25"),
         sync_pending_signals_refund_credits.s(),
         name="sync pending signals refund credits",
+    )
+
+    # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
+    sender.add_periodic_task(
+        crontab(hour="6", minute="15"),
+        pause_inactive_signal_scouts.s(),
+        name="pause inactive signals scouts",
     )
 
     # Keep the signals repository area-activity cache warm - weekly, Monday early morning
@@ -772,6 +806,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="1", minute=str(randrange(0, 40))),
+        cleanup_canvas_builds.s(),
+        name="apply canvas build artifact retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        sweep_canvas_builds.s(),
+        name="recover stuck canvas builds",
     )
 
     sender.add_periodic_task(

@@ -400,6 +400,7 @@ mod route_tests {
             redirect_to_topic: None,
             skip_heatmap_processing: false,
             overflow_reason: None,
+            distinct_id_truncated_from: None,
         }
     }
 
@@ -1218,6 +1219,7 @@ mod tests {
             redirect_to_topic: None,
             skip_heatmap_processing: false,
             overflow_reason: None,
+            distinct_id_truncated_from: None,
         };
 
         let event = ProcessedEvent {
@@ -1553,6 +1555,7 @@ mod tests {
                 redirect_to_topic: input.redirect_to_topic.clone(),
                 skip_heatmap_processing: input.skip_heatmap_processing,
                 overflow_reason: input.overflow_reason.clone(),
+                distinct_id_truncated_from: None,
             };
 
             ProcessedEvent { event, metadata }

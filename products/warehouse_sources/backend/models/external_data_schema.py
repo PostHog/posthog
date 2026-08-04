@@ -19,7 +19,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
@@ -120,6 +120,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
             # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
             # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            #
+            # These calls always target an already-persisted row. Without force_update, Django's
+            # UUID-pk-with-default fallback would silently retry a no-op UPDATE as an INSERT if the
+            # row was deleted concurrently (e.g. the source/schema deleted mid-sync) — either
+            # resurrecting deleted data, or failing with a misleading FK IntegrityError on source_id
+            # instead of a clear "no such row" error.
+            kwargs.setdefault("force_update", True)
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
@@ -438,7 +445,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partition_size_override", None)
         self.sync_type_config.pop("partition_mode_override", None)
         self.sync_type_config.pop("partitioning_keys_override", None)
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -490,9 +499,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     def _save_sync_type_config(self) -> None:
+        # temporalio at module scope would put the Temporal client on the django.setup() path —
+        # this is a models module (see external_data_source.reload_schemas for the same pattern).
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
-        self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        # These fire once per batch across every schema sync, so a transient pooler wait_timeout
+        # (the pool momentarily out of free backend connections) is worth one retry rather than
+        # losing the write silently.
+        retry_on_db_connection_drop(
+            lambda: self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
         self.sync_type_config["max_partition_bytes"] = max_partition_bytes
@@ -550,7 +568,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if earliest_value is not None:
             staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
         self.sync_type_config["incremental_staged"] = staged
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         staged = self.sync_type_config.get("incremental_staged")
@@ -561,7 +581,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if "earliest_value" in staged:
             self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
         self.sync_type_config.pop("incremental_staged", None)
-        self.save()
+        self.save(skip_activity_log=True)
         return True
 
     def _serialize_incremental_value(self, value: Any) -> Any:
@@ -723,6 +743,26 @@ def _parse_datetime_string(value: str) -> datetime:
         return parser.parse(stripped)
 
 
+def _coerce_incremental_datetime(value: str) -> datetime | int:
+    """Parse a DateTime/Timestamp/Date cursor string, falling back to a raw integer.
+
+    Some drivers surface a numeric cursor as a bare digit string even though the field is
+    typed as a date/time type (e.g. a ClickHouse column Arrow can't emit natively, cast to
+    String, whose current type no longer matches the incremental field's stored type).
+    dateutil's heuristics then misread the digits as a calendar year and overflow past
+    datetime's year-9999 ceiling (`ParserError`), or raise a bare `OverflowError` for longer
+    digit runs. Legitimate compact date strings like "20240115" (YYYYMMDD) parse correctly
+    above and never reach this fallback.
+    """
+    try:
+        return _parse_datetime_string(value)
+    except (parser.ParserError, OverflowError):
+        stripped = value.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+        raise
+
+
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
@@ -743,7 +783,7 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return _parse_datetime_string(value)
+        return _coerce_incremental_datetime(value)
 
     if field_type == IncrementalFieldType.Date:
         if isinstance(value, datetime):
@@ -755,7 +795,8 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return _parse_datetime_string(value).date()
+        parsed = _coerce_incremental_datetime(value)
+        return parsed if isinstance(parsed, int) else parsed.date()
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)

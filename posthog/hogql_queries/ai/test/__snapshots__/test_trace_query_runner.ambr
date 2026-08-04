@@ -41,7 +41,7 @@
             ai_events.output_state AS output_state,
             ai_events.tools AS tools
      FROM ai_events
-     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), equals(ai_events.trace_id, 'trace1'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'bar'), 0)))
+     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(equals(ai_events.trace_id, 'trace1'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'bar'), 0)))
      LIMIT 1 BY ai_events.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,
@@ -100,7 +100,7 @@
             ai_events.output_state AS output_state,
             ai_events.tools AS tools
      FROM ai_events
-     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), equals(ai_events.trace_id, 'trace1'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'baz'), 0)))
+     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(equals(ai_events.trace_id, 'trace1'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'baz'), 0)))
      LIMIT 1 BY ai_events.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,
@@ -159,7 +159,7 @@
             ai_events.output_state AS output_state,
             ai_events.tools AS tools
      FROM ai_events
-     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), equals(ai_events.trace_id, 'trace1'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'barz'), 0)))
+     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(equals(ai_events.trace_id, 'trace1'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'barz'), 0)))
      LIMIT 1 BY ai_events.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,
@@ -218,7 +218,7 @@
             JSONExtractRaw(__ai_events_fallback.properties, '$ai_output_state') AS output_state,
             JSONExtractRaw(__ai_events_fallback.properties, '$ai_tools') AS tools
      FROM events AS __ai_events_fallback
-     WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'barz'), 0)))
+     WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-12-08 00:10:00', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'barz'), 0)))
      LIMIT 1 BY __ai_events_fallback.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,
@@ -356,7 +356,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi__person ON equals(ai_events__pdi.ai_events__pdi___person_id, ai_events__pdi__person.id)
-     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), equals(ai_events.trace_id, 'trace1'), ifNull(equals(ai_events__pdi__person.properties___bar, 'baz'), 0)))
+     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(equals(ai_events.trace_id, 'trace1'), ifNull(equals(ai_events__pdi__person.properties___bar, 'baz'), 0)))
      LIMIT 1 BY ai_events.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,
@@ -433,7 +433,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi__person ON equals(ai_events__pdi.ai_events__pdi___person_id, ai_events__pdi__person.id)
-     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), equals(ai_events.trace_id, 'trace1'), ifNull(equals(ai_events__pdi__person.properties___bar, 'foo'), 0)))
+     WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(equals(ai_events.trace_id, 'trace1'), ifNull(equals(ai_events__pdi__person.properties___bar, 'foo'), 0)))
      LIMIT 1 BY ai_events.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,
@@ -509,7 +509,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __ai_events_fallback__person ON equals(if(not(empty(__ai_events_fallback__override.distinct_id)), __ai_events_fallback__override.person_id, __ai_events_fallback.person_id), __ai_events_fallback__person.id)
-     WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(__ai_events_fallback__person.properties___bar, 'foo'), 0)))
+     WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-12-08 00:10:00', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(__ai_events_fallback__person.properties___bar, 'foo'), 0)))
      LIMIT 1 BY __ai_events_fallback.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,

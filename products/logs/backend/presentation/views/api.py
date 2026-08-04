@@ -16,15 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
-from posthog.schema import (
-    DateRange,
-    FilterLogicalOperator,
-    LogAttributesQuery,
-    LogsOrderBy,
-    LogsQuery,
-    LogValuesQuery,
-    PropertyGroupFilter,
-)
+from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery, LogValuesQuery, PropertyGroupFilter
 
 from posthog.hogql.errors import QueryError
 
@@ -37,6 +29,7 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.exporter import export_asset
 
@@ -71,6 +64,7 @@ from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
+from products.logs.backend.presentation.views.retention_api import LogsRetentionRuleViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
@@ -81,6 +75,7 @@ __all__ = [
     "LogExplainViewSet",
     "LogsAlertViewSet",
     "LogsMetricRuleViewSet",
+    "LogsRetentionRuleViewSet",
     "LogsSamplingRuleViewSet",
     "LogsViewViewSet",
 ]
@@ -138,7 +133,15 @@ class SparklineRequestSerializer(serializers.Serializer):
 # manual parsing in LogsViewSet is unchanged.
 
 _LOG_PROPERTY_TYPE_CHOICES = ["log", "log_attribute", "log_resource_attribute"]
-_LOG_STRING_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"]
+_LOG_STRING_OPERATORS = [
+    "exact",
+    "is_not",
+    "icontains",
+    "not_icontains",
+    *STRING_PREFIX_SUFFIX_OPERATORS,
+    "regex",
+    "not_regex",
+]
 _LOG_NUMERIC_OPERATORS = ["exact", "gt", "lt"]
 _LOG_ARRAY_OPERATORS = ["exact", "is_not"]
 _LOG_DATE_OPERATORS = ["is_date_exact", "is_date_before", "is_date_after"]
@@ -1451,16 +1454,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
-        filter_group = query_data.get("filterGroup", None)
-        if filter_group is None:
-            filter_group = PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[])
-
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
-            filterGroup=filter_group,
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
         runner = ServicesQueryRunner(team=self.team, query=query)

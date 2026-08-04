@@ -522,6 +522,7 @@ export function createHogTransformerService(
             sesEndpoint: config.SES_ENDPOINT,
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,

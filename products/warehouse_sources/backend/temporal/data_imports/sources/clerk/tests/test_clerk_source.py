@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.source import ClerkSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clerk import ClerkSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -83,6 +83,16 @@ class TestClerkSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
 
         assert schemas == []
+
+    @pytest.mark.parametrize("endpoint", sorted(CLERK_ENDPOINTS))
+    def test_every_endpoint_is_documented(self, endpoint):
+        # `lists_tables_without_credentials` publishes this catalog to the public docs, so an
+        # endpoint added without a canonical entry ships an undocumented table.
+        entry = self.source.get_canonical_descriptions()[endpoint]
+
+        assert entry["description"]
+        assert entry["docs_url"].startswith("https://clerk.com/")
+        assert entry["columns"]["id"]
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

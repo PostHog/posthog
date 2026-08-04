@@ -1,9 +1,3 @@
-from products.error_tracking.backend.temporal.fingerprint_embedding_result import (
-    ACTIVITIES as FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES,
-    WORKFLOWS as FINGERPRINT_EMBEDDING_RESULT_WORKFLOWS,
-    ErrorTrackingFingerprintEmbeddingResultWorkflow,
-    merge_similar_fingerprints_activity,
-)
 from products.error_tracking.backend.temporal.lifecycle import (
     ACTIVITIES as LIFECYCLE_ACTIVITIES,
     WORKFLOWS as LIFECYCLE_WORKFLOWS,
@@ -38,19 +32,9 @@ from products.error_tracking.backend.temporal.weekly_digest import (
     send_org_digest_activity,
 )
 
-WORKFLOWS = (
-    SYMBOL_SET_WORKFLOWS
-    + SPIKE_EVENT_WORKFLOWS
-    + RECOMMENDATIONS_REFRESH_WORKFLOWS
-    + FINGERPRINT_EMBEDDING_RESULT_WORKFLOWS
-    + WEEKLY_DIGEST_WORKFLOWS
-)
+WORKFLOWS = SYMBOL_SET_WORKFLOWS + SPIKE_EVENT_WORKFLOWS + RECOMMENDATIONS_REFRESH_WORKFLOWS + WEEKLY_DIGEST_WORKFLOWS
 ACTIVITIES = (
-    SYMBOL_SET_ACTIVITIES
-    + SPIKE_EVENT_ACTIVITIES
-    + RECOMMENDATIONS_REFRESH_ACTIVITIES
-    + FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES
-    + WEEKLY_DIGEST_ACTIVITIES
+    SYMBOL_SET_ACTIVITIES + SPIKE_EVENT_ACTIVITIES + RECOMMENDATIONS_REFRESH_ACTIVITIES + WEEKLY_DIGEST_ACTIVITIES
 )
 
 __all__ = [
@@ -58,7 +42,6 @@ __all__ = [
     "LIFECYCLE_ACTIVITIES",
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
-    "ErrorTrackingFingerprintEmbeddingResultWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",
@@ -70,7 +53,6 @@ __all__ = [
     "cleanup_symbol_sets_activity",
     "get_digest_orgs_activity",
     "get_team_batches_activity",
-    "merge_similar_fingerprints_activity",
     "refresh_recommendations_batch_activity",
     "send_org_digest_activity",
 ]
