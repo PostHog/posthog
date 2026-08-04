@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { STRUCTURED_CONTENT_ONLY_TEXT } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -307,8 +308,8 @@ describe('exec tool', () => {
                 __execBuiltPayload?: true
             }
 
-            // Text content still includes the TOON-formatted result for model context
-            expect(result.content[0]!.text).toContain('id: 1')
+            // Text content points at structuredContent instead of repeating the result
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
             // With no compact table to protect, the app payload stays in the standard
             // structuredContent field (with analytics) rather than being duplicated under
             // the non-standard `_meta` app-data key.
@@ -374,7 +375,7 @@ describe('exec tool', () => {
             }
         )
 
-        it('keeps UI data in structuredContent and gives the model TOON text when there is no formatted override', async () => {
+        it('carries the payload once — in structuredContent — when there is no formatted override', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 handler: async () => ({
@@ -389,10 +390,11 @@ describe('exec tool', () => {
                 _meta: { [key: string]: unknown }
             }
 
-            // With no compact table there is nothing to protect: the model reads the data
-            // as TOON text, and the app payload stays in the standard structuredContent
-            // field rather than being duplicated under the non-standard `_meta` key.
-            expect(result.content[0]!.text).toContain('_posthogUrl')
+            // With no compact table there is nothing smaller to put in the text channel, so
+            // the payload stays in the standard structuredContent field and the text carries
+            // a pointer — neither a second copy in text nor one under the `_meta` key.
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(result.content[0]!.text).not.toContain('_posthogUrl')
             const structured = result.structuredContent as { results: unknown }
             expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
             expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()

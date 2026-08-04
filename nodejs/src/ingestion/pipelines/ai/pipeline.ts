@@ -173,8 +173,13 @@ export function createAiIngestionPipeline<
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-            // Read-only batch person fetch (no person writes).
-            .pipeChunk(createFetchPersonChunkStep(personRepository))
+            // Read-only batch person fetch (no person writes). The personhog
+            // client retries transient gRPC errors for ~150ms; this outer
+            // retry absorbs longer blips that would otherwise crash the
+            // worker via an unhandled rejection.
+            .pipeChunk(createFetchPersonChunkStep(personRepository), {
+                retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
+            })
             // Per-event chain. Retry is applied per step: only the steps
             // that do transient-failure-prone I/O (hog transform, group-type
             // fetch, emit) retry, matching the analytics per-distinct-id path.

@@ -19,6 +19,11 @@ logger = structlog.get_logger(__name__)
 
 DIGEST_WEBHOOK_TIMEOUT_SECONDS = 10
 
+# Above HogQL's 60s default: digest scans on high-volume teams (14-day windows, plus a persons
+# join when test-account filters include person properties) legitimately run past 60s. Matches
+# the error_tracking ClickHouse profile's execution ceiling — keep the two in sync.
+DIGEST_MAX_EXECUTION_TIME_SECONDS = 120
+
 # Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
@@ -40,6 +45,7 @@ def query_daily_rows(team: Team) -> list:
     Missing ``$exception_issue_id`` = ingestion failure. Query errors propagate so the task retries
     instead of mistaking a failure for "no activity".
     """
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.client.connection import ClickHouseUser
@@ -67,6 +73,7 @@ def query_daily_rows(team: Team) -> list:
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
     )
     return response.results or []
 
@@ -177,12 +184,19 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """
 
     # Cross-team scan for a weekly batch job — keep it off the online cluster.
-    results = sync_execute(query, query_params, workload=Workload.OFFLINE, ch_user=ClickHouseUser.ERROR_TRACKING)
+    results = sync_execute(
+        query,
+        query_params,
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings={"max_execution_time": DIGEST_MAX_EXECUTION_TIME_SECONDS},
+    )
     return results if isinstance(results, list) else []
 
 
 def get_crash_free_sessions(team: Team) -> dict:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.client.connection import ClickHouseUser
@@ -214,6 +228,7 @@ def get_crash_free_sessions(team: Team) -> dict:
         # Unfiltered 14-day session scan — the heaviest query here. Must stay off the online cluster.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
     )
 
     if not response.results or not response.results[0]:
@@ -281,6 +296,7 @@ def _query_issue_rows(team: Team) -> list:
     tracking UI. Newness is computed in-query — embedding issue ids would make the rendered SQL grow
     with issue cardinality (ClickHouse caps query text at 1 MiB).
     """
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.client.connection import ClickHouseUser
@@ -319,6 +335,7 @@ def _query_issue_rows(team: Team) -> list:
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
     )
     return response.results or []
 

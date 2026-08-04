@@ -56,11 +56,10 @@ def _positive_int_env(name: str, default: int, logger: structlog.BoundLogger) ->
 
 
 # Default overrides lookback window, env-overridable via
-# RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS. 6h is a conservative interim value sized
-# for steady-state run duration, not a hard bound: nothing caps how long a run takes, so a run
-# longer than the window can still strand a merge until the next full_scan (the planned per-run
-# watermark is the real guarantee). Lower it once per-run duration is reliably small. See the
-# block comment below for how the window relates to the schedule and squash cadence.
+# RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS. 6h was a conservative interim value sized
+# for steady-state run duration, never a hard bound: nothing caps how long a run takes, so a run
+# longer than the window can strand a merge until the next full_scan. Moot now that this workflow is
+# unscheduled and superseded. See the block comment below.
 DEFAULT_OVERRIDES_LOOKBACK_HOURS = 6
 
 
@@ -76,20 +75,22 @@ DEFAULT_OVERRIDES_LOOKBACK_HOURS = 6
 # row replaces the stale one. cohort_membership then self-heals on the next calculation run,
 # whose FULL OUTER JOIN diff emits 'left' for the old person and 'entered' for the new one.
 #
-# The override row written at merge time is the invalidation signal: each scheduled run
-# picks up distinct_ids whose override landed within the lookback window
+# The override row written at merge time is the invalidation signal: a run picks up distinct_ids
+# whose override landed within the lookback window
 # (RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS, default DEFAULT_OVERRIDES_LOOKBACK_HOURS)
-# and repairs just their rows, so the schedule can run at the realtime calculation cadence and a
-# merge is reconciled by the next calculation run instead of hours later. A `full_scan` input
-# ignores the window — use it for first-deploy remediation or after the workflow was down longer
-# than the lookback.
+# and repairs just their rows. A `full_scan` input ignores the window.
 #
-# Timing constraints: the lookback must comfortably exceed the schedule interval (so no
-# merge falls between runs), and both must stay well inside the person-overrides squash
-# cadence (SQUASH_PERSON_OVERRIDES_SCHEDULE, weekly by default) — the squash folds
-# overrides into the events table and then DELETES the override rows, and
-# precalculated_events is not part of that squash, so any override this workflow never saw
-# becomes unrepairable except by an event backfill re-run.
+# Superseded and unscheduled. rust/cohort-stream-processor owns reconciliation now, in its
+# workers/reconcile.rs and sweep/reconcile.rs, against RocksDB state rather than by re-querying
+# ClickHouse. This workflow is retained only until the Python implementation is deleted, so the
+# lookback no longer bounds anything: with no cadence behind it, any override older than the window
+# is simply missed unless a run passes `full_scan`.
+#
+# If a one-off run is ever needed before this goes, note that a repair still has to land inside the
+# person-overrides squash cadence (SQUASH_PERSON_OVERRIDES_SCHEDULE, weekly by default). That squash
+# folds overrides into the events table and then DELETES the override rows, and precalculated_events
+# is not part of it, so an override this workflow never saw is unrepairable except by an event
+# backfill re-run.
 
 # Latest surviving mapping per overridden distinct_id; mirrors the HogQL
 # person_distinct_id_overrides lazy table (argmax_select with deleted_field="is_deleted").

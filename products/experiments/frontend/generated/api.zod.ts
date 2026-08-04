@@ -1056,6 +1056,53 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Session recordings of this experiment matching a bucket.
+ *
+ * Answers the questions a recordings query can't express on its own — "fired any of these
+ * metrics", "fired none of them", "entered the funnel but never completed it in this
+ * session" — by returning a bounded, most-recent-first list of session IDs to pass back as
+ * a recordings query's session_ids. POST because the metric list doesn't fit a query
+ * string; the endpoint only reads.
+ *
+ * Session-scoped and goal-free: the set describes what happened in each session, while the
+ * experiment analysis counts per person over the whole run window. A session can be in the
+ * drop-off bucket while the same person converts in a later one.
+ */
+export const experimentsSessionBucketsCreateBodyLimitDefault = 100
+export const experimentsSessionBucketsCreateBodyLimitMax = 100
+
+export const ExperimentsSessionBucketsCreateBody = /* @__PURE__ */ zod
+    .object({
+        bucket: zod
+            .enum(['fired_any', 'no_metric_activity', 'funnel_dropoff'])
+            .describe(
+                '\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff'
+            )
+            .describe(
+                "Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.\n\n\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff"
+            ),
+        metric_uuids: zod
+            .array(zod.string().describe("UUID of one of the experiment's metrics."))
+            .optional()
+            .describe(
+                "Metrics the bucket is computed over. Exactly one funnel metric for 'funnel_dropoff'. Omit for the other buckets to use every metric of the experiment that can be matched to recordings."
+            ),
+        variant: zod
+            .string()
+            .nullish()
+            .describe(
+                'Restrict to sessions that saw this variant. Omit for every variant. A session that saw more than one variant matches each variant it saw.'
+            ),
+        limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSessionBucketsCreateBodyLimitMax)
+            .default(experimentsSessionBucketsCreateBodyLimitDefault)
+            .describe('Maximum session IDs to return, at most 100. The most recently active matching sessions win.'),
+    })
+    .describe('Request body for the session-bucket endpoint.')
+
+/**
  * Ship a variant and (optionally) end the experiment.
  *
  * Updates the feature flag so the selected variant gets 100% of the variant
