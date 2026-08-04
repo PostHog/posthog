@@ -39,10 +39,24 @@ const zones: { edge: EditModeEdge; style: React.CSSProperties; cursor: React.CSS
 ]
 
 /**
- * Whether the viewport point (x, y) lies on a visible, functional scrollbar of `el`.
+ * Overlay scrollbars (macOS default, and Chromium headless) occupy no layout space, so their exact
+ * bounds cannot be measured. They render inside the scroll container along its bottom/right edge;
+ * 16px matches the macOS hover-expanded track and comfortably covers Chromium's overlay thumb.
+ */
+const OVERLAY_SCROLLBAR_BAND = 16
+
+const isScrollableOverflow = (overflow: string): boolean =>
+    // 'overlay' is legacy WebKit; Chrome computes it to 'auto' but include it for safety.
+    overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay'
+
+/**
+ * Whether the viewport point (x, y) lies on a functional scrollbar of `el`.
  * "Functional" means the content actually overflows on that axis, so a press there would grab the
- * scrollbar rather than hit an empty reserved gutter. Overlay scrollbars (macOS default) occupy no
- * layout space, so `offsetHeight - clientHeight` is 0 and they are never matched.
+ * scrollbar rather than hit an empty reserved gutter. Classic scrollbars occupy layout space
+ * (`offsetHeight - clientHeight`), which gives their exact bounds. Overlay scrollbars (macOS
+ * default) occupy none, so for a scrollable element without a gutter the edge band where the
+ * overlay scrollbar materializes counts as scrollbar territory even while the thumb is hidden;
+ * a press there while it's hidden just falls through to the content, matching native behavior.
  */
 export function isPointInScrollbarGutter(el: HTMLElement, x: number, y: number): boolean {
     const style = window.getComputedStyle(el)
@@ -55,11 +69,18 @@ export function isPointInScrollbarGutter(el: HTMLElement, x: number, y: number):
     // offsetHeight spans the border box; clientHeight excludes borders and the horizontal scrollbar,
     // so the difference minus borders is the scrollbar's rendered height (0 for overlay scrollbars).
     // The > 1 threshold absorbs the integer rounding of offset/client dimensions.
-    const horizontalScrollbarHeight = el.offsetHeight - el.clientHeight - borderTop - borderBottom
-    if (horizontalScrollbarHeight > 1 && el.scrollWidth > el.clientWidth) {
-        const gutterTop = rect.bottom - borderBottom - horizontalScrollbarHeight
+    const horizontalGutter = el.offsetHeight - el.clientHeight - borderTop - borderBottom
+    const canScrollX = el.scrollWidth - el.clientWidth > 1
+    const horizontalBand =
+        horizontalGutter > 1 && canScrollX
+            ? horizontalGutter
+            : canScrollX && isScrollableOverflow(style.overflowX)
+              ? OVERLAY_SCROLLBAR_BAND
+              : 0
+    if (horizontalBand > 0) {
+        const bandTop = rect.bottom - borderBottom - horizontalBand
         if (
-            y >= gutterTop &&
+            y >= bandTop &&
             y <= rect.bottom - borderBottom &&
             x >= rect.left + borderLeft &&
             x <= rect.right - borderRight
@@ -68,13 +89,19 @@ export function isPointInScrollbarGutter(el: HTMLElement, x: number, y: number):
         }
     }
 
-    const verticalScrollbarWidth = el.offsetWidth - el.clientWidth - borderLeft - borderRight
-    if (verticalScrollbarWidth > 1 && el.scrollHeight > el.clientHeight) {
-        const gutterLeft =
-            style.direction === 'rtl' ? rect.left + borderLeft : rect.right - borderRight - verticalScrollbarWidth
+    const verticalGutter = el.offsetWidth - el.clientWidth - borderLeft - borderRight
+    const canScrollY = el.scrollHeight - el.clientHeight > 1
+    const verticalBand =
+        verticalGutter > 1 && canScrollY
+            ? verticalGutter
+            : canScrollY && isScrollableOverflow(style.overflowY)
+              ? OVERLAY_SCROLLBAR_BAND
+              : 0
+    if (verticalBand > 0) {
+        const bandLeft = style.direction === 'rtl' ? rect.left + borderLeft : rect.right - borderRight - verticalBand
         if (
-            x >= gutterLeft &&
-            x <= gutterLeft + verticalScrollbarWidth &&
+            x >= bandLeft &&
+            x <= bandLeft + verticalBand &&
             y >= rect.top + borderTop &&
             y <= rect.bottom - borderBottom
         ) {

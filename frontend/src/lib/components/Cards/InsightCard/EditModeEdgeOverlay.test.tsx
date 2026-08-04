@@ -14,6 +14,8 @@ type FakeElementConfig = {
     scrollHeight: number
     border?: number
     direction?: 'ltr' | 'rtl'
+    overflowX?: string
+    overflowY?: string
 }
 
 // A 400x300 element with classic 15px scrollbars: clientWidth/Height shrink by the scrollbar
@@ -29,7 +31,10 @@ const SCROLLABLE_BASE: FakeElementConfig = {
 }
 
 describe('EditModeEdgeOverlay', () => {
-    const styleConfig = new WeakMap<Element, { border: number; direction: string }>()
+    const styleConfig = new WeakMap<
+        Element,
+        { border: number; direction: string; overflowX: string; overflowY: string }
+    >()
     const realGetComputedStyle = window.getComputedStyle
 
     beforeEach(() => {
@@ -45,6 +50,8 @@ describe('EditModeEdgeOverlay', () => {
                 borderLeftWidth: `${config.border}px`,
                 borderRightWidth: `${config.border}px`,
                 direction: config.direction,
+                overflowX: config.overflowX,
+                overflowY: config.overflowY,
             } as CSSStyleDeclaration
         })
     })
@@ -57,6 +64,8 @@ describe('EditModeEdgeOverlay', () => {
         rect,
         border = 0,
         direction = 'ltr',
+        overflowX = 'auto',
+        overflowY = 'auto',
         ...dimensions
     }: FakeElementConfig): HTMLElement {
         const el = document.createElement('div')
@@ -66,7 +75,7 @@ describe('EditModeEdgeOverlay', () => {
         )
         el.getBoundingClientRect = () =>
             ({ ...rect, width: rect.right - rect.left, height: rect.bottom - rect.top }) as DOMRect
-        styleConfig.set(el, { border, direction })
+        styleConfig.set(el, { border, direction, overflowX, overflowY })
         return el
     }
 
@@ -195,7 +204,23 @@ describe('EditModeEdgeOverlay', () => {
                 [200, 292],
                 false,
             ],
-            ['overlay scrollbars occupy no layout space', { clientWidth: 400, clientHeight: 300 }, [200, 292], false],
+            // Overlay scrollbars (macOS default): no layout gutter, so the edge band of a genuinely
+            // scrollable element counts as scrollbar territory.
+            ['overlay: point in the bottom scroll band', { clientWidth: 400, clientHeight: 300 }, [200, 292], true],
+            ['overlay: point above the bottom scroll band', { clientWidth: 400, clientHeight: 300 }, [200, 283], false],
+            ['overlay: point in the right scroll band', { clientWidth: 400, clientHeight: 300 }, [392, 150], true],
+            [
+                'overlay rtl: scroll band sits on the left edge',
+                { clientWidth: 400, clientHeight: 300, direction: 'rtl' as const },
+                [7, 150],
+                true,
+            ],
+            [
+                'overflow hidden clips without a scrollbar',
+                { clientWidth: 400, clientHeight: 300, overflowX: 'hidden', overflowY: 'hidden' },
+                [200, 292],
+                false,
+            ],
             [
                 'point on the bottom border, just below the gutter',
                 { border: 2, clientWidth: 381, clientHeight: 281 },
