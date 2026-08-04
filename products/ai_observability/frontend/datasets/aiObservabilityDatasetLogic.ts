@@ -143,6 +143,7 @@ export interface aiObservabilityDatasetLogicValues {
     datasetLoadError: ApiError | null
     datasetLoading: boolean
     datasetRevisions: PaginatedDatasetRevisionReadListApi
+    datasetRevisionsLoadError: ApiError | null
     datasetRevisionsLoading: boolean
     filters: DatasetItemsFilters
     isArchivingDataset: boolean
@@ -545,6 +546,16 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                 loadDatasetItemsSuccess: () => null,
                 loadDatasetItemsFailure: (_, { errorObject }) =>
                     errorObject instanceof ApiError ? errorObject : new ApiError("Couldn't load dataset items"),
+            },
+        ],
+
+        datasetRevisionsLoadError: [
+            null as ApiError | null,
+            {
+                loadDatasetRevisions: () => null,
+                loadDatasetRevisionsSuccess: () => null,
+                loadDatasetRevisionsFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError ? errorObject : new ApiError("Couldn't load dataset revisions"),
             },
         ],
 

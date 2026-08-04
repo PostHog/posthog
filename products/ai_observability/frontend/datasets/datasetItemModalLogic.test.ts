@@ -341,6 +341,34 @@ describe('datasetItemModalLogic', () => {
         expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
     })
 
+    it('updates read-only state when restoring props change', async () => {
+        const logicProps = {
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        }
+        const logic = datasetItemModalLogic(logicProps)
+        logic.mount()
+
+        expect(logic.values.isDatasetItemFormReadOnly).toBe(false)
+        expect(logic.values.datasetItemFormSubmitDisabledReason).toBeUndefined()
+
+        datasetItemModalLogic({ ...logicProps, restoringVersion: 1 })
+
+        await expectLogic(logic).toMatchValues({
+            isDatasetItemFormReadOnly: true,
+            datasetItemFormSubmitDisabledReason: 'Wait for the version to finish restoring',
+        })
+
+        datasetItemModalLogic({ ...logicProps, restoringVersion: null })
+
+        await expectLogic(logic).toMatchValues({
+            isDatasetItemFormReadOnly: false,
+            datasetItemFormSubmitDisabledReason: undefined,
+        })
+    })
+
     it('rejects invalid expected output JSON', () => {
         expect(isStringJsonValue('{invalid')).toBe(false)
     })

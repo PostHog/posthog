@@ -6,12 +6,17 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import posthog_feature_flag_value
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
-from products.exports.backend.facade.api import ExportedAsset, InvalidExportContext, save_export_asset_content_from_file
+from products.exports.backend.facade.api import (
+    ExportedAsset,
+    InvalidExportContext,
+    RetryableExportError,
+    save_export_asset_content_from_file,
+)
 
 DATASETS_FEATURE_FLAG = "llm-analytics-datasets"
 DATASET_EXPORT_DATABASE_FALLBACK_BYTES = 50_000_000
@@ -60,12 +65,15 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
         raise DatasetExportError("The dataset is no longer available.")
     if not UserAccessControl(user=asset.created_by, team=asset.team).check_access_level_for_object(dataset, "viewer"):
         raise DatasetExportError("You no longer have access to this dataset.")
-    if not posthog_feature_flag_enabled(
+    feature_flag_value = posthog_feature_flag_value(
         DATASETS_FEATURE_FLAG,
         str(asset.created_by.distinct_id),
         organization_id=asset.team.organization_id,
         team_id=asset.team_id,
-    ):
+    )
+    if feature_flag_value is None:
+        raise RetryableExportError("Couldn't verify whether dataset exports are available. Try again.")
+    if not feature_flag_value:
         raise DatasetExportError("Dataset exports are not available for this project.")
     selected_revision = (
         DatasetRevision.objects.for_team(asset.team_id, canonical=True)

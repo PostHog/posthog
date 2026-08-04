@@ -16,7 +16,8 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset
-from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAsset
+from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAsset, RetryableExportError
+from products.exports.backend.tasks.failure_handler import EXCEPTIONS_TO_RETRY
 
 
 class TestDatasetExport(APIBaseTest):
@@ -41,7 +42,7 @@ class TestDatasetExport(APIBaseTest):
         )
         return dataset, result
 
-    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_enabled", return_value=True)
+    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_value", return_value=True)
     def test_export_uses_the_pinned_revision_with_stable_order_and_nested_json(self, _feature_flag: object) -> None:
         dataset, first_result = self._create_dataset_and_item()
         updated_first = update_dataset_item(
@@ -114,7 +115,7 @@ class TestDatasetExport(APIBaseTest):
             },
         )
 
-    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_enabled", return_value=True)
+    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_value", return_value=True)
     def test_empty_snapshot_exports_an_empty_file(self, _feature_flag: object) -> None:
         dataset, result = self._create_dataset_and_item()
         archived = archive_dataset_item(
@@ -142,7 +143,7 @@ class TestDatasetExport(APIBaseTest):
         self.assertEqual(self._read_asset_content(asset), b"")
 
     @patch("products.ai_observability.backend.dataset_export.MAX_DATASET_EXPORT_BYTES", 1)
-    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_enabled", return_value=True)
+    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_value", return_value=True)
     def test_export_stops_when_the_jsonl_size_limit_is_reached(self, _feature_flag: object) -> None:
         dataset, _result = self._create_dataset_and_item()
         asset = ExportedAsset.objects.create(
@@ -193,7 +194,7 @@ class TestDatasetExport(APIBaseTest):
                 return_value=access_allowed,
             ),
             patch(
-                "products.ai_observability.backend.dataset_export.posthog_feature_flag_enabled",
+                "products.ai_observability.backend.dataset_export.posthog_feature_flag_value",
                 return_value=feature_enabled,
             ),
             self.assertRaisesRegex(DatasetExportError, expected_error),
@@ -202,3 +203,22 @@ class TestDatasetExport(APIBaseTest):
 
         asset.refresh_from_db()
         self.assertFalse(asset.has_content)
+
+    @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_value", return_value=None)
+    def test_export_retries_when_feature_flag_evaluation_is_unavailable(self, _feature_flag: object) -> None:
+        dataset, _result = self._create_dataset_and_item()
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": str(dataset.id),
+                "dataset_revision": 1,
+            },
+        )
+
+        with self.assertRaises(RetryableExportError) as error:
+            export_dataset_jsonl(asset)
+
+        self.assertIsInstance(error.exception, EXCEPTIONS_TO_RETRY)

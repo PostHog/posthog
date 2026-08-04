@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from tempfile import NamedTemporaryFile
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -6,16 +7,41 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.storage.object_storage import ObjectStorageError
+
 from products.exports.backend.models.exported_asset import (
     SEVEN_DAYS,
     SIX_MONTHS,
     TWELVE_MONTHS,
     ExportedAsset,
     get_content_response,
+    save_content_from_file,
 )
 
 
 class TestExportedAssetModel(APIBaseTest):
+    def test_large_content_preserves_object_storage_failure(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+        )
+        with NamedTemporaryFile() as content_file:
+            content_file.write(b"large")
+            content_file.flush()
+            storage_error = ObjectStorageError("storage unavailable")
+            with (
+                self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"),
+                patch(
+                    "products.exports.backend.models.exported_asset.object_storage.write_from_file",
+                    side_effect=storage_error,
+                ),
+                self.assertRaises(ObjectStorageError) as error,
+            ):
+                save_content_from_file(asset, content_file.name, max_database_bytes=1)
+
+        self.assertIs(error.exception, storage_error)
+
     def test_exported_asset_inside_ttl_is_visible_to_both_managers(self) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,

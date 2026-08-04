@@ -7,7 +7,7 @@ from django.http import Http404
 from django.http.response import HttpResponseBase
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -32,6 +32,7 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
 )
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -519,6 +520,11 @@ class DatasetItemVersionPagination(LimitOffsetPagination):
     max_limit = 100
 
 
+class DatasetExportRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "dataset_export"
+    rate = "10/minute"
+
+
 def _parse_dataset_export_id(export_id: str | None) -> int:
     if export_id is None:
         raise Http404("Dataset export not found.")
@@ -580,7 +586,6 @@ def _item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItemVersion]
             "dataset_revision",
             "dataset_item",
             "dataset_item__created_by",
-            "dataset_item__dataset",
         )
     )
 
@@ -650,7 +655,25 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         return DatasetReadSerializer
 
     @extend_schema(
-        parameters=[DatasetListQuerySerializer],
+        parameters=[
+            DatasetListQuerySerializer,
+            OpenApiParameter(
+                name="id__in",
+                type={
+                    "type": "array",
+                    "items": {"type": "string", "format": "uuid"},
+                    "minItems": 1,
+                    "maxItems": 100,
+                },
+                location=OpenApiParameter.QUERY,
+                required=False,
+                style="form",
+                explode=False,
+                description=(
+                    "Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs."
+                ),
+            ),
+        ],
         responses=DatasetReadSerializer(many=True),
         description="List active datasets by default, or archived datasets when requested.",
         tags=["AI observability"],
@@ -819,7 +842,12 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         description="Create an asynchronous JSONL export pinned to an immutable dataset revision.",
         tags=["AI observability"],
     )
-    @action(detail=True, methods=["post"], url_path="exports")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="exports",
+        throttle_classes=[DatasetExportRateThrottle],
+    )
     def exports(self, request: Request, *args: object, **kwargs: object) -> Response:
         dataset = self.get_object()
         serializer = DatasetExportCreateSerializer(data=request.data)
@@ -937,6 +965,23 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             team_id=self.team.id,
             dataset_id__in=Subquery(accessible_datasets.values("id")),
         )
+
+    def safely_get_object(
+        self,
+        queryset: QuerySet[DatasetItemVersion, DatasetItemVersion],
+    ) -> DatasetItemVersion:
+        if self.action != "retrieve" or self.request.query_params.get("revision") is None:
+            raise NotImplementedError
+        version = (
+            queryset.select_related(None)
+            .select_related("dataset")
+            .defer("input", "expected_output", "source_output", "metadata")
+            .filter(dataset_item_id=self.kwargs[self.lookup_field])
+            .first()
+        )
+        if version is None:
+            raise Http404("Dataset item not found.")
+        return version
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":

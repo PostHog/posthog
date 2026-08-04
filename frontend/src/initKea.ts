@@ -42,6 +42,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
     'loadDataset', // Dataset scenes render their own retry state
     'loadDatasetItems', // Dataset scenes render their own retry state
+    'loadDatasetRevisions', // Dataset scenes render their own retry state
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state

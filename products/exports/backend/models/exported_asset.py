@@ -338,6 +338,7 @@ def save_content_from_file(
     *,
     max_database_bytes: int | None = None,
 ) -> None:
+    storage_error: ObjectStorageError | None = None
     try:
         if settings.OBJECT_STORAGE_ENABLED:
             object_path = _get_object_path(exported_asset)
@@ -345,15 +346,18 @@ def save_content_from_file(
             exported_asset.content_location = object_path
             exported_asset.save(update_fields=["content_location"])
             return
-    except ObjectStorageError as ose:
-        capture_exception(ose)
+    except ObjectStorageError as error:
+        storage_error = error
+        capture_exception(error)
         logger.error(
             "exported_asset.object-storage-error",
             exported_asset_id=exported_asset.id,
-            exception=ose,
+            exception=error,
             exc_info=True,
         )
     if max_database_bytes is not None and Path(file_path).stat().st_size > max_database_bytes:
+        if storage_error is not None:
+            raise storage_error
         raise ValueError("The export is too large to store without object storage.")
     with open(file_path, "rb") as f:
         save_content_to_exported_asset(exported_asset, f.read())

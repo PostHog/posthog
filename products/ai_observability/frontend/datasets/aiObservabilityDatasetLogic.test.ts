@@ -467,6 +467,32 @@ describe('aiObservabilityDatasetLogic', () => {
         })
     })
 
+    describe('dataset revisions', () => {
+        it('stores revision loading errors and clears them on retry', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            mockDatasetsApi.listRevisions.mockRejectedValue(new ApiError('Revision load failed', 500))
+            silenceKeaLoadersErrors()
+
+            try {
+                await expectLogic(logic, () => logic.actions.loadDatasetRevisions()).toDispatchActions([
+                    'loadDatasetRevisionsFailure',
+                ])
+
+                expect(logic.values.datasetRevisionsLoadError).toBeInstanceOf(ApiError)
+                expect(logic.values.datasetRevisionsLoadError?.message).toBe('Revision load failed')
+
+                mockDatasetsApi.listRevisions.mockResolvedValue({ results: [], count: 0 })
+                await expectLogic(logic, () => logic.actions.loadDatasetRevisions()).toFinishAllListeners()
+
+                expect(logic.values.datasetRevisionsLoadError).toBeNull()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+        })
+    })
+
     describe('dataset item archiving', () => {
         it('offers to reload items when archiving an outdated version', async () => {
             const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'

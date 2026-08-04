@@ -21,7 +21,10 @@ from products.exports.backend.models.exported_asset import (
     get_content_response,
     save_content_from_file as _save_content_from_file,
 )
-from products.exports.backend.tasks.failure_handler import InvalidExportContext as InvalidExportContext
+from products.exports.backend.tasks.failure_handler import (
+    InvalidExportContext as InvalidExportContext,
+    RetryableExportError as RetryableExportError,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)

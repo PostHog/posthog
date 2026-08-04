@@ -609,7 +609,7 @@ const llmaDatasetList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/datasets/`,
             query: {
                 archived: params.archived,
-                id__in: params.id__in,
+                id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,

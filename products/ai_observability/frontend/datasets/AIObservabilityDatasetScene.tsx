@@ -144,7 +144,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         return <NotFound object="dataset" />
     }
 
-    if (datasetLoadError) {
+    if (datasetLoadError && (!isDataset(dataset) || datasetLoadError.status === 403)) {
         return (
             <SceneContent>
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDataset }}>
@@ -170,6 +170,11 @@ export function AIObservabilityDatasetScene(): JSX.Element {
     return (
         <Form id="dataset-form" formKey="datasetForm" logic={aiObservabilityDatasetLogic}>
             <SceneContent>
+                {datasetLoadError && (
+                    <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDataset }}>
+                        {datasetLoadError.detail || "Couldn't refresh this dataset. Try again."}
+                    </LemonBanner>
+                )}
                 <SceneTitleSection
                     name={datasetForm.name}
                     resourceType={{ type: 'llm_analytics' }}
@@ -321,7 +326,6 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         canManageDataset,
         isHistoricalRevision,
         filters,
-        datasetExport,
         datasetExportLoading,
         datasetExportLoadError,
     } = useValues(aiObservabilityDatasetLogic)
@@ -333,7 +337,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         loadDatasetItemVersions,
         setFilters,
         exportDataset,
-        viewExports,
+        editDataset,
     } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
     const selectedItemReadOnly = !canEditDataset || !!selectedDatasetItem?.archived
@@ -366,11 +370,23 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
     return (
         <>
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                    <LemonTag type={dataset.archived ? 'muted' : 'success'}>
-                        {dataset.archived ? 'Archived' : 'Active'}
-                    </LemonTag>
-                    {isHistoricalRevision && <LemonTag type="default">Revision {filters.revision}</LemonTag>}
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <LemonTag type={dataset.archived ? 'muted' : 'success'}>
+                            {dataset.archived ? 'Archived' : 'Active'}
+                        </LemonTag>
+                        {isHistoricalRevision && <LemonTag type="default">Revision {filters.revision}</LemonTag>}
+                    </div>
+                    {canEditDataset && (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => editDataset(true)}
+                            data-attr="edit-dataset"
+                            size="small"
+                        >
+                            Edit
+                        </LemonButton>
+                    )}
                 </div>
                 <p className="m-0">{dataset.description || <span className="italic">Description (optional)</span>}</p>
                 {isHistoricalRevision && (
@@ -384,7 +400,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                         This is a read-only snapshot of the dataset.
                     </LemonBanner>
                 )}
-                {datasetExportLoadError ? (
+                {datasetExportLoadError && (
                     <LemonBanner
                         type="error"
                         action={{
@@ -395,17 +411,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                     >
                         {datasetExportLoadError.detail || "Couldn't add the dataset to exports. Try again."}
                     </LemonBanner>
-                ) : datasetExport ? (
-                    <LemonBanner
-                        type="info"
-                        action={{
-                            children: 'View exports',
-                            onClick: viewExports,
-                        }}
-                    >
-                        Dataset revision {datasetExport.dataset_revision} was added to exports.
-                    </LemonBanner>
-                ) : null}
+                )}
             </div>
 
             <LemonTabs activeKey={activeTab} data-attr="dataset-tabs" tabs={tabs} />
@@ -470,6 +476,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
         datasetItemsLoading,
         datasetItemsLoadError,
         datasetRevisionsLoading,
+        datasetRevisionsLoadError,
         pagination,
         filters,
         revisionOptions,
@@ -483,8 +490,8 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
         archiveDatasetItem,
         restoreDatasetItem,
         loadDatasetItems,
+        loadDatasetRevisions,
         setFilters,
-        editDataset,
         restoreDataset,
         exportDataset,
         triggerDatasetItemModal,
@@ -678,16 +685,6 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                     </LemonButton>
                     {canEditDataset && (
                         <LemonButton
-                            type="secondary"
-                            onClick={() => editDataset(true)}
-                            data-attr="edit-dataset"
-                            size="small"
-                        >
-                            Edit
-                        </LemonButton>
-                    )}
-                    {canEditDataset && (
-                        <LemonButton
                             type="primary"
                             onClick={() => triggerDatasetItemModal(true)}
                             data-attr="add-dataset-item"
@@ -714,6 +711,12 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             {datasetItemsLoadError && (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadDatasetItems(false) }}>
                     {datasetItemsLoadError.detail || "Couldn't load dataset items. Try again."}
+                </LemonBanner>
+            )}
+
+            {datasetRevisionsLoadError && (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDatasetRevisions }}>
+                    {datasetRevisionsLoadError.detail || "Couldn't load dataset revisions. Try again."}
                 </LemonBanner>
             )}
 
