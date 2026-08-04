@@ -78,15 +78,7 @@ export function AllSpacesSection() {
 
   return (
     <div className="shrink-0 border-border border-t">
-      <div
-        className={cn(
-          "flex flex-col gap-px px-2 pt-1",
-          // Open, the section ends in rows with hover controls at their right
-          // edge — clear the floating create button. The bare header can share
-          // its row with it.
-          open ? "pb-12" : "pb-2",
-        )}
-      >
+      <div className="flex flex-col gap-px px-2 pt-1 pb-2">
         {/* Same shape as a pinned space row, so the carets line up. */}
         <Button
           variant="default"

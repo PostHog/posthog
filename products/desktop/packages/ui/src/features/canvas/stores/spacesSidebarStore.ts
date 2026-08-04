@@ -18,9 +18,12 @@ interface SpacesSidebarState {
    * and never ranked.
    */
   spaceOrder: string[];
+  /** The cross-space "My tasks" section's fold. */
+  openMyTasks: boolean;
   toggle: (channelId: string) => void;
   toggleAddSpace: () => void;
   toggleOnlyMyTasks: () => void;
+  toggleMyTasks: () => void;
   setSpaceOrder: (ids: string[]) => void;
 }
 
@@ -33,6 +36,7 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
       openAddSpace: true,
       onlyMyTasks: false,
       spaceOrder: [],
+      openMyTasks: true,
       toggle: (channelId) =>
         set((state) => ({
           openSections: {
@@ -44,6 +48,8 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
         set((state) => ({ openAddSpace: !state.openAddSpace })),
       toggleOnlyMyTasks: () =>
         set((state) => ({ onlyMyTasks: !state.onlyMyTasks })),
+      toggleMyTasks: () =>
+        set((state) => ({ openMyTasks: !state.openMyTasks })),
       setSpaceOrder: (ids) => set({ spaceOrder: ids }),
     }),
     { name: "spaces-sidebar" },

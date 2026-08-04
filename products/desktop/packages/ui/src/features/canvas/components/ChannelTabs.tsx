@@ -4,6 +4,7 @@ import { CHANNEL_SECTIONS } from "@posthog/ui/features/canvas/channelSections";
 import { ChannelPinnedMenu } from "@posthog/ui/features/canvas/components/ChannelPinnedMenu";
 import {
   type ChannelPageKey,
+  channelPageIcon,
   channelPageLabel,
 } from "@posthog/ui/features/canvas/components/channelPages";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -99,6 +100,7 @@ export function ChannelPageTabs({
         >
           {tabs.map((key) => (
             <TabsTrigger key={key} value={key} className="gap-1.5 px-2.5 py-2">
+              {channelPageIcon(key, { size: 14 })}
               <span className="font-medium text-[13px]">
                 {channelPageLabel(key)}
               </span>

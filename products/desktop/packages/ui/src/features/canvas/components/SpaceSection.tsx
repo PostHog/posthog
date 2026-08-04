@@ -10,7 +10,6 @@ import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadC
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
-import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -19,15 +18,15 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { type Ref, useMemo, useState } from "react";
 
-const RECENTS_CAP = 10;
+const RECENTS_CAP = 5;
 
 /**
  * One pinned space in the static sidebar. The whole row is one click target:
  * it folds the space's task list open and closed (caret included — no separate
- * hover zones). The hover gear on the right is what opens the space itself in
- * the main view, where the header tabs (Feed/Context/Loops/Artifacts) live.
- * #me wears its lock in the same right-hand well, stepping aside for the gear
- * on hover.
+ * hover zones). Hovering reveals two controls on the right: a plus that files
+ * a new task into this space, and the gear that opens the space itself in the
+ * main view, where the header tabs (Feed/Context/Loops/Artifacts) live. #me
+ * wears its lock in the same right-hand well, stepping aside on hover.
  *
  * Expand state is local view state in `spacesSidebarStore`; the space's
  * presence in the sidebar is its star, managed from the All spaces directory.
@@ -152,11 +151,12 @@ export function SpaceSection({
             {channel.name}
           </span>
           {/* Trailing well, reserved so the name truncates clear of the lock
-              and hover gear rather than shifting when they appear. */}
-          <span aria-hidden className="size-6 shrink-0" />
+              and the two hover controls rather than shifting when they appear. */}
+          <span aria-hidden className="h-6 w-12 shrink-0" />
         </Button>
         {/* Overlays, not children — the row is a button already. The lock
-            yields its spot to the gear on hover so the well never doubles up. */}
+            yields its spot to the controls on hover so the well never doubles
+            up. */}
         {glyph && (
           <span
             aria-hidden
@@ -165,6 +165,22 @@ export function SpaceSection({
             {glyph}
           </span>
         )}
+        <Button
+          variant="default"
+          size="icon-sm"
+          aria-label={`New task in ${channel.name}`}
+          onClick={() => {
+            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+              action_type: "new_task_open",
+              surface: "sidebar",
+              channel_id: channel.id,
+            });
+            openTaskInput({ channelId: channel.id });
+          }}
+          className="-translate-y-1/2 absolute top-1/2 right-[30px] text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover/space:opacity-100"
+        >
+          <PlusIcon size={14} />
+        </Button>
         <Button
           variant="default"
           size="icon-sm"
@@ -180,21 +196,6 @@ export function SpaceSection({
           groups' trees (pl-5). */}
       {open && (
         <div className="flex flex-col gap-px pb-1 pl-5">
-          {/* Creating is the list's first move, so it leads the list — filed
-              straight into this space, like the Fab's New task with a channel. */}
-          <SidebarItem
-            depth={0}
-            icon={<PlusIcon size={14} className="text-muted-foreground" />}
-            label={<span className="text-muted-foreground">New session</span>}
-            onClick={() => {
-              track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                action_type: "new_task_open",
-                surface: "sidebar",
-                channel_id: channel.id,
-              });
-              openTaskInput({ channelId: channel.id });
-            }}
-          />
           {isLoading && sectionItems.length === 0 ? (
             <div className="flex flex-col gap-2 px-2 py-2">
               <Skeleton className="h-3 w-3/4" />
@@ -206,11 +207,9 @@ export function SpaceSection({
             </div>
           ) : (
             <>
-              {/* A five-row window (rows are ~26px + the px gaps); the rest of
-                  the capped list scrolls within it, View all stays put below.
-                  The right padding keeps the rows' trailing badges clear of
-                  the overlay scrollbar instead of drawn over by it. */}
-              <div className="flex max-h-[134px] flex-col gap-px overflow-y-auto pr-1">
+              {/* Five recents, no inner scroll — the full list is one click
+                  away on the space's Recents page via View all. */}
+              <div className="flex flex-col gap-px">
                 {sectionItems.map((item) => (
                   <ChannelItemRow
                     key={item.key}

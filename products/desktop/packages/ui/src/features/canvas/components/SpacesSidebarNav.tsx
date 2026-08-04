@@ -1,19 +1,26 @@
 import { PointerSensor } from "@dnd-kit/dom";
 import { type DragDropEvents, DragDropProvider } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
+import { PlusIcon } from "@phosphor-icons/react";
 import {
+  Button,
   Switch,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { AllSpacesSection } from "@posthog/ui/features/canvas/components/AllSpacesSection";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
+import { MyTasksSection } from "@posthog/ui/features/canvas/components/MyTasksSection";
 import { SpaceSection } from "@posthog/ui/features/canvas/components/SpaceSection";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
+import { openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { track } from "@posthog/ui/shell/analytics";
 import type { RefCallback } from "react";
 import { useMemo } from "react";
 
@@ -55,6 +62,7 @@ export function SpacesSidebarNav() {
   const toggleOnlyMyTasks = useSpacesSidebarStore((s) => s.toggleOnlyMyTasks);
   const spaceOrder = useSpacesSidebarStore((s) => s.spaceOrder);
   const setSpaceOrder = useSpacesSidebarStore((s) => s.setSpaceOrder);
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   const me = pinnedSpaces.find((c) => c.name === PERSONAL_CHANNEL_NAME);
   // The user's drag order over the starred set; spaces they've never dragged
@@ -87,6 +95,36 @@ export function SpacesSidebarNav() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ChannelNav />
+
+      {/* The create entry point, now that the floating button is gone. Files
+          into the space you're in; the composer's space selector can retarget
+          it. */}
+      <div className="shrink-0 px-2 pb-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-1.5"
+          onClick={() => {
+            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+              action_type: "new_task_open",
+              surface: "sidebar",
+              channel_id: currentChannelId ?? me?.id,
+            });
+            openTaskInput({
+              channelId: currentChannelId ?? me?.id,
+              space: "website",
+            });
+          }}
+        >
+          <PlusIcon size={14} />
+          New session
+        </Button>
+      </div>
+
+      {/* The viewer's tasks across every space. */}
+      <div className="shrink-0 px-2 pb-1">
+        <MyTasksSection />
+      </div>
 
       {/* The section label, with one filter over every space's task list. */}
       <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 text-[12px] text-muted-foreground">
