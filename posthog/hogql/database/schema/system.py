@@ -1592,6 +1592,29 @@ ticket_tags_lazy_join: LazyJoin = LazyJoin(
 )
 
 
+class _TicketAssigneeRolesTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    """PostgresTable variant for `ee_role`, which is organization-scoped and has no `team_id` column.
+
+    The framework's auto-injected `team_id = X` guard is skipped (the column doesn't exist); isolation
+    instead flows from the predicate, which scopes to the roles referenced by this team's ticket
+    assignments. That resolves through `system._ticket_assignments` and in turn through
+    `system.support_tickets`, whose own team_id guard the framework re-applies to the inner reference.
+    """
+
+    predicates: list[Expr] = [parse_expr("id IN (SELECT role_id FROM system._ticket_assignments)")]
+
+
+ticket_assignee_roles: _TicketAssigneeRolesTable = _TicketAssigneeRolesTable(
+    name="_ticket_assignee_roles",
+    postgres_table_name="ee_role",
+    description="Internal table (PostgreSQL `ee_role`) of roles this team's tickets are assigned to; not for direct querying — use `system.support_tickets.assignee`.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Role UUID."),
+        "name": StringDatabaseField(name="name", description="Role name, e.g. 'Team Support'."),
+    },
+)
+
+
 ticket_assignments: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
     name="_ticket_assignments",
     postgres_table_name="posthog_conversations_ticket_assignment",
@@ -1615,10 +1638,12 @@ def _ticket_assignment_select() -> ast.SelectQuery | ast.SelectSetQuery:
     return parse_select(
         """
         SELECT
-            ticket_id AS ticket_id,
-            user_id AS user_id,
-            role_id AS role_id
-        FROM system._ticket_assignments
+            ta.ticket_id AS ticket_id,
+            ta.user_id AS user_id,
+            ta.role_id AS role_id,
+            nullIf(r.name, '') AS role_name
+        FROM system._ticket_assignments AS ta
+        LEFT JOIN system._ticket_assignee_roles AS r ON r.id = assumeNotNull(ta.role_id)
         """
     )
 
@@ -1634,6 +1659,11 @@ class _TicketAssignmentTable(LazyTable):
         ),
         "role_id": UUIDDatabaseField(
             name="role_id", nullable=True, description="Role the ticket is assigned to, if assigned to a role."
+        ),
+        "role_name": StringDatabaseField(
+            name="role_name",
+            nullable=True,
+            description="Name of the role the ticket is assigned to, e.g. 'Team Support'. Null when unassigned or assigned to a user.",
         ),
     }
 
@@ -2286,6 +2316,7 @@ class SystemTables(TableNode):
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "_ticket_tagged_items": TableNode(name="_ticket_tagged_items", table=ticket_tagged_items, hidden=True),
         "_ticket_assignments": TableNode(name="_ticket_assignments", table=ticket_assignments, hidden=True),
+        "_ticket_assignee_roles": TableNode(name="_ticket_assignee_roles", table=ticket_assignee_roles, hidden=True),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),
