@@ -17,8 +17,6 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
-from django.conf import settings
-
 import structlog
 
 from posthog.egress.composio.transport import composio_request, is_composio_configured
@@ -262,4 +260,6 @@ def composio_executed_tools(tool_name: str, arguments: Any) -> list[str]:
 
 
 def composio_enabled() -> bool:
-    return is_composio_configured() and getattr(settings, "COMPOSIO_ENABLED", True)
+    """Composio is on wherever a key is configured. There is no separate switch: a key present but
+    deliberately inert would be a state nobody can reason about from the outside."""
+    return is_composio_configured()

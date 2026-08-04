@@ -18,6 +18,9 @@ from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 
 COMPOSIO_DEFAULT_BASE_URL = "https://backend.composio.dev"
+# Composio's brand-logo CDN. Separate host from the API, unauthenticated, and one asset per
+# toolkit slug, which is why it gives complete icon coverage where a domain-keyed provider can't.
+COMPOSIO_LOGO_BASE_URL = "https://logos.composio.dev"
 
 
 class ComposioEgressBudgetExhausted(EgressBudgetExhausted):
@@ -96,6 +99,32 @@ def composio_api_key() -> str:
 
 def is_composio_configured() -> bool:
     return bool(getattr(settings, "COMPOSIO_API_KEY", ""))
+
+
+def composio_logo_request(
+    toolkit_slug: str,
+    *,
+    source: str,
+    team_id: int | None = None,
+    timeout: float | tuple[float, float] | None = 10.0,
+) -> requests.Response:
+    """Fetch one toolkit's brand logo.
+
+    Unauthenticated, so unlike every other call here it works with no API key configured, and is
+    deliberately sheddable: an icon is decoration, and it must never spend headroom a tool call
+    needs. The instance-wide budget still applies, keyed on a constant since there is no account
+    identity on this host.
+    """
+    base_url = getattr(settings, "COMPOSIO_LOGO_BASE_URL", COMPOSIO_LOGO_BASE_URL)
+    return _composio_client.request(
+        "GET",
+        f"{base_url}/api/{toolkit_slug}",
+        source=source,
+        scope=f"logos:{team_id}" if team_id is not None else "logos",
+        priority=Priority.BATCH,
+        endpoint="/api/{toolkit}",
+        timeout=timeout,
+    )
 
 
 def composio_request(

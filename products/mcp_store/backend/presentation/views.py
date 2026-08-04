@@ -48,6 +48,7 @@ from ..composio import ComposioError, composio_enabled, composio_user_id, ensure
 from ..composio_session import invalidate_session as _invalidate_composio_session
 from ..composio_sync import COMPOSIO_HUB_URL, ensure_hub_template
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
+from ..icons import composio_logo_http_response
 from ..models import (
     APPROVAL_STATES,
     PROVIDER_CHOICES,
@@ -272,6 +273,18 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
             _ICON_DOMAIN_VALIDATOR(domain)
         except DjangoValidationError:
             raise serializers.ValidationError("domain must be a bare hostname, e.g. linear.app")
+
+        # Composio publishes a logo per toolkit, so apps we serve through it get an icon by
+        # construction instead of depending on logo.dev having heard of the vendor. Resolved from
+        # the domain the client already sends, so every existing caller benefits without change.
+        toolkit_slug = (
+            MCPServerTemplate.objects.filter(provider="composio", icon_domain=domain, is_active=True)
+            .values_list("composio_toolkit_slug", flat=True)
+            .first()
+        )
+        if toolkit_slug:
+            return composio_logo_http_response(toolkit_slug, team_id=self.team_id)
+
         theme = request.GET.get("theme")
         return CDPIconsService().get_icon_http_response(
             domain,
@@ -1145,7 +1158,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             },
             team=self.team,
         )
-        return _oauth_authorize_response(link.redirect_url, install_source)
+        # 200 with the URL in the body, never a 302: this endpoint is called with fetch, and a
+        # browser follows a redirect on an XHR transparently — landing on Composio's origin, which
+        # sends no CORS headers, so the caller sees a CORS failure instead of a consent page. The
+        # client navigates itself. Same contract as the direct-template branch below.
+        return Response({"redirect_url": link.redirect_url}, status=status.HTTP_200_OK)
 
     @validated_request(
         InstallTemplateSerializer,
