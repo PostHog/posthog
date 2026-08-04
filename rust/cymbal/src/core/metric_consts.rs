@@ -128,6 +128,8 @@ pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 
 // Operators
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
+pub const EVENT_RELEASE_RESOLVER_OPERATOR: &str =
+    "cymbal_exception_event_release_resolver_operator";
 pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
 pub const FINGERPRINT_LEGACY_VERSION_USED: &str = "cymbal_fingerprint_legacy_version_used";
 pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
