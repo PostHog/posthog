@@ -109,7 +109,7 @@ locals {
         WHERE event = 'slo_operation_completed'
             AND properties.operation = 'alert_check'
             AND properties.alert_type = 'insight'
-            AND properties.region = '{{REGION}}'
+            AND upper(properties.region) = upper('{{REGION}}')
             AND properties.skip_reason IS NULL
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date
@@ -141,7 +141,7 @@ locals {
             WHERE event = 'slo_operation_completed'
                 AND properties.operation = 'alert_check'
                 AND properties.alert_type = 'insight'
-                AND properties.region = '{{REGION}}'
+                AND upper(properties.region) = upper('{{REGION}}')
                 AND properties.skip_reason IS NULL
                 AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')
                 AND timestamp >= now() - INTERVAL 45 DAY
@@ -194,7 +194,7 @@ locals {
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
             AND properties.operation = 'subscription_delivery'
-            AND properties.region = '{{REGION}}'
+            AND upper(properties.region) = upper('{{REGION}}')
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date
       SQL
