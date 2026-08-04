@@ -17,8 +17,6 @@ export const canvasesCreateBodyNameMax = 400
 export const canvasesCreateBodyTemplateIdDefault = `freeform`
 export const canvasesCreateBodyTemplateIdMax = 64
 
-export const canvasesCreateBodyIsHomeDefault = false
-
 export const CanvasesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesCreateBodyNameMax).describe('Display name for the canvas.'),
@@ -28,10 +26,6 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
             .max(canvasesCreateBodyTemplateIdMax)
             .default(canvasesCreateBodyTemplateIdDefault)
             .describe('Canvas template identifier.'),
-        is_home: zod
-            .boolean()
-            .default(canvasesCreateBodyIsHomeDefault)
-            .describe("Create the canvas as the channel's home board (at most one per channel)."),
     })
     .describe('Payload for creating a new, empty canvas in a channel.')
 
