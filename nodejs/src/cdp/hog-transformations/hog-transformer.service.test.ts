@@ -82,7 +82,6 @@ describe('HogTransformer', () => {
             monitoringOutputs: createTestMonitoringOutputs(mockProducer),
         })
 
-        expect(transformer['hogExecutor']['dependencies']).toEqual({})
         expect(transformer['hogExecutor']['hogInputsService']['recipientTokensService']).toBeUndefined()
 
         await transformer.stop()

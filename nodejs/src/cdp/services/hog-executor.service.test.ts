@@ -6,6 +6,7 @@ import { AddressInfo } from 'net'
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
 
+import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
 import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
@@ -25,7 +26,8 @@ import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
@@ -50,7 +52,7 @@ const cleanLogs = (logs: string[]): string[] => {
 
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
-    let executor: HogExecutorService
+    let executor: HogExecutorAsyncService
     let hub: Hub
 
     beforeEach(async () => {
@@ -82,21 +84,25 @@ describe('Hog Executor', () => {
             new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorService(
+        executor = new HogExecutorAsyncService(
+            new HogExecutorService(
+                { hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                hogInputsService
+            ),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                fetch: {
-                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                    retries: hub.CDP_FETCH_RETRIES,
-                    backoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                    backoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                },
+                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: hub.SITE_URL,
             },
-            hogInputsService,
             {
-                asyncContext: { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                teamManager: hub.teamManager,
+                hogInputsService,
                 emailService,
                 recipientTokensService,
+                // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
+                pushNotificationService: undefined as any,
             }
         )
     })
@@ -118,7 +124,7 @@ describe('Hog Executor', () => {
                 ],
             }
 
-            const values = executor.getSensitiveValues(hogFunction, inputs)
+            const values = executor.hogExecutor.getSensitiveValues(hogFunction, inputs)
 
             // Without integration_multi + array handling these secrets leak into team-visible logs.
             expect(values).toContain('fcm-secret-token')
@@ -364,7 +370,7 @@ describe('Hog Executor', () => {
 
             const inputGlobals = createHogExecutionGlobals({ groups: {} })
             expect(inputGlobals.source).toBeUndefined()
-            const results = await executor.buildHogFunctionInvocations([fn], inputGlobals)
+            const results = await executor.hogExecutor.buildHogFunctionInvocations([fn], inputGlobals)
 
             expect(results.invocations).toHaveLength(1)
 
@@ -381,14 +387,14 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations(
+            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations(
                 [fn],
                 createHogExecutionGlobals({ groups: {} })
             )
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
+            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations(
                 [fn],
                 createHogExecutionGlobals({
                     groups: {},
@@ -429,7 +435,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -448,7 +454,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -478,7 +484,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -497,7 +503,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -527,7 +533,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -546,7 +552,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await executor.hogExecutor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -608,7 +614,7 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const results1 = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
+            const results1 = await executor.hogExecutor.buildHogFunctionInvocations([fn], pageviewGlobals)
             expect(results1.invocations).toHaveLength(2)
             expect(results1.metrics).toHaveLength(1)
             expect(results1.logs).toHaveLength(1)
@@ -616,7 +622,7 @@ describe('Hog Executor', () => {
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
 
-            const results2 = await executor.buildHogFunctionInvocations(
+            const results2 = await executor.hogExecutor.buildHogFunctionInvocations(
                 [fn],
                 createHogExecutionGlobals({
                     event: {
@@ -642,7 +648,7 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const result = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
+            const result = await executor.hogExecutor.buildHogFunctionInvocations([fn], pageviewGlobals)
             // First mapping has input overrides that should be applied
             expect(result.invocations[0].state.globals.inputs.headers).toEqual({
                 version: 'v=',
@@ -1387,7 +1393,7 @@ describe('Hog Executor', () => {
                 method: 'GET',
             })
 
-            const maxRetries = executor['config'].fetch!.retries
+            const maxRetries = executor['config'].fetchRetries
             let result = await executor.executeFetch(invocation)
 
             for (let attempt = 1; attempt < maxRetries; attempt++) {
@@ -1792,7 +1798,7 @@ describe('Hog Executor', () => {
                 })
             })
 
-            executor['config'].fetch!.googleAdwordsDeveloperToken = 'ADWORDS_TOKEN'
+            executor['config'].googleAdwordsDeveloperToken = 'ADWORDS_TOKEN'
 
             let invocation = await createFetchInvocation({
                 url: 'https://googleads.googleapis.com/1234',
@@ -1846,7 +1852,9 @@ describe('Hog Executor', () => {
                 },
             }
 
-            jest.spyOn(executor['hogInputsService'], 'loadIntegrationInputs').mockResolvedValue(mockIntegrationInputs)
+            jest.spyOn(executor['deps'].hogInputsService, 'loadIntegrationInputs').mockResolvedValue(
+                mockIntegrationInputs
+            )
 
             const invocation = createExampleInvocation()
             invocation.state.globals.inputs = mockIntegrationInputs
@@ -1987,7 +1995,7 @@ describe('Hog Executor', () => {
                 })
                 setNonFailureConfig(invocation, [500])
 
-                const maxRetries = executor['config'].fetch!.retries
+                const maxRetries = executor['config'].fetchRetries
                 let result = await executor.executeFetch(invocation)
                 // Verify every intermediate attempt also logged at 'info' — regression guard
                 // against any future change that re-raises retry logs to 'error' when the
@@ -2031,7 +2039,7 @@ describe('Hog Executor', () => {
                 setNonFailureConfig(invocation, ['4xx', 500])
 
                 // 500 is retriable — drain retries until terminal
-                const maxRetries = executor['config'].fetch!.retries
+                const maxRetries = executor['config'].fetchRetries
                 result = await executor.executeFetch(invocation)
                 for (let attempt = 1; attempt < maxRetries; attempt++) {
                     result = await executor.executeFetch(result.invocation)
@@ -2048,7 +2056,7 @@ describe('Hog Executor', () => {
                 const invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
                 setNonFailureConfig(invocation, ['4xx', 500])
 
-                const maxRetries = executor['config'].fetch!.retries
+                const maxRetries = executor['config'].fetchRetries
                 let result = await executor.executeFetch(invocation)
                 for (let attempt = 1; attempt < maxRetries; attempt++) {
                     result = await executor.executeFetch(result.invocation)

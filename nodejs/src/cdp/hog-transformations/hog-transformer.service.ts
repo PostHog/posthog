@@ -364,10 +364,7 @@ export class HogTransformerService implements HogTransformer {
             }
         }
 
-        return await this.hogExecutor.execute(invocation, {
-            functions: transformationFunctions,
-            asyncFunctionsNames: [],
-        })
+        return await this.hogExecutor.execute(invocation, { functions: transformationFunctions })
     }
 }
 
@@ -389,8 +386,7 @@ export interface HogTransformerServiceDeps {
 /**
  * Keep this factory's config and dependencies intentionally minimal. Transformations run only the synchronous Hog
  * execution core and must not inherit Redis, fetch, email, push, or other CDP delivery infrastructure just to satisfy
- * a shared service constructor. If the shared executor gains another dependency, make it an optional capability or
- * extract the smaller execution primitive instead of wiring it into ingestion here.
+ * a shared service constructor. Anything that needs those belongs in HogExecutorAsyncService, not in HogExecutorService.
  */
 export function createHogTransformerService(
     config: HogTransformerServiceConfig,

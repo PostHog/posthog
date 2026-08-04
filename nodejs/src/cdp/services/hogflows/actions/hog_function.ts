@@ -9,7 +9,7 @@ import {
     CyclotronJobInvocationResult,
     MinimalLogEntry,
 } from '../../../types'
-import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
