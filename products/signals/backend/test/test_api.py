@@ -14,7 +14,7 @@ from products.signals.backend.facade.api import (
     _telemetry_props_from_extra,
     emit_signal,
 )
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 
@@ -28,6 +28,17 @@ def team_stub() -> MagicMock:
     team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
     team.organization = org
     return team
+
+
+@pytest.fixture(autouse=True)
+def self_driving_on():
+    """Keep the Self-driving master switch on without a database.
+
+    `emit_signal` reads it per call, and these tests run on a `MagicMock` team with no DB access,
+    so an unpatched read raises instead of falling through to the fail-open default.
+    """
+    with patch.object(SignalTeamConfig, "is_self_driving_enabled", return_value=True):
+        yield
 
 
 SESSION_PROBLEM_EXTRA = {
@@ -208,6 +219,28 @@ class TestEmitSignalValidation:
             team_stub.id, "github:issue:notification-1"
         )
         assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+
+    async def test_emit_signal_skips_when_self_driving_is_off(self, team_stub):
+        # The master switch has to hold here, not only at the pipeline entry points: this is the one
+        # gate the paths with no check of their own (error-tracking backfill, eval signals,
+        # reingestion) pass through, so an opted-out team consumes nothing.
+        client = AsyncMock()
+
+        with (
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+            patch.object(SignalTeamConfig, "is_self_driving_enabled", return_value=False),
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="github",
+                source_type="issue",
+                source_id="test-id-1",
+                description="A valid signal",
+                extra=GITHUB_ISSUE_EXTRA,
+            )
+
+        client.start_workflow.assert_not_awaited()
 
     @pytest.mark.parametrize("idempotency_key", ["", "   "])
     async def test_emit_signal_rejects_empty_idempotency_keys(self, team_stub, idempotency_key):

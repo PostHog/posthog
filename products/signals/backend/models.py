@@ -134,9 +134,12 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
-    # Master switch for autonomous inbox PRs. Null means the team never set it (autostart stays on
-    # by default); only an explicit False disables it, leaving reports to still generate and notify
-    # while the team reviews and opens PRs manually.
+    # Master switch for the whole Self-driving pipeline, not only the PRs at the end of it. Null
+    # means the team never set it (Self-driving stays on by default); only an explicit False turns it
+    # off, which drops the team's signals at emission and stops scheduled scout runs, so no reports
+    # are generated either. A narrower "reports keep arriving, PRs don't" reading isn't offered: the
+    # report research is the expensive half, and a team that wants to stay in the loop lowers
+    # `default_autostart_priority` instead of switching the pipeline off.
     autostart_enabled = models.BooleanField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
@@ -147,6 +150,21 @@ class SignalTeamConfig(UUIDModel):
     class Meta:
         verbose_name = "Signal team config"
         verbose_name_plural = "Signal team configs"
+
+    @classmethod
+    def is_self_driving_enabled(cls, team_id: int) -> bool:
+        """Whether the team's Self-driving master switch is on.
+
+        Fail-open, matching the field's null-means-never-set default: a team with no config row, or
+        one that never touched the switch, is on. Only an explicit opt-out turns the pipeline off.
+        """
+        return not cls.objects.filter(team_id=team_id, autostart_enabled=False).exists()
+
+    @classmethod
+    def self_driving_disabled_team_ids(cls) -> set[int]:
+        """Every team that explicitly switched Self-driving off, for callers that filter a fleet-wide
+        candidate set rather than checking one team (the scout coordinator's tick planning)."""
+        return set(cls.objects.filter(autostart_enabled=False).values_list("team_id", flat=True))
 
 
 register_team_extension_signal(SignalTeamConfig, logger=logger)

@@ -189,9 +189,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "autostart_enabled": {
                 "help_text": (
-                    "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
-                    "false to opt out, so actionable reports still generate and notify but the team "
-                    "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                    "Master switch for Self-driving. Null (never set) leaves it on; set false to switch "
+                    "the whole pipeline off, so the team's signals are dropped at emission, scheduled "
+                    "scouts stop running, and no reports or PRs are produced. To keep reports coming but "
+                    "review them before a PR opens, raise `default_autostart_priority` instead."
                 )
             },
             "default_slack_notification_channel": {

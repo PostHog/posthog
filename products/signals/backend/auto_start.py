@@ -595,7 +595,8 @@ async def maybe_autostart_implementation_task(
     if team_config and team_config.autostart_enabled is False:
         # Master switch: an explicit opt-out means no path (reviewer, user-triggered, or reviewer-less
         # fallback) may auto-start. Null (never set) leaves autostart on, so only False disables here.
-        # Reports still generate and notify.
+        # A team that switched Self-driving off shouldn't reach this at all — the same switch drops
+        # its signals at emission — so this is the backstop for reports that predate the flip.
         logger.info(
             "signals auto-start skipped", report_id=report_id, team_id=team_id, reason="autostart disabled for team"
         )

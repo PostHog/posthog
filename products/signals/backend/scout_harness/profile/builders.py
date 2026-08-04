@@ -59,7 +59,13 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
-from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalSourceConfig,
+    SignalTeamConfig,
+)
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
@@ -285,10 +291,13 @@ def _emit_eligibility(team: Team) -> dict[str, Any]:
 
     Mirrors the team/org-level half of the shared emit preflight (`_preflight_emit_gates`) so a
     scout can read it at cold start and quick-close before doing throwaway work whose output would
-    be silently dropped. Both the signal and report channels gate on the same two conditions: the
-    org must have approved AI data processing, and the `signals_scout` source must be enabled.
-    `remediation` reuses the emit path's authoritative pointers so the profile and the skip
-    response never drift.
+    be silently dropped. Both the signal and report channels gate on the same three conditions: the
+    org must have approved AI data processing, the team's Self-driving switch must be on, and the
+    `signals_scout` source must be enabled. `remediation` reuses the emit path's authoritative
+    pointers so the profile and the skip response never drift.
+
+    The Self-driving switch folds into `can_emit` and `remediation` rather than adding a key of its
+    own, so the section's shape (and `INVENTORY_SOURCE_VERSION` with it) is unchanged.
     """
     # Deferred to break the profile↔tools import cycle: `tools/__init__` eagerly imports
     # `tools.profile`, which imports this `profile` package, so a module-level import here would
@@ -300,12 +309,18 @@ def _emit_eligibility(team: Team) -> dict[str, Any]:
     )
 
     ai_processing_approved = bool(team.organization.is_ai_data_processing_approved)
+    self_driving_enabled = SignalTeamConfig.is_self_driving_enabled(team.id)
     source_enabled = SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE)
-    can_emit = ai_processing_approved and source_enabled
+    can_emit = ai_processing_approved and self_driving_enabled and source_enabled
     # Point at the first failing gate, matching the preflight's check order.
-    blocking_reason = (
-        None if can_emit else ("ai_processing_not_approved" if not ai_processing_approved else "source_disabled")
-    )
+    blocking_reason: str | None = None
+    if not can_emit:
+        if not ai_processing_approved:
+            blocking_reason = "ai_processing_not_approved"
+        elif not self_driving_enabled:
+            blocking_reason = "self_driving_disabled"
+        else:
+            blocking_reason = "source_disabled"
     return {
         "ai_processing_approved": ai_processing_approved,
         "source_enabled": source_enabled,

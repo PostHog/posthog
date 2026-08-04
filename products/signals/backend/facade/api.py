@@ -19,7 +19,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -392,6 +392,16 @@ async def emit_signal(
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
+        return
+
+    # Self-driving's master switch. Every signal in the product funnels through here, so this is the
+    # one check that holds for the paths with no gate of their own (error-tracking backfill, eval
+    # signals, reingestion) — the emission and scout paths gate earlier too, to skip the LLM work
+    # ahead of this point.
+    self_driving_enabled = await database_sync_to_async(
+        SignalTeamConfig.is_self_driving_enabled, thread_sensitive=False
+    )(team.id)
+    if not self_driving_enabled:
         return
 
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(

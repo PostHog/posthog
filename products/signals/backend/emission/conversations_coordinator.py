@@ -56,7 +56,12 @@ async def get_conversations_signals_enabled_teams_activity() -> list[int]:
             enabled=True,
             # Tiny bit paranoid, as signals enabled should require AI consent by design
             team__organization__is_ai_data_processing_approved=True,
-        ).values_list("team_id", flat=True)
+        )
+        # Teams that switched Self-driving off consume no signals at all, so skip them before the
+        # per-team child workflow (which runs LLM passes over every ticket) is even spawned. `exclude`
+        # on the reverse one-to-one keeps the gate fail-open for teams with no config row.
+        .exclude(team__signal_team_config__autostart_enabled=False)
+        .values_list("team_id", flat=True)
     ]
 
 

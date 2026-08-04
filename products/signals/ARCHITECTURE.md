@@ -478,6 +478,7 @@ Per-team singleton config for Signals settings, including the default autonomy p
 | ---------------------------- | --------------- | ---------------------------------------------------------------------------- |
 | `id`                         | UUID (PK)       | Primary key (UUIDModel)                                                      |
 | `team`                       | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
+| `autostart_enabled`          | BooleanField    | Master switch for Self-driving (nullable; only an explicit `False` is off)    |
 | `default_autostart_priority` | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
 | `created_at`                 | DateTime        | Auto-set on creation                                                         |
 | `updated_at`                 | DateTime        | Auto-set on save                                                             |
@@ -487,6 +488,12 @@ Notes:
 - Auto-created as a team extension via `register_team_extension_signal`
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The threshold is no longer user-configurable in the inbox UI; everyone runs on this default.
 - `SignalUserAutonomyConfig.autostart_priority` can still hold a per-user override at the data layer (`null` = use the team default), but there is no UI to set it.
+- `autostart_enabled` is the whole product's master switch, surfaced as the inbox's **Self-driving** toggle, not a PR-only opt-out. `False` means the team consumes no signals and runs no scheduled scouts, so no reports are generated either. Read through `SignalTeamConfig.is_self_driving_enabled(team_id)` (fail-open: no row, or a null value, is on) and enforced in five places:
+  - `facade/api.py:emit_signal` — the funnel every signal passes through, so it covers the paths with no gate of their own (error-tracking backfill, eval signals, reingestion)
+  - `emission/gate.py:emit_signals_enabled` — stops the data-import pipeline from spawning the emission child workflow, whose LLM summarization/actionability passes would otherwise run first
+  - `emission/conversations_coordinator.py` — excludes the team from the hourly conversations fan-out
+  - `temporal/agentic/scout_coordinator.py:_participating_teams` — drops the team from tick planning (via `self_driving_disabled_team_ids`, folded into the enrollment skip set), so no scout child workflow, tick budget, or breaker recovery probe
+  - `scout_harness/views.py:_reject_if_manual_run_suppressed` — 403s a manual scout trigger, whose findings the emit gate would drop anyway (surfaced to an in-flight scout as the `self_driving_disabled` emit skip reason)
 
 ### `SignalUserAutonomyConfig`
 
@@ -813,7 +820,7 @@ Team-scoped singleton config for the default autonomy priority threshold. Uses `
 | Method | Path              | Description                            |
 | ------ | ----------------- | -------------------------------------- |
 | GET    | `signals/config/` | Retrieve the team's `SignalTeamConfig` |
-| POST   | `signals/config/` | Update `default_autostart_priority`    |
+| POST   | `signals/config/` | Update `autostart_enabled` / `default_autostart_priority` |
 
 #### User Autonomy Config (action on `UserViewSet`)
 
@@ -1078,7 +1085,7 @@ The autonomy system allows Signals to automatically start a Tasks coding run whe
 
 Autonomy is configured at two levels:
 
-1. **Team level** (`SignalTeamConfig`): Sets the `default_autostart_priority` threshold (`P0`–`P4`). Auto-created as a team extension via `register_team_extension_signal`. Managed via `GET/POST /api/projects/:team_id/signals/config/`.
+1. **Team level** (`SignalTeamConfig`): Sets the `default_autostart_priority` threshold (`P0`–`P4`), and `autostart_enabled`, the master switch for Self-driving as a whole (see the model's notes above — `False` also stops signal consumption and scout runs, so it is not a PR-only opt-out). Auto-created as a team extension via `register_team_extension_signal`. Managed via `GET/POST /api/projects/:team_id/signals/config/`.
 
 2. **User level** (`SignalUserAutonomyConfig`): Per-user opt-in. A row existing means the user is opted in. Each user can optionally override the team priority threshold with `autostart_priority`. Managed via `GET/PUT/DELETE /api/users/@me/signal_autonomy/`.
 

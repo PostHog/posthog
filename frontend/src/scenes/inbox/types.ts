@@ -257,9 +257,9 @@ export interface SignalUserAutonomyConfig {
 
 export interface SignalTeamConfig {
     id?: string
-    /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
+    /** Master switch for Self-driving as a whole: with an explicit false the pipeline consumes no signals and runs no scouts, so no reports or PRs are produced. Null (never set) leaves it on. */
     autostart_enabled?: boolean | null
-    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). "Never" is expressed via autostart_enabled instead. */
+    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). There is no "never" threshold; switching Self-driving off via autostart_enabled is the way to stop PRs. */
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null

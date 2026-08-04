@@ -60,6 +60,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutNote,
     SignalScoutRun,
+    SignalTeamConfig,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.report_charts import ChartSize
@@ -290,6 +291,9 @@ def _reject_if_manual_run_suppressed(team_id: int) -> None:
       coordinator counts, so they share the tally: once the budget is spent the trigger is
       throttled (429) until the window rolls, instead of letting repeated manual runs blow past
       the per-team daily cap the scheduled path enforces.
+    - **The team's own Self-driving switch**, the one gate here that is the customer's rather than
+      an operator's. With it off nothing the run emits survives `emit_signal`, so the trigger is
+      forbidden (403) instead of burning a sandbox on findings the pipeline drops on arrival.
 
     `team_id` is the canonical (parent) project id, matching how the coordinator plans; team
     config keys are canonicalized the same way so a child-env override still lines up.
@@ -297,6 +301,9 @@ def _reject_if_manual_run_suppressed(team_id: int) -> None:
     payload = _read_flag_payload()
     if not _resolve_enrolled(team_id, _parse_enrollment(payload)):
         raise exceptions.PermissionDenied(detail="Signals scouts are not enabled for this project.")
+
+    if not SignalTeamConfig.is_self_driving_enabled(team_id):
+        raise exceptions.PermissionDenied(detail="Self-driving is switched off for this project.")
 
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))

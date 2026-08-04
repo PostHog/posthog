@@ -221,10 +221,11 @@ function BaseBranchOverrides(): JSX.Element {
 }
 
 /**
- * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
- * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
- * reports keep generating and notifying either way. The threshold is the team default; a teammate's
- * personal threshold takes precedence for reports suggesting them as reviewer.
+ * Team-wide Self-driving control, backed by `autostart_enabled` and `default_autostart_priority` on
+ * `signalTeamConfigLogic`. The inline switch turns the whole pipeline off, not just the PRs at the
+ * end of it: the backend drops the team's signals at emission and stops dispatching scheduled
+ * scouts, so no reports arrive either. The threshold is the team default; a teammate's personal
+ * threshold takes precedence for reports suggesting them as reviewer.
  *
  * A standalone card rather than a `SetupWidgetCard` because it hosts inline controls (the switch and
  * threshold) that can't live inside that card's single button/link wrapper.
@@ -246,15 +247,17 @@ export function SelfDrivingSection(): JSX.Element {
                 </span>
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                        <span className="text-[13px] font-semibold text-default">PR generation</span>
+                        <span className="text-[13px] font-semibold text-default">Self-driving</span>
                         <LemonSwitch
                             checked={autostartEnabled}
                             loading={teamConfigUpdating}
                             onChange={(enabled) => patchTeamConfig({ autostart_enabled: enabled })}
-                            aria-label="Generate PRs for actionable reports automatically"
+                            aria-label="Run Self-driving for this team"
                         />
                     </div>
-                    <p className="text-xs text-tertiary leading-snug mb-0">Agents open PRs for actionable reports.</p>
+                    <p className="text-xs text-tertiary leading-snug mb-0">
+                        Agents watch your product, write reports, and open PRs.
+                    </p>
                 </div>
             </div>
 
@@ -277,7 +280,8 @@ export function SelfDrivingSection(): JSX.Element {
                     </>
                 ) : (
                     <p className="text-xs text-secondary mb-0 px-2.5 py-1.5">
-                        Reports still arrive and notify your team.
+                        Nothing runs while this is off. Your scouts are paused and no new reports arrive. To keep the
+                        reports and get fewer PRs, switch this back on and raise the threshold.
                     </p>
                 )}
             </div>

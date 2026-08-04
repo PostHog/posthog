@@ -36,7 +36,13 @@ from django.db import transaction
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.models import (
+    SignalScoutConfig,
+    SignalScoutEmission,
+    SignalScoutRun,
+    SignalSourceConfig,
+    SignalTeamConfig,
+)
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -102,6 +108,7 @@ class EmitResult:
       - "scout_config_missing": the run's dispatch-time config FK is null/gone — fail closed
       - "scout_emit_disabled": the scout's config has emit=False (dry-run)
       - "ai_processing_not_approved": team's organization has not approved AI processing
+      - "self_driving_disabled": the team switched Self-driving off, so the pipeline is idle
       - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
 
     `remediation` carries a one-line, scout-actionable next step whenever the skip is one the
@@ -516,7 +523,8 @@ def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
     """Return the matching skipped_reason if a gate would drop the emit; else None.
 
     `emit_signal()` returns silently when the team's organization has not approved
-    AI processing or when `SignalSourceConfig.is_source_enabled(...)` is False.
+    AI processing, when the team switched Self-driving off, or when
+    `SignalSourceConfig.is_source_enabled(...)` is False.
     Surfacing the gate result here lets the view return a useful skipped_reason
     instead of "emitted" for an emit the pipeline silently dropped. The per-scout
     `emit` toggle is checked first: a dry-run scout runs and logs but emits nothing.
@@ -542,6 +550,8 @@ def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
     organization = team.organization
     if not organization.is_ai_data_processing_approved:
         return "ai_processing_not_approved"
+    if not SignalTeamConfig.is_self_driving_enabled(team.id):
+        return "self_driving_disabled"
     if not SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE):
         return "source_disabled"
     return None
@@ -562,6 +572,11 @@ EMIT_SKIP_REMEDIATION: dict[str, str | None] = {
         "This organization has not approved AI data processing, so no scout finding can reach the "
         "inbox. An org admin must turn on the 'Enable PostHog features that use third-party AI "
         "services' toggle in Organization settings → AI service providers."
+    ),
+    "self_driving_disabled": (
+        "This team has switched Self-driving off, so the whole pipeline is idle and no finding can "
+        "reach the inbox. Someone on the team must switch Self-driving back on in the inbox setup "
+        "panel."
     ),
     "source_disabled": (
         "The signals_scout source is disabled for this team, so findings are dropped before the "

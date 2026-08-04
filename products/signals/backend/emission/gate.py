@@ -4,11 +4,16 @@ warehouse_sources calls it without importing signals (which depends on warehouse
 """
 
 from products.signals.backend.emission.registry import get_signal_source_identity
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
 
 
 def emit_signals_enabled(team_id: int, source_type: str, schema_name: str, ai_data_processing_approved: bool) -> bool:
     if not ai_data_processing_approved:
+        return False
+    # `emit_signal` drops the team's signals anyway when Self-driving is off, but the child workflow
+    # this gate spawns runs LLM summarization and actionability filtering on every imported record
+    # first. Checking here keeps an opted-out team's imports from paying for output nothing reads.
+    if not SignalTeamConfig.is_self_driving_enabled(team_id):
         return False
     identity = get_signal_source_identity(source_type, schema_name)
     if identity is None:

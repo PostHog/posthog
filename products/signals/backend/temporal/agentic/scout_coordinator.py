@@ -18,7 +18,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import AUTO_PAUSE_PROBE_INTERVAL_S
@@ -374,8 +374,14 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
     Skip is subtracted AFTER canonicalizing both sides, so listing a child env in `guaranteed_team_ids`
     and its parent project in `skip_team_ids` (or the reverse) still hard-excludes the project — the
     raw ids differ but their canonical parent matches.
+
+    A team that switched Self-driving off joins the skip set: dropping it here, before the plan is
+    built, is what keeps the tick from seeding its skills, spending budget on it, or firing the
+    breaker recovery probe its paused lanes would otherwise be owed (`_collect_probe_runs` only runs
+    for participating teams). The switch lives on a raw team, so it canonicalizes with everything
+    else — setting it on a child env drains the whole project, same as `skip_team_ids` does.
     """
-    skip_canonical = _canonicalize_team_ids(enrollment.skip)
+    skip_canonical = _canonicalize_team_ids(enrollment.skip | SignalTeamConfig.self_driving_disabled_team_ids())
     explicit = _canonicalize_team_ids(enrollment.explicit) - skip_canonical
 
     wildcard_ids: set[int] = set()

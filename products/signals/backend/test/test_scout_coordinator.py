@@ -21,7 +21,7 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import AUTO_PAUSE_PROBE_INTERVAL_S
@@ -306,6 +306,26 @@ async def test_wildcard_keeps_a_fully_breaker_paused_team_enrolled_for_probes(at
         planned = await _run_activity()
 
     assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-errors" for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+@pytest.mark.parametrize("autostart_enabled", [True, False, None])
+async def test_self_driving_switch_drains_a_team(ateam, autostart_enabled):
+    # The inbox's Self-driving switch stops the whole pipeline, so an off team must plan no runs at
+    # all: its findings would be dropped at emission, and a probe for a breaker-paused lane would
+    # burn a sandbox for nothing. Only an explicit False is off (null means never set).
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
+    await database_sync_to_async(SignalTeamConfig.objects.update_or_create)(
+        team=ateam, defaults={"autostart_enabled": autostart_enabled}
+    )
+
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}):
+        planned = await _run_activity()
+
+    assert any(p.team_id == ateam.id for p in planned) is (autostart_enabled is not False)
 
 
 @pytest.mark.asyncio

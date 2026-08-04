@@ -818,7 +818,7 @@ class EmitFindingResponseSerializer(serializers.Serializer):
     emitted = serializers.BooleanField(help_text="Whether `emit_signal` was actually fired.")
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
+        help_text="`ai_processing_not_approved` | `self_driving_disabled` | `source_disabled` | null when emitted normally.",
     )
     remediation = serializers.CharField(
         allow_null=True,
@@ -998,7 +998,7 @@ class EmitReportResponseSerializer(serializers.Serializer):
     )
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.",
+        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `self_driving_disabled` | `source_disabled` | null when not gate-skipped.",
     )
     safety_explanation = serializers.CharField(
         allow_null=True,

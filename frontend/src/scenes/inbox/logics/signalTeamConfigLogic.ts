@@ -213,8 +213,8 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         ],
     }),
     selectors({
-        // Master switch for autonomous inbox PRs: only an explicit false disables
-        // auto-start, so a team that never touched the setting stays on.
+        // Master switch for Self-driving as a whole (signals, scouts, reports and the PRs at the end
+        // of it): only an explicit false switches it off, so a team that never touched it stays on.
         autostartEnabled: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.autostart_enabled !== false,
