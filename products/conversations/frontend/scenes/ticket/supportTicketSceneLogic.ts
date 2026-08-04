@@ -1195,11 +1195,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setSendIdempotencyKey(idempotencyKey)
             }
 
+            // Only the network call sits inside the try: a throw from the success handling below
+            // must not be reported as a failed send after the message actually sent.
+            let created: CommentType | undefined
+            let sent = false
             let lastError: any
             let attempt = 0
             for (;;) {
                 try {
-                    const created = await api.comments.create(
+                    created = await api.comments.create(
                         {
                             content,
                             rich_content: richContent,
@@ -1213,28 +1217,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         },
                         {}
                     )
-                    // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
-                    // after this API call succeeds; the per-message delivery status is the send signal.
-                    lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
-                    actions.setMessageSending(false)
-                    if (created?.id) {
-                        actions.appendMessage(created)
-                    }
-                    onSuccess?.()
-                    actions.setSendIdempotencyKey(null)
-                    if (!isPrivate) {
-                        actions.incrementUnreadCustomerCount()
-                    }
-                    if (statusAfterSend) {
-                        actions.setStatus(statusAfterSend)
-                        // Pick up the ticket for the sender unless a specific user is already assigned.
-                        if (values.assignee?.type !== 'user' && values.user) {
-                            actions.setAssignee({ type: 'user', id: values.user.id })
-                        }
-                        actions.updateTicket()
-                    }
-                    actions.loadTickets()
-                    return
+                    sent = true
+                    break
                 } catch (error: any) {
                     lastError = error
                     if (attempt >= sendRetryBudget(error)) {
@@ -1243,6 +1227,36 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     attempt++
                     await delay(SEND_RETRY_DELAY_MS)
                 }
+            }
+
+            if (sent) {
+                // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
+                // after this API call succeeds; the per-message delivery status is the send signal.
+                lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
+                actions.setMessageSending(false)
+                if (created?.id) {
+                    actions.appendMessage(created)
+                }
+                actions.setSendIdempotencyKey(null)
+                try {
+                    onSuccess?.()
+                } catch (cleanupError) {
+                    // The send succeeded; a composer-cleanup failure must not derail the rest.
+                    posthog.captureException(cleanupError)
+                }
+                if (!isPrivate) {
+                    actions.incrementUnreadCustomerCount()
+                }
+                if (statusAfterSend) {
+                    actions.setStatus(statusAfterSend)
+                    // Pick up the ticket for the sender unless a specific user is already assigned.
+                    if (values.assignee?.type !== 'user' && values.user) {
+                        actions.setAssignee({ type: 'user', id: values.user.id })
+                    }
+                    actions.updateTicket()
+                }
+                actions.loadTickets()
+                return
             }
 
             actions.setMessageSending(false)

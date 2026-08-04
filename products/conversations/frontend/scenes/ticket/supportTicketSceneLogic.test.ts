@@ -570,6 +570,25 @@ describe('supportTicketSceneLogic message sending', () => {
         expect(sentKey()).toEqual(abandonedKey)
     })
 
+    // If the composer's cleanup callback throws after the create resolved (e.g. the editor was
+    // torn down mid-send), the send still succeeded and must not be reported as a failure.
+    it('does not report a failure when post-send cleanup throws', async () => {
+        const { lemonToast } = jest.requireMock('@posthog/lemon-ui')
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        createMock.mockResolvedValue(makeSupportComment('msg-1'))
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('reply body', null, false, () => {
+                throw new Error('editor already destroyed')
+            })
+        }).toDispatchActions(['appendMessage', 'incrementUnreadCustomerCount'])
+
+        expect(logic.values.messages.map((m) => m.id)).toEqual(['msg-1'])
+        expect(logic.values.sendIdempotencyKey).toBeNull()
+        expect(errorSpy).not.toHaveBeenCalled()
+        errorSpy.mockRestore()
+    })
+
     it('does not repeat a send the server definitively rejected', async () => {
         createMock.mockRejectedValue(new ApiError('Bad request', 400))
 
