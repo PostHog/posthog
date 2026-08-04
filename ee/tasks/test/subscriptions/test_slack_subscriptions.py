@@ -739,8 +739,8 @@ class TestSlackResultsText(APIBaseTest):
         return [block.get("text", {}).get("text", "") for block in message.blocks]
 
     def test_values_are_sent_as_a_fenced_block(self) -> None:
-        texts = self._section_texts("Breached SLAs  3")
-        assert "```\nBreached SLAs  3\n```" in texts
+        texts = self._section_texts("Breached SLAs: 3")
+        assert "```\nBreached SLAs: 3\n```" in texts
 
     def test_no_block_when_the_insight_has_no_text_rendering(self) -> None:
         assert all("```" not in text for text in self._section_texts(None))

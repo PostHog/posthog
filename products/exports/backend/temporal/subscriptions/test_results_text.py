@@ -39,9 +39,9 @@ class TestBuildResultsText:
 
         assert text is not None
         assert text.splitlines() == [
-            "Tickets in view  12",
-            "Breached SLAs    3",
-            "Next SLA breach  in 2h14m",
+            "Tickets in view: 12",
+            "Breached SLAs:   3",
+            "Next SLA breach: in 2h14m",
         ]
 
     def test_multiple_rows_render_aligned_columns(self) -> None:
@@ -79,4 +79,4 @@ class TestBuildResultsText:
     def test_snapshot_renders_its_query_results(self) -> None:
         snapshot = {"query_results": {"result": [[7]], "columns": ["Open tickets"]}}
 
-        assert build_results_text_for_snapshot(snapshot) == "Open tickets  7"
+        assert build_results_text_for_snapshot(snapshot) == "Open tickets: 7"

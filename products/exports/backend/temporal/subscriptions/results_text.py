@@ -80,10 +80,10 @@ def _header_labels(columns: Any, width: int) -> list[str]:
 
 
 def _render_single_row(header: list[str], row: list[Any]) -> str:
-    """One row reads better as label/value lines than as a two-line table."""
-    label_width = max(len(label) for label in header)
+    """One row reads better as `label: value` lines than as a two-line table."""
+    label_width = max(len(label) for label in header) + len(":")
     return "\n".join(
-        f"{label.ljust(label_width)}  {_cell(value)}" for label, value in zip(header, _padded(row, len(header)))
+        f"{(label + ':').ljust(label_width)} {_cell(value)}" for label, value in zip(header, _padded(row, len(header)))
     )
 
 
