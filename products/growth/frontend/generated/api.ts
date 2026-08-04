@@ -140,7 +140,7 @@ export const getGrowthAiEnrichmentRunCreateUrl = (params?: GrowthAiEnrichmentRun
 }
 
 /**
- * One JSON object per line: a {company, domain, inputs, outputs: {<key>: value, ...}} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. Persists nothing - spends real LLM money, so sample is capped at 10 and the endpoint is rate limited.
+ * One JSON object per line: a {company, domain, inputs, outputs: {<key>: value, ...}, meta} row as each LLM call completes, keyed by the submitted output_fields, then a final {summary: {classified, unknown, errors}} line. A run that fails partway ends with {error, aborted: true} instead of a summary. Persists nothing - spends real LLM money, so sample is capped at 10 and the endpoint is rate limited.
  * @summary Stream classifier verdicts for an unsaved draft config against recently archived orgs.
  */
 export const growthAiEnrichmentRunCreate = async (
