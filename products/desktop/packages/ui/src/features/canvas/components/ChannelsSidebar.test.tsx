@@ -44,6 +44,17 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 vi.mock("@posthog/ui/features/canvas/components/SpacesSidebarNav", () => ({
   SpacesSidebarNav: () => <div data-testid="spaces-sidebar-nav" />,
 }));
+vi.mock("@posthog/ui/features/canvas/components/ChannelNav", () => ({
+  ChannelNav: () => <div data-testid="channel-nav" />,
+}));
+vi.mock("@posthog/ui/features/canvas/components/ChannelSidebar", () => ({
+  ChannelSidebar: ({ channelId }: { channelId: string }) => (
+    <div data-testid="channel-sidebar">{channelId}</div>
+  ),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelPaneSwipe", () => ({
+  useChannelPaneSwipe: () => undefined,
+}));
 vi.mock("@posthog/ui/features/canvas/components/ChannelsList", () => ({
   ChannelsList: () => <div data-testid="channels-list" />,
 }));
@@ -72,7 +83,10 @@ vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: {}, isFetched: true }),
 }));
 
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  PROJECT_BLUEBIRD_FLAG,
+  STATIC_SPACES_SIDEBAR_FLAG,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsSidebar } from "./ChannelsSidebar";
@@ -100,14 +114,23 @@ describe("ChannelsSidebar", () => {
   });
 
   describe("the static spaces nav", () => {
-    // Under `code-spaces-layout` the slider is gone: the shell renders the
-    // static nav where every space expands with its tasks beneath it.
-    it("renders the static spaces nav instead of the panes", () => {
+    it("renders the static nav when its evaluation flag is on", () => {
       mocks.channelsLayout = true;
+      mocks.featureFlags.set(STATIC_SPACES_SIDEBAR_FLAG, true);
       mocks.channels = [ME];
       renderSidebar();
       expect(screen.getByTestId("spaces-sidebar-nav")).toBeTruthy();
       expect(screen.queryByTestId("channels-list")).toBeNull();
+    });
+
+    it("keeps the original spaces sidebar when its evaluation flag is off", () => {
+      mocks.channelsLayout = true;
+      mocks.featureFlags.set(STATIC_SPACES_SIDEBAR_FLAG, false);
+      mocks.channels = [ME];
+      renderSidebar();
+      expect(screen.getByTestId("channel-nav")).toBeTruthy();
+      expect(screen.getByTestId("channels-list")).toBeTruthy();
+      expect(screen.queryByTestId("spaces-sidebar-nav")).toBeNull();
     });
 
     it("fires space-viewed tracking from the shell", () => {

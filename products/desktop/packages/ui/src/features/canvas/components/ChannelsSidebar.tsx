@@ -1,13 +1,26 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
-import { Separator } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { cn, Separator } from "@posthog/quill";
+import {
+  PROJECT_BLUEBIRD_FLAG,
+  STATIC_SPACES_SIDEBAR_FLAG,
+} from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
+import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
 import { SpacesSidebarNav } from "@posthog/ui/features/canvas/components/SpacesSidebarNav";
+import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
+import {
+  showChannelList,
+  showChannelPane,
+  useChannelPaneStore,
+} from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { LoopsPromoCard } from "@posthog/ui/features/loops/components/LoopsPromoCard";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
@@ -25,11 +38,55 @@ import {
 } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
+import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
 import { Box, Flex } from "@radix-ui/themes";
-import { useDeferredValue, useEffect } from "react";
+import { useParams } from "@tanstack/react-router";
+import { useDeferredValue, useEffect, useRef } from "react";
+
+function ChannelPanes({
+  channelId,
+  showList,
+}: {
+  channelId: string | null;
+  showList: boolean;
+}) {
+  const panesRef = useRef<HTMLDivElement | null>(null);
+  useChannelPaneSwipe(panesRef, {
+    enabled: channelId != null,
+    onBack: showChannelList,
+    onForward: showChannelPane,
+  });
+
+  return (
+    <Box ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
+      <div
+        className={cn(
+          "flex h-full w-[200%] transition-transform duration-200 ease-out motion-reduce:transition-none",
+          showList ? "translate-x-0" : "-translate-x-1/2",
+        )}
+      >
+        <div className="relative h-full w-1/2 min-w-0" inert={!showList}>
+          <ChannelsList />
+          <ChannelsFab />
+        </div>
+        <div className="h-full w-1/2 min-w-0" inert={showList}>
+          {channelId && (
+            <ErrorBoundary
+              name="channel-sidebar"
+              fallback={<ChannelsList />}
+              resetKey={channelId}
+            >
+              <ChannelSidebar channelId={channelId} />
+            </ErrorBoundary>
+          )}
+        </div>
+      </div>
+    </Box>
+  );
+}
 
 export function ChannelsSidebar() {
   const width = useChannelsSidebarStore((state) => state.width);
@@ -80,6 +137,10 @@ export function ChannelsSidebar() {
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
   const channelsLayout = useChannelsLayout();
+  const staticSpacesSidebarEnabled = useFeatureFlag(
+    STATIC_SPACES_SIDEBAR_FLAG,
+  );
+  const staticSpacesSidebar = channelsLayout && staticSpacesSidebarEnabled;
   const channelsWorld = channelsLayout || channelsEnabled;
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
   // Under the layout the row moves into the account menu (ProjectSwitcher),
@@ -98,6 +159,48 @@ export function ChannelsSidebar() {
   }, [channelsLayout, width, setWidth]);
 
   const archivedTaskIds = useArchivedTaskIds();
+
+  // Keep the original spaces sidebar alive while the static navigation is
+  // evaluated. The second flag switches only the sidebar treatment; the wider
+  // spaces layout remains controlled by code-spaces-layout.
+  const params = useParams({ strict: false });
+  const routeChannelId = params.channelId;
+  const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
+  const { currentChannelId, channels } = useCurrentChannel({
+    enabled: channelsLayout && !staticSpacesSidebar,
+  });
+  useEffect(() => {
+    if (!channelsLayout || staticSpacesSidebar || !routeChannelId) return;
+    setCurrentChannel(routeChannelId);
+    showChannelPane();
+  }, [
+    channelsLayout,
+    staticSpacesSidebar,
+    routeChannelId,
+    setCurrentChannel,
+  ]);
+
+  const pane = useChannelPaneStore((s) => s.pane);
+  const showList = pane === "list" || currentChannelId == null;
+  const autoScopedRef = useRef(false);
+  useEffect(() => {
+    if (!channelsLayout || staticSpacesSidebar) {
+      autoScopedRef.current = false;
+      return;
+    }
+    if (routeChannelId || autoScopedRef.current || currentChannelId) return;
+    const me = channels.find((channel) => channel.channelType === "personal");
+    if (!me) return;
+    autoScopedRef.current = true;
+    setCurrentChannel(me.id);
+  }, [
+    channelsLayout,
+    staticSpacesSidebar,
+    channels,
+    currentChannelId,
+    routeChannelId,
+    setCurrentChannel,
+  ]);
 
   return (
     <ResizableSidebar
@@ -131,15 +234,19 @@ export function ChannelsSidebar() {
             <Box className="shrink-0 px-2 pb-1">
               <ProjectSwitcher />
             </Box>
-            {/* The static spaces sidebar (prototype): one nav where every space
-                expands inline with its tasks beneath it. Replaces the panes
-                slider under this flag. The nav owns its own scroll regions
-                (pinned spaces scroll; All spaces docks at the bottom) and its
-                own create entry points (New session at the top, New space in
-                the directory), so no Fab here. */}
-            <Box className="relative min-h-0 flex-1">
-              <SpacesSidebarNav />
-            </Box>
+            {staticSpacesSidebar ? (
+              <Box className="relative min-h-0 flex-1">
+                <SpacesSidebarNav />
+              </Box>
+            ) : (
+              <>
+                <ChannelNav />
+                <ChannelPanes
+                  channelId={currentChannelId}
+                  showList={showList}
+                />
+              </>
+            )}
           </>
         ) : bodyChannelsWorld ? (
           <>
