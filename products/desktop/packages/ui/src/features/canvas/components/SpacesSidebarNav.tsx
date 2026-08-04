@@ -130,23 +130,26 @@ export function SpacesSidebarNav() {
       {/* The section label, with one filter over every space's task list. */}
       <div className="flex shrink-0 items-center justify-between px-2 pr-3">
         <MenuLabel>Spaces</MenuLabel>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Switch
-                size="sm"
-                aria-label="Only show my tasks"
-                checked={onlyMyTasks}
-                onCheckedChange={toggleOnlyMyTasks}
-              />
-            }
-          />
-          <TooltipContent side="bottom">
-            {onlyMyTasks
-              ? "Showing only your tasks — switch off to see everyone's"
-              : "Only show tasks you created, in every space"}
-          </TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[12px] text-muted-foreground">Mine</span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Switch
+                  size="sm"
+                  aria-label="Only show my tasks"
+                  checked={onlyMyTasks}
+                  onCheckedChange={toggleOnlyMyTasks}
+                />
+              }
+            />
+            <TooltipContent side="bottom">
+              {onlyMyTasks
+                ? "Showing only your tasks — switch off to see everyone's"
+                : "Only show tasks you created, in every space"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Pinned (starred) spaces; #me first and fixed, the rest reorderable. */}
