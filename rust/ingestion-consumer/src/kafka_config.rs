@@ -154,6 +154,13 @@ impl ConsumerConfigBuilder {
         self
     }
 
+    /// Set the interval at which librdkafka delivers statistics to the client
+    /// context's `stats` callback. 0 (the rdkafka default) disables statistics.
+    pub fn with_statistics_interval_ms(mut self, ms: u32) -> Self {
+        self.config.set("statistics.interval.ms", ms.to_string());
+        self
+    }
+
     // ---- Group-consumer-only settings (batch consumer) ----
 
     /// Override offset reset policy (group consumers only)

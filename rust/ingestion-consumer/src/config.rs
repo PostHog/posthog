@@ -95,6 +95,14 @@ pub struct Config {
     #[envconfig(default = "102400")]
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
+    /// Interval at which librdkafka delivers statistics to the consumer
+    /// context, driving the `ingestion_consumer_offset_lag` gauge
+    /// (`SentinelContext::stats`). 0 disables statistics entirely (and with
+    /// them the gauge). Computed by librdkafka from fetch responses it already
+    /// receives — no extra broker requests.
+    #[envconfig(default = "15000")]
+    pub kafka_consumer_statistics_interval_ms: u32,
+
     /// Pod hostname from K8s, used as client.id and group.instance.id
     /// for sticky partition assignment (same as Node.js hostname())
     #[envconfig(from = "HOSTNAME")]
@@ -396,6 +404,7 @@ impl Config {
         .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
         .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
         .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+        .with_statistics_interval_ms(self.kafka_consumer_statistics_interval_ms)
         .with_sticky_partition_assignment(
             self.pod_hostname.as_deref(),
             self.kafka_consumer_static_membership,

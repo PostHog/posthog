@@ -45,6 +45,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
+use rdkafka::statistics::Statistics;
 use rdkafka::ClientContext;
 use tracing::{info, warn};
 
@@ -551,7 +552,58 @@ impl SentinelContext {
     }
 }
 
-impl ClientContext for SentinelContext {}
+impl ClientContext for SentinelContext {
+    /// Broker-side backlog for this pod's assigned partitions, refreshed every
+    /// `statistics.interval.ms`. Emitted as one pod-level gauge rather than
+    /// per partition: each tick recomputes from the current assignment, so a
+    /// partition moving to another pod can't leave a stale series behind, and
+    /// the fleet-wide backlog is a plain `sum()` over pods. `consumer_lag` is
+    /// measured against the committed offset, so uncommitted in-flight batches
+    /// still count as backlog — matching what replays if the pod dies.
+    fn stats(&self, statistics: Statistics) {
+        let AssignedLag {
+            messages,
+            partitions,
+        } = assigned_offset_lag(&statistics);
+        gauge!("ingestion_consumer_offset_lag").set(messages as f64);
+        gauge!("ingestion_consumer_assigned_partitions").set(partitions as f64);
+    }
+}
+
+/// This pod's share of the consumer group's backlog, from an rdkafka
+/// statistics snapshot.
+struct AssignedLag {
+    /// Sum of `consumer_lag` over assigned partitions whose lag is known.
+    messages: i64,
+    /// Assigned partition count — lets dashboards verify fleet coverage
+    /// (sum over pods == topic partition count) before trusting the lag sum.
+    partitions: usize,
+}
+
+/// Sum backlog over the partitions this consumer is assigned (`desired`),
+/// skipping librdkafka's internal unassigned partition (-1) and partitions
+/// whose lag is not yet known (`consumer_lag` is -1 until both a committed
+/// offset and a broker watermark have been observed, e.g. right after
+/// assignment).
+fn assigned_offset_lag(statistics: &Statistics) -> AssignedLag {
+    let mut messages = 0i64;
+    let mut partitions = 0usize;
+    for topic in statistics.topics.values() {
+        for partition in topic.partitions.values() {
+            if partition.partition < 0 || !partition.desired {
+                continue;
+            }
+            partitions += 1;
+            if partition.consumer_lag >= 0 {
+                messages += partition.consumer_lag;
+            }
+        }
+    }
+    AssignedLag {
+        messages,
+        partitions,
+    }
+}
 
 impl ConsumerContext for SentinelContext {
     fn pre_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
@@ -883,5 +935,45 @@ mod tests {
             .is_empty());
         sentinel.note_acked("t:a", 100);
         assert!(sentinel.note_sent("t:a", &[msg_at(0, 101)]).is_empty());
+    }
+
+    fn stats_partition(
+        id: i32,
+        desired: bool,
+        consumer_lag: i64,
+    ) -> rdkafka::statistics::Partition {
+        rdkafka::statistics::Partition {
+            partition: id,
+            desired,
+            consumer_lag,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn assigned_offset_lag_sums_desired_partitions_with_known_lag() {
+        let partitions = HashMap::from([
+            // librdkafka's internal unassigned-partition bucket.
+            (-1, stats_partition(-1, false, 42)),
+            (0, stats_partition(0, true, 5)),
+            // Assigned but lag not yet known (no committed offset observed).
+            (1, stats_partition(1, true, -1)),
+            // Known lag on a partition owned by another consumer.
+            (2, stats_partition(2, false, 7)),
+        ]);
+        let statistics = Statistics {
+            topics: HashMap::from([(
+                "t".to_string(),
+                rdkafka::statistics::Topic {
+                    partitions,
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+
+        let lag = assigned_offset_lag(&statistics);
+        assert_eq!(lag.messages, 5);
+        assert_eq!(lag.partitions, 2);
     }
 }
