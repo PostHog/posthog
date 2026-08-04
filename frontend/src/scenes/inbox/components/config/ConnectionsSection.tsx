@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { IconCheckCircle, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -13,10 +12,6 @@ export function ConnectionsSection(): JSX.Element {
     const githubIntegrations = getIntegrationsByKind(['github'])
     const hasGithubIntegration = githubIntegrations.length > 0
     const isConnected = hasGithubIntegration && !integrationsLoading
-    const githubSettingsUrl = combineUrl(
-        urls.settings('environment-integrations', 'integration-github'),
-        hasGithubIntegration ? undefined : { next: urls.inbox('config') }
-    ).url
 
     return (
         <div className="flex items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
@@ -37,7 +32,12 @@ export function ConnectionsSection(): JSX.Element {
                     </p>
                 </div>
             </div>
-            <LemonButton type="secondary" size="small" sideIcon={<IconChevronRight />} to={githubSettingsUrl}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                sideIcon={<IconChevronRight />}
+                to={urls.settings('environment-integrations', 'integration-github')}
+            >
                 {hasGithubIntegration ? 'Manage' : 'Connect'}
             </LemonButton>
         </div>

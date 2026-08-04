@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -12,7 +12,6 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
-import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
@@ -296,6 +295,16 @@ function NotificationsWidget(): JSX.Element {
     )
 }
 
+/**
+ * The GitHub OAuth round trip returns to `next`, and this modal opens from the rail beside any of the
+ * list tabs – so `next` has to be wherever the user actually started, not a fixed tab. `setup=github`
+ * comes back with them so the modal reopens showing the result.
+ */
+function GithubSetupBody(): JSX.Element {
+    const { location, searchParams } = useValues(router)
+    return <GithubIntegration next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url} />
+}
+
 const SETUP_MODALS: Record<
     AgentSetupModalKey,
     { title: string; description: string; width: number; body: JSX.Element }
@@ -322,7 +331,7 @@ const SETUP_MODALS: Record<
         title: 'GitHub',
         description: 'Connect GitHub so agents can read repositories and open pull requests.',
         width: 760,
-        body: <GithubIntegration next={combineUrl(urls.inbox('config'), { setup: 'github' }).url} />,
+        body: <GithubSetupBody />,
     },
     'mcp-servers': {
         title: 'MCP servers',

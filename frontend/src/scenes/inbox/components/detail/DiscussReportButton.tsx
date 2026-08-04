@@ -20,7 +20,10 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
 
     const submit = (): void => {
         const trimmed = question.trim()
-        if (!trimmed) {
+        // Cmd/Ctrl + Enter submits straight from the textarea, so it never sees the button's
+        // `loading`/`disabledReason` – each guard has to hold here too, or an impatient second
+        // press fires another paid task run for the same report.
+        if (!trimmed || isDiscussing) {
             return
         }
         if (aiConsentDisabledReason) {
@@ -28,9 +31,9 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
             return
         }
         captureInboxReportAction({ report, actionType: 'discuss', surface: 'detail_pane' })
+        // The popover stays open on its spinner until the run is created and we navigate to it, so
+        // the request is visibly in flight and a failure leaves the draft question to retry with.
         discussReport(report, reportUrl, trimmed)
-        setIsOpen(false)
-        setQuestion('')
     }
 
     return (
@@ -78,6 +81,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                 icon={<IconSparkles />}
                 sideIcon={null}
                 active={isOpen}
+                loading={isDiscussing}
                 onClick={() => setIsOpen((open) => !open)}
                 tooltip="Ask AI about this report"
             >
