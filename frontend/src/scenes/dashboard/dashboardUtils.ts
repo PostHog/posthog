@@ -58,51 +58,72 @@ export function dashboardToSaveableTemplate(
         dashboard_description: dashboard.description,
         dashboard_filters: dashboard.filters,
         tags: dashboard.tags || [],
-        tiles: dashboard.tiles
-            .filter((tile) => !tile.error)
-            .map((tile) => {
-                if (tile.text) {
-                    return {
-                        type: 'TEXT' as const,
-                        body: tile.text.body,
-                        layouts: tile.layouts,
-                        color: tile.color,
+        tiles: [
+            ...(dashboard.groups ?? []).map((group) => ({
+                type: 'GROUP' as const,
+                group_key: group.id,
+                name: group.name,
+                layouts: group.layouts.sm
+                    ? {
+                          sm: {
+                              x: group.layouts.sm.x ?? 0,
+                              y: group.layouts.sm.y ?? 0,
+                              w: group.layouts.sm.w ?? BREAKPOINT_COLUMN_COUNTS.sm,
+                              h: group.layouts.sm.h ?? 1,
+                          },
+                      }
+                    : {},
+            })),
+            ...dashboard.tiles
+                .filter((tile) => !tile.error)
+                .map((tile) => {
+                    if (tile.text) {
+                        return {
+                            type: 'TEXT' as const,
+                            body: tile.text.body,
+                            layouts: tile.layouts,
+                            color: tile.color,
+                            group_key: tile.parent_group_id ?? undefined,
+                        }
                     }
-                }
-                if (tile.insight) {
-                    return {
-                        type: 'INSIGHT' as const,
-                        name: tile.insight.name,
-                        description: tile.insight.description || '',
-                        query: tile.insight.query,
-                        layouts: tile.layouts,
-                        color: tile.color,
+                    if (tile.insight) {
+                        return {
+                            type: 'INSIGHT' as const,
+                            name: tile.insight.name,
+                            description: tile.insight.description || '',
+                            query: tile.insight.query,
+                            layouts: tile.layouts,
+                            color: tile.color,
+                            group_key: tile.parent_group_id ?? undefined,
+                        }
                     }
-                }
-                if (tile.button_tile) {
-                    return {
-                        type: 'BUTTON' as const,
-                        button_tile: {
-                            url: tile.button_tile.url,
-                            text: tile.button_tile.text,
-                            placement: tile.button_tile.placement,
-                            style: tile.button_tile.style,
-                        },
-                        layouts: tile.layouts,
-                        color: tile.color,
+                    if (tile.button_tile) {
+                        return {
+                            type: 'BUTTON' as const,
+                            button_tile: {
+                                url: tile.button_tile.url,
+                                text: tile.button_tile.text,
+                                placement: tile.button_tile.placement,
+                                style: tile.button_tile.style,
+                            },
+                            layouts: tile.layouts,
+                            color: tile.color,
+                            group_key: tile.parent_group_id ?? undefined,
+                        }
                     }
-                }
-                if (tile.widget) {
-                    return {
-                        type: 'WIDGET' as const,
-                        widget_type: tile.widget.widget_type,
-                        config: tile.widget.config,
-                        layouts: tile.layouts,
-                        color: tile.color,
+                    if (tile.widget) {
+                        return {
+                            type: 'WIDGET' as const,
+                            widget_type: tile.widget.widget_type,
+                            config: tile.widget.config,
+                            layouts: tile.layouts,
+                            color: tile.color,
+                            group_key: tile.parent_group_id ?? undefined,
+                        }
                     }
-                }
-                throw new Error('Unknown tile type')
-            }),
+                    throw new Error('Unknown tile type')
+                }),
+        ],
         variables: [],
     }
 }

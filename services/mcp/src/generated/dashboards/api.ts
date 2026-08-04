@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1119,6 +1119,149 @@ export const DashboardsDeleteTileQueryParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
+})
+
+export const DashboardsGroupsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DashboardsGroupsCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const dashboardsGroupsCreateBodyNameMax = 400
+
+export const DashboardsGroupsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .min(1)
+        .max(dashboardsGroupsCreateBodyNameMax)
+        .describe('Name displayed in the dashboard group row.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+        })
+        .optional()
+        .describe('Optional grid layout for the group row. Group rows always span the desktop grid.'),
+})
+
+export const DashboardsGroupsDeleteCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DashboardsGroupsDeleteCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const DashboardsGroupsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    group_id: zod.string().describe('Dashboard group ID to delete.'),
+    member_handling: zod
+        .enum(['delete_tiles', 'move_to_ungrouped'])
+        .describe('\* `delete_tiles` - delete_tiles\n\* `move_to_ungrouped` - move_to_ungrouped')
+        .describe(
+            'How to handle content tiles currently assigned to the group.\n\n\* `delete_tiles` - delete_tiles\n\* `move_to_ungrouped` - move_to_ungrouped'
+        ),
+    xs: zod
+        .object({
+            x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+            y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+            w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+            h: zod.number().optional().describe('Height in grid rows.'),
+        })
+        .optional()
+        .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+})
+
+export const DashboardsGroupsMoveTileCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DashboardsGroupsMoveTileCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const DashboardsGroupsMoveTileCreateBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('Content tile ID to move.'),
+    group_id: zod
+        .string()
+        .nullish()
+        .describe('Destination group ID, or null to move the tile to the ungrouped section.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+        })
+        .optional()
+        .describe('Optional new layout for the moved tile.'),
+})
+
+export const DashboardsGroupsUpdatePartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DashboardsGroupsUpdatePartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const dashboardsGroupsUpdatePartialUpdateBodyNameMax = 400
+
+export const DashboardsGroupsUpdatePartialUpdateBody = /* @__PURE__ */ zod.object({
+    group_id: zod.string().optional().describe('Dashboard group ID to update.'),
+    name: zod
+        .string()
+        .min(1)
+        .max(dashboardsGroupsUpdatePartialUpdateBodyNameMax)
+        .optional()
+        .describe('New group name. Omit to keep the existing name.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+        })
+        .optional()
+        .describe('New grid layout for the group row. Omit to keep its current layout.'),
 })
 
 export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object({
