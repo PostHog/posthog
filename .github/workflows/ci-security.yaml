@@ -382,12 +382,12 @@ jobs:
                       .
 
     # TEMPORARY DIAGNOSTIC — remove before merge.
-    # semgrep-general got 3.9x slower on the 1.163.0 -> 1.167.0 bump while every
-    # other semgrep job stayed flat. These two jobs split its rule packs to find
-    # out whether p/github-actions carries the whole cost. semgrep-general above
-    # is the 4-pack control, so the two halves should roughly sum to it.
+    # Round 1 cleared p/github-actions (0.7 min) and pinned the cost on the other
+    # three packs (12.2 min). These narrow it to a single pack, and the last job
+    # tests whether the generic <multilang> rules are the driver: --severity=ERROR
+    # cuts those from 24 rules to 3 and is why semgrep-desktop runs in 1 min.
     # Deliberately not wired into semgrep_checks — these must not gate anything.
-    diag-without-github-actions:
+    diag-owasp:
         needs: changes
         if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
@@ -404,7 +404,7 @@ jobs:
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            - name: Run Semgrep without p/github-actions
+            - name: Run Semgrep
               continue-on-error: true
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
@@ -412,11 +412,6 @@ jobs:
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
                       --config "p/owasp-top-ten" \
-                      --config "p/security-audit" \
-                      --config "p/trailofbits" \
-                      --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
-                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
-                      --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
                       --error \
                       --metrics=off \
                       --jobs 4 \
@@ -435,7 +430,7 @@ jobs:
                       --exclude ./services/ \
                       .
 
-    diag-only-github-actions:
+    diag-security-audit:
         needs: changes
         if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
@@ -452,15 +447,104 @@ jobs:
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            - name: Run Semgrep with only p/github-actions
+            - name: Run Semgrep
               continue-on-error: true
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
-                      --config "p/github-actions" \
-                      --exclude-rule yaml.github-actions.security.audit.unsafe-add-mask-workflow-command.unsafe-add-mask-workflow-command \
+                      --config "p/security-audit" \
+                      --error \
+                      --metrics=off \
+                      --jobs 4 \
+                      --timeout 300 \
+                      --exclude ./cli/ \
+                      --exclude ./common/ \
+                      --exclude ./ee/ \
+                      --exclude ./frontend/ \
+                      --exclude ./livestream/ \
+                      --exclude ./nodejs/ \
+                      --exclude ./posthog/ \
+                      --exclude ./products/ \
+                      --exclude ./rust/ \
+                      --exclude ./.semgrep/ \
+                      --exclude ./docs/ \
+                      --exclude ./services/ \
+                      .
+
+    diag-trailofbits:
+        needs: changes
+        if: needs.changes.outputs.general == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Run Semgrep
+              continue-on-error: true
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config "p/trailofbits" \
+                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
+                      --error \
+                      --metrics=off \
+                      --jobs 4 \
+                      --timeout 300 \
+                      --exclude ./cli/ \
+                      --exclude ./common/ \
+                      --exclude ./ee/ \
+                      --exclude ./frontend/ \
+                      --exclude ./livestream/ \
+                      --exclude ./nodejs/ \
+                      --exclude ./posthog/ \
+                      --exclude ./products/ \
+                      --exclude ./rust/ \
+                      --exclude ./.semgrep/ \
+                      --exclude ./docs/ \
+                      --exclude ./services/ \
+                      .
+
+    diag-severity-error:
+        needs: changes
+        if: needs.changes.outputs.general == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Run Semgrep
+              continue-on-error: true
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config "p/owasp-top-ten" \
+                      --config "p/security-audit" \
+                      --config "p/trailofbits" \
+                      --severity=ERROR \
                       --error \
                       --metrics=off \
                       --jobs 4 \
