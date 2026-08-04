@@ -34,6 +34,9 @@ const OVERVIEW: RepoOverviewApi = {
     billable_minutes_prev: 4890,
     estimated_cost_usd: 412.5,
     estimated_cost_usd_prev: 361.0,
+    // A slice of billable_minutes above, not an addition to it.
+    merge_queue_billable_minutes: 1180,
+    merge_queue_billable_minutes_prev: 940,
     jobs_available: true,
     default_branch: 'master',
     cost_series_granularity: 'day',
