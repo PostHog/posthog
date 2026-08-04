@@ -6,7 +6,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { InsightErrorState, InsightValidationError } from './EmptyStates'
+import { InsightErrorState, InsightValidationError, isUsableErrorTitle } from './EmptyStates'
 
 describe('insight error states', () => {
     let captureSpy: jest.SpyInstance
@@ -76,5 +76,24 @@ describe('insight error states', () => {
 
         expect(screen.getByText('If this persists, submit a bug report.')).toBeTruthy()
         expect(screen.queryByText(/try again/i)).toBeNull()
+    })
+
+    it.each([
+        { title: 'Status 403: undefined: undefined and 1 other error', usable: false },
+        { title: 'null', usable: false },
+        { title: 'a'.repeat(201), usable: false },
+        { title: 'Traceback (most recent call last): File "x.py"', usable: false },
+        { title: '<QuerySomething object at 0x7f1234>', usable: false },
+        { title: 'ValueError: bad input', usable: false },
+        { title: 'The connection to the server timed out.', usable: true },
+    ])('treats "$title" as usable=$usable', ({ title, usable }) => {
+        expect(isUsableErrorTitle(title)).toBe(usable)
+    })
+
+    it('falls back to the generic message when the backend title looks unusable', () => {
+        render(<InsightErrorState title="Status 403: undefined: undefined and 1 other error" />)
+
+        expect(screen.queryByText(/undefined/i)).toBeNull()
+        expect(screen.getByText('There was a problem completing this query')).toBeTruthy()
     })
 })

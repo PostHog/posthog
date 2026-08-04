@@ -666,6 +666,26 @@ export function InsightValidationError({
     )
 }
 
+const MAX_USABLE_ERROR_TITLE_LENGTH = 200
+
+/**
+ * The backend error string behind this title isn't vetted user-facing copy - it can be a raw
+ * exception repr, or contain literal "undefined"/"null" from an unset field. Only show it if it
+ * reads like a message a person wrote, otherwise fall back to the generic copy below.
+ */
+export function isUsableErrorTitle(title: string): boolean {
+    if (!title || title.length > MAX_USABLE_ERROR_TITLE_LENGTH) {
+        return false
+    }
+    if (/\bundefined\b|\bnull\b/i.test(title)) {
+        return false
+    }
+    if (/Traceback \(most recent call last\)|object at 0x[0-9a-f]+|^[A-Za-z_.]+(Error|Exception)[:(]/.test(title)) {
+        return false
+    }
+    return true
+}
+
 export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     query?: Record<string, any> | Node | null
@@ -687,6 +707,7 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
+    const safeTitle = typeof title === 'string' && !isUsableErrorTitle(title) ? null : title
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -729,7 +750,7 @@ export function InsightErrorState({
             <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
-                {title || <span>There was a problem completing this query</span>}
+                {safeTitle || <span>There was a problem completing this query</span>}
             </h2>
 
             {!excludeDetail && !supportOnly && (
