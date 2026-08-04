@@ -32,6 +32,28 @@ class TestBuildResultsText:
         assert len(lines) == MAX_ROWS + 3
         assert lines[-1] == "... and 3 more rows"
 
+    def test_server_capped_table_reports_the_hidden_count_as_a_floor(self) -> None:
+        # A SQL insight with no LIMIT returns DEFAULT_RETURNED_ROWS and sets has_more, so the
+        # returned length says nothing about the real total. "and 90 more rows" would be a
+        # specific wrong number.
+        text = build_results_text([[i] for i in range(100)], ["n"], has_more=True)
+
+        assert text is not None
+        assert text.splitlines()[-1] == "... and at least 90 more rows"
+
+    @parameterized.expand(
+        [
+            # A rate under 0.005 rounds to "0.00" at two decimals and reads as no value at all.
+            ("small_rate", 0.004, "0.004"),
+            ("tiny_rate", 0.0000123, "1.23e-05"),
+            ("ordinary_float", 12.345, "12.35"),
+            ("whole_float", 3.0, "3"),
+            ("large_float", 22000.5, "22,000.50"),
+        ]
+    )
+    def test_float_values_keep_a_distinguishable_magnitude(self, _name, value, expected) -> None:
+        assert build_results_text([[value]], ["rate"]) == f"rate: {expected}"
+
     def test_single_row_renders_label_value_lines(self) -> None:
         text = build_results_text(
             [[12, 3, "in 2h14m"]],
@@ -56,11 +78,34 @@ class TestBuildResultsText:
             "bbb   22,000",
         ]
 
-    def test_backticks_in_values_cannot_break_out_of_a_fenced_block(self) -> None:
-        text = build_results_text([["```\nrm -rf", 1]], ["subject", "count"])
+    @parameterized.expand(
+        [
+            ("backticks", "```\nrm -rf", "`"),
+            # Slack resolves entity syntax before rendering markdown, so a raw `<!channel>` in
+            # a property value would ping the channel from inside the fenced block.
+            ("channel_mention", "<!channel>", "<"),
+            ("user_mention", "<@U0123456789>", "<"),
+            ("spoofed_link", "<https://evil.test|Open ticket>", "<"),
+        ]
+    )
+    def test_mrkdwn_control_characters_in_values_are_neutralized(self, _name, value, forbidden) -> None:
+        text = build_results_text([[value, 1]], ["subject", "count"])
 
         assert text is not None
-        assert "`" not in text
+        assert forbidden not in text
+
+    def test_escaping_does_not_shift_the_columns_it_pads(self) -> None:
+        # Slack renders each escaped entity back as one character, so widths have to be
+        # measured before escaping or every row carrying `&`/`<`/`>` loses its alignment.
+        text = build_results_text([["a&b", 1], ["cccc", 2]], ["name", "count"])
+
+        assert text is not None
+        assert text.splitlines() == [
+            "name  count",
+            "----  -----",
+            "a&amp;b   1",
+            "cccc  2",
+        ]
 
     def test_short_row_does_not_shift_values_under_the_wrong_column(self) -> None:
         text = build_results_text([["a", 1], ["b"]], ["name", "count"])
@@ -92,3 +137,11 @@ class TestBuildResultsText:
         snapshot = {"query_results": {"result": [[7]], "columns": ["Open tickets"]}}
 
         assert build_results_text_for_snapshot(snapshot) == "Open tickets: 7"
+
+    def test_snapshot_passes_its_has_more_flag_through(self) -> None:
+        snapshot = {"query_results": {"result": [[i] for i in range(100)], "columns": ["n"], "has_more": True}}
+
+        text = build_results_text_for_snapshot(snapshot)
+
+        assert text is not None
+        assert text.splitlines()[-1] == "... and at least 90 more rows"

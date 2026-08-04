@@ -48,8 +48,9 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
 def _block_for_results_text(results_text: str) -> dict:
     """The insight's values as text, so the report is readable without the screenshot.
 
-    Fenced so the column alignment survives Slack's proportional font and so data
-    values can't be read as mrkdwn — `build_results_text` guarantees no backticks.
+    Fenced so the column alignment survives Slack's proportional font. The fence stops
+    nothing on its own: Slack resolves entity syntax before rendering markdown, so
+    `build_results_text` is responsible for escaping the values, not this wrapper.
     """
     fenced = f"```\n{results_text}\n```"
     if len(fenced) > 3000:

@@ -9,6 +9,9 @@ and not only a picture of it.
 Only tabular results (HogQL / DataVisualizationNode, where a row is a list of cells)
 are rendered. Chart-shaped results — trends, funnels, retention — stay images, since
 a series of many points is what the screenshot is actually good at.
+
+The output targets a fenced Slack mrkdwn block, so it is escaped for Slack rather than
+being neutral plain text. A non-Slack surface needs its own escaping, not this one.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ MAX_ROWS = 10
 MAX_COLUMNS = 6
 MAX_CELL_LENGTH = 100
 MAX_TEXT_LENGTH = 2000
+# Below this a two-decimal rendering rounds to "0.00" and loses the value entirely.
+SMALL_FLOAT_THRESHOLD = 0.005
 
 
 def build_results_text_for_snapshot(snapshot: dict[str, Any]) -> str | None:
@@ -30,13 +35,21 @@ def build_results_text_for_snapshot(snapshot: dict[str, Any]) -> str | None:
     query_results = snapshot.get("query_results")
     if not isinstance(query_results, dict):
         return None
-    return build_results_text(query_results.get("result"), query_results.get("columns"))
+    return build_results_text(
+        query_results.get("result"),
+        query_results.get("columns"),
+        has_more=bool(query_results.get("has_more")),
+    )
 
 
-def build_results_text(results: Any, columns: Any) -> str | None:
+def build_results_text(results: Any, columns: Any, *, has_more: bool = False) -> str | None:
     """Plain-text rendering of a tabular result, or None when text isn't the right shape.
 
-    The output carries no backticks, so callers can safely wrap it in a fenced block.
+    ``has_more`` is the query's own signal that it returned fewer rows than exist, which
+    changes the footer from a total into a floor.
+
+    The output is safe to drop into a fenced Slack block: no backticks to break out of the
+    fence, and no raw Slack entity syntax.
     """
     shown = _preview_rows(results)
     if shown is None:
@@ -47,10 +60,40 @@ def build_results_text(results: Any, columns: Any) -> str | None:
         return None
 
     text = _render_single_row(header, shown[0]) if len(shown) == 1 else _render_table(header, shown)
-    hidden = len(results) - len(shown)
-    if hidden:
-        text += f"\n... and {hidden:,} more row{'' if hidden == 1 else 's'}"
-    return _cap_length(text) or None
+    footer = _hidden_rows_footer(hidden=len(results) - len(shown), has_more=has_more)
+    if footer:
+        text += f"\n{footer}"
+    # Escaping runs after layout so the entity escapes don't count toward the column widths
+    # (Slack renders them back as one character each), and before the cap so the budget is
+    # measured against the string Slack actually receives.
+    return _cap_length(_escape_slack_mrkdwn(text)) or None
+
+
+def _hidden_rows_footer(*, hidden: int, has_more: bool) -> str | None:
+    """``hidden`` counts rows the query returned but we didn't render.
+
+    A SQL insight with no ``LIMIT`` is capped server-side at ``DEFAULT_RETURNED_ROWS``
+    (see ``HogQLHasMorePaginator``) and reports ``has_more``, so in that case the returned
+    length is a floor on the real total. Stating it as the total would deliver a specific
+    wrong number, which is the one thing this rendering exists to avoid.
+    """
+    if not hidden:
+        return "... and more rows" if has_more else None
+    rows = f"{hidden:,} more row{'' if hidden == 1 else 's'}"
+    return f"... and at least {rows}" if has_more else f"... and {rows}"
+
+
+def _escape_slack_mrkdwn(text: str) -> str:
+    """Neutralize Slack's entity syntax in query data.
+
+    Slack resolves ``<!channel>``, ``<@U…>`` and ``<url|label>`` before it renders markdown,
+    so a code fence does not stop a cell value from pinging the channel or posing as a link.
+    Query results carry event and person properties that an end user can set client-side, so
+    the values here are attacker-influenced. Slack renders the escaped entities back as the
+    literal characters. Same defense as
+    ``products/stamphog/backend/logic/slack_digest.py::_escape_mrkdwn``.
+    """
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _cap_length(text: str) -> str:
@@ -129,6 +172,10 @@ def _cell(value: Any) -> str:
             text = "-"
         elif value == int(value):
             text = f"{int(value):,}"
+        elif abs(value) < SMALL_FLOAT_THRESHOLD:
+            # Two decimals would render a real rate like 0.004 as "0.00", which reads as no
+            # value at all rather than a small one. Significant digits keep it distinguishable.
+            text = f"{value:.3g}"
         else:
             text = f"{value:,.2f}"
     else:
