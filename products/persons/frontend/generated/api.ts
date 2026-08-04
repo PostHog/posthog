@@ -18,6 +18,7 @@ import type {
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
     PersonRecordApi,
+    PersonResetDistinctIdsRequestApi,
     PersonSplitRequestApi,
     PersonSplitResponseApi,
     PersonUpdatePropertyRequestApi,
@@ -697,11 +698,11 @@ export const getPersonsResetPersonDistinctIdCreateUrl = (
 }
 
 /**
- * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
+ * Reset one or more distinct_ids for deleted persons. This allows the distinct_id(s) to be used again. Pass `distinct_ids` (max 1000) to reset several in a single call, e.g. to unwind a bulk_delete call.
  */
 export const personsResetPersonDistinctIdCreate = async (
     projectId: string,
-    personRecordApi?: NonReadonly<PersonRecordApi>,
+    personResetDistinctIdsRequestApi?: PersonResetDistinctIdsRequestApi,
     params?: PersonsResetPersonDistinctIdCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -709,7 +710,7 @@ export const personsResetPersonDistinctIdCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personRecordApi),
+        body: JSON.stringify(personResetDistinctIdsRequestApi),
     })
 }
 

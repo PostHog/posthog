@@ -405,6 +405,13 @@ export interface PersonPropertiesAtTimeResponseApi {
     point_in_time_metadata: PersonPropertiesAtTimeMetadataApi
 }
 
+export interface PersonResetDistinctIdsRequestApi {
+    /** A single distinct_id to reset. Prefer distinct_ids to reset more than one in a single call. */
+    distinct_id?: string
+    /** A list of distinct_ids to reset (max 1000). Use this instead of distinct_id to unwind a bulk_delete call in one request. */
+    distinct_ids?: string[]
+}
+
 export type PersonsListParams = {
     /**
      * Filter list by distinct id.

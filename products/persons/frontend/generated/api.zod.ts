@@ -127,11 +127,17 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
+ * Reset one or more distinct_ids for deleted persons. This allows the distinct_id(s) to be used again. Pass `distinct_ids` (max 1000) to reset several in a single call, e.g. to unwind a bulk_delete call.
  */
 export const PersonsResetPersonDistinctIdCreateBody = /* @__PURE__ */ zod.object({
-    properties: zod
-        .unknown()
+    distinct_id: zod
+        .string()
         .optional()
-        .describe('Key-value map of person properties set via $set and $set_once operations.'),
+        .describe('A single distinct_id to reset. Prefer distinct_ids to reset more than one in a single call.'),
+    distinct_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'A list of distinct_ids to reset (max 1000). Use this instead of distinct_id to unwind a bulk_delete call in one request.'
+        ),
 })
