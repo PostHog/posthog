@@ -189,10 +189,11 @@ locals {
       daily_sql    = <<-SQL
         SELECT
             toDate(timestamp) AS date,
-            countIf(event = 'subscription_delivery_started') AS total,
-            countIf(event = 'subscription_delivery_exhausted') AS failures
+            countIf(event = 'slo_operation_started') AS total,
+            countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures
         FROM events
-        WHERE event IN ('subscription_delivery_started', 'subscription_delivery_exhausted')
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+            AND properties.operation = 'subscription_delivery'
             AND properties.region = '{{REGION}}'
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date

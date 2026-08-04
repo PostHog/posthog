@@ -650,9 +650,15 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
         {
           "kind": "EventsNode",
           "math": "total",
-          "event": "subscription_delivery_started",
+          "event": "slo_operation_started",
           "custom_name": "Started",
           "properties": [
+            {
+              "key": "operation",
+              "type": "event",
+              "value": ["subscription_delivery"],
+              "operator": "exact"
+            },
             {
               "key": "region",
               "type": "event",
@@ -664,9 +670,21 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
         {
           "kind": "EventsNode",
           "math": "total",
-          "event": "subscription_delivery_exhausted",
-          "custom_name": "Exhausted (failed)",
+          "event": "slo_operation_completed",
+          "custom_name": "Succeeded",
           "properties": [
+            {
+              "key": "operation",
+              "type": "event",
+              "value": ["subscription_delivery"],
+              "operator": "exact"
+            },
+            {
+              "key": "outcome",
+              "type": "event",
+              "value": ["success"],
+              "operator": "exact"
+            },
             {
               "key": "region",
               "type": "event",
@@ -686,7 +704,7 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
         "showLegend": true,
         "showValuesOnSeries": true,
         "formulaNodes": [
-          { "formula": "(A-B)/A", "custom_name": "Success rate" }
+          { "formula": "B/A", "custom_name": "Success rate" }
         ],
         "aggregationAxisFormat": "percentage_scaled"
       },
