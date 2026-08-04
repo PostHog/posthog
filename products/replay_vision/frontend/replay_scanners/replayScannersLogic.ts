@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, isBreakpoint, kea, listeners, path,
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
@@ -136,6 +137,7 @@ export interface replayScannersLogicValues {
     scannerStatsLoading: boolean
     scannerTypeFilter: ScannerTypeEnumApi[]
     scanners: ReplayScanner[]
+    scannersAccessDenied: boolean
     scannersLoading: boolean
     scannersPage: number
     scannersSort: ScannersSorting | null
@@ -200,8 +202,12 @@ export interface replayScannersLogicActions {
     loadScanners: () => {
         value: true
     }
-    loadScannersFailure: (error: string) => {
+    loadScannersFailure: (
+        error: string,
+        accessDenied?: boolean
+    ) => {
         error: string
+        accessDenied: boolean
     }
     loadScannersSuccess: (
         scanners: ReplayScanner[],
@@ -283,7 +289,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadCreators: true,
         loadScannerStats: true,
         loadScannersSuccess: (scanners: ReplayScanner[], total: number) => ({ scanners, total }),
-        loadScannersFailure: (error: string) => ({ error }),
+        loadScannersFailure: (error: string, accessDenied = false) => ({ error, accessDenied }),
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
@@ -394,6 +400,18 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScannersFailure: () => false,
             },
         ],
+        // The frontend and backend `replay-vision` flag checks can disagree (e.g. a still-propagating
+        // rollout), so a 404 here can arrive even though the scene rendered past its own flag check.
+        // Distinguished from a generic load failure so the page shows an access-denied state instead
+        // of an actionable-looking "no scanners yet" empty state the user can't do anything with.
+        scannersAccessDenied: [
+            false,
+            {
+                loadScanners: () => false,
+                loadScannersSuccess: () => false,
+                loadScannersFailure: (_, { accessDenied }) => accessDenied,
+            },
+        ],
         chartDateFrom: [
             '-30d' as string | null,
             {
@@ -444,8 +462,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
-                lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
-                actions.loadScannersFailure(String(error))
+                const accessDenied = error instanceof ApiError && error.status === 404
+                if (!accessDenied) {
+                    // A 404 here means access was denied server-side — the access-denied state below
+                    // explains that on its own; a toast on top of it would be redundant noise.
+                    lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
+                }
+                actions.loadScannersFailure(String(error), accessDenied)
             }
         },
 

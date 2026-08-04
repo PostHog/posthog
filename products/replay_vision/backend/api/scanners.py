@@ -107,6 +107,20 @@ _MAX_DESCRIPTION_LENGTH = 1_000
 logger = structlog.get_logger(__name__)
 
 
+def _query_validation_detail(exc: PydanticValidationError) -> str:
+    """Turn pydantic's `RecordingsQuery` validation error into a message naming the offending field."""
+    errors = exc.errors()
+    if not errors:
+        return "Recording filter is invalid."
+    first = errors[0]
+    loc = ".".join(str(part) for part in first.get("loc", ()))
+    detail = f"{loc}: {first['msg']}" if loc else str(first["msg"])
+    remaining = len(errors) - 1
+    if remaining > 0:
+        detail += f" (and {remaining} more issue{'s' if remaining != 1 else ''})"
+    return detail
+
+
 # Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
 # and stripped on save, so they never count as user-chosen filters.
 _QUERY_FILTER_KEYS = (
@@ -463,8 +477,8 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             return
         try:
             RecordingsQuery.model_validate(attrs["query"])
-        except PydanticValidationError:
-            raise serializers.ValidationError({"query": "Recording filter is invalid."})
+        except PydanticValidationError as e:
+            raise serializers.ValidationError({"query": _query_validation_detail(e)})
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
 
@@ -789,8 +803,8 @@ class EstimateRequestSerializer(serializers.Serializer):
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
             RecordingsQuery.model_validate(value)
-        except PydanticValidationError:
-            raise serializers.ValidationError("Recording filter is invalid.")
+        except PydanticValidationError as e:
+            raise serializers.ValidationError(_query_validation_detail(e))
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
 

@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
@@ -51,7 +52,12 @@ import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { observationClipboardText } from '../utils/observation'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
-import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
+import {
+    SCANNER_EDITOR_STEPS,
+    type ScannerEditorStep,
+    scannerEditorSceneLogic,
+    scannerStepUrl,
+} from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -102,6 +108,27 @@ function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
     return rest
+}
+
+// Which wizard step owns each top-level scanner field, so a rejected field lands the user back
+// where they can see and fix it instead of a toast with nowhere to click.
+const FIELD_TO_STEP: Partial<Record<string, ScannerEditorStep>> = {
+    name: 'configure',
+    description: 'configure',
+    scanner_type: 'configure',
+    model: 'configure',
+    scanner_config: 'configure',
+    query: 'triggers',
+    sampling_rate: 'triggers',
+    sampling_mode: 'triggers',
+    emits_signals: 'self_driving',
+}
+
+// DRF flattens nested field errors with `__` (e.g. `scanner_config__prompt`) — rebuild the nested
+// shape kea-forms' `setXManualErrors` expects so the message lands on the actual sub-field.
+function manualErrorsFromAttr(attr: string, message: string): Record<string, any> {
+    const path = attr.split('__')
+    return path.reduceRight<any>((value, key) => ({ [key]: value }), message)
 }
 
 interface ObservationListParams {
@@ -696,7 +723,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
-                    lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)
+                    const attr = error instanceof ApiError ? error.attr : null
+                    const detail = error instanceof ApiError ? error.detail : null
+                    if (attr) {
+                        actions.setScannerManualErrors(manualErrorsFromAttr(attr, detail ?? 'Invalid value'))
+                        // Land back on the step that owns the field so the message (and the highlighted
+                        // field) is actually visible, rather than a toast the user has nowhere to act on.
+                        const errorStep = FIELD_TO_STEP[attr.split('__')[0]]
+                        if (errorStep && errorStep !== currentStep) {
+                            router.actions.push(scannerStepUrl(errorStep, props.id))
+                        }
+                    }
+                    lemonToast.error(`Failed to save scanner${detail ? `: ${detail}` : ''}`)
                     throw error
                 }
             },

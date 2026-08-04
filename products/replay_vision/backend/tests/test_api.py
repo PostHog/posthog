@@ -8,13 +8,17 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from pydantic import ValidationError as PydanticValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.schema import RecordingsQuery
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.replay_vision.backend.api.scanners import _query_validation_detail
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
@@ -464,6 +468,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "query")
+        # Guards against collapsing back to a flat "Recording filter is invalid." — the detail must
+        # name the actual offending field so the wizard (and the user) knows what to fix.
+        self.assertIn("this_field_does_not_exist", resp.json()["detail"])
 
     def test_delete(self) -> None:
         scanner = self._create_scanner()
@@ -2642,3 +2649,20 @@ class TestCurrentPeriodBounds(SimpleTestCase):
     def test_period_selection(self, _name: str, usage: dict | None, expected: tuple[datetime, datetime]) -> None:
         organization = Organization(usage=usage) if usage is not None else None
         self.assertEqual(_current_period_bounds(organization, self.NOW), BillingPeriod(*expected))
+
+
+class TestQueryValidationDetail(SimpleTestCase):
+    def _pydantic_error(self, query: dict) -> PydanticValidationError:
+        with self.assertRaises(PydanticValidationError) as ctx:
+            RecordingsQuery.model_validate(query)
+        return ctx.exception
+
+    def test_names_the_offending_field(self) -> None:
+        # Guards against collapsing back to the old flat "Recording filter is invalid." message,
+        # which gave the user no way to tell what to fix.
+        detail = _query_validation_detail(self._pydantic_error({"this_field_does_not_exist": True}))
+        self.assertIn("this_field_does_not_exist", detail)
+
+    def test_appends_a_count_for_additional_errors(self) -> None:
+        detail = _query_validation_detail(self._pydantic_error({"field_one": True, "field_two": True}))
+        self.assertIn("and 1 more issue", detail)

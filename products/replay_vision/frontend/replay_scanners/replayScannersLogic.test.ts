@@ -286,6 +286,52 @@ describe('replayScannersLogic', () => {
         })
     })
 
+    describe('loadScanners access-denied handling', () => {
+        // Regression: the client and server `replay-vision` flag checks can disagree, so the list
+        // load can 404 even though the scene rendered past its own client-side flag check. This must
+        // be told apart from a generic load failure so the scene can show an access-denied state
+        // instead of an actionable-looking "no scanners yet" empty state.
+        it('a 404 sets scannersAccessDenied without a plain load-failure toast path', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/': () => [
+                        404,
+                        { type: 'invalid_request', code: 'not_found', detail: 'Not found.', attr: null },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+            expect(logic.values.scannersAccessDenied).toBe(true)
+        })
+
+        it('a non-404 failure does not set scannersAccessDenied', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/': () => [500, {}],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+            expect(logic.values.scannersAccessDenied).toBe(false)
+        })
+
+        it('a subsequent successful load clears scannersAccessDenied', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/': () => [
+                        404,
+                        { type: 'invalid_request', code: 'not_found', detail: 'Not found.', attr: null },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+            expect(logic.values.scannersAccessDenied).toBe(true)
+
+            useMocks({ get: { '/api/projects/:team/vision/scanners/': { results: [], count: 0 } } })
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+            expect(logic.values.scannersAccessDenied).toBe(false)
+        })
+    })
+
     describe('delete refresh', () => {
         it('deleteScannerSuccess refetches the page and the creators list', async () => {
             await expectLogic(logic, () => logic.actions.deleteScannerSuccess('a')).toDispatchActions([

@@ -130,6 +130,7 @@ export function ReplayScannersScene(): JSX.Element {
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
+        scannersAccessDenied,
     } = useValues(replayScannersLogic)
     const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
         useActions(replayScannersLogic)
@@ -144,6 +145,13 @@ export function ReplayScannersScene(): JSX.Element {
         if (!receivedFeatureFlags && !featureFlagsTimedOut) {
             return <SpinnerOverlay sceneLevel />
         }
+        return <NotFound object="page" />
+    }
+
+    // The client's flag check above can pass while the backend's disagrees (e.g. a rollout that
+    // hasn't fully propagated) — the list load then 404s. Render the same not-found state rather
+    // than an empty "no scanners yet" CTA the user can't actually act on.
+    if (scannersAccessDenied) {
         return <NotFound object="page" />
     }
 

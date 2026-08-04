@@ -249,6 +249,61 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('create failure maps the rejected field onto the form', () => {
+        // Both cases submit from the wizard's last step (self-driving) so the create API actually fires,
+        // then assert the user is bounced back to the step that owns the rejected field.
+        beforeEach(() => {
+            router.actions.push('/replay-vision/new/self-driving')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            logic.actions.setSubmitIntent('save')
+        })
+
+        it('a top-level field error (query) sets a manual error and returns to the triggers step', async () => {
+            createSpy.mockImplementationOnce(() => [
+                400,
+                {
+                    type: 'validation_error',
+                    code: 'invalid_input',
+                    detail: 'query: Recording filter is invalid.',
+                    attr: 'query',
+                },
+            ])
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(logic.values.scannerManualErrors).toEqual({ query: 'query: Recording filter is invalid.' })
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+
+        it('a nested field error (scanner_config__prompt) sets a nested manual error and returns to configure', async () => {
+            createSpy.mockImplementationOnce(() => [
+                400,
+                {
+                    type: 'validation_error',
+                    code: 'invalid_input',
+                    detail: 'Prompt is too long.',
+                    attr: 'scanner_config__prompt',
+                },
+            ])
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(logic.values.scannerManualErrors).toEqual({ scanner_config: { prompt: 'Prompt is too long.' } })
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('a non-field error (e.g. AI consent) surfaces without touching the form or navigating', async () => {
+            createSpy.mockImplementationOnce(() => [
+                400,
+                {
+                    type: 'validation_error',
+                    code: 'invalid_input',
+                    detail: 'Your organization needs to allow AI analysis before you can create a Replay Vision scanner.',
+                    attr: null,
+                },
+            ])
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(logic.values.scannerManualErrors).toEqual({})
+            expect(router.values.location.pathname).toContain('/replay-vision/new/self-driving')
+        })
+    })
+
     describe('validation errors', () => {
         it.each([
             {
