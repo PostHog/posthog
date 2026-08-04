@@ -6,7 +6,11 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
-from products.signals.backend.quota import capture_signal_report_quota_paused, signals_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    record_quota_check_failed_open,
+    signals_quota_gate,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -60,12 +64,20 @@ def enforce_signals_run_quota(input: EnforceSignalsRunQuotaInput) -> str:
         team = Team.objects.select_related("organization").get(id=input.team_id)
         gate = signals_quota_gate(team)
         if gate.limited:
-            capture_signal_report_quota_paused(
-                team,
-                report_id=str(task.signal_report_id) if task.signal_report_id else None,
-                stage="implementation_run",
-                enforced=gate.enforced,
-            )
+            # Dark-launch would-blocks are emitted once per run (marker in run state), not once
+            # per 5-minute recheck, so the flag-off measurement counts runs that would have been
+            # cancelled rather than ticks survived. An enforced hit always emits: it cancels the
+            # run, so it fires once by construction.
+            already_reported = bool((run.state or {}).get("signals_quota_paused_reported"))
+            if gate.enforced or not already_reported:
+                capture_signal_report_quota_paused(
+                    team,
+                    report_id=str(task.signal_report_id) if task.signal_report_id else None,
+                    stage="implementation_run",
+                    enforced=gate.enforced,
+                )
+                if not gate.enforced:
+                    TaskRun.update_state_atomic(run.id, updates={"signals_quota_paused_reported": True})
         if not gate.enforced:
             return SIGNALS_QUOTA_PROCEED
 
@@ -80,13 +92,39 @@ def enforce_signals_run_quota(input: EnforceSignalsRunQuotaInput) -> str:
             reason=SIGNALS_QUOTA_CANCEL_REASON,
             source="signals_quota",
         )
-        if outcome not in ("accepted", "already_terminal"):
+    except Exception:
+        record_quota_check_failed_open()
+        logger.warning("signals_run_quota_check_failed_open", run_id=input.run_id, exc_info=True)
+        return SIGNALS_QUOTA_PROCEED
+
+    if outcome == "already_terminal":
+        # The run reached a terminal state between our snapshot and the cancel — possibly by
+        # shipping its PR (the billable moment). Releasing the report's records here could delete
+        # the very SignalReportTask row the billing usage query counts that PR through, un-billing
+        # shipped work. Nothing is in flight anymore, so just stop checking.
+        return SIGNALS_QUOTA_STOP_CHECKING
+    if outcome != "accepted":
+        log_with_activity_context(
+            "Signals quota cancel not accepted, will re-check later",
+            run_id=input.run_id,
+            outcome=outcome,
+        )
+        return SIGNALS_QUOTA_PROCEED
+
+    # The cancel is irreversible from here on: failures below must not report "proceed", or the
+    # workflow would believe the run is healthy while it is being torn down.
+    try:
+        # Re-read after the cancel round-trip: the agent can ship its PR (agent report or webhook
+        # backstop) while the interrupt is in flight. A PR means the report is billed — keep its
+        # records; the run still ends cancelled.
+        refreshed_output = TaskRun.objects.filter(id=input.run_id).values_list("output", flat=True).first()
+        if isinstance(refreshed_output, dict) and refreshed_output.get("pr_url"):
             log_with_activity_context(
-                "Signals quota cancel not accepted, will re-check later",
+                "PR landed during signals quota cancel, keeping the report's billing records",
                 run_id=input.run_id,
-                outcome=outcome,
+                task_id=input.task_id,
             )
-            return SIGNALS_QUOTA_PROCEED
+            return SIGNALS_QUOTA_CANCELLED
 
         from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the activity import path
             release_quota_cancelled_implementation,
@@ -99,7 +137,8 @@ def enforce_signals_run_quota(input: EnforceSignalsRunQuotaInput) -> str:
             task_id=input.task_id,
             released_report_ids=released,
         )
-        return SIGNALS_QUOTA_CANCELLED
     except Exception:
-        logger.warning("signals_run_quota_check_failed_open", run_id=input.run_id, exc_info=True)
-        return SIGNALS_QUOTA_PROCEED
+        # The report keeps its implementation records, which blocks re-implementation until
+        # someone releases it manually — loud so it gets followed up.
+        logger.exception("signals_quota_release_failed", run_id=input.run_id, task_id=input.task_id)
+    return SIGNALS_QUOTA_CANCELLED

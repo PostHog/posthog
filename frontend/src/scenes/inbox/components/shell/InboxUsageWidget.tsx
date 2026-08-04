@@ -154,6 +154,10 @@ export function InboxUsageWidget(): JSX.Element | null {
     } = useValues(inboxUsageLogic)
     const { openModal } = useActions(inboxUsageLogic)
 
+    // The server-truth pause (quotaLimited) can lead the widget's own usage math (billing data
+    // lags), so the raise-the-limit affordances escalate on either signal.
+    const atLimit = status === 'limit' || quotaLimited
+
     if (isLoading) {
         return <UsageCardSkeleton />
     }
@@ -171,7 +175,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                         <LemonTag type="muted" size="small">
                             Free plan
                         </LemonTag>
-                    ) : canAccessBilling && status !== 'limit' ? (
+                    ) : canAccessBilling && !atLimit ? (
                         <button
                             type="button"
                             onClick={openModal}
@@ -214,14 +218,14 @@ export function InboxUsageWidget(): JSX.Element | null {
                     !isSubscribed ? (
                         <UpgradeButton product={product} />
                     ) : (
-                        status === 'limit' && (
+                        atLimit && (
                             <LemonButton type="primary" size="small" fullWidth center onClick={openModal}>
                                 Increase limit
                             </LemonButton>
                         )
                     )
                 ) : (
-                    (!isSubscribed || status === 'limit') && (
+                    (!isSubscribed || atLimit) && (
                         <span className="text-xs text-muted">
                             {isSubscribed
                                 ? 'Contact an organization admin to raise the limit.'
