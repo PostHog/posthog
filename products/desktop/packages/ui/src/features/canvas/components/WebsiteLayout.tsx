@@ -16,6 +16,7 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
+import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
@@ -40,8 +41,13 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { Box, Flex } from "@radix-ui/themes";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
-import { Outlet, useParams, useRouterState } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import {
+  Outlet,
+  useNavigate,
+  useParams,
+  useRouterState,
+} from "@tanstack/react-router";
+import { type ReactNode, useMemo, useState } from "react";
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the
@@ -249,6 +255,26 @@ export function WebsiteLayout() {
       ? "Space"
       : "Channel";
 
+  // The five space pages render one persistent header here rather than each
+  // scene pushing its own copy through the header store: a header that
+  // remounts on every tab switch flashes, while a stable instance lets the
+  // tab indicator slide. Scenes still push (harmlessly) for the legacy
+  // layout; everything else (task detail, new task, mirrored pages) keeps
+  // the store path.
+  const channelPage = useMemo(() => {
+    if (!spacesLayout || !channelId) return null;
+    if (pathname === base) return "home" as const;
+    if (pathname === `${base}/context`) return "context" as const;
+    if (pathname === `${base}/loops`) return "loops" as const;
+    if (pathname === `${base}/artifacts`) return "artifacts" as const;
+    if (pathname === `${base}/history`) return "history" as const;
+    return null;
+  }, [spacesLayout, channelId, base, pathname]);
+  const spaceHeader =
+    channelPage && channelId ? (
+      <ChannelHeader channelId={channelId} page={channelPage} />
+    ) : null;
+
   const isDashboardDetail = Boolean(channelId && dashboardId);
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
@@ -266,7 +292,7 @@ export function WebsiteLayout() {
           new task, CONTEXT.md) pushes its "# channel / leaf" breadcrumb into
           the header store, as do channel-less mirrored pages (Home, Skills, …).
           Hidden when the canvas toolbar is showing (grid / a single canvas). */}
-      {!showToolbar && headerContent && (
+      {!showToolbar && (spaceHeader ?? headerContent) && (
         <Flex
           align="center"
           gap="2"
@@ -280,7 +306,7 @@ export function WebsiteLayout() {
             justify="between"
             className="min-w-0 flex-1 overflow-hidden"
           >
-            {headerContent}
+            {spaceHeader ?? headerContent}
           </Flex>
           {channelTask && <TaskHeaderActions task={channelTask} />}
         </Flex>
