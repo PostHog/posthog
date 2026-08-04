@@ -269,7 +269,7 @@ IMPORTANT: Signals should be grouped if they are meaningfully related, not just 
 - A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
 - Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
 - Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
-- Two error-tracking signals from the SAME underlying defect — the same exception class, or the same fix applied at different call sites — SHOULD match, even if they surface in different files, components, or pages (they resolve to one fix)
+- Two error-tracking signals from the SAME underlying defect or resolved by the same fix applied at different call sites SHOULD match, even if they surface in different files, components, or pages (they resolve to one fix)
 
 You will receive:
 1. A new signal with its description and source information
