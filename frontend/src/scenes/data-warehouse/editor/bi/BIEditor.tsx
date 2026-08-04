@@ -107,7 +107,9 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="flex min-w-0 flex-col gap-1">
                     <div className="flex items-center gap-1">
-                        <LemonLabel>Data source</LemonLabel>
+                        <LemonLabel info="Fields are limited to this table and its related folders.">
+                            Data source
+                        </LemonLabel>
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
@@ -155,11 +157,6 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             Clear
                         </LemonButton>
                     </div>
-                    {config.source ? (
-                        <span className="text-xs text-secondary">
-                            Fields are limited to this table and its related folders.
-                        </span>
-                    ) : null}
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Chart type</LemonLabel>
