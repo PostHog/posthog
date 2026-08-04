@@ -114,12 +114,21 @@ pub fn get_release_for_maps<'a>(
     if needs_release {
         let release_args_were_provided =
             release.name.is_some() || release.version.is_some() || release.build.is_some();
+        let skip_release_on_fail = release.skip_release_on_fail;
         let mut builder: ReleaseBuilder = release.into();
 
         add_git_info_to_release_builder(directory, &mut builder, release_args_were_provided)?;
 
         if builder.can_create() {
-            created_release = Some(builder.fetch_or_create()?);
+            match builder.fetch_or_create() {
+                Ok(r) => created_release = Some(r),
+                Err(e) if release_args_were_provided && !skip_release_on_fail => {
+                    return Err(e);
+                }
+                Err(e) => {
+                    warn!("Failed to create/fetch release, continuing without it: {e:#}");
+                }
+            }
         }
     }
 
