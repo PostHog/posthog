@@ -434,7 +434,6 @@ export const manifest: ProductManifest = {
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityPrompts(),
-            tags: ['beta'],
             sceneKey: 'AIObservabilityPrompts',
         },
     ],
