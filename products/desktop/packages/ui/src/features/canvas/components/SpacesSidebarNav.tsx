@@ -4,6 +4,8 @@ import { useSortable } from "@dnd-kit/react/sortable";
 import { PlusIcon } from "@phosphor-icons/react";
 import {
   Button,
+  MenuLabel,
+  Separator,
   Switch,
   Tooltip,
   TooltipContent,
@@ -12,8 +14,8 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { AllSpacesSection } from "@posthog/ui/features/canvas/components/AllSpacesSection";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
-import { MyTasksSection } from "@posthog/ui/features/canvas/components/MyTasksSection";
 import { SpaceSection } from "@posthog/ui/features/canvas/components/SpaceSection";
+import { WatchListSection } from "@posthog/ui/features/canvas/components/WatchListSection";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
@@ -118,14 +120,16 @@ export function SpacesSidebarNav() {
         </Button>
       </div>
 
-      {/* The viewer's tasks across every space. */}
-      <div className="shrink-0 px-2 pb-1">
-        <MyTasksSection />
+      {/* Dragged-in task references, kept locally. */}
+      <div className="shrink-0 px-2">
+        <WatchListSection />
       </div>
 
+      <Separator className="my-1 shrink-0" />
+
       {/* The section label, with one filter over every space's task list. */}
-      <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 text-[12px] text-muted-foreground">
-        Spaces
+      <div className="flex shrink-0 items-center justify-between px-2 pr-3">
+        <MenuLabel>Spaces</MenuLabel>
         <Tooltip>
           <TooltipTrigger
             render={

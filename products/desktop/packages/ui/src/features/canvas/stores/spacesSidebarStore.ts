@@ -18,13 +18,20 @@ interface SpacesSidebarState {
    * and never ranked.
    */
   spaceOrder: string[];
-  /** The cross-space "My tasks" section's fold. */
-  openMyTasks: boolean;
+  /** The watch list section's fold. */
+  openWatchList: boolean;
+  /**
+   * Task ids the user dragged into the watch list, newest first. Local-only
+   * references for now — watching doesn't touch the task or its space.
+   */
+  watchList: string[];
   toggle: (channelId: string) => void;
   toggleAddSpace: () => void;
   toggleOnlyMyTasks: () => void;
-  toggleMyTasks: () => void;
+  toggleWatchList: () => void;
   setSpaceOrder: (ids: string[]) => void;
+  addToWatchList: (taskId: string) => void;
+  removeFromWatchList: (taskId: string) => void;
 }
 
 export const useSpacesSidebarStore = create<SpacesSidebarState>()(
@@ -36,7 +43,8 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
       openAddSpace: true,
       onlyMyTasks: false,
       spaceOrder: [],
-      openMyTasks: true,
+      openWatchList: true,
+      watchList: [],
       toggle: (channelId) =>
         set((state) => ({
           openSections: {
@@ -48,9 +56,17 @@ export const useSpacesSidebarStore = create<SpacesSidebarState>()(
         set((state) => ({ openAddSpace: !state.openAddSpace })),
       toggleOnlyMyTasks: () =>
         set((state) => ({ onlyMyTasks: !state.onlyMyTasks })),
-      toggleMyTasks: () =>
-        set((state) => ({ openMyTasks: !state.openMyTasks })),
+      toggleWatchList: () =>
+        set((state) => ({ openWatchList: !state.openWatchList })),
       setSpaceOrder: (ids) => set({ spaceOrder: ids }),
+      addToWatchList: (taskId) =>
+        set((state) => ({
+          watchList: [taskId, ...state.watchList.filter((id) => id !== taskId)],
+        })),
+      removeFromWatchList: (taskId) =>
+        set((state) => ({
+          watchList: state.watchList.filter((id) => id !== taskId),
+        })),
     }),
     { name: "spaces-sidebar" },
   ),
