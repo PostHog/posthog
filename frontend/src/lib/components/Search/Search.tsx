@@ -918,10 +918,9 @@ function SearchResults({
                                                         <Autocomplete.Item
                                                             value={item}
                                                             onClick={(e) => {
-                                                                // A modifier click never reaches this handler, because
-                                                                // LinkPrimitive returns early on metaKey/ctrlKey. That
-                                                                // leaves the anchor's native new-tab behavior in charge,
-                                                                // which is what we want for a mouse-driven new tab.
+                                                                // Plain clicks only. LinkPrimitive returns early on
+                                                                // metaKey/ctrlKey, so modifier clicks never get here and
+                                                                // are handled in the capture phase below instead.
                                                                 e.preventDefault()
                                                                 handleItemClick(item)
                                                             }}
@@ -934,7 +933,24 @@ function SearchResults({
                                                                     highlightedItemRef.current = item
                                                                 }
                                                                 return (
-                                                                    <div className="px-2">
+                                                                    <div
+                                                                        className="px-2"
+                                                                        onClickCapture={(e) => {
+                                                                            // LinkPrimitive swallows modifier clicks
+                                                                            // (stopPropagation, then return) before its
+                                                                            // own onClick runs, so the capture phase is
+                                                                            // the only place we still see them. Route
+                                                                            // them through the same call as
+                                                                            // Cmd/Ctrl+Enter so a mouse and a keyboard
+                                                                            // new-tab behave identically: the palette
+                                                                            // closes, the selection is captured, and
+                                                                            // action items stay inert.
+                                                                            if (e.metaKey || e.ctrlKey) {
+                                                                                e.preventDefault()
+                                                                                handleItemClick(item, true)
+                                                                            }
+                                                                        }}
+                                                                    >
                                                                         <Link
                                                                             // No `to` when disabled: Link only applies its
                                                                             // disabled state and reason tooltip without one
