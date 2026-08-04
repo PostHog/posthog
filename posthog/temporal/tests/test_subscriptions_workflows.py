@@ -1223,6 +1223,51 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
 
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_sends_results_text_for_insight_subscriptions_only(
+    mock_build_snapshot: MagicMock,
+    team,
+    user,
+):
+    # A dashboard narrowed to one tile resolves a single asset just like an insight
+    # subscription does, so an asset-count gate would hand it the text block too.
+    mock_build_snapshot.return_value = {
+        "id": 1,
+        "short_id": "snap02",
+        "name": "Snap Test",
+        "dashboard_tile_id": None,
+        "query_hash": "cache_key_test",
+        "cache_key": "cache_key_test",
+        "query_results": {"result": [[7]], "columns": ["Open tickets"]},
+    }
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="gate01", name="Gate Test")
+    insight_subscription = await sync_to_async(create_subscription)(
+        team=team, insight=insight, created_by=user, target_type="slack", target_value="C12345|#test-channel"
+    )
+
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Single tile", created_by=user)
+    dashboard_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="gate02", name="Tile")
+    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=dashboard_insight)
+    dashboard_subscription = await sync_to_async(create_subscription)(
+        team=team, dashboard=dashboard, created_by=user, target_type="slack", target_value="C12345|#test-channel"
+    )
+
+    env = ActivityEnvironment()
+    insight_result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=insight_subscription.id),
+    )
+    dashboard_result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=dashboard_subscription.id),
+    )
+
+    assert insight_result.results_text == "Open tickets: 7"
+    assert dashboard_result.results_text is None
+
+
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event")

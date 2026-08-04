@@ -187,6 +187,7 @@ def _execute_and_serialize_insight_query(
     dashboard: Dashboard | None,
     user: User | None,
     query_json: Any,
+    force_fresh_calculation: bool,
 ) -> dict[str, Any]:
     """Run cache/calculate path and return snapshot fields to merge (``query_*`` / ``cache_key`` only)."""
     try:
@@ -194,12 +195,16 @@ def _execute_and_serialize_insight_query(
             insight,
             team=team,
             dashboard=dashboard,
-            # The screenshot forces a fresh calculation (image_exporter uses
-            # CALCULATE_BLOCKING_ALWAYS), so reusing a cache here let the delivered numbers
-            # disagree with the image beside them. A scheduled report is also the one moment
-            # where the current value is the whole point — a SQL insight's cache counts as
-            # fresh for five minutes, which is enough to send a stale countdown.
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            # A cached snapshot can disagree with the screenshot beside it, because
+            # image_exporter renders with CALCULATE_BLOCKING_ALWAYS while the staleness window
+            # here is five minutes for a SQL insight and a full day for a daily trend. That
+            # only reaches a recipient when the numbers are delivered as text, so callers that
+            # do so ask for a fresh calculation and the rest keep reading cache.
+            execution_mode=(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                if force_fresh_calculation
+                else ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ),
             user=user,
             query_override=query_json,
         )
@@ -248,11 +253,15 @@ def build_insight_delivery_snapshot(
     dashboard: Dashboard | None,
     tile: DashboardTile | None,
     user: User | None,
+    force_fresh_calculation: bool = False,
 ) -> dict[str, Any]:
     """Metadata + query hash + serialized query results for one exported insight.
 
     Core fields (``id``, ``short_id``, ``name``) match :func:`build_initial_content_snapshot`
     so workflow merges do not contradict the row created at delivery start.
+
+    Set ``force_fresh_calculation`` when the delivery shows these numbers to the recipient, so
+    they match the freshly rendered screenshot instead of a cached result.
     """
     base = _insight_snapshot_base_metadata(insight=insight, tile=tile)
     base["query_hash"] = _default_query_hash(tile=tile, insight=insight)
@@ -278,6 +287,7 @@ def build_insight_delivery_snapshot(
             dashboard=dashboard,
             user=user,
             query_json=query_json,
+            force_fresh_calculation=force_fresh_calculation,
         )
     )
     return base

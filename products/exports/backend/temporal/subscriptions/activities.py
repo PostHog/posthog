@@ -330,6 +330,16 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     ]
     await database_sync_to_async(ExportedAsset.objects.bulk_create, thread_sensitive=False)(assets)
 
+    # Slack shows the insight as a screenshot, which reads poorly for a small SQL table and
+    # carries no numbers at all when the export fails, so an insight subscription sends the
+    # values as text too. Gate on resource_type rather than the resolved asset count: a
+    # dashboard narrowed to one tile also resolves a single asset, and would otherwise gain
+    # and lose the text block as its tile count changed.
+    sends_results_text = (
+        subscription.target_type == Subscription.SubscriptionTarget.SLACK
+        and subscription.resource_type == Subscription.ResourceType.INSIGHT
+    )
+
     @database_sync_to_async(thread_sensitive=False)
     def build_insight_snapshots() -> list[dict[str, typing.Any]]:
         return [
@@ -339,17 +349,17 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
                 dashboard=dashboard,
                 tile=tile,
                 user=subscription.created_by,
+                # Only the text path needs this. It puts the snapshot's numbers next to a
+                # screenshot that image_exporter always recalculates, so a cached snapshot
+                # would let the two halves of one message disagree.
+                force_fresh_calculation=sends_results_text,
             )
             for tile, insight in export_pairs
         ]
 
     insight_snapshots = await build_insight_snapshots()
 
-    # Slack shows the insight as a screenshot, which reads poorly for a small SQL table
-    # and carries no numbers at all when the export fails. Send the values as text too.
-    results_text: str | None = None
-    if subscription.target_type == Subscription.SubscriptionTarget.SLACK and len(insight_snapshots) == 1:
-        results_text = build_results_text_for_snapshot(insight_snapshots[0])
+    results_text = build_results_text_for_snapshot(insight_snapshots[0]) if sends_results_text else None
 
     # Persist insight snapshots directly on SubscriptionDelivery.content_snapshot
     # instead of returning them across the Temporal activity boundary — per-insight
