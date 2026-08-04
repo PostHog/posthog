@@ -3,8 +3,13 @@ import type {
   ExtensionError,
   RpcClient,
   RpcExtensionUIRequest,
-  RpcExtensionUIResponse,
   RpcSessionState,
+} from "@earendil-works/pi-coding-agent";
+
+export type {
+  RpcExtensionUIRequest,
+  RpcExtensionUIResponse,
+  WidgetPlacement,
 } from "@earendil-works/pi-coding-agent";
 
 function exhaustiveValues<T>() {
@@ -45,13 +50,10 @@ export interface PiQueueSnapshot {
   followUp: string[];
 }
 
-export type PiExtensionUIRequest = RpcExtensionUIRequest;
-export type PiExtensionUIResponse = RpcExtensionUIResponse;
-
 export type PiExtensionError = ExtensionError & {
   type: "extension_error";
 };
 
-export type PiExtensionEvent = PiExtensionUIRequest | PiExtensionError;
+export type PiExtensionEvent = RpcExtensionUIRequest | PiExtensionError;
 
 export type PiSessionStats = Awaited<ReturnType<RpcClient["getSessionStats"]>>;

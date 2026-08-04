@@ -1,11 +1,11 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type {
   PiExtensionEvent,
-  PiExtensionUIResponse,
   PiNativeModelInfo,
   PiPersistedSessionConfig,
   PiQueueSnapshot,
   PiThinkingLevel,
+  RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
   type AgentConversationEvent,
@@ -77,7 +77,7 @@ export interface PiSession {
     onError: (error: unknown) => void,
     onComplete?: () => void,
   ): () => void;
-  respondToExtensionUI?(response: PiExtensionUIResponse): Promise<void>;
+  respondToExtensionUI?(response: RpcExtensionUIResponse): Promise<void>;
 }
 
 export interface PiSessionFactory {

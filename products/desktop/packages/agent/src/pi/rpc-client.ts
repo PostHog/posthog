@@ -8,12 +8,12 @@ import {
   type RpcClientOptions,
 } from "@earendil-works/pi-coding-agent";
 import { safePiEnvironment } from "./rpc-environment";
-import type { PiExtensionUIResponse, PiQueueSnapshot } from "./types";
+import type { PiQueueSnapshot, RpcExtensionUIResponse } from "./types";
 
 export type PiRpcClient = RpcClient & {
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
-  respondToExtensionUI(response: PiExtensionUIResponse): Promise<void>;
+  respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void>;
 };
 
 export interface PiRpcProviderOptions {
@@ -187,7 +187,7 @@ class SecurePiRpcClient extends RpcClient {
     return this.sendHostRequest("clear_queue");
   }
 
-  respondToExtensionUI(response: PiExtensionUIResponse): Promise<void> {
+  respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void> {
     const child = (this as unknown as RpcClientInternals).process;
     const stdin = child?.stdin;
     if (!child || !stdin || stdin.destroyed || !stdin.writable) {

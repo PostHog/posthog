@@ -1,6 +1,6 @@
 import type {
   PiExtensionEvent,
-  PiExtensionUIResponse,
+  RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import { inject, injectable } from "inversify";
 import {
@@ -91,7 +91,7 @@ export class PiExtensionController {
 
   respondToExtensionUI(
     taskId: string,
-    response: PiExtensionUIResponse,
+    response: RpcExtensionUIResponse,
   ): Promise<void> {
     if (
       !this.getTaskState(taskId).dialogs.some(({ id }) => id === response.id)
@@ -318,7 +318,7 @@ export class PiExtensionController {
 
   private async sendResponse(
     taskId: string,
-    response: PiExtensionUIResponse,
+    response: RpcExtensionUIResponse,
   ): Promise<void> {
     const session = await this.getPiSession(taskId);
     if (!session.respondToExtensionUI) {

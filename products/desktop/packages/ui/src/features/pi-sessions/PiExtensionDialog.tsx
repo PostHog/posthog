@@ -1,4 +1,4 @@
-import type { PiExtensionUIResponse } from "@posthog/agent/pi/types";
+import type { RpcExtensionUIResponse } from "@posthog/agent/pi/types";
 import type { PiExtensionDialogRequest } from "@posthog/core/pi-runtime/piExtensionStore";
 import {
   Button,
@@ -18,7 +18,7 @@ import { type FormEvent, useId, useRef, useState } from "react";
 export function buildPiExtensionResponse(
   request: PiExtensionDialogRequest,
   value: string | boolean,
-): PiExtensionUIResponse {
+): RpcExtensionUIResponse {
   if (request.method === "confirm") {
     return {
       type: "extension_ui_response",
@@ -35,7 +35,7 @@ export function buildPiExtensionResponse(
 
 interface PiExtensionDialogProps {
   request: PiExtensionDialogRequest;
-  onRespond: (response: PiExtensionUIResponse) => Promise<void>;
+  onRespond: (response: RpcExtensionUIResponse) => Promise<void>;
   onCancel: () => Promise<void>;
 }
 
@@ -51,7 +51,7 @@ export function PiExtensionDialog({
   const submittingRef = useRef(false);
   const fieldId = useId();
 
-  const complete = async (response?: PiExtensionUIResponse): Promise<void> => {
+  const complete = async (response?: RpcExtensionUIResponse): Promise<void> => {
     if (submittingRef.current) {
       return;
     }

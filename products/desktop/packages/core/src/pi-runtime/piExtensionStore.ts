@@ -1,29 +1,46 @@
 import type {
   PiExtensionEvent,
-  PiExtensionUIRequest,
+  RpcExtensionUIRequest,
+  WidgetPlacement,
 } from "@posthog/agent/pi/types";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 export type PiExtensionDialogRequest = Extract<
-  PiExtensionUIRequest,
+  RpcExtensionUIRequest,
   { method: "select" | "confirm" | "input" | "editor" }
 >;
 
-export interface PiExtensionNotification {
-  id: string;
-  message: string;
-  notifyType: "info" | "warning" | "error";
-}
+type PiExtensionNotifyRequest = Extract<
+  RpcExtensionUIRequest,
+  { method: "notify" }
+>;
+
+export type PiExtensionNotification = Pick<
+  PiExtensionNotifyRequest,
+  "id" | "message"
+> & {
+  notifyType: NonNullable<PiExtensionNotifyRequest["notifyType"]>;
+};
+
+type PiExtensionWidgetRequest = Extract<
+  RpcExtensionUIRequest,
+  { method: "setWidget" }
+>;
 
 export interface PiExtensionWidget {
-  lines: string[];
-  placement: "aboveEditor" | "belowEditor";
+  lines: NonNullable<PiExtensionWidgetRequest["widgetLines"]>;
+  placement: WidgetPlacement;
 }
 
-export interface PiExtensionEditorText {
-  id: string;
-  text: string;
-}
+type PiExtensionEditorTextRequest = Extract<
+  RpcExtensionUIRequest,
+  { method: "set_editor_text" }
+>;
+
+export type PiExtensionEditorText = Pick<
+  PiExtensionEditorTextRequest,
+  "id" | "text"
+>;
 
 export interface PiExtensionTaskState {
   dialogs: PiExtensionDialogRequest[];

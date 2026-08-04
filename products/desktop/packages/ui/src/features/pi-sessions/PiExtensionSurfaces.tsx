@@ -2,7 +2,7 @@ import type { PiExtensionWidget } from "@posthog/core/pi-runtime/piExtensionStor
 
 interface PiExtensionWidgetsProps {
   widgets: Record<string, PiExtensionWidget>;
-  placement: "aboveEditor" | "belowEditor";
+  placement: PiExtensionWidget["placement"];
 }
 
 export function PiExtensionWidgets({

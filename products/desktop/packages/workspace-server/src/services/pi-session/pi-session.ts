@@ -13,9 +13,9 @@ import type { PiRuntime } from "@posthog/agent/pi/runtime";
 import {
   PI_THINKING_LEVELS,
   type PiExtensionEvent,
-  type PiExtensionUIResponse,
   type PiPersistedSessionConfig,
   type PiQueueSnapshot,
+  type RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
@@ -376,7 +376,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
 
   respondToExtensionUI(
     taskId: string,
-    response: PiExtensionUIResponse,
+    response: RpcExtensionUIResponse,
   ): Promise<void> {
     return this.withActiveRequest(taskId, (session) =>
       session.client.respondToExtensionUI(response),
