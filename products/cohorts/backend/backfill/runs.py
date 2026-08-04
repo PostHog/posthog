@@ -390,6 +390,20 @@ def create_person_backfill_run_for_cohort(
     preconditions, missing = check_person_run_preconditions()
     estimate: PersonSeedEstimate | None = None
     if not missing:
+        # A budget already consumed by in-flight runs refuses before the estimate on purpose: the
+        # estimate is the team-wide sizing scan, and dispatch is debounced per cohort, so N edited
+        # cohorts would otherwise each pay a scan only to be refused here one by one. Expensive
+        # scans record large estimates, so the teams whose scans cost the most stop scanning first.
+        active_topic_bytes = _active_person_seed_topic_bytes(team_id)
+        if active_topic_bytes >= settings.BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET:
+            logger.warning(
+                "cohort_person_backfill_over_budget",
+                team_id=team_id,
+                cohort_id=cohort_id,
+                active_topic_bytes=active_topic_bytes,
+                budget_bytes=settings.BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET,
+            )
+            return None
         try:
             estimate = estimate_person_seed_topic_bytes(team_id, person_scan_since, len(pinned["conditions"]))
         except PersonSeedEstimateScanCapExceeded as error:
@@ -400,7 +414,6 @@ def create_person_backfill_run_for_cohort(
                 error=str(error),
             )
             return None
-        active_topic_bytes = _active_person_seed_topic_bytes(team_id)
         if estimate.estimated_topic_bytes + active_topic_bytes > estimate.budget_bytes:
             logger.warning(
                 "cohort_person_backfill_over_budget",

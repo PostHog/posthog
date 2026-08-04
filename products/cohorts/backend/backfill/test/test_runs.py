@@ -354,6 +354,27 @@ class TestPersonBackfillRuns(BaseTest):
         self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
 
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_consumed_budget_refuses_before_the_sizing_scan(self, estimate: mock.Mock) -> None:
+        # Dispatch is debounced per cohort, so once in-flight runs consume the whole budget, every
+        # further edited cohort has to refuse before the team-wide sizing scan, not after paying
+        # for one each.
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_000)
+        first = self._cohort()
+        self.assertIsNotNone(create_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created"))
+        second = Cohort.objects.create(
+            team=self.team,
+            name="second person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+        )
+
+        estimate.reset_mock()
+        self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created"))
+
+        estimate.assert_not_called()
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
     def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:
         cohort = self._cohort()
