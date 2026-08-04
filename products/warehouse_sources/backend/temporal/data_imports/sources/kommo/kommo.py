@@ -158,8 +158,13 @@ def validate_credentials(api_key: str, subdomain: str) -> tuple[bool, str | None
 
     if response.status_code == 200:
         return True, None
-    if response.status_code in (401, 403):
+    if response.status_code == 401:
         return False, "Kommo rejected the access token. Check the token and the account subdomain."
+    if response.status_code == 403:
+        return False, (
+            "This Kommo token cannot access the account. Check the integration's scopes and the "
+            "token owner's user rights."
+        )
     if response.status_code == 402:
         return False, "This Kommo account is not paid up, so the API is unavailable."
     if response.status_code == 404:

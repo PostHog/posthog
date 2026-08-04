@@ -61,6 +61,7 @@ class KommoSource(ResumableSource[KommoSourceConfig, KommoResumeConfig]):
             "401 Client Error: Unauthorized for url": "Kommo rejected the access token. Generate a new long-lived token and reconnect.",
             "403 Client Error: Forbidden for url": "This Kommo token cannot access the requested data. Check the integration's scopes and the token owner's user rights.",
             "402 Client Error: Payment Required for url": "This Kommo account is not paid up, so its API is unavailable.",
+            "404 Client Error: Not Found for url": "No Kommo account found at this subdomain. Check the account subdomain and reconnect.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -96,6 +96,7 @@ class TestKommoSource:
             "401 Client Error: Unauthorized for url: https://acme.kommo.com/api/v4/leads",
             "403 Client Error: Forbidden for url: https://acme.kommo.com/api/v4/users",
             "402 Client Error: Payment Required for url: https://acme.kommo.com/api/v4/events",
+            "404 Client Error: Not Found for url: https://acme.kommo.com/api/v4/leads",
         ],
     )
     def test_non_retryable_errors_match_auth_and_billing_failures(self, observed_error: str) -> None:
