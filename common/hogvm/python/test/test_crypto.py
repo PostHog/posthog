@@ -48,7 +48,11 @@ class TestSha1HmacChain:
         assert sha1HmacChain([key, message]) == expected
 
     def test_rekeys_with_the_previous_raw_digest(self) -> None:
+        # SHA-1 here is the algorithm under test, computed independently of the STL to pin the
+        # re-keying step. Not used for secrecy or collision resistance.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-sha1.insecure-hash-algorithm-sha1
         key = hmac.new(b"1", b"string", hashlib.sha1).digest()
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-sha1.insecure-hash-algorithm-sha1
         expected = hmac.new(key, b"more", hashlib.sha1).hexdigest()
         assert sha1HmacChain(["1", "string", "more"]) == expected
 
