@@ -1350,6 +1350,20 @@ class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class MarketingCostPrecomputeInvalidateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Rate limit cost precompute invalidation. One call can queue a rebuild of up to a 90-day window
+    across every source and grain, so it's throttled per team rather than per user."""
+
+    scope = "marketing_cost_precompute_invalidate"
+    rate = "6/hour"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 

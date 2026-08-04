@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from datetime import date, timedelta
 from typing import cast
 
 import structlog
@@ -21,6 +22,7 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.models.user import User
+from posthog.rate_limit import MarketingCostPrecomputeInvalidateThrottle
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
@@ -31,12 +33,19 @@ from products.marketing_analytics.backend.services.conversion_goals_inspector im
     explain_conversion_goal,
     list_conversion_goals,
 )
+from products.marketing_analytics.backend.services.cost_precompute_invalidation import (
+    MAX_INVALIDATE_DAYS,
+    REBUILD_MAX_WINDOW_DAYS,
+    CostInvalidation,
+    invalidate_cost_precompute,
+)
 from products.marketing_analytics.backend.services.data_source_health import get_data_source_health
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
 from products.marketing_analytics.backend.services.types import UTM_ISSUE_KIND_CHOICES
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
+from products.marketing_analytics.backend.tasks.cost_precompute_rebuild import rebuild_marketing_cost_precompute
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +66,68 @@ class LabelCountField(serializers.ListField):
 class TestMappingSerializer(serializers.Serializer):
     table_id = serializers.UUIDField()
     source_map = serializers.DictField(child=serializers.CharField(allow_null=True, allow_blank=True))
+
+
+class CostPrecomputeInvalidateSerializer(serializers.Serializer):
+    date_from = serializers.DateField(help_text="First day to invalidate, inclusive (UTC).")
+    date_to = serializers.DateField(help_text="Last day to invalidate, inclusive (UTC).")
+    rebuild = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Schedule a background rebuild of the range. Leave on unless you want the next read to "
+            "pay for materialization itself."
+        ),
+    )
+    dry_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Report what would be invalidated without deleting anything.",
+    )
+
+    def validate(self, attrs):
+        if attrs["date_to"] < attrs["date_from"]:
+            raise serializers.ValidationError({"date_to": "must not be before date_from"})
+        span_days = (attrs["date_to"] - attrs["date_from"]).days + 1
+        if span_days > MAX_INVALIDATE_DAYS:
+            raise serializers.ValidationError(
+                {"date_to": f"range must be at most {MAX_INVALIDATE_DAYS} days, got {span_days}"}
+            )
+        return attrs
+
+
+class CostPrecomputeRangeSerializer(serializers.Serializer):
+    date_from = serializers.DateField()
+    date_to = serializers.DateField()
+
+
+class CostPrecomputeRebuildSerializer(serializers.Serializer):
+    scheduled = serializers.BooleanField(help_text="Whether a background rebuild was queued.")
+    window = CostPrecomputeRangeSerializer(
+        allow_null=True, help_text="Range the rebuild will cover, clamped to the warmed window."
+    )
+
+
+class CostPrecomputeInvalidateResponseSerializer(serializers.Serializer):
+    requested_range = CostPrecomputeRangeSerializer()
+    effective_range = CostPrecomputeRangeSerializer(
+        allow_null=True,
+        help_text=(
+            "Range actually invalidated, which can be WIDER than requested: coverage needs a job to "
+            "fully span a day and a job's range can't be split, so clearing one day inside a wide job "
+            "clears the whole job. Null when nothing matched."
+        ),
+    )
+    sources_resolved = serializers.IntegerField(help_text="Marketing sources that can currently materialize costs.")
+    query_hashes_resolved = serializers.IntegerField(
+        help_text=(
+            "Precompute jobs identified, one per (source, grain). Zero means nothing was invalidated — "
+            "no source could be resolved, so there was nothing to match against."
+        )
+    )
+    jobs_invalidated = serializers.IntegerField()
+    rebuild = CostPrecomputeRebuildSerializer()
+    notes = serializers.ListField(child=serializers.CharField())
 
 
 class UtmAuditQuerySerializer(serializers.Serializer):
@@ -699,6 +770,88 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        request=CostPrecomputeInvalidateSerializer,
+        responses={
+            202: OpenApiResponse(
+                response=CostPrecomputeInvalidateResponseSerializer,
+                description="Range invalidated; rebuild queued if requested",
+            ),
+            200: OpenApiResponse(
+                response=CostPrecomputeInvalidateResponseSerializer,
+                description="Dry run — nothing was deleted",
+            ),
+        },
+        summary="Invalidate cost precompute for a date range",
+        description=(
+            "Drop the preaggregated marketing cost data for a date range so it is recomputed from the "
+            "warehouse tables, and optionally queue that rebuild in the background. Use this when the "
+            "cost figures for a range are wrong or missing — for example after a warehouse sync was "
+            "paused and backfilled, which can leave a window cached as zero.\n\n"
+            "Idempotent and safe to retry. Read `effective_range` and `notes` on the response: the "
+            "invalidated range can be wider than the one you asked for."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="cost_precompute/invalidate",
+        required_scopes=["marketing_analytics:write"],
+        throttle_classes=[MarketingCostPrecomputeInvalidateThrottle],
+    )
+    def invalidate_cost_precompute(self, request: Request, *args, **kwargs) -> Response:
+        serializer = CostPrecomputeInvalidateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        date_from = serializer.validated_data["date_from"]
+        date_to = serializer.validated_data["date_to"]
+        dry_run = serializer.validated_data["dry_run"]
+
+        try:
+            invalidation = invalidate_cost_precompute(self.team, date_from, date_to, dry_run=dry_run)
+        except Exception:
+            logger.exception(
+                "invalidate_cost_precompute_failed",
+                team_id=self.team.pk,
+                date_from=str(date_from),
+                date_to=str(date_to),
+            )
+            return Response(
+                {"detail": "Failed to invalidate cost precompute. Check server logs for details."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Nothing to rebuild on a dry run, and nothing to rebuild if no job was actually cleared —
+        # a rebuild would then just re-confirm windows that are already covered.
+        rebuild_scheduled = (
+            serializer.validated_data["rebuild"] and not dry_run and invalidation.result.jobs_deleted > 0
+        )
+        rebuild_window = None
+        if rebuild_scheduled:
+            # Clamp to the window the warmer keeps hot. Rebuilding older data is unbounded work for
+            # something nothing keeps warm afterwards, so it would expire before being read.
+            rebuild_from = max(date_from, date.today() - timedelta(days=REBUILD_MAX_WINDOW_DAYS))
+            rebuild_from = min(rebuild_from, date_to)
+            rebuild_window = {"date_from": rebuild_from, "date_to": date_to}
+            rebuild_marketing_cost_precompute.delay(self.team.pk, rebuild_from.isoformat(), date_to.isoformat())
+
+        effective = invalidation.result
+        response_data = CostPrecomputeInvalidateResponseSerializer(
+            {
+                "requested_range": {"date_from": date_from, "date_to": date_to},
+                "effective_range": (
+                    {"date_from": effective.effective_start, "date_to": effective.effective_end}
+                    if effective.effective_start is not None
+                    else None
+                ),
+                "sources_resolved": invalidation.sources_resolved,
+                "query_hashes_resolved": invalidation.query_hashes_resolved,
+                "jobs_invalidated": effective.jobs_deleted,
+                "rebuild": {"scheduled": rebuild_scheduled, "window": rebuild_window},
+                "notes": _cost_precompute_notes(invalidation, (date_from, date_to), rebuild_scheduled),
+            }
+        ).data
+        return Response(response_data, status=status.HTTP_200_OK if dry_run else status.HTTP_202_ACCEPTED)
+
     @action(methods=["POST"], detail=False, url_path="test_mapping")
     def test_mapping(self, request: Request, *args, **kwargs) -> Response:
         serializer = TestMappingSerializer(data=request.data)
@@ -764,6 +917,35 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 {"success": False, "error": "Failed to test mapping. Check server logs for details."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+def _cost_precompute_notes(invalidation: CostInvalidation, requested: tuple, rebuild_scheduled: bool) -> list[str]:
+    """Everything a caller would otherwise have to discover the hard way."""
+    notes = [
+        "Query result caches are separate from the precompute layer — re-run your query with "
+        "refresh=blocking to see rebuilt data.",
+        "Cost rows for campaigns or days that no longer exist in the source are not removed by a "
+        "rebuild; nothing newer overwrites them, so they age out on their own TTL.",
+    ]
+    if invalidation.query_hashes_resolved == 0:
+        notes.append(
+            "No marketing source could be resolved for cost materialization, so nothing was "
+            "invalidated. Check that your cost sources are connected and syncing."
+        )
+    effective = invalidation.result
+    # Both bounds are a Min/Max over the same queryset, so they're set or unset together.
+    if (
+        effective.effective_start is not None
+        and effective.effective_end is not None
+        and (effective.effective_start.date() < requested[0] or effective.effective_end.date() > requested[1])
+    ):
+        notes.append(
+            "effective_range is wider than requested because some precompute jobs spanned days "
+            "outside it and a job's range cannot be split."
+        )
+    if not rebuild_scheduled:
+        notes.append("No rebuild was scheduled — the next read of this range will materialize it inline.")
+    return notes
 
 
 def _detect_source_type(table: DataWarehouseTable) -> str:

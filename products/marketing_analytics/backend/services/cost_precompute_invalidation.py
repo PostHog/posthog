@@ -16,6 +16,7 @@ Two limits are inherent to re-derivation and can't be closed here:
   its jobs can't be invalidated through here. That is the case the management command exists for.
 """
 
+import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -28,6 +29,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.dags.common import chunk_ranges
 from posthog.models import Team
 from posthog.models.team.team import DEFAULT_CURRENCY
 
@@ -36,10 +38,14 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     build_precompute_query_info,
     compute_query_hash,
+    ensure_precomputed,
     invalidate_jobs,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner import (
+    costs_precompute_ttl_schedule,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +56,20 @@ COST_MATERIALIZATION_GRAINS = (
     MarketingAnalyticsDrillDownLevel.AD_GROUP,
     MarketingAnalyticsDrillDownLevel.AD,
 )
+
+# One day per INSERT, matching the warmer: the framework merges a fully-missing range into a single
+# INSERT, so an unchunked rebuild would scan the whole requested range in one query.
+REBUILD_CHUNK_DAYS = 1
+
+# Widest range one invalidation request may clear. Deleting job rows is cheap, so this is a guard
+# against a typo'd range (or a client loop) wiping years of bookkeeping, not a cost limit.
+MAX_INVALIDATE_DAYS = 400
+
+# How far back a *rebuild* will reach, mirroring the warmer's rolling window. Read from the warmer's
+# env var so changing the warmed window moves both: rebuilding data outside it is unbounded work for
+# rows nothing keeps warm afterwards, so they would expire before anyone read them. Duplicated here
+# rather than imported from the dag, which would make dagster a dependency of the API.
+REBUILD_MAX_WINDOW_DAYS = int(os.getenv("MARKETING_PRECOMPUTE_WINDOW_DAYS", "90"))
 
 
 @dataclass
@@ -204,3 +224,64 @@ def invalidate_cost_precompute(
         query_hashes_resolved=len(hashes),
         result=result,
     )
+
+
+def rebuild_cost_precompute(
+    team: Team,
+    date_from: date,
+    date_to: date,
+    grains: tuple[MarketingAnalyticsDrillDownLevel, ...] = COST_MATERIALIZATION_GRAINS,
+    chunk_days: int = REBUILD_CHUNK_DAYS,
+) -> tuple[int, int]:
+    """Materialize the cost windows over [date_from, date_to]. Returns (chunks_done, failures).
+
+    Chunked per day for the same reason the warmer chunks: the framework merges a fully-missing range
+    into one INSERT, so an unchunked backfill would scan the whole range in a single query.
+
+    Drives `ensure_precomputed` directly rather than the read path's wrapper, so it gets no
+    serve-stale grace — a refresher that served stale to itself would never refresh anything.
+    Failures are isolated per chunk: one bad day must not abandon the rest of the range.
+    """
+    start, end = utc_day_bounds(date_from, date_to)
+    ttl_schedule = costs_precompute_ttl_schedule(team)
+    done = 0
+    failures = 0
+
+    for materialization in iter_cost_materializations(team, grains):
+        for chunk_start, chunk_end in chunk_ranges(start, end, chunk_days):
+            insert_query = materialization.build_query()
+            if insert_query is None:
+                continue
+            try:
+                result = ensure_precomputed(
+                    team=team,
+                    insert_query=insert_query,
+                    time_range_start=chunk_start,
+                    time_range_end=chunk_end,
+                    ttl_seconds=ttl_schedule,
+                    table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
+                )
+            except Exception:
+                logger.exception(
+                    "marketing_cost_precompute_rebuild_chunk_failed",
+                    team_id=team.pk,
+                    grain=materialization.grain.value,
+                    source_id=materialization.source_id,
+                    chunk_start=str(chunk_start),
+                )
+                failures += 1
+                continue
+            if result.ready:
+                done += 1
+            else:
+                failures += 1
+
+    logger.info(
+        "marketing_cost_precompute_rebuilt",
+        team_id=team.pk,
+        date_from=str(date_from),
+        date_to=str(date_to),
+        chunks_done=done,
+        failures=failures,
+    )
+    return done, failures
