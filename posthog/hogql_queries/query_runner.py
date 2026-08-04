@@ -1856,11 +1856,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Abort early if the user doesn't have access to the query runner.
                     # We'll proceed as usual if there's no user connected to this request, or for an
                     # anonymous principal (SharedLinkUser) - the share link is its authorization.
-                    # A SyntheticUser is skipped too: UserAccessControl resolves an
-                    # OrganizationMembership by user FK, which a principal with no id cannot satisfy,
-                    # and secret-key principals are scope-gated at the endpoint instead.
+                    # A SyntheticUser (secret-key auth) is checked like any other principal: it has no
+                    # OrganizationMembership, so UserAccessControl resolves no resource access and the
+                    # runner denies. Skipping it here instead would grant access no scope check covers.
                     # We're capturing the error for analytics purposes, but we reraise the same one
-                    if isinstance(user, User) and not user.is_anonymous:
+                    if user is not None and not user.is_anonymous:
                         try:
                             self.validate_query_runner_access(user)
                         except UserAccessControlError as error:

@@ -55,11 +55,18 @@ class TestAsyncPrincipal(TestCase):
         assert isinstance(rebuilt, SyntheticUser)
         self.assertEqual(rebuilt.current_team_id, self.team.id)
 
-    def test_cleared_team_secret_token_does_not_rebuild(self):
+    @parameterized.expand(
+        [
+            ("cleared", None),
+            # Rotation is how a leaked token is revoked, so the queued query must stop working too.
+            ("rotated", "phs_rotated"),
+        ]
+    )
+    def test_team_secret_token_no_longer_matching_does_not_rebuild(self, _name, new_token):
         self.team.secret_api_token = "phs_test"
         self.team.save()
         ref = serialize_principal(TeamSecretTokenUser(self.team))
-        Team.objects.filter(pk=self.team.pk).update(secret_api_token=None)
+        Team.objects.filter(pk=self.team.pk).update(secret_api_token=new_token)
         self.team.refresh_from_db()
 
         self.assertIsNone(rebuild_principal(ref, self.team))
@@ -69,6 +76,9 @@ class TestAsyncPrincipal(TestCase):
             # Every revocation channel the request path honors has to revoke a queued query too.
             ("disabled", {"enabled": False}),
             ("expired", {"expires_at": timezone.now() - timedelta(seconds=1)}),
+            # A password-protected share is authorized by a JWT against an active SharePassword,
+            # which the reference cannot represent, so rebuilding from the config alone would skip it.
+            ("password_protected", {"password_required": True}),
         ]
     )
     def test_revoked_share_link_does_not_rebuild(self, _name, revocation):
@@ -110,6 +120,8 @@ class TestAsyncPrincipal(TestCase):
             # A malformed id must resolve to None, not raise: Postgres rejects a non-integer pk
             # lookup, and the task would then burn every retry on the same payload.
             ("shared_link_with_malformed_id", {"kind": "shared_link", "id": "abc"}),
+            # The PSAK pk is a CharField, so an integer is malformed there rather than coercible.
+            ("psak_with_malformed_id", {"kind": "psak", "id": 123456789}),
         ]
     )
     def test_unresolvable_reference_does_not_rebuild(self, _name, ref):

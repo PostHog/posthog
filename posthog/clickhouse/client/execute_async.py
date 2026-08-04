@@ -15,7 +15,12 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
-from posthog.clickhouse.client.async_principal import PrincipalRef, rebuild_principal, serialize_principal
+from posthog.clickhouse.client.async_principal import (
+    PrincipalRef,
+    rebuild_principal,
+    record_principal_loss,
+    serialize_principal,
+)
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -211,6 +216,7 @@ def execute_process_query(
             # Raising here would escape ahead of the try block below that records query failures, so
             # the caller would see the query hang until Celery exhausted its retries on the same
             # payload. Fall back to the userless path, which denies rather than over-grants.
+            record_principal_loss(str(principal.get("kind")), "rebuild_error", query_id=query_id)
             capture_exception(e, {"query_id": query_id})
 
     query_status = manager.get_query_status()
@@ -356,6 +362,10 @@ def enqueue_process_query_task(
     except Exception as e:
         capture_exception(e, {"cache_key": cache_key})
 
+    # Past the early returns (so a deduplicated or already-answered query does no work) but ahead of
+    # the Redis writes below, so a failure here cannot leave a registered cache key with no task.
+    principal = serialize_principal(user)
+
     # Immediately set status, so we don't have race with celery
     query_status = QueryStatus(
         id=query_id,
@@ -378,9 +388,6 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
-    # Serialized here rather than at the top, so the dedup and stored-result early returns above
-    # (one call per dashboard tile) skip the work entirely.
-    principal = serialize_principal(user)
     # Omitting the kwarg when there is no principal keeps the real-user path byte-identical on the
     # wire, so a rolling deploy cannot fail those queries. It does not save principal-carrying
     # queries: a worker running code without the `principal` parameter rejects them with a

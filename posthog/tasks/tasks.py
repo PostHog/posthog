@@ -48,6 +48,12 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
 )
 
 
+PROCESS_QUERY_TASK_DROPPED_KWARGS = Counter(
+    "posthog_process_query_task_dropped_kwargs_total",
+    "Async query tasks whose payload carried kwargs this worker does not know, which it dropped. "
+    "Non-zero means a newer producer is enqueueing against an older worker.",
+)
+
 COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
     "posthog_cohort_deletion_mark_failure_total",
     "Times cohort deletion mark failed",
@@ -408,13 +414,24 @@ def process_query_task(
     principal: Optional[dict[str, Any]] = None,
     # Tasks queued by a newer deploy can carry kwargs this worker has never heard of. Binding would
     # raise TypeError, which is not retryable, so accept and drop them instead.
-    **_newer_deploy_kwargs: Any,
+    **newer_deploy_kwargs: Any,
 ) -> None:
     """
     Kick off query
     Once complete save results to redis
     """
     from posthog.clickhouse.client import execute_process_query
+
+    if newer_deploy_kwargs:
+        # Dropping an argument silently is how a mixed-deploy window turns into an invisible
+        # behavior difference, so make the window observable. Names only: values may hold anything.
+        PROCESS_QUERY_TASK_DROPPED_KWARGS.inc()
+        logger.warning(
+            "process_query_task_dropped_unknown_kwargs",
+            dropped=sorted(newer_deploy_kwargs),
+            query_id=query_id,
+            team_id=team_id,
+        )
 
     existing_query_tags = get_query_tags()
     all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}

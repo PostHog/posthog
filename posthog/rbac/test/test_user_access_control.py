@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -14,12 +16,14 @@ from posthog.rbac.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
     UserAccessControl,
+    UserAccessControlError,
     UserAccessControlSerializerMixin,
     get_effective_access_level_for_member,
     get_effective_access_level_for_role,
     get_field_access_control_map,
     model_to_resource,
 )
+from posthog.synthetic_user import SyntheticUser
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
@@ -327,6 +331,21 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
 
         assert uac.check_access_level_for_object(self.organization, "admin") is True
+
+
+class TestUserAccessControlIdlessPrincipal(BaseUserAccessControlTest):
+    def test_principal_without_an_id_resolves_no_resource_access(self):
+        # Secret-key auth produces a SyntheticUser whose id is None. The membership FK lookup raises
+        # TypeError for it rather than DoesNotExist, so without a guard every caller that gates on
+        # resource access crashes instead of denying — a 500, and a fail-open risk if it is skipped.
+        synthetic_user = SyntheticUser(self.team, distinct_id="team-secret-token-test")
+
+        access_control = UserAccessControl(user=cast(User, synthetic_user), team=self.team)
+
+        assert access_control._organization_membership is None
+        assert access_control.access_level_for_resource("web_analytics") is None
+        with pytest.raises(UserAccessControlError):
+            access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
 
 class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):

@@ -539,6 +539,11 @@ class UserAccessControl:
         try:
             if not self._organization_id:
                 return None
+            if getattr(self._user, "id", None) is None:
+                # A principal with no id (SyntheticUser for secret-key auth, AnonymousUser) has no
+                # membership row to find, and the FK lookup below raises TypeError rather than
+                # DoesNotExist for it. No membership means no resource access, so callers deny.
+                return None
             return OrganizationMembership.objects.select_related("organization").get(
                 organization_id=self._organization_id, user=self._user
             )
