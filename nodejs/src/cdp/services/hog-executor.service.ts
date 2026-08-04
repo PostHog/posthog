@@ -54,15 +54,24 @@ export type CdpFetchConfig = Pick<
 
 export interface HogExecutorConfig {
     hogCostTimingUpperMs: number
-    googleAdwordsDeveloperToken: string
-    fetchRetries: number
-    fetchBackoffBaseMs: number
-    fetchBackoffMaxMs: number
+    fetch?: {
+        googleAdwordsDeveloperToken: string
+        retries: number
+        backoffBaseMs: number
+        backoffMaxMs: number
+    }
 }
 
 export interface HogExecutorAsyncContext {
     teamManager: TeamManager
     siteUrl: string
+}
+
+export interface HogExecutorDependencies {
+    asyncContext?: HogExecutorAsyncContext
+    emailService?: EmailService
+    recipientTokensService?: RecipientTokensService
+    pushNotificationService?: PushNotificationService
 }
 
 const cdpEmailQueuedTotal = new Counter({
@@ -266,12 +275,16 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 export class HogExecutorService {
     constructor(
         private config: HogExecutorConfig,
-        private asyncContext: HogExecutorAsyncContext,
         private hogInputsService: HogInputsService,
-        private emailService: EmailService,
-        private recipientTokensService: RecipientTokensService,
-        private pushNotificationService: PushNotificationService
+        private dependencies: HogExecutorDependencies = {}
     ) {}
+
+    private requireFetchConfig(): NonNullable<HogExecutorConfig['fetch']> {
+        if (!this.config.fetch) {
+            throw new Error('HogExecutorService was constructed without async fetch configuration')
+        }
+        return this.config.fetch
+    }
 
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
@@ -488,7 +501,10 @@ export class HogExecutorService {
                         result = await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'sendPushNotification') {
-                    result = await this.pushNotificationService.executeSendPushNotification(nextInvocation)
+                    if (!this.dependencies.pushNotificationService) {
+                        throw new Error('HogExecutorService was constructed without push notification support')
+                    }
+                    result = await this.dependencies.pushNotificationService.executeSendPushNotification(nextInvocation)
                 } else if (queueParamsType === 'email') {
                     // Route to the email queue only if we're not already there and the
                     // caller hasn't asked for inline-only execution (e.g. the test panel).
@@ -496,9 +512,12 @@ export class HogExecutorService {
                     if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
+                        if (!this.dependencies.emailService) {
+                            throw new Error('HogExecutorService was constructed without email support')
+                        }
                         // `sendEmailsInline` is only set by the test panel, so it doubles as the
                         // "this is a test send" signal — propagated into the email's tracking code.
-                        result = await this.emailService.executeSendEmail(
+                        result = await this.dependencies.emailService.executeSendEmail(
                             nextInvocation,
                             options?.sendEmailsInline ?? false
                         )
@@ -687,14 +706,18 @@ export class HogExecutorService {
                                 message: sanitizeLogMessage(args, sensitiveValues),
                             })
                         },
-                        generateMessagingPreferencesUrl: (identifier): string | null => {
-                            return identifier && typeof identifier === 'string'
-                                ? this.recipientTokensService.generatePreferencesUrl({
-                                      team_id: invocation.teamId,
-                                      identifier,
-                                  })
-                                : null
-                        },
+                        ...(this.dependencies.recipientTokensService
+                            ? {
+                                  generateMessagingPreferencesUrl: (identifier): string | null => {
+                                      return identifier && typeof identifier === 'string'
+                                          ? this.dependencies.recipientTokensService!.generatePreferencesUrl({
+                                                team_id: invocation.teamId,
+                                                identifier,
+                                            })
+                                          : null
+                                  },
+                              }
+                            : {}),
                         postHogCapture: (event) => {
                             const distinctId = event.distinct_id || globals.event?.distinct_id || globals.person?.id
                             const eventName = event.event
@@ -787,9 +810,12 @@ export class HogExecutorService {
                     // result.invocation.state.vmState.stack (synchronous handlers) or by deferring
                     // the push to executeFetch / executeSendEmail (queueing handlers). See the
                     // RETURN-VALUE CONTRACT comment in cdp/async-functions/example.ts.
+                    if (!this.dependencies.asyncContext) {
+                        throw new Error('HogExecutorService was constructed without async function support')
+                    }
                     await handler.execute(
                         args,
-                        { invocation: result.invocation, globals, ...this.asyncContext },
+                        { invocation: result.invocation, globals, ...this.dependencies.asyncContext },
                         result
                     )
                 } else {
@@ -835,6 +861,7 @@ export class HogExecutorService {
         invocation: CyclotronJobInvocationHogFunction,
         options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const fetchConfig = this.requireFetchConfig()
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {
             throw new Error('Bad invocation')
@@ -855,7 +882,7 @@ export class HogExecutorService {
         let headers = params.headers ?? {}
 
         if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
-            headers['developer-token'] = this.config.googleAdwordsDeveloperToken
+            headers['developer-token'] = fetchConfig.googleAdwordsDeveloperToken
         }
 
         const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
@@ -892,9 +919,9 @@ export class HogExecutorService {
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
         // it was only meant to protect.
-        if (isPostHogIngestUrl(params.url)) {
+        if (isPostHogIngestUrl(params.url) && this.dependencies.asyncContext) {
             try {
-                const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
+                const team = await this.dependencies.asyncContext.teamManager.getTeam(invocation.teamId)
                 if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
                     // Depth is counted per function id, so this destination is bounded only
                     // by how many times IT has re-fed itself - an event that merely passed
@@ -984,9 +1011,9 @@ export class HogExecutorService {
             const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
 
             const backoffMs = Math.min(
-                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
-                this.config.fetchBackoffMaxMs
+                fetchConfig.backoffBaseMs * result.invocation.state.attempts +
+                    Math.floor(Math.random() * fetchConfig.backoffBaseMs),
+                fetchConfig.backoffMaxMs
             )
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
@@ -1005,7 +1032,7 @@ export class HogExecutorService {
 
             addLog(isNonFailure ? 'info' : 'error', message)
 
-            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            const maxRetries = options?.maxFetchRetries ?? fetchConfig.retries
             if (canRetry && result.invocation.state.attempts < maxRetries) {
                 await fetchResponse?.dump()
                 result.invocation.queueParameters = params

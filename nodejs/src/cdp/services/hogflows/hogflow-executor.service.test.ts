@@ -92,16 +92,19 @@ describe('Hogflow Executor', () => {
         const hogExecutor = new HogExecutorService(
             {
                 hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: hub.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                fetch: {
+                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    retries: hub.CDP_FETCH_RETRIES,
+                    backoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                    backoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                },
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                asyncContext: { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                emailService,
+                recipientTokensService,
+            }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         const hogFlowFunctionsService = new HogFlowFunctionsService(

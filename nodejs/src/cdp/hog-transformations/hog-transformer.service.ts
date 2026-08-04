@@ -2,31 +2,21 @@ import { Counter, Gauge } from 'prom-client'
 
 import { HogTransformationResult, HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
-import { TeamManager } from '~/common/utils/team-manager'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
-import { CdpCoreServicesConfig } from '../cdp-services'
-import { HogExecutorService, MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from '../services/hog-executor.service'
+import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
-import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
-import { TeamWorkflowsConfigService } from '../services/managers/team-workflows-config.service'
-import { EmailSuppressionService } from '../services/messaging/email-suppression.service'
-import { EmailService } from '../services/messaging/email.service'
-import { EmailTrackingCodeSigner } from '../services/messaging/helpers/tracking-code'
-import { PushNotificationService } from '../services/messaging/push-notification.service'
-import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
@@ -91,7 +81,6 @@ export class HogTransformerService implements HogTransformer {
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private pluginExecutor: LegacyPluginExecutorService,
         private geoipService: GeoIPService,
-        private redis: RedisV2,
         private config: HogTransformerConfig
     ) {
         this.rustVmExecutor = config.hogRustVmExecutionEnabled
@@ -103,9 +92,6 @@ export class HogTransformerService implements HogTransformer {
 
     public async stop(): Promise<void> {
         await this.processInvocationResults()
-        await this.redis.useClient({ name: 'cleanup' }, async (client) => {
-            await client.quit()
-        })
     }
 
     public async processInvocationResults(): Promise<void> {
@@ -387,27 +373,9 @@ export class HogTransformerService implements HogTransformer {
 
 /** Config read by createHogTransformerService when running inside ingestion. */
 export type HogTransformerServiceConfig = Pick<
-    CdpCoreServicesConfig,
-    | 'REDIS_URL'
-    | 'REDIS_POOL_MIN_SIZE'
-    | 'REDIS_POOL_MAX_SIZE'
-    | 'ENCRYPTION_SALT_KEYS'
-    | 'SITE_URL'
-    | 'SES_ACCESS_KEY_ID'
-    | 'SES_SECRET_ACCESS_KEY'
-    | 'SES_REGION'
-    | 'SES_ENDPOINT'
-    | 'SES_TRACKED_CONFIGURATION_SET'
-    | 'SES_UNTRACKED_CONFIGURATION_SET'
-    | 'EMAIL_SES_TENANT_ATTRIBUTION_ENABLED'
-    | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
-    | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
-    | 'CDP_FETCH_RETRIES'
-    | 'CDP_FETCH_BACKOFF_BASE_MS'
-    | 'CDP_FETCH_BACKOFF_MAX_MS'
-    | 'CDP_EMAIL_TRACKING_URL'
-> &
-    Pick<CommonConfig, 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
+    CommonConfig,
+    'SITE_URL' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'
+>
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -416,70 +384,17 @@ export interface HogTransformerServiceDeps {
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
     monitoringOutputs: IngestionOutputs<MonitoringOutput>
-    teamManager: TeamManager
 }
 
 export function createHogTransformerService(
     config: HogTransformerServiceConfig,
     deps: HogTransformerServiceDeps
 ): HogTransformerService {
-    const redis = createRedisV2PoolFromConfig({
-        connection: { url: config.REDIS_URL, name: 'hog-transformer-redis' },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
-        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-    })
-
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
-    const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
-    const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
-    const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
-    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
-    const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
-        transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
-    })
-    const emailService = new EmailService(
-        {
-            sesAccessKeyId: config.SES_ACCESS_KEY_ID,
-            sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
-            sesRegion: config.SES_REGION,
-            sesEndpoint: config.SES_ENDPOINT,
-            sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
-            sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
-            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
-        },
-        deps.integrationManager,
-        teamWorkflowsConfigService,
-        config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL,
-        trackingCodeSigner,
-        emailSuppressionService,
-        new RecipientsManagerService(deps.postgres)
-    )
-    const pushNotificationService = new PushNotificationService(
-        deps.integrationManager,
-        deps.encryptedFields,
-        {
-            trackedFetch: cdpTrackedFetch,
-            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
-            maxRetries: config.CDP_FETCH_RETRIES,
-            backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
-            backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-        },
-        redis
-    )
+    const hogInputsService = new HogInputsService(deps.integrationManager, undefined, deps.encryptedFields)
     const hogExecutor = new HogExecutorService(
-        {
-            hogCostTimingUpperMs: HOG_TRANSFORMATION_TIMEOUT_MS,
-            googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-            fetchRetries: config.CDP_FETCH_RETRIES,
-            fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
-            fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-        },
-        { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
-        hogInputsService,
-        emailService,
-        recipientTokensService,
-        pushNotificationService
+        { hogCostTimingUpperMs: HOG_TRANSFORMATION_TIMEOUT_MS },
+        hogInputsService
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(deps.monitoringOutputs)
@@ -489,7 +404,6 @@ export function createHogTransformerService(
         hogFunctionMonitoringService,
         pluginExecutor,
         deps.geoipService,
-        redis,
         {
             siteUrl: config.SITE_URL,
             hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,

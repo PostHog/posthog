@@ -217,16 +217,19 @@ export class TemplateTester {
         return new HogExecutorService(
             {
                 hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: config.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+                fetch: {
+                    googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    retries: config.CDP_FETCH_RETRIES,
+                    backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+                    backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+                },
             },
-            { teamManager: this.mockTeamManager as any, siteUrl: config.SITE_URL },
             hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                asyncContext: { teamManager: this.mockTeamManager as any, siteUrl: config.SITE_URL },
+                emailService,
+                recipientTokensService,
+            }
         )
     }
 

@@ -85,16 +85,19 @@ describe('Hog Executor', () => {
         executor = new HogExecutorService(
             {
                 hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: hub.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                fetch: {
+                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    retries: hub.CDP_FETCH_RETRIES,
+                    backoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                    backoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                },
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                asyncContext: { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                emailService,
+                recipientTokensService,
+            }
         )
     })
 
@@ -1384,7 +1387,7 @@ describe('Hog Executor', () => {
                 method: 'GET',
             })
 
-            const maxRetries = executor['config'].fetchRetries
+            const maxRetries = executor['config'].fetch!.retries
             let result = await executor.executeFetch(invocation)
 
             for (let attempt = 1; attempt < maxRetries; attempt++) {
@@ -1789,7 +1792,7 @@ describe('Hog Executor', () => {
                 })
             })
 
-            executor['config'].googleAdwordsDeveloperToken = 'ADWORDS_TOKEN'
+            executor['config'].fetch!.googleAdwordsDeveloperToken = 'ADWORDS_TOKEN'
 
             let invocation = await createFetchInvocation({
                 url: 'https://googleads.googleapis.com/1234',
@@ -1984,7 +1987,7 @@ describe('Hog Executor', () => {
                 })
                 setNonFailureConfig(invocation, [500])
 
-                const maxRetries = executor['config'].fetchRetries
+                const maxRetries = executor['config'].fetch!.retries
                 let result = await executor.executeFetch(invocation)
                 // Verify every intermediate attempt also logged at 'info' — regression guard
                 // against any future change that re-raises retry logs to 'error' when the
@@ -2028,7 +2031,7 @@ describe('Hog Executor', () => {
                 setNonFailureConfig(invocation, ['4xx', 500])
 
                 // 500 is retriable — drain retries until terminal
-                const maxRetries = executor['config'].fetchRetries
+                const maxRetries = executor['config'].fetch!.retries
                 result = await executor.executeFetch(invocation)
                 for (let attempt = 1; attempt < maxRetries; attempt++) {
                     result = await executor.executeFetch(result.invocation)
@@ -2045,7 +2048,7 @@ describe('Hog Executor', () => {
                 const invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
                 setNonFailureConfig(invocation, ['4xx', 500])
 
-                const maxRetries = executor['config'].fetchRetries
+                const maxRetries = executor['config'].fetch!.retries
                 let result = await executor.executeFetch(invocation)
                 for (let attempt = 1; attempt < maxRetries; attempt++) {
                     result = await executor.executeFetch(result.invocation)

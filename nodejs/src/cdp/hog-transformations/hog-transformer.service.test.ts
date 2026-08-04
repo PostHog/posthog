@@ -17,6 +17,7 @@ import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogFunctionTemplate } from '../types'
+import type { HogTransformerServiceConfig } from './hog-transformer.service'
 import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
 import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 
@@ -68,6 +69,23 @@ describe('HogTransformer', () => {
         await closeHub(hub)
 
         jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
+    })
+
+    it('constructs the synchronous executor from only transformation config', async () => {
+        const config: HogTransformerServiceConfig = {
+            SITE_URL: hub.SITE_URL,
+            CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+            MMDB_FILE_LOCATION: hub.MMDB_FILE_LOCATION,
+        }
+        const transformer = createHogTransformerService(config, {
+            ...hub,
+            monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+        })
+
+        expect(transformer['hogExecutor']['dependencies']).toEqual({})
+        expect(transformer['hogExecutor']['hogInputsService']['recipientTokensService']).toBeUndefined()
+
+        await transformer.stop()
     })
 
     describe('transformEvent', () => {
