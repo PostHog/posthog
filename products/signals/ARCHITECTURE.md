@@ -478,7 +478,7 @@ Per-team singleton config for Signals settings, including the default autonomy p
 | ---------------------------- | --------------- | ---------------------------------------------------------------------------- |
 | `id`                         | UUID (PK)       | Primary key (UUIDModel)                                                      |
 | `team`                       | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
-| `autostart_enabled`          | BooleanField    | Master switch for Self-driving (nullable; only an explicit `False` is off)    |
+| `autostart_enabled`          | BooleanField    | Master switch for Self-driving (nullable; only an explicit `False` is off)   |
 | `default_autostart_priority` | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
 | `created_at`                 | DateTime        | Auto-set on creation                                                         |
 | `updated_at`                 | DateTime        | Auto-set on save                                                             |
@@ -817,9 +817,9 @@ Important side effects:
 
 Team-scoped singleton config for the default autonomy priority threshold. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Returns 404 if no config exists for the team.
 
-| Method | Path              | Description                            |
-| ------ | ----------------- | -------------------------------------- |
-| GET    | `signals/config/` | Retrieve the team's `SignalTeamConfig` |
+| Method | Path              | Description                                               |
+| ------ | ----------------- | --------------------------------------------------------- |
+| GET    | `signals/config/` | Retrieve the team's `SignalTeamConfig`                    |
 | POST   | `signals/config/` | Update `autostart_enabled` / `default_autostart_priority` |
 
 #### User Autonomy Config (action on `UserViewSet`)
