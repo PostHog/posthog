@@ -5570,9 +5570,9 @@ snapshots:
         hash: v1.k794b7964.00d0fa213e763d116afb415f4a3fea1e98d5d6e81ca29d30e842cd74cf50d7ac.e1Co2_8OmCVBy1IWy67r9-Uo-nt8tATEi1TPcyiV25Y
     scenes-app-dashboards--list--light:
         hash: v1.k794b7964.8a9ad756d6aff75458241be69cb48a69d8df5a812aafa312256d312f581b5629.TPQoZ3DkpZdldKCS5hx9f5WAaMAHY8TTGoUWjrXA-Zw
-    scenes-app-dashboards--new--dark:
+    scenes-app-dashboards--new-dashboard-modal--dark:
         hash: v1.k794b7964.0a812dc0a14bd20dd0b2c88701ee5ef011ced558218f55f787b73d5e6e200557.uUIqLrdSaRIgntHU8Y8ounYiTocCFv55lEntTH7iWUA
-    scenes-app-dashboards--new--light:
+    scenes-app-dashboards--new-dashboard-modal--light:
         hash: v1.k794b7964.e135fb19127d4e79d117b7fcb5550311c2113f8270e1ccde250d4285416694db.ThjbNZgTwq6Lp_NQZ5c_THcn9YWr7mJ212ZP0m6sxxE
     scenes-app-dashboards--new-select-variables--dark:
         hash: v1.k794b7964.369294c02a688cb4e20bf6c50c1bd4547e948e9edd37da97de3a3f22d2a7370b.UYYFQYqpgQ9LngU4sSowj-D-opolhj2Qtk7hwnqOr5k

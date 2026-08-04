@@ -118,7 +118,7 @@ type DashboardState = (typeof DASHBOARD_STATES)[number]
 
 export const List: Story = {}
 
-export const New: Story = {
+export const NewDashboardModal: Story = {
     render: () => {
         useAvailableFeatures([])
         useDelayedOnMountEffect(() => {
