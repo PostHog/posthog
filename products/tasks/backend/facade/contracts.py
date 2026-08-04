@@ -492,6 +492,27 @@ class TaskRunValidationError:
 
 
 @dataclass(frozen=True)
+class FollowupDeferredDTO:
+    """A Slack follow-up's re-check was scheduled."""
+
+    scheduled_for: datetime
+    defers_used: int
+    max_defers: int
+
+
+@dataclass(frozen=True)
+class FollowupDeferRejectedDTO:
+    """Why a follow-up defer request was refused.
+
+    ``code`` drives the response status: ``invalid_until`` / ``not_a_followup`` render as 400,
+    ``already_scheduled`` / ``limit_reached`` as 409.
+    """
+
+    code: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class TaskRunCreateResult:
     """Outcome of bootstrapping a task run.
 

@@ -174,7 +174,14 @@ def render_context_target_block(context_target: dict | None) -> str:
 SLACK_FOLLOWUP_BLOCK = (
     "This run is a scheduled follow-up requested in a Slack thread. Your final message is "
     "posted as a reply in that thread, so write it for the people in that conversation: "
-    "lead with the answer, keep it concise, and skip preamble about being an automated run."
+    "lead with the answer, keep it concise, and skip preamble about being an automated run. "
+    "If the data is still too thin for a meaningful answer, defer instead of posting a weak "
+    "analysis: send a POST request to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/"
+    "$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/defer_followup/` with JSON body "
+    '`{"until": "<ISO 8601 datetime>", "reason": "<one line>"}` and `$POSTHOG_PERSONAL_API_KEY` '
+    "as a Bearer token. On a 200, end with one short sentence telling the thread when you'll "
+    "check again. On a 400 or 409 the defer budget is spent: report the best analysis you can "
+    "from the data available and say what's missing."
 )
 
 

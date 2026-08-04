@@ -208,6 +208,20 @@ class OAuthTokenError(ProcessTaskTransientError):
     pass
 
 
+class FollowupDeferError(Exception):
+    """A Slack follow-up run's defer request was rejected.
+
+    `code` is one of `not_a_followup`, `invalid_until`, `already_scheduled`, `limit_reached`.
+    Raised by logic.services.loop_followups; the `defer_followup` endpoint maps it to 400/409.
+    A plain Exception (not ProcessTaskError): this crosses an HTTP boundary, not a Temporal one.
+    """
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+
+
 class TaskExecutionFailedError(ProcessTaskError):
     """Task execution completed but with non-zero exit code."""
 

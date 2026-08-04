@@ -840,6 +840,25 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
     )
 
 
+class TaskRunDeferFollowupRequestSerializer(serializers.Serializer):
+    until = serializers.DateTimeField(
+        help_text="When to run the re-check, ISO 8601. Must be between 1 hour and 90 days from now."
+    )
+    reason = serializers.CharField(
+        max_length=500,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="One line on why the check is being pushed back, kept in the loop's history.",
+    )
+
+
+class TaskRunDeferFollowupResponseSerializer(serializers.Serializer):
+    scheduled_for = serializers.DateTimeField(help_text="When the re-check will run.")
+    defers_used = serializers.IntegerField(help_text="Defers consumed so far, including this one.")
+    max_defers = serializers.IntegerField(help_text="Total defers this follow-up may use.")
+
+
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
     type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")

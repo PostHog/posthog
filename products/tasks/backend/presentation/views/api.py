@@ -116,6 +116,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
+    TaskRunDeferFollowupRequestSerializer,
+    TaskRunDeferFollowupResponseSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
     TaskRunLivingArtifactChartRequestSerializer,
@@ -1443,6 +1445,62 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if relay_status == "accepted":
             return Response({"status": "accepted", "relay_id": relay_id})
         return Response({"status": "skipped"})
+
+    @validated_request(
+        request_serializer=TaskRunDeferFollowupRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDeferFollowupResponseSerializer, description="Re-check scheduled"),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Not a follow-up run, or the requested time is out of bounds",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Defer limit reached, or a re-check is already scheduled",
+            ),
+        },
+        summary="Defer a Slack follow-up's check",
+        description=(
+            "Push a thread-bound follow-up loop's next check to a later time instead of reporting now. "
+            "Called by the run's agent when the data isn't ready yet; re-arms the loop with a new "
+            "one-time trigger, bounded and capped."
+        ),
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="defer_followup",
+        required_scopes=["task:write"],
+    )
+    def defer_followup(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome = tasks_facade.defer_task_run_followup(
+            pk,
+            task_id,
+            self.team_id,
+            until=request.validated_data["until"],
+            reason=request.validated_data.get("reason") or "",
+        )
+        if outcome is None:
+            raise NotFound()
+        if isinstance(outcome, tasks_contracts.FollowupDeferRejectedDTO):
+            reject_status = (
+                status.HTTP_409_CONFLICT
+                if outcome.code in ("already_scheduled", "limit_reached")
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(TaskRunErrorResponseSerializer({"error": outcome.detail}).data, status=reject_status)
+        return Response(
+            TaskRunDeferFollowupResponseSerializer(
+                {
+                    "scheduled_for": outcome.scheduled_for,
+                    "defers_used": outcome.defers_used,
+                    "max_defers": outcome.max_defers,
+                }
+            ).data
+        )
 
     @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,

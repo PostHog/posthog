@@ -3053,6 +3053,25 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
+export interface TaskRunDeferFollowupRequestApi {
+    /** When to run the re-check, ISO 8601. Must be between 1 hour and 90 days from now. */
+    until: string
+    /**
+     * One line on why the check is being pushed back, kept in the loop's history.
+     * @maxLength 500
+     */
+    reason?: string
+}
+
+export interface TaskRunDeferFollowupResponseApi {
+    /** When the re-check will run. */
+    scheduled_for: string
+    /** Defers consumed so far, including this one. */
+    defers_used: number
+    /** Total defers this follow-up may use. */
+    max_defers: number
+}
+
 export interface TaskRunRelayMessageRequestApi {
     /**
      * Joined message body. Used when text_parts is absent.

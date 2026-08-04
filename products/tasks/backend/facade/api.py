@@ -3355,6 +3355,39 @@ def relay_task_run_message(
     return "accepted", relay_id
 
 
+def defer_task_run_followup(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    until: datetime,
+    reason: str = "",
+) -> "contracts.FollowupDeferredDTO | contracts.FollowupDeferRejectedDTO | None":
+    """Re-arm the Slack follow-up loop behind a run to check again at ``until``.
+
+    Returns ``None`` when the run isn't visible, a ``FollowupDeferRejectedDTO`` when the run
+    can't defer (not a follow-up run, out-of-bounds time, defer cap spent, or a re-check is
+    already scheduled), and a ``FollowupDeferredDTO`` on success.
+    """
+    from products.tasks.backend.exceptions import (  # noqa: PLC0415 — keep temporalio off the api import path
+        FollowupDeferError,
+    )
+    from products.tasks.backend.logic.services.loop_followups import (  # noqa: PLC0415 — keep temporalio off the api import path
+        request_followup_defer,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    try:
+        result = request_followup_defer(run, until=until, reason=reason)
+    except FollowupDeferError as error:
+        return contracts.FollowupDeferRejectedDTO(code=error.code, detail=error.detail)
+    return contracts.FollowupDeferredDTO(
+        scheduled_for=result.scheduled_for, defers_used=result.defers_used, max_defers=result.max_defers
+    )
+
+
 # --- Task run creation / start / cloud resume ---
 
 

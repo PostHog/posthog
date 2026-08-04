@@ -2755,6 +2755,24 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
 
 /**
+ * Push a thread-bound follow-up loop's next check to a later time instead of reporting now. Called by the run's agent when the data isn't ready yet; re-arms the loop with a new one-time trigger, bounded and capped.
+ * @summary Defer a Slack follow-up's check
+ */
+export const tasksRunsDeferFollowupCreateBodyReasonDefault = ``
+export const tasksRunsDeferFollowupCreateBodyReasonMax = 500
+
+export const TasksRunsDeferFollowupCreateBody = /* @__PURE__ */ zod.object({
+    until: zod.iso
+        .datetime({ offset: true })
+        .describe('When to run the re-check, ISO 8601. Must be between 1 hour and 90 days from now.'),
+    reason: zod
+        .string()
+        .max(tasksRunsDeferFollowupCreateBodyReasonMax)
+        .default(tasksRunsDeferFollowupCreateBodyReasonDefault)
+        .describe("One line on why the check is being pushed back, kept in the loop's history."),
+})
+
+/**
  * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
  * @summary Relay run message to Slack
  */

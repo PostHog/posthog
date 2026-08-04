@@ -93,6 +93,8 @@ import type {
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
+    TaskRunDeferFollowupRequestApi,
+    TaskRunDeferFollowupResponseApi,
     TaskRunDetailDTOApi,
     TaskRunLivingArtifactChartRequestApi,
     TaskRunLivingArtifactChartResponseApi,
@@ -1757,6 +1759,29 @@ export const tasksRunsConnectionTokenRetrieve = async (
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksRunsDeferFollowupCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/defer_followup/`
+}
+
+/**
+ * Push a thread-bound follow-up loop's next check to a later time instead of reporting now. Called by the run's agent when the data isn't ready yet; re-arms the loop with a new one-time trigger, bounded and capped.
+ * @summary Defer a Slack follow-up's check
+ */
+export const tasksRunsDeferFollowupCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunDeferFollowupRequestApi: TaskRunDeferFollowupRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDeferFollowupResponseApi> => {
+    return apiMutator<TaskRunDeferFollowupResponseApi>(getTasksRunsDeferFollowupCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunDeferFollowupRequestApi),
     })
 }
 
