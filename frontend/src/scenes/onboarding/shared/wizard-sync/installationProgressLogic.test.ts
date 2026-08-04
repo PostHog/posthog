@@ -326,6 +326,11 @@ describe('installationProgressLogic merge', () => {
             expect(localProgress(session({ run_phase: 'completed' }), 'open', true).prUrl).toBeNull()
         })
 
+        it('carries the handoff doc so the report button and dialog can render it', () => {
+            expect(localProgress(session({ handoff_text: '# report' }), 'open', true).handoffText).toBe('# report')
+            expect(localProgress(session(), 'open', true).handoffText).toBeNull()
+        })
+
         it('isCurrent mirrors the sticky freshness flag, never a bare session', () => {
             // A stale terminal row replayed by the SSE on connect must not read as a run in flight —
             // that is what used to hijack the install step before the freshness guard.
@@ -430,6 +435,7 @@ describe('installationProgressLogic merge', () => {
                 isCurrent: true,
                 pendingInput: null,
                 startedBy: null,
+                handoffText: null,
             })
         })
 
@@ -509,6 +515,41 @@ describe('installationProgressLogic merge', () => {
         })
     })
 
+    describe('cloudProgress handoff doc run-window gate', () => {
+        const NOW_MS = new Date('2026-01-01T06:00:00Z').getTime()
+        // The wizard stage published its doc at ~00:00 and the pipeline completed hours later, so
+        // the session is far past the recency gate by the time the completed surfaces render.
+        const staleWithDoc = session({
+            started_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:05:00Z',
+            run_phase: 'completed',
+            handoff_text: '# report',
+        })
+        const completedRun = taskState({ status: 'completed' })
+
+        it("keeps the doc from this run's session long after it went stale", () => {
+            // Regression: gating the doc on isSessionFresh meant cloud users could never see it —
+            // the button checks phase === completed, which flips hours after the wizard stage.
+            const result = cloudProgress(completedRun, [], 'open', staleWithDoc, false, NOW_MS, '2025-12-31T23:55:00Z')
+            expect(result.handoffText).toBe('# report')
+        })
+
+        it("rejects a session that predates the run (a previous run's doc)", () => {
+            const result = cloudProgress(completedRun, [], 'open', staleWithDoc, false, NOW_MS, '2026-01-01T01:00:00Z')
+            expect(result.handoffText).toBeNull()
+        })
+
+        it('falls back to the recency gate when no run window is known', () => {
+            expect(cloudProgress(completedRun, [], 'open', staleWithDoc, false, NOW_MS).handoffText).toBeNull()
+            const freshWithDoc = session({
+                updated_at: '2026-01-01T05:59:00Z',
+                run_phase: 'completed',
+                handoff_text: '# report',
+            })
+            expect(cloudProgress(completedRun, [], 'open', freshWithDoc, false, NOW_MS).handoffText).toBe('# report')
+        })
+    })
+
     describe('cloudProgress session freshness gate', () => {
         const NOW_MS = new Date('2026-01-01T00:00:30Z').getTime()
         it('ignores a stale session for both the timeline and the error fallback', () => {
@@ -558,12 +599,14 @@ describe('installationProgressLogic merge', () => {
             markSessionCurrent: jest.Mock
             recordFinishedLocalRun: jest.Mock
             supersedeFinishedLocalRun: jest.Mock
+            handoffDocReceived: jest.Mock
             reportWizardSyncSessionDetected: jest.Mock
             reportWizardSyncSessionFinished: jest.Mock
         } => ({
             markSessionCurrent: jest.fn(),
             recordFinishedLocalRun: jest.fn(),
             supersedeFinishedLocalRun: jest.fn(),
+            handoffDocReceived: jest.fn(),
             reportWizardSyncSessionDetected: jest.fn(),
             reportWizardSyncSessionFinished: jest.fn(),
         })
@@ -634,6 +677,34 @@ describe('installationProgressLogic merge', () => {
             )
             expect(actions.supersedeFinishedLocalRun).toHaveBeenCalledWith('new-run')
             expect(actions.recordFinishedLocalRun).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            // The doc must ride the same freshness gate as everything else (a stale row's doc
+            // re-announced on every app load would fight the once-only auto-open downstream), and
+            // it must wait for the completed push: the reopen buttons only exist on completed runs,
+            // so announcing an errored (or still-running) run's doc would burn the one auto-open on
+            // a dialog the user can never get back to.
+            ['fresh completed session with a doc', fresh({ run_phase: 'completed', handoff_text: '# report' }), 1],
+            ['fresh completed session without a doc', fresh({ run_phase: 'completed' }), 0],
+            ['fresh running session with a doc', fresh({ handoff_text: '# report' }), 0],
+            ['fresh errored session with a doc', fresh({ run_phase: 'error', handoff_text: '# report' }), 0],
+            [
+                'stale completed session with a doc',
+                session({ run_phase: 'completed', handoff_text: '# report', updated_at: '2020-01-01T00:00:00Z' }),
+                0,
+            ],
+        ])('announces the handoff doc only for a %s', (_name, s, expectedCalls) => {
+            const actions = spyActions()
+            runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            expect(actions.handoffDocReceived).toHaveBeenCalledTimes(expectedCalls)
+            if (expectedCalls > 0) {
+                expect(actions.handoffDocReceived).toHaveBeenCalledWith({
+                    key: s.session_id,
+                    text: '# report',
+                    startedByEmail: null,
+                })
+            }
         })
 
         it('tolerates a malformed session with null tasks', () => {

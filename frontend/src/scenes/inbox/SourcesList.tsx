@@ -217,7 +217,7 @@ export function SourcesList(): JSX.Element {
             <Source
                 icon={<IconHeartPlus className="size-5 text-danger" />}
                 title="PostHog Health checks"
-                description="Instrumentation issues – missing events, proxy gaps, outdated SDKs → Signals"
+                description="Instrumentation issues: missing events, proxy gaps, outdated SDKs → Signals"
                 variant="available"
                 checked={!!healthChecksConfig?.enabled}
                 loading={isHealthChecksToggling}
@@ -270,7 +270,7 @@ export function SourcesList(): JSX.Element {
             <Source
                 icon={<IconPgAnalyze className="size-5" />}
                 title="pganalyze"
-                description="Postgres performance findings, slow queries, and index recommendations → Signals"
+                description="Postgres performance signals, slow queries, and index recommendations → Signals"
                 variant="available"
                 checked={!!pgAnalyzeIssuesConfig?.enabled}
                 loading={isPgAnalyzeIssuesToggling}

@@ -1,12 +1,11 @@
 import { type ReactNode } from 'react'
 
 import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
-import { IconDashboard, IconPullRequest, IconRocket, IconSearch, IconTerminal, IconX } from '@posthog/icons'
+import { IconDocument, IconPullRequest, IconRocket, IconSearch, IconTerminal, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import { CheckList } from '../components/CheckList'
 import { prNameLabel } from './helpers'
@@ -15,7 +14,6 @@ import { SELF_DRIVING_UPCOMING_STEPS, syncCopy, UPCOMING_STEPS } from './install
 import { InstallationMode, InstallationProgress } from './installationProgressLogic'
 import { StepIcon } from './StepIcon'
 import { Timeline } from './Timeline'
-import { DetectedDashboard } from './wizardDashboardLogic'
 import { resolveWorkflowId, SELF_DRIVING_WORKFLOW_ID } from './workflows'
 
 const HedgehogWizard = pngHoggie(wizardPng)
@@ -31,8 +29,7 @@ export function InstallationProgressContent({
     continueHint,
     progress,
     mode,
-    dashboard,
-    onDashboardClick,
+    onViewReport,
     onDismiss,
     onRetryLocally,
 }: {
@@ -43,10 +40,9 @@ export function InstallationProgressContent({
     workflowId?: string
     /** Shown while the run is in flight, to say it keeps going if the user navigates away. */
     continueHint?: ReactNode
-    /** Dashboard the wizard built, when detected — surfaced as the completed state's payoff. */
-    dashboard?: DetectedDashboard | null
-    /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
-    onDashboardClick?: () => void
+    /** Opens the run's handoff doc (the setup report) — the completed state's payoff. Only rendered
+     * when the progress actually carries a doc. */
+    onViewReport?: () => void
     onDismiss?: () => void
     /** When set, a failed run offers a "Run it yourself" button (switches the install step to the local
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
@@ -248,23 +244,16 @@ export function InstallationProgressContent({
                 </LemonBanner>
             )}
 
-            {phase === 'completed' && dashboard && (
-                <div className="flex flex-col gap-2">
-                    <p className="text-sm text-muted m-0">
-                        The wizard also set up a dashboard for you. It fills up as soon as your events arrive. Feel free
-                        to look around.
-                    </p>
-                    <LemonButton
-                        type={prUrl ? 'secondary' : 'primary'}
-                        to={urls.dashboard(dashboard.id)}
-                        icon={<IconDashboard />}
-                        center
-                        tooltip={dashboard.name ?? undefined}
-                        onClick={onDashboardClick}
-                    >
-                        Preview your dashboard
-                    </LemonButton>
-                </div>
+            {phase === 'completed' && progress.handoffText && onViewReport && (
+                <LemonButton
+                    type={prUrl ? 'secondary' : 'primary'}
+                    onClick={onViewReport}
+                    icon={<IconDocument />}
+                    center
+                    data-attr="wizard-sync-view-report"
+                >
+                    View setup report
+                </LemonButton>
             )}
         </div>
     )

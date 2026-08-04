@@ -267,6 +267,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
+    # Transient save() state, not columns: _maintain_filter_shape_hashes sets these so the post_save
+    # backfill receivers, which get this same instance, can tell which leaf shapes the save moved.
+    _leaf_shape_changed: bool = False
+    _person_shape_changed: bool = False
+
     objects = CohortManager()  # type: ignore
 
     class Meta:
@@ -380,9 +385,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self._leaf_shape_changed = True
             if person_shape_changed:
                 self.last_backfill_person_properties_at = None
-                # Nothing reads this yet: the receiver that supersedes active person-property runs
-                # on a person-leaf edit — the counterpart to `_leaf_shape_changed` in
-                # dependencies.py — lands with the person-run trigger (B7.3b).
                 self._person_shape_changed = True
 
             if maintained_update_fields is None:

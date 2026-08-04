@@ -15,6 +15,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status, test
 
+from posthog.api.project import ProjectBackwardCompatSerializer
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -448,7 +449,7 @@ def team_api_test_factory():
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch(
-            "products.data_warehouse.backend.presentation.views.managed_warehouse.block_team_deletion",
+            "products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason",
             return_value="Deprovision the managed warehouse first.",
         )
         def test_delete_team_blocked_by_managed_warehouse(
@@ -3518,10 +3519,33 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
                 {"wat": "wat"},
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
+            ["non-numeric string id", {"id": "abc", "key": "flag-key"}, "Must provide an integer 'id'."],
+            ["float id", {"id": 12.5, "key": "flag-key"}, "Must provide an integer 'id'."],
+            ["null id", {"id": None, "key": None}, "Must provide an integer 'id'."],
+            ["boolean id", {"id": True, "key": "flag-key"}, "Must provide an integer 'id'."],
         ]
     )
     def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
+
+    # Object-level validate() needs self.context["view"], so a value that passes field validation
+    # can't go through is_valid() here. The static validator is the shared entry point anyway:
+    # ProjectBackwardCompatSerializer.validate_session_recording_linked_flag delegates straight to it.
+    @parameterized.expand(
+        [
+            ["none", None, None],
+            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            ["numeric string id", {"id": "123", "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            [
+                "variant survives normalization",
+                {"id": "123", "key": "flag-key", "variant": "test"},
+                {"id": 123, "key": "flag-key", "variant": "test"},
+            ],
+        ]
+    )
+    def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
+        assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
+        assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
 
     @parameterized.expand(
         [

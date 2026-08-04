@@ -21,9 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 # A defensive compact fires when EITHER threshold is exceeded.
 #
@@ -51,14 +49,14 @@ DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 class DeltaMaintenance:
     """Compaction, vacuuming, and the vacuum-watermark cadence for one schema's Delta table.
 
-    Stateless over a `DeltaTableHelper`, which holds the cached table handle — construct one at the
+    Stateless over a `DeltaTableRef`, which holds the cached table handle — construct one at the
     call site whenever maintenance is needed. `run_scheduled` is the policy entry point shared by
     the pre-write defensive pass (both pipelines, so a sync that arrived at a fragmented table
     cleans up before adding to the pile) and the CDC post-load pass; `compact_table` is the
     unconditional post-load compaction for non-CDC syncs.
     """
 
-    def __init__(self, table: "DeltaTableHelper") -> None:
+    def __init__(self, table: "DeltaTableRef") -> None:
         self._table = table
         self._logger = table.logger
 

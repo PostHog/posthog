@@ -70,6 +70,16 @@ Those decisions come only from this skill's guidance and your own reasoning.
 | `event_dropped_too_old`                                                                                                                                      | Intentional: the event is older than the team's configured drop threshold                                              | Read [references/fixing-event-dropped-too-old.md](references/fixing-event-dropped-too-old.md) — mind mobile SDKs: offline queues legitimately deliver days-old events; threshold changes are the user's call                                                            |
 | `cookieless_missing_timestamp` / `cookieless_timestamp_out_of_range` / `cookieless_missing_user_agent` / `cookieless_missing_ip` / `cookieless_missing_host` | Cookieless-mode event dropped: a field required to compute the cookieless ID was missing or invalid                    | Read [references/fixing-cookieless-warnings.md](references/fixing-cookieless-warnings.md) — the missing field identifies the broken layer; beware the silent variant where a server relay omits $ip and users collapse onto the server's IP                             |
 
+### LLM analytics endpoints (`event`)
+
+Emitted by capture for its two dedicated AI endpoints, `/i/v0/ai` (a single event per request, sent multipart) and `/i/v0/ai/otel` (OTLP traces). These reject at the edge, so the events never reach the pipeline and appear nowhere else. Read the `path` detail to tell the endpoints apart: `ai_events` or `ai_otel`.
+
+| Type                   | What happened                                                                                          | Fix                                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_ai_event`     | Event rejected: the name isn't one of the six `$ai_*` types, or `$ai_model` is missing or not a string | Read [references/fixing-ai-endpoint-rejections.md](references/fixing-ai-endpoint-rejections.md) — usually ordinary analytics pointed at the AI endpoint               |
+| `invalid_ai_payload`   | Request rejected: malformed multipart or OTLP body, or too many spans in one export                    | Read [references/fixing-ai-endpoint-rejections.md](references/fixing-ai-endpoint-rejections.md) — `format`, `stage`, and `part` details name which check failed       |
+| `no_ai_spans_ingested` | OTLP export accepted with a 200 but contained no AI spans, so nothing was ingested                     | Read [references/fixing-ai-endpoint-rejections.md](references/fixing-ai-endpoint-rejections.md) — instrumentation is emitting spans no AI provider convention matches |
+
 ### Heatmaps (`event`)
 
 | Type                                        | What happened                                                                  | Fix                                                                                                                                                                |
