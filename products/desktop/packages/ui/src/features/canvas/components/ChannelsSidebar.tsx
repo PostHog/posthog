@@ -1,22 +1,13 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
-import { cn, Separator } from "@posthog/quill";
+import { Separator } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
-import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
-import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
-import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
+import { SpacesSidebarNav } from "@posthog/ui/features/canvas/components/SpacesSidebarNav";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
-import {
-  showChannelList,
-  showChannelPane,
-  useChannelPaneStore,
-} from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { LoopsPromoCard } from "@posthog/ui/features/loops/components/LoopsPromoCard";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
@@ -34,69 +25,12 @@ import {
 } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
 import { Box, Flex } from "@radix-ui/themes";
-import { useParams } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useRef } from "react";
+import { useDeferredValue, useEffect } from "react";
 
-/**
- * The sidebar slider: the channel list and the channel you're in, laid out side
- * by side in a track that translates between them.
- *
- * Both panes stay mounted so the slide has something to slide, and so coming
- * back to the list doesn't rebuild every row's menus and dialogs. The offscreen
- * one is `inert`, keeping it out of the tab order and off screen readers.
- *
- * A two-finger horizontal swipe moves between them, so the back row isn't the
- * only way out of a channel — and swiping the other way returns to the channel
- * that stayed scoped the whole time.
- */
-function ChannelPanes({
-  channelId,
-  showList,
-}: {
-  channelId: string | null;
-  showList: boolean;
-}) {
-  const panesRef = useRef<HTMLDivElement | null>(null);
-  useChannelPaneSwipe(panesRef, {
-    // With no channel to slide to, the list is all there is — leave the gesture
-    // to the platform rather than eat it for a slide that can't happen.
-    enabled: channelId != null,
-    onBack: showChannelList,
-    onForward: showChannelPane,
-  });
-
-  return (
-    <Box ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
-      <div
-        className={cn(
-          "flex h-full w-[200%] transition-transform duration-200 ease-out motion-reduce:transition-none",
-          showList ? "translate-x-0" : "-translate-x-1/2",
-        )}
-      >
-        <div className="relative h-full w-1/2 min-w-0" inert={!showList}>
-          <ChannelsList />
-          <ChannelsFab />
-        </div>
-        <div className="h-full w-1/2 min-w-0" inert={showList}>
-          {channelId && (
-            <ErrorBoundary
-              name="channel-sidebar"
-              fallback={<ChannelsList />}
-              resetKey={channelId}
-            >
-              <ChannelSidebar channelId={channelId} />
-            </ErrorBoundary>
-          )}
-        </div>
-      </div>
-    </Box>
-  );
-}
 export function ChannelsSidebar() {
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
@@ -165,49 +99,6 @@ export function ChannelsSidebar() {
 
   const archivedTaskIds = useArchivedTaskIds();
 
-  const params = useParams({ strict: false });
-  const routeChannelId = params.channelId;
-  const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
-  const { currentChannelId, channels } = useCurrentChannel({
-    enabled: channelsLayout,
-  });
-  useEffect(() => {
-    if (!channelsLayout || !routeChannelId) return;
-    setCurrentChannel(routeChannelId);
-    // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
-    // it, so the slider follows the route even if the list was being browsed.
-    showChannelPane();
-  }, [channelsLayout, routeChannelId, setCurrentChannel]);
-
-  // Browsing the list is view state, not navigation: you stay in the channel
-  // (route and main pane unchanged) while you look around. With no channel to
-  // slide to there's only the list.
-  const pane = useChannelPaneStore((s) => s.pane);
-  const showList = pane === "list" || currentChannelId == null;
-
-  const autoScopedRef = useRef(false);
-  useEffect(() => {
-    if (!channelsLayout) {
-      autoScopedRef.current = false;
-      return;
-    }
-    // A route-scoped channel wins over the default. Both effects run from the
-    // same render on a cold deep link, so without this guard the route effect
-    // writes its channel and this later effect immediately overwrites it with
-    // #me using the stale `currentChannelId` captured by that render.
-    if (routeChannelId || autoScopedRef.current || currentChannelId) return;
-    const me = channels.find((c) => c.channelType === "personal");
-    if (!me) return;
-    autoScopedRef.current = true;
-    setCurrentChannel(me.id);
-  }, [
-    channelsLayout,
-    channels,
-    currentChannelId,
-    routeChannelId,
-    setCurrentChannel,
-  ]);
-
   return (
     <ResizableSidebar
       open={open}
@@ -240,8 +131,12 @@ export function ChannelsSidebar() {
             <Box className="shrink-0 px-2 pb-1">
               <ProjectSwitcher />
             </Box>
-            <ChannelNav />
-            <ChannelPanes channelId={currentChannelId} showList={showList} />
+            {/* The static spaces sidebar (prototype): one nav where every space
+                expands inline with its tasks beneath it. Replaces the panes
+                slider under this flag. */}
+            <Box className="min-h-0 flex-1 overflow-y-auto">
+              <SpacesSidebarNav />
+            </Box>
           </>
         ) : bodyChannelsWorld ? (
           <>
