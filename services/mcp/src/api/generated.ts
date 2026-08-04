@@ -8092,6 +8092,26 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode
+     */
+    export type AgentReasoningEffortEnum = typeof AgentReasoningEffortEnum[keyof typeof AgentReasoningEffortEnum];
+
+
+    export const AgentReasoningEffortEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
+    /**
      * * `langgraph` - LangGraph
      * * `sandbox` - Sandbox
      */
@@ -14321,26 +14341,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high
-     * * `xhigh` - xhigh
-     * * `max` - max
-     * * `ultracode` - ultracode
-     */
-    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
-
-
-    export const ReasoningEffortEnum = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Xhigh: 'xhigh',
-      Max: 'max',
-      Ultracode: 'ultracode',
-    } as const;
-
-    /**
      * * `200k` - 200k
      * * `1m` - 1m
      */
@@ -14439,7 +14439,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: AgentReasoningEffortEnum;
       /** Context window size for models that support the 1M window.
        *
        * * `200k` - 200k
@@ -14833,7 +14833,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: AgentReasoningEffortEnum;
       /** Context window size for models that support the 1M window.
        *
        * * `200k` - 200k
@@ -40994,7 +40994,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: AgentReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
          * @maxItems 1
@@ -48378,6 +48378,30 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `off` - off
+     * * `minimal` - minimal
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode
+     */
+    export type TaskRunReasoningEffortEnum = typeof TaskRunReasoningEffortEnum[keyof typeof TaskRunReasoningEffortEnum];
+
+
+    export const TaskRunReasoningEffortEnum = {
+      Off: 'off',
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
     export interface TaskRunArtifactMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -48472,13 +48496,15 @@ export namespace Schemas {
       model?: string | null;
       /** Configured reasoning effort for this run when the selected model supports it.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: TaskRunReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
          * @nullable
@@ -53570,7 +53596,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: AgentReasoningEffortEnum | null;
       /**
          * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
          * @maxItems 1
@@ -56889,7 +56915,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: AgentReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
          * @nullable
@@ -71740,7 +71766,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: AgentReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
          * @nullable
@@ -72116,13 +72142,15 @@ export namespace Schemas {
       model?: string;
       /** Reasoning effort to request for models that expose an effort control.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: TaskRunReasoningEffortEnum;
       /** Context window size for models that support the 1M window.
        *
        * * `200k` - 200k
@@ -72827,7 +72855,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: AgentReasoningEffortEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
          * @nullable
@@ -74122,7 +74150,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: AgentReasoningEffortEnum | null;
       /**
          * Optional sandbox environment to provision before the task is submitted.
          * @nullable

@@ -59,6 +59,13 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
+PI_THINKING_LEVEL_CHOICES = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+TASK_RUN_REASONING_EFFORT_CHOICES = [
+    "off",
+    "minimal",
+    *(effort.value for effort in PUBLIC_REASONING_EFFORTS),
+]
+
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
     view = context.get("view")
@@ -312,7 +319,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
         allow_null=True, required=False, help_text="Configured LLM model identifier for this run."
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=TASK_RUN_REASONING_EFFORT_CHOICES,
         allow_null=True,
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",
@@ -2244,12 +2251,7 @@ class TaskRunBootstrapCreateRequestSerializer(
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
     RUN_SOURCE_CHOICES = [source.value for source in RunSource]
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    PI_THINKING_LEVEL_CHOICES = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
-    REASONING_EFFORT_CHOICES = [
-        "off",
-        "minimal",
-        *(effort.value for effort in PUBLIC_REASONING_EFFORTS),
-    ]
+    REASONING_EFFORT_CHOICES = TASK_RUN_REASONING_EFFORT_CHOICES
 
     environment = serializers.ChoiceField(
         choices=[environment.value for environment in tasks_facade.TaskRunEnvironment],
@@ -2379,7 +2381,7 @@ class TaskRunBootstrapCreateRequestSerializer(
                     errors[field] = "This field cannot be used with a Pi task."
 
             reasoning_effort = attrs.get("reasoning_effort")
-            if reasoning_effort is not None and reasoning_effort not in self.PI_THINKING_LEVEL_CHOICES:
+            if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
                 errors["reasoning_effort"] = "This thinking level is not supported by Pi."
 
             if errors:

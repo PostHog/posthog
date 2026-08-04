@@ -614,6 +614,18 @@ SPECTACULAR_SETTINGS = {
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
         "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "AgentReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
+        "TaskRunReasoningEffortEnum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+            None,
+        ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",

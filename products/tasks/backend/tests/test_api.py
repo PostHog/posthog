@@ -2409,7 +2409,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(field, response.json())
+        self.assertEqual(response.json()["attr"], field)
 
     # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
     @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
