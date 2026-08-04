@@ -993,7 +993,13 @@ export function getExpressionCommentForQuestion(
     questionIndex: number
 ): string {
     if (q.question.trim().length > 0) {
-        return q.question
+        // Sanitize the question text for use as a HogQL single-line comment.
+        // HogQL comments end at the first newline, so any embedded newlines
+        // would break the query and cause "unexpected character" parse errors
+        // on non-ASCII characters (e.g. é, á, ó, ú) that appear after the
+        // newline. Replace newlines with spaces to keep the comment on one line.
+        return q.question.replaceAll(/[
+]+/g, ' ').trim()
     }
     return `Question ${questionIndex + 1}`
 }
