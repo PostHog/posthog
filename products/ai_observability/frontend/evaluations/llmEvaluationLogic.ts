@@ -184,10 +184,16 @@ function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestA
         }
     }
     if (evaluation.target === 'session') {
-        // Preview against the quiet period this evaluation is actually configured with, so the
-        // sample only contains sessions it would already have graded.
+        // Preview against the settle duration this evaluation is actually configured with, so the
+        // sample only contains sessions it would already have graded. A fixed_window session
+        // settles a fixed time after its first matching generation; sampling on that same duration
+        // of inactivity is the conservative read of it — every session in the sample has certainly
+        // settled, though a still-active one that settled mid-conversation won't be sampled.
         request.target_config = {
-            quiet_period_seconds: evaluation.target_config.quiet_period_seconds ?? DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
+            quiet_period_seconds:
+                evaluation.target_config.strategy === 'fixed_window'
+                    ? (evaluation.target_config.window_seconds ?? DEFAULT_SESSION_WINDOW_SECONDS)
+                    : (evaluation.target_config.quiet_period_seconds ?? DEFAULT_SESSION_QUIET_PERIOD_SECONDS),
         }
     }
     return request
@@ -223,6 +229,7 @@ export interface llmEvaluationLogicValues {
     filteredEvaluationRuns: EvaluationRun[]
     formValid: boolean
     hasUnsavedChanges: boolean
+    hogTestMessage: string | null
     hogTestResults: TestHogResultItemApi[] | null
     hogTestResultsLoading: boolean
     isForceRefresh: boolean
@@ -379,6 +386,9 @@ export interface llmEvaluationLogicActions {
     setHogSource: (source: string) => {
         source: string
     }
+    setHogTestMessage: (message: string | null) => {
+        message: string | null
+    }
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
@@ -520,6 +530,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Hog test actions
         clearHogTestResults: true,
+        setHogTestMessage: (message: string | null) => ({ message }),
 
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
@@ -531,7 +542,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         trackSummarizeClicked: true,
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         hogTestResults: [
             null as TestHogResultItemApi[] | null,
             {
@@ -554,7 +565,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             ...result,
                             reasoning: result.reasoning ?? '',
                         }))
+                        // An empty sample is a real answer, not a failure. Without the API's
+                        // explanation the panel is just an empty table, which reads as broken.
+                        actions.setHogTestMessage(results.length === 0 ? (response.message ?? null) : null)
                     } catch (e: unknown) {
+                        actions.setHogTestMessage(null)
                         const message = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Unknown error'
                         results = [
                             {
@@ -751,6 +766,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             patchTargetConfig: () => null,
             setTriggerConditions: () => null,
         },
+        hogTestMessage: [
+            null as string | null,
+            {
+                setHogTestMessage: (_, { message }) => message,
+                clearHogTestResults: () => null,
+                testHogOnSample: () => null,
+            },
+        ],
         selectedModel: [
             '' as string,
             {

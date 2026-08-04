@@ -17,6 +17,8 @@ from django.utils import timezone
 from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 
+from posthog.hogql import ast
+
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -25,6 +27,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     ReportSection,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
+    _SESSION_TRACES_SQL,
     _UUID_RE,
     _ch_ts,
     _execute_ch_query_with_retry,
@@ -425,6 +428,28 @@ class TestTraceDetailTools(SimpleTestCase):
         self.assertNotIn("sample_session_details", trace_tools)
         self.assertIn("get_top_outcome_reasons", generation_tools)
         self.assertNotIn("get_top_outcome_reasons", sentiment_tools)
+
+
+class TestSessionTracesQueryFallback(SimpleTestCase):
+    def test_placeholder_names_survive_the_events_table_rewrite(self) -> None:
+        """The rewriter descends into placeholders, so a placeholder named after an ai_events
+        column is rewritten into a column reference and substitution then fails — which only
+        shows up on the events fallback, the path every other session test mocks out."""
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.visitor import TraversingVisitor
+
+        from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_query_for_events_table
+
+        names: list[str] = []
+
+        class _CollectPlaceholders(TraversingVisitor):
+            def visit_placeholder(self, node: ast.Placeholder) -> None:
+                assert isinstance(node.expr, ast.Field)
+                names.append(".".join(str(part) for part in node.expr.chain))
+
+        _CollectPlaceholders().visit(rewrite_query_for_events_table(parse_select(_SESSION_TRACES_SQL)))
+
+        self.assertEqual(sorted(names), ["limit", "target_session_id", "ts_end", "ts_start"])
 
 
 class TestSessionDetailTools(SimpleTestCase):

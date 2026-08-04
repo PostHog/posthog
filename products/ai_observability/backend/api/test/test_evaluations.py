@@ -550,7 +550,9 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.json())
         body = response.json()
         self.assertEqual(body["results"], [])
-        self.assertIn("24 hours", body["empty_reason"])
+        # `message` is the key the trace and generation previews already use, so the editor
+        # renders every target's empty sample through one path.
+        self.assertIn("24 hours", body["message"])
 
     def test_sentiment_evaluation_rejects_model_configuration(self):
         response = self.client.post(

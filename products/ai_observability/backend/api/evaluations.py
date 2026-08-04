@@ -854,22 +854,20 @@ def _test_hog_over_sessions(
         team=team,
     )
 
-    return Response(
-        {
-            "results": results,
-            # An empty sample here is a real answer, not a failure: at a long quiet period there may
-            # genuinely be no settled session yet. Say which window came up empty so it does not
-            # read as broken.
-            "empty_reason": (
-                None
-                if results
-                else (
+    if not results:
+        # An empty sample here is a real answer, not a failure: at a long quiet period there may
+        # genuinely be no settled session yet. Say which window came up empty so it does not
+        # read as broken.
+        return Response(
+            {
+                "results": [],
+                "message": (
                     f"No sessions have been quiet for {_humanize_seconds(quiet_period_seconds)} in the last "
                     f"{EVALUATION_TEST_LOOKBACK_DAYS} days, so there is nothing to preview yet."
-                )
-            ),
-        }
-    )
+                ),
+            }
+        )
+    return Response({"results": results})
 
 
 def _test_hog_over_traces(

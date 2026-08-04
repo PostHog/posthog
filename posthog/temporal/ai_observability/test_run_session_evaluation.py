@@ -229,7 +229,7 @@ class TestFetchSessionForEvaluation:
         ):
             outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC))
 
-        assert outcome.skip_reason == "session_too_large"
+        assert outcome.skip_reason == "session_payload_too_large"
         assert outcome.traces is None
         mock_session_query_runner.assert_not_called()
 
@@ -345,7 +345,7 @@ class TestFetchSessionForEvaluation:
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize(
         "skip_reason",
-        ["session_not_found", "session_too_large", "session_truncated"],
+        ["session_not_found", "session_too_large", "session_payload_too_large", "session_truncated"],
     )
     def test_hog_skips_carry_a_session_specific_reason(self, skip_reason):
         with patch(

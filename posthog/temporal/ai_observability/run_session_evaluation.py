@@ -68,12 +68,16 @@ _SESSION_SKIP_REASONING = {
         "This session's events have no trace id, so there was nothing to evaluate. Set $ai_trace_id "
         "on the events you want graded."
     ),
-    # One reason for both ways of being too big: to a user they are the same situation. Which limit
-    # tripped is carried by the llma_eval_payload_budget metric, not by a second reason code.
+    # Two reasons, not one: the remedies differ. Too many events is almost always a shared session
+    # id; too much payload is a normal-length session carrying very large inputs or outputs.
     "session_too_large": (
-        f"This session is too large to evaluate. Sessions are capped at {MAX_SESSION_EVAL_EVENTS} events and at "
-        "the payload size one evaluation can hold. This usually means one session id is shared across several "
-        "conversations, so give each conversation its own $ai_session_id."
+        f"This session holds more than {MAX_SESSION_EVAL_EVENTS} events, which is more than one evaluation can "
+        "read. This usually means one session id is shared across several conversations, so give each "
+        "conversation its own $ai_session_id."
+    ),
+    "session_payload_too_large": (
+        "This session's events carry more data than one evaluation can hold, so it was not graded. Trim the "
+        "largest inputs and outputs, or evaluate each trace instead."
     ),
     "session_truncated": (
         f"This session has more than {MAX_SELECT_TRACES_LIMIT_EXPORT} traces, which is more than one evaluation "
@@ -242,7 +246,9 @@ def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: da
         payload_bytes=payload_bytes,
         budget_bytes=payload_budget_bytes(JUDGE_SESSION_MAX_CHARS),
     ):
-        return SessionFetchOutcome(traces=None, skip_reason="session_too_large", event_count=preflight.event_count)
+        return SessionFetchOutcome(
+            traces=None, skip_reason="session_payload_too_large", event_count=preflight.event_count
+        )
 
     event_count = preflight.event_count
     date_from = preflight.first_seen or retention_floor

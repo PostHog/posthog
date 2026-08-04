@@ -1102,6 +1102,9 @@ _MAX_SESSION_DETAIL_TRACES = 50
 # clipping the head off a long session. `session_id` carries a bloom filter, so the width is cheap.
 _SESSION_EXTRA_LOOKBACK_DAYS = 30
 
+# The placeholder is deliberately not named `session_id`: on the events fallback the column
+# rewriter descends into placeholders and would rewrite `{session_id}` into
+# `{properties.$ai_session_id}`, which then has no matching key and fails substitution.
 _SESSION_TRACES_SQL = """
 SELECT
     trace_id,
@@ -1110,7 +1113,7 @@ SELECT
     min(timestamp) AS first_seen,
     max(timestamp) AS last_seen
 FROM posthog.ai_events AS ai_events
-WHERE session_id = {session_id}
+WHERE session_id = {target_session_id}
     AND isNotNull(trace_id)
     AND trace_id != ''
     AND timestamp >= {ts_start}
@@ -1149,7 +1152,7 @@ def _fetch_session_detail(state: dict, session_id: object, max_traces: int) -> d
             team,
             _SESSION_TRACES_SQL,
             placeholders={
-                "session_id": ast.Constant(value=normalized_session_id),
+                "target_session_id": ast.Constant(value=normalized_session_id),
                 "ts_start": ast.Constant(value=ts_start),
                 "ts_end": ast.Constant(value=widened_end),
                 "limit": ast.Constant(value=max_traces + 1),

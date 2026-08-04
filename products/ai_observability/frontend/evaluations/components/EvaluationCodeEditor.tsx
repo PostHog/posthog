@@ -188,7 +188,7 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
 }
 
 function HogTestResultsPanel(): JSX.Element | null {
-    const { hogTestResults, hogTestResultsLoading } = useValues(llmEvaluationLogic)
+    const { hogTestResults, hogTestResultsLoading, hogTestMessage } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
 
     if (!hogTestResults && !hogTestResultsLoading) {
@@ -230,6 +230,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                     Clear
                 </LemonButton>
             </div>
+            {hogTestMessage && <div className="text-sm text-muted">{hogTestMessage}</div>}
             <LemonTable<TestHogResultItemApi>
                 columns={[
                     {

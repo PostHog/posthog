@@ -168,6 +168,15 @@ describe('EvaluationReportViewer', () => {
             expectedUrl: '/ai-observability/sessions/session-9',
             expectedLabel: 'session-...',
         },
+        // $ai_session_id is caller-supplied. An unbalanced ")" would otherwise end the Markdown
+        // link destination early and hijack the rest of the link.
+        {
+            name: 'session citation with Markdown delimiters',
+            citedId: 'sess)1',
+            citation: { session_id: 'sess)1', reason: 'example' },
+            expectedUrl: '/ai-observability/sessions/sess)1',
+            expectedLabel: 'session',
+        },
     ])(
         'links a $name to the correct destination',
         ({ citedId, citation, expectedUrl, expectedLabel, content, expectedPlainText }) => {
@@ -178,7 +187,8 @@ describe('EvaluationReportViewer', () => {
             render(<EvaluationReportViewer reportRun={reportRun} compact />)
 
             const markdown = document.querySelector('[data-testid="react-markdown"]')
-            expect(markdown?.textContent).toContain(`[\`${expectedLabel}\`](${expectedUrl})`)
+            // Angle-bracketed destination so an opaque ID containing ")" can't truncate the link.
+            expect(markdown?.textContent).toContain(`[\`${expectedLabel}\`](<${expectedUrl}>)`)
             if (expectedPlainText) {
                 expect(markdown?.textContent).toContain(expectedPlainText)
             }

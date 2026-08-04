@@ -62,7 +62,9 @@ function linkifyCitations(content: string, citations: EvaluationReportCitation[]
         }
         const { citedId, url } = target
         const token = `\0CITE${idx}\0`
-        const link = `[\`${citationLinkLabel(citedId, target.label)}\`](${url})`
+        // Angle-bracket destination: trace and session IDs are opaque and caller-supplied, and a
+        // bare ")" in one would otherwise close the destination early and hijack the rest of the link.
+        const link = `[\`${citationLinkLabel(citedId, target.label)}\`](<${url}>)`
         const before = out
         out = out.split(`\`${citedId}\``).join(token)
         out = out.split(`<${citedId}>`).join(token)
