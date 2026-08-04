@@ -180,11 +180,9 @@ async def validate_schema_and_update_table(
 
         # The HogQL table name derives from the raw schema name (only lower-cased); the S3 folder is
         # the snake_cased `s3_folder_name`. They differ on purpose — see `resolve_table_and_folder_names`.
-        table_storage_name, normalized_schema_name = resolve_table_and_folder_names(
-            _schema_name, external_data_schema.resolved_s3_folder_name
-        )
-        table_name = build_table_name(job.pipeline, table_storage_name)
-        new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
+        names = resolve_table_and_folder_names(_schema_name, external_data_schema.resolved_s3_folder_name)
+        table_name = build_table_name(job.pipeline, names.table_storage_name)
+        new_url_pattern = job.url_pattern_by_schema(names.folder_name)
 
         try:
             logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
