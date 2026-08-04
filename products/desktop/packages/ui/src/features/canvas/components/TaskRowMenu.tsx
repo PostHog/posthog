@@ -13,12 +13,14 @@ import {
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
+import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   type MenuFlyoutItem,
   MenuSubFlyout,
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
+import { toast } from "@posthog/ui/primitives/toast";
 import { type ComponentType, type ReactNode, useMemo } from "react";
 
 /**
@@ -93,6 +95,16 @@ function TaskRowMenuItems({
   const { channels } = useChannels({ enabled: bluebirdEnabled && isTask });
   const fileToChannel = useFileTaskToChannel();
 
+  // The watch list is a global view store, so any task row can toggle it — no
+  // need to thread a handler through every list. Watch-list rows still pass an
+  // explicit remover (they know their own context), which wins.
+  const watchList = useSpacesSidebarStore((s) => s.watchList);
+  const addToWatchList = useSpacesSidebarStore((s) => s.addToWatchList);
+  const removeFromWatchList = useSpacesSidebarStore(
+    (s) => s.removeFromWatchList,
+  );
+  const isWatched = isTask && watchList.some((entry) => entry.id === menu.id);
+
   const channelItems: MenuFlyoutItem[] = channels.map((channel) => ({
     id: channel.id,
     label: channel.name,
@@ -126,9 +138,32 @@ function TaskRowMenuItems({
           </MenuSubFlyout>
         </Sub>
       )}
-      {menu.onRemoveFromWatchList && (
-        <Item onClick={menu.onRemoveFromWatchList}>Remove from watch list</Item>
-      )}
+      {/* Watch-list rows pass their own remover; every other task row toggles
+          the store directly, so a task can be watched from wherever it's
+          listed. Same action as ⌘⇧W. */}
+      {isTask &&
+        (menu.onRemoveFromWatchList ? (
+          <Item onClick={menu.onRemoveFromWatchList}>
+            Remove from watch list
+          </Item>
+        ) : isWatched ? (
+          <Item onClick={() => removeFromWatchList(menu.id)}>
+            Remove from watch list
+          </Item>
+        ) : (
+          <Item
+            onClick={() => {
+              addToWatchList({
+                id: menu.id,
+                title: menu.title,
+                addedAt: Date.now(),
+              });
+              toast.success("Added to watch list", { description: menu.title });
+            }}
+          >
+            Add to watch list
+          </Item>
+        ))}
       {menu.onArchive && <Item onClick={menu.onArchive}>Archive</Item>}
       {/* The ellipsis is the promise that a confirm follows — deleting a canvas
           takes it away from everyone in the space. */}

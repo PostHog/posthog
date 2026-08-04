@@ -215,6 +215,15 @@ export function SpaceSection({
             >
               {channel.name}
             </span>
+            {/* Unread activity: a dot beside the bold name, so a space with
+                something to read is legible at a glance and not only by weight.
+                Stays left of the trailing well, clear of the hover controls. */}
+            {isUnread && (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                title="Unread activity"
+              />
+            )}
             {/* Trailing well, reserved so the name truncates clear of the lock
               and the hover controls rather than shifting when they appear.
               #me has two controls (new task, open); shared spaces add the
@@ -282,9 +291,11 @@ export function SpaceSection({
       </ContextMenu>
 
       {/* Tasks under the space, pinned first. Same inset as the channel
-          groups' trees (pl-5). A search opens every matching space. */}
+          groups' trees (pl-5). The pt-1 keeps the first task's selected fill
+          from butting straight up against the space row's own when both are
+          active. A search opens every matching space. */}
       {(open || searching) && (
-        <div className="flex flex-col gap-px pb-1 pl-5">
+        <div className="flex flex-col gap-px pt-1 pb-1 pl-5">
           {isLoading && sectionItems.length === 0 ? (
             <div className="flex flex-col gap-2 px-2 py-2">
               <Skeleton className="h-3 w-3/4" />

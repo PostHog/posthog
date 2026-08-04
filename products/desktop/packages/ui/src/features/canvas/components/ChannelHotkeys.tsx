@@ -2,8 +2,12 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToChannel } from "@posthog/ui/router/navigationBridge";
+import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHotkeys } from "react-hotkeys-hook";
 
@@ -22,6 +26,31 @@ export function ChannelHotkeys() {
   const channelsLayout = useChannelsLayout();
   const { slots } = useStarredChannelSlots();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
+  const view = useAppView();
+  const { data: allTasks = [] } = useTasks({ showAllUsers: true });
+  const addToWatchList = useSpacesSidebarStore((s) => s.addToWatchList);
+
+  // ⌘⇧W watches whatever task you're looking at — the keyboard twin of the
+  // row's "Add to watch list". It's a no-op anywhere but a task detail, since
+  // that's the only place there's a single obvious task to watch.
+  useHotkeys(
+    SHORTCUTS.ADD_TO_WATCH_LIST,
+    () => {
+      const taskId = view.type === "task-detail" ? view.taskId : undefined;
+      if (!taskId) return;
+      const title =
+        allTasks.find((t) => t.id === taskId)?.title ?? "Untitled task";
+      addToWatchList({ id: taskId, title, addedAt: Date.now() });
+      toast.success("Added to watch list", { description: title });
+    },
+    {
+      enabled: channelsLayout,
+      enableOnFormTags: true,
+      enableOnContentEditable: true,
+      preventDefault: true,
+    },
+    [view, allTasks, addToWatchList],
+  );
 
   useHotkeys(
     SHORTCUTS.SWITCH_STARRED_CHANNEL,

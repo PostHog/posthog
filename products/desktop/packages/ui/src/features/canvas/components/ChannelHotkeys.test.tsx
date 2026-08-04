@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   channelsLayout: true,
   slots: [] as { id: string; name: string; path: string }[],
   navigateToChannel: vi.fn(),
+  view: { type: "task-input" } as { type: string; taskId?: string },
+  tasks: [] as { id: string; title: string }[],
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
@@ -20,9 +22,19 @@ vi.mock("@posthog/ui/features/canvas/hooks/useStarredChannelSlots", () => ({
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannel: (...args: unknown[]) => mocks.navigateToChannel(...args),
 }));
+vi.mock("@posthog/ui/router/useAppView", () => ({
+  useAppView: () => mocks.view,
+}));
+vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
+  useTasks: () => ({ data: mocks.tasks }),
+}));
+vi.mock("@posthog/ui/primitives/toast", () => ({
+  toast: { success: vi.fn() },
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useSpacesSidebarStore } from "@posthog/ui/features/canvas/stores/spacesSidebarStore";
 import { ChannelHotkeys } from "./ChannelHotkeys";
 
 function press(digit: string, modifiers: Partial<KeyboardEventInit> = {}) {
@@ -45,7 +57,10 @@ describe("ChannelHotkeys", () => {
       { id: "me-id", name: "me", path: "/me" },
       { id: "eng-id", name: "eng", path: "/eng" },
     ];
+    mocks.view = { type: "task-input" };
+    mocks.tasks = [];
     useCurrentChannelStore.setState({ currentChannelId: null });
+    useSpacesSidebarStore.setState({ watchList: [] });
   });
 
   // The regression: this component is rendered ALONE — no sidebar at all.
@@ -92,5 +107,28 @@ describe("ChannelHotkeys", () => {
     render(<ChannelHotkeys />);
     press("1", { metaKey: true });
     expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+  });
+
+  // ⌘⇧W watches the task you're looking at — the keyboard twin of the row menu.
+  it("adds the current task to the watch list on mod+shift+w", () => {
+    mocks.view = { type: "task-detail", taskId: "task-1" };
+    mocks.tasks = [{ id: "task-1", title: "Fix the thing" }];
+    render(<ChannelHotkeys />);
+
+    press("w", { metaKey: true, shiftKey: true });
+
+    const watchList = useSpacesSidebarStore.getState().watchList;
+    expect(watchList.map((e) => e.id)).toEqual(["task-1"]);
+    expect(watchList[0].title).toBe("Fix the thing");
+  });
+
+  // Nowhere obvious to watch → no-op, rather than watching a phantom.
+  it("does nothing on mod+shift+w outside a task detail", () => {
+    mocks.view = { type: "task-input" };
+    render(<ChannelHotkeys />);
+
+    press("w", { metaKey: true, shiftKey: true });
+
+    expect(useSpacesSidebarStore.getState().watchList).toEqual([]);
   });
 });
