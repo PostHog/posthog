@@ -5895,7 +5895,7 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-five-variants--light:
         hash: v1.k794b7964.ca65930ed4fba58aa886be84c0489a0702ef118abac3516ed530db42a772ad71.fp95LwvCUvwV1spa0Back9q7nUlZVypBoc4UMXJh9qc
     scenes-app-experiments--experiment-frequentist-two-variants--dark:
-        hash: v1.k794b7964.fbf1df2e60a7a9bf7aaadb8a463b4bffb7bcc3ac1fda3526d3354c5224b6d9ae.GAeCKzstYDp9qrQI3OU-83C-NDDTM__YuSgKBZxRK64
+        hash: v1.k794b7964.045c33562841fedac0650c2b70ad4fda3b5bac5a2f43fc01310759ba3347a24f.ZwvpM3E6g3mcUx0ZrbltZHnAWoaSX7wlgu79kfGkRb8
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.b349b1f26f7d80b19b9772a0b011dfb52f23470ad04cf37b051ee3ff4ad9fdda.b7dOvKFXgBwnaUoLtGjiaVaT6ai_j3-UXDxx3IRcOzw
     scenes-app-experiments--experiment-with-funnel-metric--dark:
