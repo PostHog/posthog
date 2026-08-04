@@ -78,7 +78,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
         extra.recording_active_seconds != null ? humanFriendlyDuration(extra.recording_active_seconds) : undefined
     const totalDuration = extra.recording_duration != null ? humanFriendlyDuration(extra.recording_duration) : undefined
 
-    const findingWindow = `${colonDelimitedDuration(extra.start_time, 2)} – ${colonDelimitedDuration(extra.end_time, 2)}`
+    const findingWindow = `${colonDelimitedDuration(extra.start_time, 2)} to ${colonDelimitedDuration(extra.end_time, 2)}`
 
     return (
         <SignalCardShell
