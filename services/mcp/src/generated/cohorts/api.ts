@@ -21,7 +21,7 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id\/name\/count.'
+            'Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id\/name\/count.'
         ),
     hide_behavioral_cohorts: zod
         .boolean()
