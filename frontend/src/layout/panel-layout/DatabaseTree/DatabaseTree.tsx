@@ -78,8 +78,12 @@ export const DatabaseTree = memo(function DatabaseTree({
                 className={cn(
                     'flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true overflow-auto',
                     // A notebook cell sizes to its content and has no viewport-tall box to fill, so a
-                    // viewport-height panel drags the whole cell open. Cap it and scroll the list instead.
-                    embedded ? 'min-h-0 flex-1 max-h-[280px]' : 'h-[calc(100vh-var(--scene-layout-header-height))]'
+                    // viewport-height panel drags the whole cell open. `h-0` keeps the schema list out of
+                    // that calculation (the cell opens at the 280px floor, and the list scrolls), while
+                    // `flex-auto` still lets the panel grow when the user drags the cell taller. A
+                    // `max-height` would cap it there instead, and `basis-0` would put the list's full
+                    // height back into the cell's intrinsic size.
+                    embedded ? 'h-0 flex-auto min-h-[280px]' : 'h-[calc(100vh-var(--scene-layout-header-height))]'
                 )}
                 innerClassName="flex flex-col gap-2"
                 styledScrollbars
