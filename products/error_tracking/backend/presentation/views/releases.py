@@ -16,6 +16,9 @@ from products.error_tracking.backend.facade import (
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 MAX_HASH_ID_LENGTH = 128
+# Version and project are embedded into every matching exception event by cymbal, and neither
+# needs more room than a long semver, commit SHA, or bundle identifier.
+MAX_TEXT_LENGTH = 255
 # Kept in sync with MAX_RELEASE_METADATA_BYTES in rust/cymbal/src/core/types/frames/releases.rs:
 # cymbal embeds metadata into every matching exception event, so an unbounded value would be
 # amplified across the whole event stream.
@@ -34,8 +37,13 @@ class ErrorTrackingReleaseSerializer(DataclassSerializer):
 
 
 class ErrorTrackingReleaseCreateRequestSerializer(serializers.Serializer):
-    version = serializers.CharField(help_text="Human-readable release version, e.g. a semver string or build number.")
-    project = serializers.CharField(help_text="Identifier of the project this release belongs to.")
+    version = serializers.CharField(
+        max_length=MAX_TEXT_LENGTH,
+        help_text="Human-readable release version, e.g. a semver string or build number.",
+    )
+    project = serializers.CharField(
+        max_length=MAX_TEXT_LENGTH, help_text="Identifier of the project this release belongs to."
+    )
     hash_id = serializers.CharField(
         required=False,
         allow_null=True,
@@ -51,10 +59,16 @@ class ErrorTrackingReleaseCreateRequestSerializer(serializers.Serializer):
 
 class ErrorTrackingReleaseUpdateRequestSerializer(serializers.Serializer):
     version = serializers.CharField(
-        required=False, allow_null=True, help_text="Human-readable release version. Omit to preserve the current value."
+        required=False,
+        allow_null=True,
+        max_length=MAX_TEXT_LENGTH,
+        help_text="Human-readable release version. Omit to preserve the current value.",
     )
     project = serializers.CharField(
-        required=False, allow_null=True, help_text="Project identifier. Omit to preserve the current value."
+        required=False,
+        allow_null=True,
+        max_length=MAX_TEXT_LENGTH,
+        help_text="Project identifier. Omit to preserve the current value.",
     )
     hash_id = serializers.CharField(
         required=False,
@@ -89,6 +103,14 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise ValidationError("Metadata is too large. Keep it under 8 KB.")
         return metadata
 
+    def _validated_text(self, value: object, field: str) -> str | None:
+        if value is None:
+            return None
+        value = str(value)
+        if len(value) > MAX_TEXT_LENGTH:
+            raise ValidationError(f"{field} is too long. Keep it under {MAX_TEXT_LENGTH} characters.")
+        return value
+
     def list(self, request, *args, **kwargs) -> Response:
         return paginate_via_facade(
             self,
@@ -107,8 +129,8 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         responses={201: OpenApiResponse(response=ErrorTrackingReleaseSerializer)},
     )
     def create(self, request, *args, **kwargs) -> Response:
-        version = request.data.get("version")
-        project = request.data.get("project")
+        version = self._validated_text(request.data.get("version"), "Version")
+        project = self._validated_text(request.data.get("project"), "Project")
         if not version:
             raise ValidationError("Version is required")
         if not project:
@@ -118,8 +140,8 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         try:
             release = error_tracking_api.create_release(
                 self.team.id,
-                version=str(version),
-                project=str(project),
+                version=version,
+                project=project,
                 hash_id=hash_id,
                 metadata=metadata,
             )
@@ -135,8 +157,8 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 pk,
                 metadata=self._validated_metadata(data.get("metadata")),
                 hash_id=hash_id,
-                version=data.get("version"),
-                project=data.get("project"),
+                version=self._validated_text(data.get("version"), "Version"),
+                project=self._validated_text(data.get("project"), "Project"),
             )
         except error_tracking_api.ReleaseHashInUseError as err:
             raise ValidationError(f"Hash id {err} already in use", code=RELEASE_HASH_IN_USE_ERROR_CODE) from err

@@ -1395,9 +1395,15 @@ export interface PaginatedErrorTrackingReleaseListApi {
 export type ErrorTrackingReleaseCreateRequestApiMetadata = { [key: string]: unknown } | null
 
 export interface ErrorTrackingReleaseCreateRequestApi {
-    /** Human-readable release version, e.g. a semver string or build number. */
+    /**
+     * Human-readable release version, e.g. a semver string or build number.
+     * @maxLength 255
+     */
     version: string
-    /** Identifier of the project this release belongs to. */
+    /**
+     * Identifier of the project this release belongs to.
+     * @maxLength 255
+     */
     project: string
     /**
      * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
@@ -1421,11 +1427,13 @@ export type ErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unkn
 export interface ErrorTrackingReleaseUpdateRequestApi {
     /**
      * Human-readable release version. Omit to preserve the current value.
+     * @maxLength 255
      * @nullable
      */
     version?: string | null
     /**
      * Project identifier. Omit to preserve the current value.
+     * @maxLength 255
      * @nullable
      */
     project?: string | null
@@ -1451,11 +1459,13 @@ export type PatchedErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string
 export interface PatchedErrorTrackingReleaseUpdateRequestApi {
     /**
      * Human-readable release version. Omit to preserve the current value.
+     * @maxLength 255
      * @nullable
      */
     version?: string | null
     /**
      * Project identifier. Omit to preserve the current value.
+     * @maxLength 255
      * @nullable
      */
     project?: string | null
