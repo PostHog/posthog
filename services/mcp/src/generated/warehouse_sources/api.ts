@@ -1814,7 +1814,13 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
     payload: zod
         .record(zod.string(), zod.unknown())
         .describe("Connection credentials and a 'schemas' array. Keys depend on source_type."),
-    prefix: zod.string().max(externalDataSourcesCreateBodyPrefixMax).nullish().describe('Table name prefix in HogQL.'),
+    prefix: zod
+        .string()
+        .max(externalDataSourcesCreateBodyPrefixMax)
+        .nullish()
+        .describe(
+            'Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.'
+        ),
     description: zod
         .string()
         .max(externalDataSourcesCreateBodyDescriptionMax)
@@ -3645,7 +3651,9 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(externalDataSourcesSetupCreateBodyPrefixMax)
         .nullish()
-        .describe("Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type."),
+        .describe(
+            "Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. Does not filter which tables are imported. Defaults to the source type."
+        ),
     description: zod
         .string()
         .max(externalDataSourcesSetupCreateBodyDescriptionMax)
