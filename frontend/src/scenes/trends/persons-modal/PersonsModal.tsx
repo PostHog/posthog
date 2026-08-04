@@ -82,6 +82,7 @@ export function PersonsModal({
     inline,
     additionalSelect,
     orderBy,
+    filtersOverride,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -91,6 +92,7 @@ export function PersonsModal({
         query: _query,
         additionalSelect,
         orderBy,
+        filtersOverride,
     })
 
     const {

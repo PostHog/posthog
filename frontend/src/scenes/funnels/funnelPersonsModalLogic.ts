@@ -165,7 +165,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         ],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ values, props }) => ({
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
             // Note - when in a legend the step.order is always 0 so we use stepIndex instead
             const stepNo = typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1
@@ -190,7 +190,12 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 funnelStep: converted ? stepNo : -stepNo,
                 includeRecordings: true,
             }
-            openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
+            openPersonsModal({
+                title,
+                query,
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+                filtersOverride: props.filtersOverride,
+            })
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
             const stepNo = step.order + 1
@@ -218,7 +223,12 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 compare: series.compare_label,
                 includeRecordings: true,
             }
-            openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
+            openPersonsModal({
+                title,
+                query,
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+                filtersOverride: props.filtersOverride,
+            })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
@@ -262,6 +272,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     title,
                     query,
                     additionalSelect: { matched_recordings: 'matched_recordings' },
+                    filtersOverride: props.filtersOverride,
                 })
             } else {
                 const { name } = parseEventAndProperty(correlation.event)
@@ -343,6 +354,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     title,
                     query,
                     additionalSelect: { matched_recordings: 'matched_recordings' },
+                    filtersOverride: props.filtersOverride,
                 })
             }
         },

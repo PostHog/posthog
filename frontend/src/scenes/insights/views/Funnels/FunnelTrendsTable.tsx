@@ -99,7 +99,7 @@ export function FunnelTrendsTable(): JSX.Element | null {
             breakdownValue,
             compare: row.compare_label,
         })
-        openPersonsModal({ title, query })
+        openPersonsModal({ title, query, filtersOverride: insightProps.filtersOverride })
     }
 
     const periodColumns = Array.from(

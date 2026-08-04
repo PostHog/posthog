@@ -642,6 +642,94 @@ describe('personsModalLogic', () => {
                 ])
             )
         })
+
+        it('translates a distinct_id hogql filter and drops other hogql filters in the fallback path', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                        properties: [
+                            {
+                                type: PropertyFilterType.HogQL,
+                                key: "distinct_id NOT IN ('usr_a', 'usr_b')",
+                            },
+                            {
+                                type: PropertyFilterType.HogQL,
+                                key: "dateDiff('day', timestamp, now()) < 7",
+                            },
+                            {
+                                type: PropertyFilterType.Person,
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                    includeRecordings: true,
+                },
+                url: '/api/environments/1/persons?',
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+            })
+            logic.mount()
+
+            const filters = logic.values.recordingFilters
+            const innerValues = (filters.filter_group as any)?.values?.[0]?.values
+
+            // The distinct_id hogql filter is a known-safe shape — translate it to a person
+            // property filter so it's evaluated through the person→pdi join replay actually
+            // supports, instead of being parsed verbatim against a table it doesn't scope to.
+            expect(innerValues).toContainEqual({
+                type: PropertyFilterType.Person,
+                key: 'distinct_id',
+                operator: PropertyOperator.IsNot,
+                value: ['usr_a', 'usr_b'],
+            })
+            // The person property filter passes through untouched.
+            expect(innerValues).toContainEqual(
+                expect.objectContaining({ type: PropertyFilterType.Person, key: 'email' })
+            )
+            // The unrecognized hogql filter has no safe replay equivalent — dropped, not forwarded.
+            expect(innerValues.some((value: any) => value.type === PropertyFilterType.HogQL)).toBe(false)
+        })
+
+        it('prioritizes filtersOverride date range and properties over the insight query', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                        dateRange: { date_from: '-14d' },
+                    },
+                    includeRecordings: true,
+                },
+                url: '/api/environments/1/persons?',
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+                filtersOverride: {
+                    date_from: '-7d',
+                    date_to: null,
+                    properties: [
+                        {
+                            type: PropertyFilterType.Person,
+                            key: 'plan',
+                            value: 'paid',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            })
+            logic.mount()
+
+            const filters = logic.values.recordingFilters
+            const innerValues = (filters.filter_group as any)?.values?.[0]?.values
+
+            expect(filters.date_from).toEqual('-7d')
+            expect(innerValues).toContainEqual(
+                expect.objectContaining({ type: PropertyFilterType.Person, key: 'plan' })
+            )
+        })
     })
 
     describe('insightEventsQueryUrl', () => {

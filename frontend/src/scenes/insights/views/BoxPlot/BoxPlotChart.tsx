@@ -96,9 +96,10 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                     matched_recordings: 'matched_recordings',
                 },
                 orderBy: ['event_count DESC, actor_id DESC'],
+                filtersOverride: insightProps.filtersOverride,
             })
         },
-        [showPersonsModal, querySource, seriesGroups, interval, insightData, timezone, weekStartDay]
+        [showPersonsModal, querySource, seriesGroups, interval, insightData, timezone, weekStartDay, insightProps]
     )
 
     if (!boxplotData || boxplotData.length === 0) {

@@ -162,6 +162,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                                         matched_recordings: 'matched_recordings',
                                     },
                                     orderBy: ['event_count DESC, actor_id DESC'],
+                                    filtersOverride: insightProps.filtersOverride,
                                 })
                             }
                           : undefined
@@ -258,6 +259,7 @@ function BoldNumberComparison({
                                             matched_recordings: 'matched_recordings',
                                         },
                                         orderBy: ['event_count DESC, actor_id DESC'],
+                                        filtersOverride: insightProps.filtersOverride,
                                     })
                                 }
                             }}

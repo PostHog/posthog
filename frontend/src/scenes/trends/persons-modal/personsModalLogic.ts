@@ -30,6 +30,7 @@ import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
+    DashboardFilter,
     DataTableNode,
     ExperimentActorsQuery,
     FunnelCorrelationActorsQuery,
@@ -140,11 +141,49 @@ function buildFunnelBreakdownFilter(source: ActorsQuery['source'] | null): Unive
     }
 }
 
+// Matches the shape used by "exclude internal users" filters: a raw HogQL comparison of
+// `distinct_id` against a literal list, e.g. `distinct_id NOT IN ('usr_a', 'usr_b')`.
+const HOGQL_DISTINCT_ID_FILTER_RE = /^\s*distinct_id\s*(not\s+)?in\s*[[(]([^\])]*)[\])]\s*$/i
+
+// A raw HogQL property filter (e.g. `distinct_id NOT IN (...)`, `person.id != ...`) is written
+// against the insight's own query context (usually the events table) and gets parsed verbatim
+// into whatever table replay's session-level query happens to bind that column name to — which
+// isn't the events table, so it silently matches nothing or something unintended (see
+// posthog/hogql/property.py's "hogql" branch: it just calls parse_expr with no rescoping).
+// Translate the one common shape with a real replay equivalent (person.pdi.distinct_id, which
+// property_to_expr special-cases for the "person" filter type) and drop everything else, rather
+// than passing it through and hoping the replay backend's catch-all absorbs it correctly.
+function translateHogQLPropertyForReplay(property: UniversalFilterValue): UniversalFilterValue | null {
+    if (!('type' in property) || property.type !== PropertyFilterType.HogQL) {
+        return property
+    }
+    const match = HOGQL_DISTINCT_ID_FILTER_RE.exec(property.key)
+    if (!match) {
+        return null
+    }
+    const values = match[2]
+        .split(',')
+        .map((value) => value.trim().replace(/^['"]|['"]$/g, ''))
+        .filter(Boolean)
+    if (values.length === 0) {
+        return null
+    }
+    return {
+        type: PropertyFilterType.Person,
+        key: 'distinct_id',
+        operator: match[1] ? PropertyOperator.IsNot : PropertyOperator.Exact,
+        value: values,
+    }
+}
+
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | ExperimentActorsQuery | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]
+    /** Dashboard/tile filter overrides the insight tile ran with — threaded through so the modal's
+     * actors query and derived recording filters match the tile instead of the insight's raw query. */
+    filtersOverride?: DashboardFilter | null
 }
 
 export interface ListActorsResponse {
@@ -280,7 +319,7 @@ export interface personsModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         actorLabel: (
             actors: ActorType[],
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => Noun
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
@@ -297,7 +336,8 @@ export interface personsModalLogicMeta {
         recordingFilters: (
             actorsQuery: ActorsQuery | null,
             propertiesTimelineFilterFromUrl: PropertiesTimelineFilterType,
-            sessionIdsFromLoadedActors: string[]
+            sessionIdsFromLoadedActors: string[],
+            arg: any
         ) => Partial<RecordingUniversalFilters>
     }
 }
@@ -363,7 +403,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                     offset,
                                 },
                                 { recursion: false }
-                            ) as ActorsQuery
+                            ) as ActorsQuery,
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            props.filtersOverride
                         )
                         breakpoint()
 
@@ -452,7 +497,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         },
                         { recursion: false }
                     )
-                    const response = await performQuery(optionsQuery, {}, 'blocking')
+                    const response = await performQuery(
+                        optionsQuery,
+                        {},
+                        'blocking',
+                        undefined,
+                        undefined,
+                        props.filtersOverride
+                    )
 
                     return Object.fromEntries(
                         Object.entries(response).filter(([key, _]) =>
@@ -733,11 +785,17 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         recordingFilters: [
-            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl, s.sessionIdsFromLoadedActors],
+            (s) => [
+                s.actorsQuery,
+                s.propertiesTimelineFilterFromUrl,
+                s.sessionIdsFromLoadedActors,
+                (_, p) => p.filtersOverride,
+            ],
             (
                 actorsQuery: ActorsQuery | null,
                 propertiesTimelineFilter: PropertiesTimelineFilterType,
-                sessionIds: string[]
+                sessionIds: string[],
+                filtersOverride: PersonModalLogicProps['filtersOverride']
             ): Partial<RecordingUniversalFilters> => {
                 if (!actorsQuery || !actorsQuery.source) {
                     return {}
@@ -747,6 +805,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 // Scope recordings to the selected funnel breakdown value (e.g. country = "NL").
                 const funnelBreakdownFilter = buildFunnelBreakdownFilter(source)
+
+                // Dashboard/tile filters take priority over the underlying insight's own — mirrors
+                // how the backend applies them to the actors query (see filtersOverride threading).
+                const overrideProperties = (filtersOverride?.properties || [])
+                    .map(translateHogQLPropertyForReplay)
+                    .filter((property): property is UniversalFilterValue => Boolean(property))
 
                 // The actual insight query (with series, properties, etc.) is nested at source.source
                 let insightQuery = source
@@ -763,6 +827,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     date_to = dateRange.date_to || date_to
                 }
 
+                // The dashboard/tile date range takes priority over the insight's own, same as the
+                // backend does when applying filtersOverride to the actors query.
+                if (filtersOverride?.date_from || filtersOverride?.date_to) {
+                    date_from = filtersOverride.date_from || date_from
+                    date_to = filtersOverride.date_to || date_to
+                }
+
                 // If we have session IDs from matched_recordings, use them directly for efficient lookup
                 if (sessionIds.length > 0) {
                     return {
@@ -772,7 +843,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             values: [
                                 {
                                     type: FilterLogicalOperator.And,
-                                    values: funnelBreakdownFilter ? [funnelBreakdownFilter] : [],
+                                    values: funnelBreakdownFilter
+                                        ? [funnelBreakdownFilter, ...overrideProperties]
+                                        : overrideProperties,
                                 },
                             ],
                         },
@@ -840,14 +913,23 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     filters.push(funnelBreakdownFilter)
                 }
 
-                // Add global properties from the insight query
+                // Add global properties from the insight query. HogQL-typed filters aren't
+                // safe to forward as-is (see translateHogQLPropertyForReplay) — translate or drop them.
                 if (
                     'properties' in insightQuery &&
                     Array.isArray(insightQuery.properties) &&
                     insightQuery.properties.length > 0
                 ) {
-                    filters.push(...insightQuery.properties)
+                    filters.push(
+                        ...insightQuery.properties
+                            .map(translateHogQLPropertyForReplay)
+                            .filter((property: UniversalFilterValue | null): property is UniversalFilterValue =>
+                                Boolean(property)
+                            )
+                    )
                 }
+
+                filters.push(...overrideProperties)
 
                 // Build the result for non-funnel or fallback cases
                 return {

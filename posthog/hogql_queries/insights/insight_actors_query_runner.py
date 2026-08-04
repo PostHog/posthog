@@ -1,6 +1,7 @@
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    DashboardFilter,
     ExperimentActorsQuery,
     FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
@@ -71,6 +72,13 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def validate(self) -> None:
         super().validate()
         self.source_runner.validate()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        # `self.query` (InsightActorsQuery/FunnelsActorsQuery/...) has no `properties`/`dateRange`
+        # of its own — those live on `self.query.source`, which is what `source_runner` wraps. The
+        # base implementation would no-op on `self.query` directly, so delegate to the runner that
+        # actually owns the filterable fields; it mutates `self.query.source` in place.
+        self.source_runner.apply_dashboard_filters(dashboard_filter)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):

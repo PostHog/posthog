@@ -208,7 +208,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         ],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ values, props }) => ({
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             const query: InsightActorsQuery = {
                 kind: NodeKind.InsightActorsQuery,
@@ -233,6 +233,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     matched_recordings: 'matched_recordings',
                 },
                 orderBy: ['event_count DESC, actor_id DESC'],
+                filtersOverride: props.filtersOverride,
             }
             openPersonsModal(modalProps)
         },

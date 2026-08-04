@@ -13,6 +13,7 @@ from posthog.test.base import (
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
+    DashboardFilter,
     DateRange,
     EventsNode,
     HogQLQueryModifiers,
@@ -250,6 +251,36 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         actor_query_response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         self.assertTrue("event_distinct_ids" in actor_query_response.columns)
+
+    def test_insight_persons_trends_query_applies_dashboard_filters(self):
+        # `InsightActorsQuery`/`FunnelsActorsQuery` have no `properties`/`dateRange` of their own —
+        # those live on the nested `source` query. Guards against `apply_dashboard_filters`
+        # regressing to the base no-op (which only patches `self.query` directly) instead of
+        # delegating to the `source_runner` that owns those fields.
+        self._create_test_events()
+
+        actors_query = ActorsQuery(
+            select=["properties.name"],
+            source=InsightActorsQuery(
+                day="2020-01-12",
+                source=TrendsQuery(
+                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
+                    series=[EventsNode(event="$pageview")],
+                ),
+            ),
+        )
+        runner = ActorsQueryRunner(query=actors_query, team=self.team)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                properties=[
+                    PersonPropertyFilter(type="person", key="email", value="test@posthog.com", operator="exact")
+                ]
+            )
+        )
+
+        response = runner.calculate()
+
+        self.assertEqual([("p1",)], response.results)
 
     def test_insight_persons_trends_query_with_argmaxV1_no_event_distinct(self):
         self._create_test_events()

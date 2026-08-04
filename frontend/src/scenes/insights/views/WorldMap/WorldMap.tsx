@@ -16,7 +16,7 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartParams, TrendResult } from '~/types'
+import { ChartParams, InsightLogicProps, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
 import { countryVectors } from './countryVectors'
@@ -123,6 +123,7 @@ interface WorldMapSVGProps extends ChartParams {
     onDataPointClick?: QueryContext['onDataPointClick']
     querySource: InsightQueryNode | null
     backgroundColor: string
+    filtersOverride: InsightLogicProps['filtersOverride']
 }
 
 const WorldMapSVG = React.memo(
@@ -138,6 +139,7 @@ const WorldMapSVG = React.memo(
                 onDataPointClick,
                 querySource,
                 backgroundColor,
+                filtersOverride,
             },
             ref
         ) => {
@@ -188,6 +190,7 @@ const WorldMapSVG = React.memo(
                                             matched_recordings: 'matched_recordings',
                                         },
                                         orderBy: ['event_count DESC, actor_id DESC'],
+                                        filtersOverride,
                                     })
                                 }
                             }
@@ -237,6 +240,7 @@ export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX
             onDataPointClick={context?.onDataPointClick}
             querySource={querySource}
             backgroundColor={backgroundColor}
+            filtersOverride={insightProps.filtersOverride}
         />
     )
 }
