@@ -364,9 +364,14 @@ class PipelineV3(Generic[ResumableData]):
 
             await self._finalize(row_count=row_count)
 
+            # With zero batches, `_finalize` sent no final-batch notification, so the load
+            # consumer will never hear about this run and cannot finalize it — the workflow must.
+            # See the PipelineResult docstring for the full ownership contract.
+            consumer_will_hear_about_this_run = len(self._batch_results) > 0
+
             return {
                 "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
-                "consumer_manages_job_status": len(self._batch_results) > 0,
+                "consumer_manages_job_status": consumer_will_hear_about_this_run,
             }
         except Exception:
             status = "error"

@@ -123,6 +123,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     status=model.status,
                     attempt=attempt,
                 )
+                # The consumer already finalized this run (that's how it became terminal), so the
+                # workflow must not overwrite the status or release the lock — see PipelineResult.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -279,6 +281,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 except Exception:
                     await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
 
+                # This activity finalized the job itself just above, so the workflow must not
+                # write a second terminal status — see PipelineResult for the ownership contract.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -455,7 +459,7 @@ async def _run(
         if use_v3:
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
-            logger.info("Running V3 pipeline (feature flag enabled)")
+            logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
             pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
                 source_response,
                 logger,
