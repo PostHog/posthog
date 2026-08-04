@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -94,7 +95,7 @@ describe('aiConsentLogic', () => {
         expect(logic.values.dataProcessingDismissed).toBe(true)
     })
 
-    it('acceptDataProcessing approves AI data processing for the current organization', async () => {
+    it('acceptDataProcessing approves AI data processing for the current organization and toasts success', async () => {
         initKeaTests(true, undefined, undefined, {
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: false,
@@ -107,6 +108,61 @@ describe('aiConsentLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.dataProcessingAccepted).toBe(true)
+        expect(lemonToast.success).toHaveBeenCalledWith('AI data processing approved')
+    })
+
+    // Regression guard: approving consent can trigger a full-page SSO reauthentication redirect,
+    // which discards any in-memory "resume this action" closure (see AIConsentPopoverWrapper). The
+    // pending destination must survive that round trip via localStorage and resume once consent is
+    // already granted on the next mount, rather than leaving the user on a blank landing state.
+    describe('pendingApprovalRedirect', () => {
+        it('persists across a logic remount under the expected storage key', () => {
+            initKeaTests()
+            logic = aiConsentLogic()
+            logic.mount()
+
+            logic.actions.setPendingApprovalRedirect('/replay-vision/new/template')
+            expect(logic.values.pendingApprovalRedirect).toBe('/replay-vision/new/template')
+
+            logic.unmount()
+            logic = aiConsentLogic()
+            logic.mount()
+
+            expect(logic.values.pendingApprovalRedirect).toBe('/replay-vision/new/template')
+        })
+
+        it('redirects and clears the pending value once mounted with consent already accepted', () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            logic = aiConsentLogic()
+            logic.mount()
+            logic.actions.setPendingApprovalRedirect('/replay-vision/new/template')
+            logic.unmount()
+
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            logic = aiConsentLogic()
+            logic.mount()
+
+            expect(logic.values.pendingApprovalRedirect).toBe(null)
+            expect(router.values.location.pathname).toContain('/replay-vision/new/template')
+        })
+
+        it('leaves navigation alone when there is nothing pending', () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            const pathnameBeforeMount = router.values.location.pathname
+            logic = aiConsentLogic()
+            logic.mount()
+
+            expect(router.values.location.pathname).toBe(pathnameBeforeMount)
+        })
     })
 
     describe('requestAiAccess', () => {
