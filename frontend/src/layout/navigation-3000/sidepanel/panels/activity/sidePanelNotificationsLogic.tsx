@@ -692,6 +692,19 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 markAllAsRead: async () => {
                     if (values.realTimeNotificationsEnabled) {
                         await notificationsMarkAllReadCreate((values.currentProjectId ?? '').toString())
+                        // Mark all loaded in-app notifications as read locally
+                        actions.setInAppNotifications(
+                            values.inAppNotifications.map((n) => ({
+                                ...n,
+                                read: true,
+                                read_at: n.read ? n.read_at : new Date().toISOString(),
+                            })),
+                            values.hasMoreNotifications
+                        )
+                        // Reset the local unread count
+                        actions.setInAppUnreadCount(0)
+                        // Reconcile against the server after the API call
+                        await actions.refreshInAppUnreadCount()
                         return values.importantChanges
                     }
 
