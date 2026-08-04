@@ -379,30 +379,34 @@ function EditorFooter({
                     Back
                 </LemonButton>
             ) : null}
-            {nextStep ? (
-                <LemonButton
-                    type="primary"
-                    loading={isSubmitting}
-                    disabledReason={saveDisabledReason}
-                    onClick={onAdvance}
-                    className="ml-auto"
-                    data-attr="vision-editor-next"
-                >
-                    Next: {STEP_LABELS[nextStep]}
-                </LemonButton>
-            ) : (
-                <LemonButton
-                    type="primary"
-                    loading={isSubmitting}
-                    disabledReason={saveDisabledReason}
-                    onClick={onSave}
-                    className="ml-auto"
-                    data-attr="vision-editor-save"
-                    data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
-                >
-                    {isNew ? 'Create scanner' : 'Save changes'}
-                </LemonButton>
-            )}
+            <div className="ml-auto flex items-center gap-2">
+                {/* Also shown as the button's tooltip, but that needs a hover a disabled button doesn't invite. */}
+                {saveDisabledReason ? (
+                    <div className="text-danger text-xs max-w-xs text-right">{saveDisabledReason}</div>
+                ) : null}
+                {nextStep ? (
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        disabledReason={saveDisabledReason}
+                        onClick={onAdvance}
+                        data-attr="vision-editor-next"
+                    >
+                        Next: {STEP_LABELS[nextStep]}
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        disabledReason={saveDisabledReason}
+                        onClick={onSave}
+                        data-attr="vision-editor-save"
+                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                    >
+                        {isNew ? 'Create scanner' : 'Save changes'}
+                    </LemonButton>
+                )}
+            </div>
         </div>
     )
 }

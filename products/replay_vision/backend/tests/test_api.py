@@ -2560,6 +2560,13 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_id")
 
+    @patch("products.replay_vision.backend.api.scanners.estimate_scanner_session_volume")
+    def test_estimate_returns_503_with_a_clean_message_when_the_query_fails(self, mock_estimate: MagicMock) -> None:
+        mock_estimate.side_effect = Exception("ClickHouse timeout while scanning 40 shards")
+        resp = self.client.post(self.estimate_url, data={}, format="json")
+        self.assertEqual(resp.status_code, 503, resp.json())
+        self.assertNotIn("ClickHouse", resp.json()["detail"])
+
 
 class TestScannerSpend(_VisionAPITestCase):
     def _succeeded_observation(self, scanner: ReplayScanner, session_id: str, created_at=None) -> ReplayObservation:

@@ -1403,7 +1403,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     @extend_schema(
         request=EstimateRequestSerializer,
-        responses={200: EstimateResponseSerializer},
+        responses={
+            200: EstimateResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The volume estimate couldn't be computed."
+            ),
+        },
     )
     @action(
         detail=False,
@@ -1436,9 +1441,16 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        estimate = estimate_scanner_session_volume(
-            team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
-        )
+        try:
+            estimate = estimate_scanner_session_volume(
+                team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
+            )
+        except Exception:
+            logger.exception("replay_vision.estimate_action_failed", team_id=self.team_id)
+            return Response(
+                {"detail": "Couldn't estimate scan volume right now. Try again in a moment."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])
 

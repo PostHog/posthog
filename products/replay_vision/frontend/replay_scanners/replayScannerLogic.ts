@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
@@ -1132,6 +1133,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservationStats()
         }
         return {
+            // kea-forms fires this with `error.message === 'Validation Failed'` when it blocks submission on
+            // client-side errors before ever calling `submit` (any other error comes from `submit` itself,
+            // which already shows its own toast), so without this the click otherwise looks like a no-op.
+            submitScannerFailure: ({ error }) => {
+                if (!(error instanceof Error) || error.message !== 'Validation Failed') {
+                    return
+                }
+                scrollToFormError({
+                    fallbackErrorMessage: 'Fix the highlighted fields before continuing.',
+                })
+            },
+
             loadScanner: async () => {
                 if (props.id === 'new') {
                     const templateKey = currentTemplateKey()

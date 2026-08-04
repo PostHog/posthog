@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -18,6 +19,10 @@ import {
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
+
+jest.mock('lib/forms/scrollToFormError', () => ({
+    scrollToFormError: jest.fn(),
+}))
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
@@ -55,6 +60,7 @@ describe('replayScannerLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.clearAllMocks()
     })
 
     describe('form defaults', () => {
@@ -246,6 +252,24 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+    })
+
+    describe('submitScannerFailure', () => {
+        it('scrolls to the first error field when kea-forms blocked submission on client-side validation', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.submitScannerFailure(new Error('Validation Failed'), { name: 'Name is required' })
+            }).toFinishAllListeners()
+            expect(scrollToFormError).toHaveBeenCalledWith({
+                fallbackErrorMessage: 'Fix the highlighted fields before continuing.',
+            })
+        })
+
+        it('does not scroll when the failure came from the API call itself, which already shows its own toast', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.submitScannerFailure(new Error('Failed to save scanner'), {})
+            }).toFinishAllListeners()
+            expect(scrollToFormError).not.toHaveBeenCalled()
         })
     })
 

@@ -193,7 +193,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     recordings in the last {scannerEstimate.window_days} days.
                 </div>
             ) : scannerEstimateError ? (
-                <div className="text-xs text-danger">Couldn't estimate cost: {scannerEstimateError}</div>
+                <div className="text-xs text-danger">{scannerEstimateError}</div>
             ) : (
                 <div className="text-xs text-muted">Estimate unavailable. Try adjusting your filters.</div>
             )}
