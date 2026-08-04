@@ -8,19 +8,24 @@ UNSAFE_CHARACTERS = r"[\'&|!<>():]"
 """Characters unsafe in a `tsquery`."""
 
 
-def process_query(query: str) -> str | None:
+def process_query(query: str, search_type: Literal["and", "or"] = "and") -> str | None:
     """
-    Converts a query string into a to_tsquery compatible string, where
-    the last word is a prefix match. This allows searching as you type.
+    Converts a query string into a to_tsquery compatible string, where every word is a
+    prefix match. This allows searching as you type, and keeps earlier words matchable
+    even though the user is still typing the last one.
 
-    Example: "My search qu" becomes "My & search & qu:*"
+    `search_type="or"` joins words with `|` instead of `&` — a looser recall fallback for
+    when the strict AND match returns nothing (e.g. one stray or slightly-off word).
+
+    Example: "My search qu" becomes "My:* & search:* & qu:*" (AND) or
+    "My:* | search:* | qu:*" (OR)
     """
     query = re.sub(UNSAFE_CHARACTERS, " ", query).strip()
-    query = re.sub(r"\s+", " & ", query)  # combine words with &
-    if len(query) == 0:
+    words = query.split()
+    if not words:
         return None
-    query += ":*"  # prefix match last word
-    return query
+    joiner = " & " if search_type == "and" else " | "
+    return joiner.join(f"{word}:*" for word in words)
 
 
 def build_search_vector(
@@ -40,7 +45,10 @@ def build_search_vector(
 
 
 def build_rank(
-    search_fields: dict[str, Literal["A", "B", "C"]], search_query: str, config: str | None = None
+    search_fields: dict[str, Literal["A", "B", "C"]],
+    search_query: str,
+    config: str | None = None,
+    query_search_type: Literal["and", "or"] = "and",
 ) -> SearchRank | None:
     """
     Builds a search rank where search fields are weighted according to the configuration and
@@ -49,7 +57,7 @@ def build_rank(
     Returns `None` for empty search (after removing unsafe characters and stop words).
     """
     vector = build_search_vector(search_fields, config=config)
-    search = process_query(search_query)
+    search = process_query(search_query, search_type=query_search_type)
     if search is None:
         return None
     query = SearchQuery(search, config=config, search_type="raw")

@@ -30,6 +30,11 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 LIMIT = 25
 
+# Rank floor for the strict AND-joined pass. A looser OR-joined recall fallback (see
+# `search_entities`) uses `OR_RANK_FLOOR` instead, since OR matches are inherently weaker.
+AND_RANK_FLOOR = 0.05
+OR_RANK_FLOOR = 0.01
+
 
 class EntityConfig(TypedDict, total=False):
     klass: type[Model]
@@ -167,33 +172,44 @@ def search_entities(
     include_counts: bool = True,
     annotate_access_levels: UserAccessControl | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
-    # empty queryset to union things onto it
-    counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
-    qs = (
-        Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
-        .filter(team__project_id=project_id)
-        .none()
-    )
-
-    # add entities
-    for entity_meta in [entity_map[entity] for entity in entities]:
-        assert entity_meta is not None
-        klass_qs, entity_name = class_queryset(
-            view=view,
-            klass=entity_meta["klass"],
-            project_id=project_id,
-            query=query,
-            search_fields=entity_meta["search_fields"],
-            extra_fields=entity_meta["extra_fields"],
-            filters=entity_meta.get("filters"),
+    def build_union(
+        search_type: Literal["and", "or"], rank_floor: float
+    ) -> tuple[QuerySet[Any], dict[str, int | None]]:
+        pass_counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
+        union_qs = (
+            Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
+            .filter(team__project_id=project_id)
+            .none()
         )
-        qs = qs.union(klass_qs)
-        if include_counts:
-            counts[entity_name] = klass_qs.count()
+        for entity_meta in [entity_map[entity] for entity in entities]:
+            assert entity_meta is not None
+            klass_qs, entity_name = class_queryset(
+                view=view,
+                klass=entity_meta["klass"],
+                project_id=project_id,
+                query=query,
+                search_fields=entity_meta["search_fields"],
+                extra_fields=entity_meta["extra_fields"],
+                filters=entity_meta.get("filters"),
+                search_type=search_type,
+                rank_floor=rank_floor,
+            )
+            union_qs = union_qs.union(klass_qs)
+            if include_counts:
+                pass_counts[entity_name] = klass_qs.count()
+        return union_qs, pass_counts
+
+    qs, counts = build_union("and", AND_RANK_FLOOR)
 
     # order by rank
     if query:
         qs = qs.order_by("-rank")
+        # A single stray or slightly-off word collapses the strict AND match to zero results.
+        # Fall back to an OR-joined match (still prefix-matching every word) with a relaxed
+        # rank floor so recall degrades gracefully instead of dead-ending on "no results".
+        if not qs.exists():
+            qs, counts = build_union("or", OR_RANK_FLOOR)
+            qs = qs.order_by("-rank")
     else:
         qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
@@ -248,6 +264,8 @@ def class_queryset(
     search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: list[str] | None,
     filters: dict[str, Any] | None = None,
+    search_type: Literal["and", "or"] = "and",
+    rank_floor: float = AND_RANK_FLOOR,
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
@@ -304,8 +322,8 @@ def class_queryset(
 
     # full-text search rank
     if query:
-        qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
-        qs = qs.filter(rank__gt=0.05)
+        qs = qs.annotate(rank=build_rank(search_fields, query, config="simple", query_search_type=search_type))
+        qs = qs.filter(rank__gt=rank_floor)
         values.append("rank")
         qs.annotate(rank=F("rank"))
 

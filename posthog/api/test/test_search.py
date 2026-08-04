@@ -142,6 +142,15 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["dashboard"], 3)
         self.assertEqual(response.json()["counts"]["feature_flag"], 3)
 
+    def test_search_falls_back_to_or_when_and_matches_nothing(self):
+        # "second" matches several fixtures; "notarealword" matches none. The strict AND
+        # match collapses to zero, so this should recover via the OR fallback rather than
+        # dead-ending on "no results" for one stray word.
+        response = self.client.get("/api/projects/@current/search?q=second+notarealword")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreater(len(response.json()["results"]), 0)
+
     def test_entities_from_other_teams(self):
         other_team = Team.objects.create(organization=self.organization)
         Dashboard.objects.create(name="permissions", team=self.team, created_by=self.user)
@@ -364,9 +373,11 @@ class TestSearch(APIBaseTest):
     "query,expected,dbresult",
     [
         ("som", "som:*", "'som':*"),
-        ("some te", "some & te:*", "'some' & 'te':*"),
+        # Every word is now prefix-matched, not just the last — a stray/incomplete
+        # earlier word (e.g. "dashboad qu") no longer sinks the whole AND match.
+        ("some te", "some:* & te:*", "'some':* & 'te':*"),
         ("we", "we:*", "'we':*"),
-        ("a'&|!<>():b", "a & b:*", "'a' & 'b':*"),
+        ("a'&|!<>():b", "a:* & b:*", "'a':* & 'b':*"),
         ("!", None, None),
     ],
 )
@@ -380,6 +391,25 @@ def test_process_query(query, expected, dbresult):
         result = cursor.fetchall()
 
         assert result[0][0] == dbresult
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "query,expected,dbresult",
+    [
+        ("some te", "some:* | te:*", "'some':* | 'te':*"),
+        ("we", "we:*", "'we':*"),
+    ],
+)
+def test_process_query_or(query, expected, dbresult):
+    processed_query = process_query(query, search_type="or")
+    assert processed_query == expected
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT tsquery(%s);", (processed_query,))
+    result = cursor.fetchall()
+
+    assert result[0][0] == dbresult
 
 
 @pytest.mark.ee

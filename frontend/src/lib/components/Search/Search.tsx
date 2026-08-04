@@ -603,6 +603,25 @@ function SearchRoot({
     const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
     orderedItemsRef.current = orderedItems
 
+    // Fires once per distinct zero-result search (not on every re-render while it stays empty),
+    // so "no results" stops being invisible — previously the only event on this surface was
+    // 'command menu item selected', which only fires on success.
+    const zeroResultReportedForRef = useRef<string | null>(null)
+    useEffect(() => {
+        const trimmed = searchValue.trim()
+        if (!trimmed || isSearching) {
+            return
+        }
+        if (orderedItems.length === 0) {
+            if (zeroResultReportedForRef.current !== trimmed) {
+                zeroResultReportedForRef.current = trimmed
+                posthog.capture('search returned no results', { logic_key: logicKey, query_length: trimmed.length })
+            }
+        } else {
+            zeroResultReportedForRef.current = null
+        }
+    }, [isSearching, searchValue, orderedItems.length, logicKey])
+
     const contextValue: SearchContextValue = useMemo(
         () => ({
             logicKey,

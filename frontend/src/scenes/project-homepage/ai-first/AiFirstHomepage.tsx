@@ -33,7 +33,7 @@ export function AiFirstHomepage(): JSX.Element {
         <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
             <Search.Root
                 logicKey="homepage"
-                showAskAiLink={false}
+                showAskAiLink
                 isActive={isSearch}
                 defaultSearchValue={isSearch ? query : ''}
                 className="grow overflow-hidden h-full relative"

@@ -37,7 +37,7 @@ import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './
 import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
-    const { query, fillInHint } = useValues(aiFirstHomepageLogic)
+    const { query, fillInHint, selectedCapability } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint } = useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
@@ -47,6 +47,9 @@ function IdleInput(): JSX.Element {
     const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
     const showFillInHint = !!fillInHint
+    // A capability badge (e.g. "Analyze") is typing or has typed a natural-language prompt into
+    // the input — that text can never match an entity name, so Tab should ask AI, not search.
+    const isCapabilityPrompt = !!selectedCapability
 
     useEffect(() => {
         const timer = setTimeout(() => inputRef.current?.focus(), 100)
@@ -59,6 +62,15 @@ function IdleInput(): JSX.Element {
         }
         posthog.capture('homepage query submitted', { mode: 'ai' })
         submitQuery('ai')
+    }
+
+    const submitViaTab = (): void => {
+        if (isCapabilityPrompt) {
+            submitAi()
+            return
+        }
+        posthog.capture('homepage query submitted', { mode: 'search' })
+        submitQuery('search')
     }
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
@@ -110,8 +122,7 @@ function IdleInput(): JSX.Element {
                         onKeyDown={(e) => {
                             if (e.key === 'Tab' && query.trim()) {
                                 e.preventDefault()
-                                posthog.capture('homepage query submitted', { mode: 'search' })
-                                submitQuery('search')
+                                submitViaTab()
                             }
                             if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                                 if (e.shiftKey) {
@@ -150,12 +161,11 @@ function IdleInput(): JSX.Element {
                             <ButtonPrimitive
                                 size="xs"
                                 className="text-tertiary hover:text-primary shrink-0"
-                                onClick={() => {
-                                    posthog.capture('homepage query submitted', { mode: 'search' })
-                                    submitQuery('search')
-                                }}
+                                onClick={submitViaTab}
                             >
-                                <span className="text-xxs">Tab to search</span>
+                                <span className="text-xxs">
+                                    {isCapabilityPrompt ? 'Tab to ask AI' : 'Tab to search'}
+                                </span>
                             </ButtonPrimitive>
                             {handsFreeAvailable && (
                                 <Tooltip title="Start a new chat in hands-free">
