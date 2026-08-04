@@ -628,6 +628,10 @@ export function SessionView({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
+            <div
+              id="fullscreen-portal"
+              className="pointer-events-none absolute inset-0 z-20"
+            />
             {isSuspended ? (
               <>
                 <ThreadView
