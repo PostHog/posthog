@@ -850,11 +850,21 @@ test('markdown alongside code contributes no lane of its own', () => {
 
 // hogli build:skills zips products/*/skills/*, and ci-agent-skills.yml gates on
 // those paths and on .agents/, so this markdown is a build input, not prose.
+// Skill markdown is a build input for the Python skill build (and sometimes the product backend).
+// No frontend suite reads these files, so they should claim the backend lane but not the frontend lane.
 test('skill markdown keeps the lane of the tree that builds it', () => {
     assert.deepEqual(computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT), ['agents'])
     const productSkill = computeTargets(['products/beta/skills/creating-experiments/SKILL.md'], CONTEXT)
     assert.equal(productSkill.includes('py:product:beta'), true)
-    assert.equal(productSkill.includes('fe:product:beta'), true)
+    assert.equal(productSkill.includes('fe:product:beta'), false)
+})
+
+// The carve-out is for markdown, not for everything under skills/. A non-prose
+// file there is as unclassifiable as before and keeps both halves.
+test('a non-markdown skill file still claims both halves', () => {
+    const script = computeTargets(['products/beta/skills/creating-experiments/scripts/run.sh'], CONTEXT)
+    assert.equal(script.includes('py:product:beta'), true)
+    assert.equal(script.includes('fe:product:beta'), true)
 })
 
 // docs/onboarding is the @posthog/docs-onboarding workspace package that
