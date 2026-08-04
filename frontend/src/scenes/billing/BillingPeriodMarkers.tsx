@@ -10,6 +10,9 @@ export interface BillingPeriodMarker {
     date: Dayjs
 }
 
+/** Gap between the label and the top of the plot, so it clears the topmost y-axis tick. */
+const LABEL_GAP = 4
+
 /**
  * Resolves a marker timestamp to an x pixel by interpolating between the two labels that bracket it.
  * A billing period rarely starts exactly on a bucket boundary — on week and month intervals it lands
@@ -100,13 +103,13 @@ export function BillingPeriodMarkers({ markers }: { markers: BillingPeriodMarker
                     }}
                 />
             ))}
-            {/* Anchored so the label's bottom edge rests on the top of the plot. That keeps it clear of
-                the data, and puts the cursor outside the plot area while hovering it, which is what
-                makes the chart drop its own tooltip instead of showing two at once. */}
+            {/* Anchored just above the plot: that keeps it clear of the data and of the topmost y-axis
+                tick, and puts the cursor outside the plot area while hovering it, which is what makes
+                the chart drop its own tooltip instead of showing two at once. */}
             <div
                 data-attr="billing-period-marker-label"
                 className="absolute -translate-x-1/2 -translate-y-full pointer-events-auto cursor-default"
-                style={{ left: labelLeft, top: dimensions.plotTop }}
+                style={{ left: labelLeft, top: dimensions.plotTop - LABEL_GAP }}
             >
                 <Tooltip title={<BillingPeriodExplanation />} placement="bottom">
                     <div className="flex items-center gap-1 px-2 py-1 text-xs font-normal whitespace-nowrap rounded-sm border border-primary bg-surface-primary text-secondary">

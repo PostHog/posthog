@@ -73,9 +73,9 @@ export function BillingLineGraph({
     )
 
     return (
-        // pt-6 reserves room above the plot for the billing period label, which sits outside the plot
+        // pt-8 reserves room above the plot for the billing period label, which sits outside the plot
         // area so that hovering it takes the cursor out of the chart's hover region.
-        <div className="relative flex flex-col h-96 pt-6">
+        <div className="relative flex flex-col h-96 pt-8">
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
                     <div className="text-muted">Loading...</div>
@@ -87,9 +87,9 @@ export function BillingLineGraph({
                 theme={theme}
                 config={config}
                 onError={handleChartError}
-                // The billing period label is anchored above the plot and would otherwise be clipped
-                // by the chart wrapper's own `overflow-hidden`.
-                className="!overflow-visible"
+                // The billing period label is anchored above the plot, so it sits outside the chart
+                // wrapper's box and would otherwise be cut off by its `overflow-hidden`.
+                className="overflow-visible!"
             >
                 <BillingPeriodMarkers markers={billingPeriodMarkers} />
             </TimeSeriesLineChart>

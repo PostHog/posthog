@@ -23,7 +23,17 @@ const SERIES: BillingSeriesType[] = [
 const meta: Meta<typeof BillingLineGraph> = {
     title: 'Scenes-Other/Billing/BillingLineGraph',
     component: BillingLineGraph,
-    parameters: { layout: 'padded', testOptions: { viewport: { width: 1000, height: 500 } } },
+    parameters: { layout: 'padded' },
+    // The chart sizes itself from its container via ResizeObserver, so the wrapper needs a definite
+    // width — the snapshot runtime shrink-wraps the story root, which squeezes the plot to a few
+    // hundred pixels and drops most of the x-axis ticks.
+    decorators: [
+        (Story) => (
+            <div className="w-[960px]">
+                <Story />
+            </div>
+        ),
+    ],
     args: { series: SERIES, dates: DATES, hiddenSeries: [] },
 }
 export default meta
