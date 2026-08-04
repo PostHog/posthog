@@ -22577,9 +22577,6 @@ class SessionsTimelineQuery(BaseModel):
 
 
 class SidebarConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
     density: SidebarDensity | None = Field(default=None, description="Row density of the sidebar.")
     items: SidebarItemsConfiguration | None = None
     sections: SidebarSectionsConfiguration | None = None
@@ -22804,9 +22801,6 @@ class UsageMetricsQuery(BaseModel):
 
 
 class UserUIConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
     sidebar: SidebarConfiguration | None = None
     version: int = Field(
         ...,
