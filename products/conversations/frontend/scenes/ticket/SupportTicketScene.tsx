@@ -9,8 +9,10 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -40,6 +42,7 @@ import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { reportTimelineExtras } from './ThreadReports'
+import { TicketAccountPanel } from './TicketAccountPanel'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
@@ -130,6 +133,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
     const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-general')
@@ -538,6 +542,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             organizationId={ticket?.organization_id}
                             organizationIdSource={ticket?.organization_id_source}
                         />
+                    )}
+
+                    {/* Customer analytics account panel — self-hides when no linked account exists */}
+                    {featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && ticket?.organization_id && ticket?.id && (
+                        <TicketAccountPanel ticketId={ticket.id} />
                     )}
 
                     {/* Staff Actions Panel */}
