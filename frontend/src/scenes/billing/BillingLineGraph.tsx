@@ -67,7 +67,7 @@ export function BillingLineGraph({
             xAxis: { timezone: 'UTC', interval },
             yAxis: { tickFormatter: valueFormatter },
             legend: { show: showLegend, position: 'bottom', interactive: false },
-            tooltip: { sortedByValue: true, valueFormatter },
+            tooltip: { sortedByValue: true, valueFormatter, placement: 'cursor' },
         }),
         [interval, valueFormatter, showLegend]
     )

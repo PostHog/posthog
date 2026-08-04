@@ -34,27 +34,23 @@ const meta: Meta<typeof BillingLineGraph> = {
             </div>
         ),
     ],
-    args: { series: SERIES, dates: DATES, hiddenSeries: [] },
+    // `showLegend: false` mirrors both callers (BillingUsage, BillingSpendView). Left at the
+    // component default these snapshots would guard a legend the app never renders.
+    args: { series: SERIES, dates: DATES, hiddenSeries: [], showLegend: false },
 }
 export default meta
 
 type Story = StoryObj<typeof BillingLineGraph>
 
-export const Default: Story = {}
-
+/**
+ * Only two stories, both with a marker: a screenshot's one advantage over BillingLineGraph.test.tsx
+ * is showing whether the label clears the plot and survives the wrapper's `overflow: hidden`.
+ */
 export const WithBillingPeriodMarker: Story = {
     args: { billingPeriodMarkers: [{ date: dayjs.utc('2024-03-01') }] },
 }
 
-/** A period starting on the first plotted bucket — the label is centred on the y-axis edge here. */
+/** A period starting on the first plotted bucket, where the label overhangs the y-axis edge. */
 export const WithMarkerAtRangeStart: Story = {
     args: { billingPeriodMarkers: [{ date: dayjs.utc(DATES[0]) }] },
-}
-
-export const AsSpend: Story = {
-    args: {
-        series: [seriesFrom(0, 'Product analytics', 420, 160), seriesFrom(1, 'Session replay', 130, 40)],
-        valueFormatter: (value: number) => `$${value.toLocaleString()}`,
-        billingPeriodMarkers: [{ date: dayjs.utc('2024-03-01') }],
-    },
 }
