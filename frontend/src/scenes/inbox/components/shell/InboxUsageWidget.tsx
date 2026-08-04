@@ -147,6 +147,7 @@ export function InboxUsageWidget(): JSX.Element | null {
         limitPrs,
         freePrs,
         status,
+        quotaLimited,
         resetDate,
         spentUsd,
         percentage,
@@ -204,6 +205,11 @@ export function InboxUsageWidget(): JSX.Element | null {
                         <span className="text-tertiary tabular-nums">Resets {resetDate.format('MMM D')}</span>
                     )}
                 </div>
+                {quotaLimited && (
+                    <span className="text-xs font-medium text-danger">
+                        Agents are paused and won't open new pull requests until the limit is raised or usage resets.
+                    </span>
+                )}
                 {canAccessBilling ? (
                     !isSubscribed ? (
                         <UpgradeButton product={product} />

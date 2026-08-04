@@ -65555,6 +65555,8 @@ export namespace Schemas {
       credited_credits: number;
       /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
       period_billable_credits: number;
+      /** Whether autonomous PR generation is currently paused for this project because the organization is over its signals credits quota. Read from the quota limiter, so it reflects the same state the pipeline gates enforce. */
+      quota_limited: boolean;
     }
 
     export interface SignalReportStateRequest {

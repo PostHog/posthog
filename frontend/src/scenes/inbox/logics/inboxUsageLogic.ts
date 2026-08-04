@@ -72,6 +72,7 @@ export interface inboxUsageLogicValues {
     percentage: number
     pricePerPrUsd: number | null
     product: BillingProductV2Type | null
+    quotaLimited: boolean
     refundSummary: SignalReportRefundSummaryResponseApi | null
     refundSummaryLoading: boolean
     refundsFlagEnabled: boolean
@@ -190,6 +191,7 @@ export interface inboxUsageLogicMeta {
             freePrs: number
         ) => number | null
         status: (usedPrs: number, limitPrs: number | null) => InboxUsageStatus
+        quotaLimited: (refundSummary: SignalReportRefundSummaryResponseApi | null) => boolean
         usedPrsDisplay: (usedPrs: number, limitPrs: number | null) => number
         spentUsd: (usedPrs: number, freePrs: number, pricePerPrUsd: number | null) => number | null
         percentage: (usedPrs: number, limitPrs: number | null, freePrs: number) => number
@@ -424,6 +426,13 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 }
                 return 'normal'
             },
+        ],
+        // Server truth from the quota limiter: enforcement is actually pausing the pipeline,
+        // as opposed to the widget's own usage math in `status`.
+        quotaLimited: [
+            (s) => [s.refundSummary],
+            (refundSummary: SignalReportRefundSummaryResponseApi | null): boolean =>
+                refundSummary?.quota_limited === true,
         ],
         // Displayed usage caps at the limit — we never show "53 / 50" when usage runs over.
         usedPrsDisplay: [

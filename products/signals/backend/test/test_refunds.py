@@ -484,6 +484,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             "credited_refund_count": 2,
             "credited_credits": 3000,
             "period_billable_credits": 1500,
+            "quota_limited": False,
         }
 
     @freeze_time(_NOW)
@@ -496,6 +497,19 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert self.client.get(url).json()["period_billable_credits"] == 1500
         assert self._refund(report).json()["billing_path"] == "excluded"
         assert self.client.get(url).json()["period_billable_credits"] == 0
+
+    @freeze_time(_NOW)
+    def test_refund_summary_reports_quota_limited_from_the_gate(self, _flag):
+        # The widget's "agents are paused" banner keys off this field, so it must reflect the
+        # same gate the pipeline enforces, not the widget's own usage math.
+        from products.signals.backend.quota import SignalsQuotaGate
+
+        url = f"/api/projects/{self.team.id}/signals/reports/refund-summary/"
+        with patch(
+            "products.signals.backend.views.signals_quota_gate",
+            return_value=SignalsQuotaGate(limited=True, enforced=True),
+        ):
+            assert self.client.get(url).json()["quota_limited"] is True
 
 
 class TestSignalReportRefundFlagGate(APIBaseTest):
