@@ -362,27 +362,11 @@ class TestResolveStatsState:
 
 
 class TestStatsCardGating:
-    @pytest.mark.parametrize(
-        "is_admin, stats_flag_on, expected_visible",
-        [
-            (True, True, True),
-            (False, True, False),
-            (True, False, False),
-            (False, False, False),
-        ],
-    )
-    def test_card_needs_both_admin_and_its_own_flag(
-        self, slack_integration, mock_slack_client, flag_on, is_admin, stats_flag_on, expected_visible
-    ):
-        with (
-            patch(
-                "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
-                return_value=is_admin,
-            ),
-            patch(
-                "products.slack_app.backend.services.slack_app_home.is_slack_app_home_stats_enabled",
-                return_value=stats_flag_on,
-            ),
+    @pytest.mark.parametrize("is_admin, expected_visible", [(True, True), (False, False)])
+    def test_card_is_admin_only(self, slack_integration, mock_slack_client, flag_on, is_admin, expected_visible):
+        with patch(
+            "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
+            return_value=is_admin,
         ):
             handle_app_home_opened({"user": SLACK_USER}, WORKSPACE)
 

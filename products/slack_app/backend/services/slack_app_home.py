@@ -30,11 +30,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_home_enabled,
-    is_slack_app_home_stats_enabled,
-    is_slack_app_oauth_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
@@ -1952,11 +1948,14 @@ def _resolve_stats_state(
 ) -> StatsState | None:
     """Workspace activity aggregates, or None when the card shouldn't render at all.
 
+    Admin-only, and rides the same `slack-app-home` gate as the rest of the tab — the
+    callers already returned early when that flag is off.
+
     Scoped to the projects this admin can already reach: being a Slack workspace admin
     says nothing about PostHog org membership, so the card must never widen what its
     viewer could otherwise see.
     """
-    if not is_admin or not is_slack_app_home_stats_enabled(integration):
+    if not is_admin:
         return None
 
     accessible_team_ids = {c.team_id for c in accessible}
