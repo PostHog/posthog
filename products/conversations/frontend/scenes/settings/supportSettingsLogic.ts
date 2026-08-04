@@ -1189,7 +1189,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         generateNewToken: async () => {
             const response = await api.projects.generateConversationsPublicToken(values.currentTeam?.id)
-            actions.updateCurrentTeam(response)
+            // The endpoint already returns the updated team, so sync the store directly from it
+            // instead of PATCHing the full team object back (which 400s on deprecated fields like access_control)
+            actions.updateCurrentTeamSuccess(response)
             lemonToast.success('New token generated')
         },
         saveDomain: ({ value, editingIndex }) => {
