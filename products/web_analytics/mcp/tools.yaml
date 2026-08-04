@@ -204,6 +204,9 @@ tools:
     web-analytics-path-cleaning-suggestions-generate:
         operation: web_analytics_path_cleaning_suggestions_generate
         enabled: true
+        # Generation samples real URL paths and sends them to the LLM — hide the tool from
+        # orgs that haven't approved AI data processing.
+        requires_ai_consent: true
         scopes:
             - web_analytics:write
         annotations:

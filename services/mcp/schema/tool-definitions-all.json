@@ -11243,6 +11243,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
+        "requires_ai_consent": true,
         "feature_flag": "web-analytics-path-cleaning-suggestions"
     },
     "web-analytics-weekly-digest": {
