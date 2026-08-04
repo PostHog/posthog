@@ -5746,6 +5746,27 @@ class TestIsReadReplica:
             result = _is_read_replica(cast(Any, dj_cursor))
             assert result is False
 
+    def test_unsupported_function_error_returns_false(self):
+        # A DuckDB/Flight-SQL-backed Postgres-wire engine accepts the connection but doesn't
+        # implement `pg_is_in_recovery` (a Postgres-only replication concept), surfacing a generic
+        # InternalError instead of UndefinedFunction. Such an engine is never a physical hot-standby,
+        # so this must degrade to False rather than crashing table setup.
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InternalError(
+            "Catalog Error: Scalar Function with name pg_is_in_recovery does not exist!"
+        )
+        assert _is_read_replica(cast(Any, cursor)) is False
+
+    def test_reraises_other_errors(self):
+        # A failure unrelated to the missing-function shape (e.g. a connection drop) must propagate
+        # so the caller's retry/reconnect handling still runs, instead of being swallowed here.
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InternalError_(
+            "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information"
+        )
+        with pytest.raises(psycopg.errors.InternalError_):
+            _is_read_replica(cast(Any, cursor))
+
 
 class _RecordingCursor:
     """Wraps a real cursor, recording executed SQL as text while delegating everything else."""
