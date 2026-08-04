@@ -31,7 +31,7 @@ from ee.billing.quota_limiting import (
     get_team_attribute_by_quota_resource,
     list_limited_team_attributes,
     org_quota_limited_until,
-    refresh_org_signals_quota,
+    refresh_org_self_driving_quota,
     replace_limited_team_tokens,
     set_org_usage_summary,
     update_all_orgs_billing_quotas,
@@ -2872,8 +2872,8 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         mock_offset.assert_not_called()
 
 
-class TestRefreshOrgSignalsQuota(BaseTest):
-    def _set_signals_usage(self, usage: int, *, todays_usage: int = 0, limit: int = 4500) -> None:
+class TestRefreshOrgSelfDrivingQuota(BaseTest):
+    def _set_self_driving_usage(self, usage: int, *, todays_usage: int = 0, limit: int = 4500) -> None:
         self.organization.usage = {
             "signals_credits": {"usage": usage, "todays_usage": todays_usage, "limit": limit},
             "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
@@ -2887,11 +2887,11 @@ class TestRefreshOrgSignalsQuota(BaseTest):
     def test_refresh_patches_todays_usage_and_flips_the_limiter(self, _feature_enabled, _capture) -> None:
         # The event-driven path exists because the cron-patched todays_usage predates the PR that
         # just landed: a stale value here means the flag doesn't flip until the next cron tick.
-        self._set_signals_usage(3000, todays_usage=0)
+        self._set_self_driving_usage(3000, todays_usage=0)
         with patch(
-            "ee.billing.quota_limiting.get_signals_credits_used_in_period_for_org", return_value=1500
+            "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
         ) as live_mock:
-            refresh_org_signals_quota(str(self.organization.id))
+            refresh_org_self_driving_quota(str(self.organization.id))
 
         assert live_mock.call_args.args[0] == self.organization.id
         self.organization.refresh_from_db()
@@ -2902,9 +2902,9 @@ class TestRefreshOrgSignalsQuota(BaseTest):
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
 
-    def test_refresh_is_a_noop_without_signals_usage(self) -> None:
+    def test_refresh_is_a_noop_without_self_driving_usage(self) -> None:
         self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}
         self.organization.save()
-        with patch("ee.billing.quota_limiting.get_signals_credits_used_in_period_for_org") as live_mock:
-            refresh_org_signals_quota(str(self.organization.id))
+        with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org") as live_mock:
+            refresh_org_self_driving_quota(str(self.organization.id))
         live_mock.assert_not_called()

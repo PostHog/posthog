@@ -34,7 +34,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.quota import SignalsQuotaGate
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -679,8 +679,8 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
         patch(
-            "products.signals.backend.auto_start.signals_quota_gate",
-            return_value=SignalsQuotaGate(limited=True, enforced=enforced),
+            "products.signals.backend.auto_start.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
         ),
     ):
         await maybe_autostart_implementation_task(

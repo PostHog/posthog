@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from unittest.mock import patch
 
-from products.signals.backend.quota import SignalsQuotaGate, is_team_signals_quota_limited, signals_quota_gate
+from products.signals.backend.quota import SelfDrivingQuotaGate, is_team_signals_quota_limited, self_driving_quota_gate
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -53,18 +53,18 @@ def test_fail_open_metric_noops_outside_activity():
         (True, False, False),
     ],
 )
-def test_signals_quota_gate_enforces_only_when_limited_and_flag_on(limited, flag_on, expected_enforced):
+def test_self_driving_quota_gate_enforces_only_when_limited_and_flag_on(limited, flag_on, expected_enforced):
     with (
         patch("products.signals.backend.quota.is_team_limited", return_value=limited),
         patch("products.signals.backend.quota.posthoganalytics.feature_enabled", return_value=flag_on) as flag_mock,
     ):
-        assert signals_quota_gate(_team()) == SignalsQuotaGate(limited=limited, enforced=expected_enforced)
+        assert self_driving_quota_gate(_team()) == SelfDrivingQuotaGate(limited=limited, enforced=expected_enforced)
     if not limited:
         # The flag is network I/O and must stay off the fleet-wide not-limited hot path.
         flag_mock.assert_not_called()
 
 
-def test_signals_quota_gate_fails_open_on_flag_error():
+def test_self_driving_quota_gate_fails_open_on_flag_error():
     # A flag-service outage must not start blocking pipelines: limited stays visible, enforcement off.
     with (
         patch("products.signals.backend.quota.is_team_limited", return_value=True),
@@ -73,4 +73,4 @@ def test_signals_quota_gate_fails_open_on_flag_error():
             side_effect=RuntimeError("flags down"),
         ),
     ):
-        assert signals_quota_gate(_team()) == SignalsQuotaGate(limited=True, enforced=False)
+        assert self_driving_quota_gate(_team()) == SelfDrivingQuotaGate(limited=True, enforced=False)

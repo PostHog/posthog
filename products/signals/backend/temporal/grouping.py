@@ -33,7 +33,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.quota import capture_signal_report_quota_paused, signals_quota_gate
+from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -818,7 +818,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
             ):
                 if suppress_promotion:
-                    # Team over its Signals credits quota with enforcement on: the signal is still
+                    # Team over its self-driving credits quota with enforcement on: the signal is still
                     # assigned, weighted, and emitted, but no summary run spawns. The status is left
                     # untouched, so the first matching signal after the quota lifts re-evaluates
                     # promotion under the same rules.
@@ -875,7 +875,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         # Resolved before the assign transaction: the quota gate is Redis + flag network I/O that
         # must not run while holding the report row lock.
-        quota_gate = await database_sync_to_async(signals_quota_gate, thread_sensitive=False)(team)
+        quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
 
         db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(quota_gate.enforced)
 

@@ -17,7 +17,7 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.quota import SignalsQuotaGate
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
@@ -43,7 +43,7 @@ TASK_QUEUE = "test-summary-quota-queue"
 @pytest_asyncio.fixture
 async def aorganization():
     organization = await sync_to_async(Organization.objects.create)(
-        name=f"SignalsSummaryQuotaOrg-{random.randint(1, 99999)}",
+        name=f"SelfDrivingSummaryQuotaOrg-{random.randint(1, 99999)}",
     )
     yield organization
     await sync_to_async(organization.delete)()
@@ -53,7 +53,7 @@ async def aorganization():
 async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(
         organization=aorganization,
-        name=f"SignalsSummaryQuotaTeam-{random.randint(1, 99999)}",
+        name=f"SelfDrivingSummaryQuotaTeam-{random.randint(1, 99999)}",
     )
     yield team
     await sync_to_async(team.delete)()
@@ -70,8 +70,8 @@ async def ateam(aorganization):
 async def test_check_activity_returns_enforced(ateam, enforced):
     with (
         patch(
-            f"{SUMMARY_MODULE_PATH}.signals_quota_gate",
-            return_value=SignalsQuotaGate(limited=True, enforced=enforced),
+            f"{SUMMARY_MODULE_PATH}.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
         ),
         patch("products.signals.backend.quota.posthoganalytics.capture"),
     ):
@@ -219,7 +219,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_failed(input: MarkReportFailedInput) -> None:
         recorder.failures += 1
 
-    # The production signals worker runs with the pydantic data converter; the default converter
+    # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
     # ActionabilityChoice), sending the workflow down the wrong decision branch.
     async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:

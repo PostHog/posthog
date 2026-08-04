@@ -15,7 +15,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.quota import SignalsQuotaGate
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -666,8 +666,8 @@ async def test_quota_gate_withholds_promotion_only_when_enforced(
     ateam, patch_side_effects, enforced, expected_status, expected_promoted
 ):
     with patch(
-        f"{GROUPING_MODULE_PATH}.signals_quota_gate",
-        return_value=SignalsQuotaGate(limited=True, enforced=enforced),
+        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
+        return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
     ):
         result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
 
@@ -693,8 +693,8 @@ async def test_quota_gate_emits_no_event_when_signal_would_not_promote(ateam, pa
     """A limited team's below-threshold signal must not emit quota telemetry: the event volume
     measures withheld summary runs, not every assignment on a limited team."""
     with patch(
-        f"{GROUPING_MODULE_PATH}.signals_quota_gate",
-        return_value=SignalsQuotaGate(limited=True, enforced=True),
+        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
+        return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
     ):
         await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5))
 

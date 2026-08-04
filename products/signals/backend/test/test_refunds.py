@@ -20,7 +20,7 @@ from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
-from products.signals.backend.quota import SIGNALS_QUOTA_ENFORCEMENT_FLAG
+from products.signals.backend.quota import SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG
 from products.signals.backend.tasks import (
     _OUT_OF_PERIOD_SYNC_ERROR,
     _REFUND_SYNC_MAX_RETRIES,
@@ -503,12 +503,12 @@ class TestSignalReportRefundAPI(APIBaseTest):
     def test_refund_summary_reports_quota_limited_from_the_gate(self, _flag):
         # The widget's "agents are paused" banner keys off this field, so it must reflect the
         # same gate the pipeline enforces, not the widget's own usage math.
-        from products.signals.backend.quota import SignalsQuotaGate
+        from products.signals.backend.quota import SelfDrivingQuotaGate
 
         url = f"/api/projects/{self.team.id}/signals/reports/refund-summary/"
         with patch(
-            "products.signals.backend.views.signals_quota_gate",
-            return_value=SignalsQuotaGate(limited=True, enforced=True),
+            "products.signals.backend.views.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
         ):
             assert self.client.get(url).json()["quota_limited"] is True
 
@@ -518,7 +518,7 @@ class TestSignalReportRefundFlagGate(APIBaseTest):
     def test_refund_summary_available_with_only_enforcement_flag(self, flag_mock):
         # The two flags roll out independently; an enforcement-only org still needs quota_limited
         # from this endpoint, or the widget's paused banner can never render.
-        flag_mock.side_effect = lambda key, *args, **kwargs: key == SIGNALS_QUOTA_ENFORCEMENT_FLAG
+        flag_mock.side_effect = lambda key, *args, **kwargs: key == SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG
         summary = self.client.get(f"/api/projects/{self.team.id}/signals/reports/refund-summary/")
         assert summary.status_code == status.HTTP_200_OK
         assert summary.json()["quota_limited"] is False

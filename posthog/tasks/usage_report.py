@@ -1699,10 +1699,12 @@ def get_signals_credited_refund_credits_for_org(
     return credited_refund_credits_for_org(organization_id, begin, end)
 
 
-def get_signals_credits_used_in_period_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:
-    """Live signals credits used in `[begin, end)` across one org's teams.
+def get_self_driving_credits_used_in_period_for_org(
+    organization_id: str | uuid.UUID, begin: datetime, end: datetime
+) -> int:
+    """Live self-driving credits used in `[begin, end)` across one org's teams.
 
-    Input to the event-driven quota re-evaluation (`refresh_org_signals_quota`), which needs a
+    Input to the event-driven quota re-evaluation (`refresh_org_self_driving_quota`), which needs a
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """

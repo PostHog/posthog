@@ -113,8 +113,8 @@ describe('inboxUsageLogic', () => {
     it('loads the summary and surfaces quotaLimited with only the enforcement flag on', async () => {
         mockUsageEndpoints(1500, { period_billable_credits: 1500, credited_credits: 0, quota_limited: true })
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_QUOTA_ENFORCEMENT], {
-            [FEATURE_FLAGS.SIGNALS_QUOTA_ENFORCEMENT]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT], {
+            [FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT]: true,
         })
         logic = inboxUsageLogic()
         logic.mount()

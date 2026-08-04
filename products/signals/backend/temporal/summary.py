@@ -29,7 +29,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
-    signals_quota_gate,
+    self_driving_quota_gate,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -183,12 +183,14 @@ class SignalReportSummaryWorkflow:
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
-        # 0. Quota gate: a team over its Signals credits quota gets no new research or PRs. The
+        # 0. Quota gate: a team over its self-driving credits quota gets no new research or PRs. The
         # report stays candidate and re-promotes on the first matching signal after the quota
         # lifts. patched(): executions recorded before the gate existed replay the old command
         # sequence (see also the two mid-run gates below, same patch id).
-        if workflow.patched("signals-quota-gates") and await self._quota_gate_pauses(inputs, stage="summary_entry"):
-            log.info("Report run paused: team over Signals credits quota", stage="summary_entry")
+        if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
+            inputs, stage="summary_entry"
+        ):
+            log.info("Report run paused: team over self-driving credits quota", stage="summary_entry")
             return False
         # 1. Fetch signals for the report
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
@@ -262,10 +264,10 @@ class SignalReportSummaryWorkflow:
             # this workflow is between activities (e.g. a parallel report's PR landed). The report
             # is in_progress here, so a pause must revert it to candidate rather than just exit,
             # or no promotion rule would ever pick it up again.
-            if workflow.patched("signals-quota-gates") and await self._quota_gate_pauses(
+            if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                 inputs, stage="pre_repo_selection"
             ):
-                log.info("Report run paused: team over Signals credits quota", stage="pre_repo_selection")
+                log.info("Report run paused: team over self-driving credits quota", stage="pre_repo_selection")
                 await self._revert_report_to_candidate(inputs)
                 return False
             # 4. Select repository for the agentic research
@@ -295,10 +297,10 @@ class SignalReportSummaryWorkflow:
                     explanation=repo_result.reason,
                 )
             else:
-                if workflow.patched("signals-quota-gates") and await self._quota_gate_pauses(
+                if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                     inputs, stage="pre_research"
                 ):
-                    log.info("Report run paused: team over Signals credits quota", stage="pre_research")
+                    log.info("Report run paused: team over self-driving credits quota", stage="pre_research")
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
@@ -460,14 +462,14 @@ class CheckReportQuotaGateInput:
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Whether the summary workflow must pause at `stage`: the team is over its Signals credits
+    """Whether the summary workflow must pause at `stage`: the team is over its self-driving credits
     quota and enforcement is on. Emits `signal_report_quota_paused` whenever the team is limited,
     enforced or not, so the dark-launch would-block volume is measurable. Never raises: any
     failure resolves to False (run proceeds), matching the quota module's fail-open policy.
     """
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        gate = await database_sync_to_async(signals_quota_gate, thread_sensitive=False)(team)
+        gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
         if gate.limited:
             capture_signal_report_quota_paused(
                 team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
@@ -476,7 +478,7 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
     except Exception:
         record_quota_check_failed_open()
         logger.exception(
-            "Signals quota gate check failed open",
+            "Self-driving quota gate check failed open",
             report_id=input.report_id,
             team_id=input.team_id,
             stage=input.stage,

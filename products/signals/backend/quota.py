@@ -24,11 +24,11 @@ logger = structlog.get_logger(__name__)
 # Enforcement kill switch for the pipeline quota gates (promotion, summary stages, auto-start).
 # While the flag is off the gates still run and emit `signal_report_quota_paused` telemetry with
 # `enforced=false`, but never block, so the would-block volume is measurable before rollout.
-SIGNALS_QUOTA_ENFORCEMENT_FLAG = "signals-quota-enforcement"
+SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG = "self-driving-quota-enforcement"
 
 
 def record_quota_check_failed_open() -> None:
-    """Count a signals quota check that errored and failed open (no-op outside a Temporal
+    """Count a self-driving quota check that errored and failed open (no-op outside a Temporal
     activity). Shared by every gate whose fail-open must stay alertable."""
     # Emit the meter directly rather than via products.signals.backend.temporal.metrics: importing
     # that package runs its __init__, which imports buffer.py, which imports this module (cycle).
@@ -58,7 +58,7 @@ def is_team_signals_quota_limited(team_api_token: str) -> bool:
 
 
 @dataclass(frozen=True)
-class SignalsQuotaGate:
+class SelfDrivingQuotaGate:
     """One pipeline gate decision: `limited` is the raw quota state (for telemetry), `enforced`
     is whether the gate should actually block (limited AND the enforcement flag is on)."""
 
@@ -66,7 +66,7 @@ class SignalsQuotaGate:
     enforced: bool
 
 
-def signals_quota_enforcement_enabled(team: "Team") -> bool:
+def self_driving_quota_enforcement_enabled(team: "Team") -> bool:
     """Whether quota-gate enforcement is rolled out to this team's org.
 
     Org-keyed like the `signals-pr-refunds` gate (the limit is the org's billing cap). Fails open
@@ -78,7 +78,7 @@ def signals_quota_enforcement_enabled(team: "Team") -> bool:
         org_id = str(team.organization_id)
         return (
             posthoganalytics.feature_enabled(
-                SIGNALS_QUOTA_ENFORCEMENT_FLAG,
+                SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG,
                 org_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
@@ -86,23 +86,23 @@ def signals_quota_enforcement_enabled(team: "Team") -> bool:
             is True
         )
     except Exception:
-        logger.warning("signals_quota_enforcement_flag_check_failed", exc_info=True)
+        logger.warning("self_driving_quota_enforcement_flag_check_failed", exc_info=True)
         return False
 
 
-def signals_quota_gate(team: "Team") -> SignalsQuotaGate:
-    """Resolve the quota gate for one team: over the Signals credits quota, and is enforcement on.
+def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
+    """Resolve the quota gate for one team: over the self-driving credits quota, and is enforcement on.
 
     The flag is only read when the team is actually limited, so the fleet-wide hot paths pay a
     single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from async code.
     """
     if not is_team_signals_quota_limited(team.api_token):
-        return SignalsQuotaGate(limited=False, enforced=False)
-    return SignalsQuotaGate(limited=True, enforced=signals_quota_enforcement_enabled(team))
+        return SelfDrivingQuotaGate(limited=False, enforced=False)
+    return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
 
 
 def capture_signal_report_quota_paused(team: "Team", *, report_id: str | None, stage: str, enforced: bool) -> None:
-    """`signal_report_quota_paused` — a pipeline gate observed the team over its Signals credits
+    """`signal_report_quota_paused` — a pipeline gate observed the team over its self-driving credits
     quota at `stage`. `enforced=false` rows are dark-launch would-blocks. Best-effort: telemetry
     must never fail the pipeline step that emitted it. Requires `team.organization` to be loaded.
     """

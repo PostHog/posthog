@@ -319,7 +319,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         quotaEnforcementFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SIGNALS_QUOTA_ENFORCEMENT],
+                !!featureFlags[FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT],
         ],
         // The refund summary matters under either flag: refunds needs the netting numbers, quota
         // enforcement needs quota_limited for the paused banner. The flags roll out independently,

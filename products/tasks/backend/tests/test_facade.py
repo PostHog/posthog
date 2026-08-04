@@ -827,7 +827,7 @@ class TestRecentWizardCloudRunTimes(TestCase):
         self.assertEqual(times, sorted(times))
 
 
-class TestSignalsQuotaFacadeGates(TestCase):
+class TestSelfDrivingQuotaFacadeGates(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
     user: ClassVar[User]
@@ -839,14 +839,14 @@ class TestSignalsQuotaFacadeGates(TestCase):
         cls.user = User.objects.create(email="quota-facade@test.com", distinct_id="quota-facade-distinct")
 
     def _enforced_gate(self):
-        from products.signals.backend.quota import SignalsQuotaGate
+        from products.signals.backend.quota import SelfDrivingQuotaGate
 
         return patch(
-            "products.signals.backend.quota.signals_quota_gate",
-            return_value=SignalsQuotaGate(limited=True, enforced=True),
+            "products.signals.backend.quota.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
         )
 
-    def test_create_and_run_task_blocked_for_signals_origin_when_enforced(self):
+    def test_create_and_run_task_blocked_for_self_driving_origin_when_enforced(self):
         # The implementation task is the step that leads to the billable PR; over-quota teams
         # must not get one through the facade regardless of caller.
         from posthog.exceptions import QuotaLimitExceeded
@@ -864,7 +864,7 @@ class TestSignalsQuotaFacadeGates(TestCase):
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_unaffected_for_other_origins_when_enforced(self, _mock_workflow):
-        # The signals PR limit must never block user-created tasks.
+        # The self-driving PR limit must never block user-created tasks.
         Integration.objects.create(team=self.team, kind="github", config={})
         with self._enforced_gate():
             created = facade.create_and_run_task(
@@ -900,7 +900,7 @@ class TestSignalsQuotaFacadeGates(TestCase):
         self.assertFalse(Task.objects.filter(team=self.team).exists())
 
 
-class TestSignalsQuotaRefreshDispatch(TestCase):
+class TestSelfDrivingQuotaRefreshDispatch(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
     user: ClassVar[User]
@@ -911,7 +911,7 @@ class TestSignalsQuotaRefreshDispatch(TestCase):
         cls.team = Team.objects.create(organization=cls.organization, name="Refresh Team")
         cls.user = User.objects.create(email="refresh@test.com", distinct_id="refresh-distinct")
 
-    def _signals_run(self) -> TaskRun:
+    def _self_driving_run(self) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
             title="Implementation: t",
@@ -923,7 +923,7 @@ class TestSignalsQuotaRefreshDispatch(TestCase):
 
     @parameterized.expand(
         [
-            # First PR URL on a signals-origin run is the billable moment: re-evaluate now.
+            # First PR URL on a self-driving-origin run is the billable moment: re-evaluate now.
             ("first_pr_dispatches", None, {"pr_url": "https://github.com/x/y/pull/1"}, True),
             # A repeat write for the same PR must not spam the quota task.
             (
@@ -936,24 +936,24 @@ class TestSignalsQuotaRefreshDispatch(TestCase):
             ("no_pr_skipped", None, {"summary": "wip"}, False),
         ]
     )
-    @patch("ee.tasks.quota_limiting.refresh_org_signals_quota_task")
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
     def test_refresh_dispatch_on_first_pr(self, _name, old_pr_url, output, expect_dispatch, task_mock):
-        run = self._signals_run()
+        run = self._self_driving_run()
         run.output = output
         run.save(update_fields=["output"])
         with self.captureOnCommitCallbacks(execute=True):
-            facade._refresh_signals_quota_for_pr(run, old_pr_url)
+            facade._refresh_self_driving_quota_for_pr(run, old_pr_url)
         self.assertEqual(task_mock.delay.call_count, 1 if expect_dispatch else 0)
         if expect_dispatch:
             self.assertEqual(task_mock.delay.call_args.args, (str(self.organization.id),))
 
-    @patch("ee.tasks.quota_limiting.refresh_org_signals_quota_task")
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
     def test_refresh_dispatch_skipped_for_other_origins(self, task_mock):
-        run = self._signals_run()
+        run = self._self_driving_run()
         run.task.origin_product = Task.OriginProduct.USER_CREATED
         run.task.save(update_fields=["origin_product"])
         run.output = {"pr_url": "https://github.com/x/y/pull/1"}
         run.save(update_fields=["output"])
         with self.captureOnCommitCallbacks(execute=True):
-            facade._refresh_signals_quota_for_pr(run, None)
+            facade._refresh_self_driving_quota_for_pr(run, None)
         task_mock.delay.assert_not_called()
