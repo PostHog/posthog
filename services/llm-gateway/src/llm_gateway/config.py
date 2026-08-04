@@ -188,6 +188,10 @@ class Settings(BaseSettings):
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
 
+    # Set false on local dev stacks whose ingestion-ai forwarder rejects AI-lane batches
+    # (401 on /batch/, events silently dropped) — capture falls back to the standard lane.
+    posthog_ai_lane_capture: bool = True
+
     metrics_enabled: bool = True
 
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB

@@ -562,9 +562,13 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
 
 
 # Some Atlas tiers (e.g. free/shared) reject no_cursor_timeout outright with OperationFailure
-# code 8000 ("noTimeout cursors are disallowed in this atlas tier"). Matched as a substring since
-# the full error also carries the volatile clusterTime/signature payload.
+# code 8000 ("noTimeout cursors are disallowed in this atlas tier"). A collection that's actually
+# a view hits the same limitation from a different angle: MongoDB rewrites a find() against a
+# view into an aggregate(), and noCursorTimeout isn't a valid aggregation option, so the read
+# fails immediately with "Option noCursorTimeout not supported in aggregation" instead. Both are
+# matched as substrings since the full errors also carry volatile clusterTime/signature payloads.
 _NO_TIMEOUT_CURSORS_DISALLOWED = "noTimeout cursors are disallowed"
+_NO_TIMEOUT_NOT_SUPPORTED_IN_AGGREGATION = "noCursorTimeout not supported in aggregation"
 
 
 def mongo_source(
@@ -636,7 +640,11 @@ def mongo_source(
                 except StopIteration:
                     pass
                 except OperationFailure as e:
-                    if _NO_TIMEOUT_CURSORS_DISALLOWED not in str(e):
+                    error_message = str(e)
+                    if (
+                        _NO_TIMEOUT_CURSORS_DISALLOWED not in error_message
+                        and _NO_TIMEOUT_NOT_SUPPORTED_IN_AGGREGATION not in error_message
+                    ):
                         raise
                     # Fails on the very first read before any document is yielded, so it's safe to
                     # retry without no_cursor_timeout — the tradeoff is the CursorNotFound risk that

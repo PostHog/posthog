@@ -13,6 +13,9 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition as repartition_module
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    _PURGE_S3_PREFIX_MAX_ATTEMPTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
@@ -365,6 +368,60 @@ class TestRewriteIntoTemp:
         assert resolved.partition_mode == "datetime"
         assert resolved.partition_keys == ["created_at"]
 
+    def test_batch_with_real_null_in_non_nullable_column_is_backfilled_not_crashed(self, tmp_path):
+        # The live table's own declared schema can mark a column non-nullable (e.g. a source NOT
+        # NULL constraint recorded on first sync) while a scanned batch still carries an actual
+        # null for it (the constraint was later relaxed upstream). Writing that batch straight to
+        # `write_deltalake` without aligning it to the live schema first raises "declared as
+        # non-nullable but contains null values" and aborts the rewrite.
+        live_pa_schema = pa.schema(
+            [  # type: ignore[arg-type]
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("real_model", pa.string(), nullable=False),
+            ]
+        )
+        # Bypasses delta-rs's own write-time validation (which would reject this) to stand in for
+        # a batch scanned off a live table whose data no longer matches its declared schema. The
+        # scanned batch's own field still says non-nullable too, matching the live table's.
+        batch_table = pa.Table.from_arrays(
+            [pa.array([1, 2], type=pa.int64()), pa.array(["gpt-4", None], type=pa.string())],
+            schema=live_pa_schema,
+        )
+
+        class _FakeReader:
+            def __init__(self, table):
+                self._batches = table.to_batches()
+
+            def read_next_batch(self):
+                if not self._batches:
+                    raise StopIteration
+                return self._batches.pop(0)
+
+        old_delta = SimpleNamespace(
+            to_pyarrow_dataset=lambda: SimpleNamespace(
+                scanner=lambda batch_size: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
+            ),
+            schema=lambda: deltalake.Schema.from_arrow(live_pa_schema),
+        )
+
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,  # type: ignore[arg-type]
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["id"], trigger_reason="test", partition_mode="md5", partition_count=1
+                ),
+                batch_size=10,
+                logger=logger,
+            )
+        )
+
+        assert rows_written == 2
+        new_table = deltalake.DeltaTable(str(tmp_path / "tmp")).to_pyarrow_table().sort_by("id")
+        # The real null is backfilled to the column's default rather than reaching the Delta write.
+        assert new_table.column("real_model").to_pylist() == ["gpt-4", ""]
+
 
 class _FakeS3CM:
     """Minimal async-context-manager stand-in for `aget_s3_client()`."""
@@ -532,6 +589,43 @@ class TestPurgeS3Prefix:
         asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/gone"))
         s3._find.assert_not_awaited()
         s3._rm.assert_not_awaited()
+
+    def test_retries_and_recovers_from_transient_slowdown(self):
+        # A SlowDown throttling blip during the bulk list must not fail the whole purge — without the
+        # retry, this OSError would propagate straight out of reset_table/the repartition swap instead
+        # of clearing on its own the way an idempotent re-list would.
+        s3 = _fake_s3(
+            _find=AsyncMock(
+                side_effect=[
+                    OSError("[Errno 16] Please reduce your request rate."),
+                    ["bucket/t/part-0.parquet"],
+                ]
+            )
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with patch(f"{module}.asyncio.sleep", AsyncMock()):
+            asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
+        assert s3._find.await_count == 2
+        s3._rm.assert_any_await(["s3://bucket/t/part-0.parquet"])
+
+    def test_gives_up_after_max_attempts_on_persistent_slowdown(self):
+        s3 = _fake_s3(_find=AsyncMock(side_effect=OSError("[Errno 16] Please reduce your request rate.")))
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with patch(f"{module}.asyncio.sleep", AsyncMock()):
+            with pytest.raises(OSError, match="reduce your request rate"):
+                asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
+        assert s3._find.await_count == _PURGE_S3_PREFIX_MAX_ATTEMPTS
+
+    def test_reraises_immediately_for_non_transient_os_error(self):
+        # Only the recognized transient substrings should retry — an unrelated OSError (e.g. a real
+        # permissions/config problem) must fail fast instead of burning attempts and backoff on it.
+        s3 = _fake_s3(_find=AsyncMock(side_effect=OSError("some other unrelated failure")))
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with patch(f"{module}.asyncio.sleep", AsyncMock()) as mock_sleep:
+            with pytest.raises(OSError, match="some other unrelated failure"):
+                asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
+        assert s3._find.await_count == 1
+        mock_sleep.assert_not_awaited()
 
 
 class TestPurgeStaleTempTables:

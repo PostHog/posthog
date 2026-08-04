@@ -111,9 +111,8 @@ async fn setup_recordings_router_with_restriction(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
+        None, // recorder_handle
         CaptureMode::Recordings,
-        String::from("capture-recordings"),
         None,
         25 * 1024 * 1024,
         false,
@@ -485,9 +484,8 @@ async fn setup_recordings_router_with_redirect_to_topic(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        false,
+        None, // recorder_handle
         CaptureMode::Recordings,
-        String::from("capture-recordings"),
         None,
         25 * 1024 * 1024,
         false,

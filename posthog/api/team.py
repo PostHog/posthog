@@ -225,6 +225,11 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
     first one is blocked once the team has access to project secret API keys."""
     if team.secret_api_token or team.secret_api_token_backup:
         return
+    if team.conversations_enabled:
+        # Support signs widget identity hashes with the raw token and authenticates its external
+        # API against it. Project secret API keys are only ever stored hashed, so they cannot
+        # replace it, which would leave Support with no way to verify identity at all.
+        return
     if posthoganalytics.feature_enabled(
         "project-secret-api-keys",
         str(user.distinct_id),
@@ -1961,11 +1966,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
         # requires deprovisioning the warehouse (or deleting the organization) instead.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
-        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
         if warehouse_block_reason:
             raise exceptions.ValidationError(warehouse_block_reason)
 
