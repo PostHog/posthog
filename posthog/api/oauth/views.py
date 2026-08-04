@@ -502,6 +502,9 @@ class OAuthValidator(OAuth2Validator):
           without emptying it, so we reject the refresh (`invalid_grant`) — the client
           re-authorizes and gets a token within the current ceiling, rather than
           silently keeping out-of-ceiling access.
+        - a token that never held any scope refreshes as an empty grant instead.
+          Rejecting that one would loop, since re-authorizing returns the same empty
+          grant; its 403s by scope are where the client should find out.
 
         An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
         required floor — a token consented below a later-declared required set keeps
@@ -931,6 +934,48 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return "cimd"
         return "dcr" if application.is_dcr_client else "manual"
 
+    def _capture_scopes_clamped(self, request, application: OAuthApplication, submitted_scope: str) -> None:
+        """Report scopes `validate_scopes` dropped from an issued grant.
+
+        Called at each point a grant is actually minted rather than when the request
+        arrives, so an abandoned or denied authorization is not counted. Since
+        `/authorize` no longer fails on scope grounds, this is the only signal that a
+        client is asking for scopes it cannot have. `*` is excluded because
+        `oauth_wildcard_scopes_narrowed` already owns that case.
+
+        Both counts derive from `submitted_scope`, the set the grant was minted from,
+        so `granted_scope_count` is what the token carries rather than what was asked
+        for.
+        """
+        submitted = submitted_scope.split()
+        dropped_scopes = [
+            scope
+            for scope in scopes_outside_ceiling(
+                submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+            )
+            if scope != "*"
+        ]
+        if not dropped_scopes:
+            return
+
+        granted = clamp_scopes_to_ceiling(
+            submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+        )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_scopes_clamped",
+            properties={
+                "client_name": application.name,
+                "app_id": str(application.pk),
+                "registration_type": self._registration_type(application),
+                "is_verified": application.is_verified,
+                "is_first_party": application.is_first_party,
+                "dropped_scopes": dropped_scopes,
+                "granted_scope_count": len(granted),
+                **(get_region_info() or {}),
+            },
+        )
+
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
@@ -1009,35 +1054,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 },
             )
 
-        # `validate_scopes` drops ungrantable scopes instead of failing the authorization, so
-        # without this the only trace of a client asking for something it can't have is that
-        # its token came back smaller than it asked for. `*` is excluded because
-        # `oauth_wildcard_scopes_narrowed` above already owns that case.
-        dropped_scopes = [
-            scope
-            for scope in scopes_outside_ceiling(
-                (request.query_params.get("scope") or "").split(),
-                application.ceiling_scopes,
-                allow_wildcard_under_empty_ceiling=True,
-            )
-            if scope != "*"
-        ]
-        if dropped_scopes:
-            posthoganalytics.capture(
-                distinct_id=str(request.user.distinct_id),
-                event="oauth_scopes_clamped",
-                properties={
-                    "client_name": application.name,
-                    "app_id": str(application.pk),
-                    "registration_type": registration_type,
-                    "is_verified": application.is_verified,
-                    "is_first_party": application.is_first_party,
-                    "dropped_scopes": dropped_scopes,
-                    "granted_scope_count": len(scopes),
-                    **(get_region_info() or {}),
-                },
-            )
-
         impersonator_id = _impersonator_id_for_request(request)
         credentials["impersonated_by_id"] = impersonator_id
 
@@ -1057,6 +1073,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
                 )
+                self._capture_scopes_clamped(request, application, scope_str)
                 return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
@@ -1087,6 +1104,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
+                        self._capture_scopes_clamped(request, application, scope_str)
                         return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
@@ -1202,6 +1220,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             )
 
         logger.debug("Success url for the request: %s", uri)
+
+        if serializer.validated_data["allow"]:
+            self._capture_scopes_clamped(request, application, scopes)
 
         redirect = self.redirect(uri, application)
 

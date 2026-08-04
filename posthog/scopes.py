@@ -341,14 +341,21 @@ def resolve_ceiling(app_scopes: Iterable[str]) -> frozenset[str] | None:
     which falls back to the `UNPRIVILEGED_SCOPES` default). A `@default` sentinel
     expands to `UNPRIVILEGED_SCOPES` unioned with the other listed scopes; without it,
     a non-empty ceiling stays an exhaustive allow-list. Entries are stripped so a
-    fat-fingered `" @default"` still resolves (real scopes never have whitespace)."""
+    fat-fingered `" @default"` still resolves (real scopes never have whitespace).
+
+    A `<object>:write` entry also admits `<object>:read`, mirroring
+    `APIScopePermission`, which already accepts a `:write` token wherever `:read` is
+    required. Without this a client asking for the narrower half of a write-only
+    ceiling is refused access the token would have carried anyway, which is what the
+    consent screen's read-only toggle does."""
     app = {s.strip() for s in (app_scopes or [])}
     app.discard("")
     if not app:
         return None
-    if DEFAULT_CEILING_SENTINEL in app:
-        return frozenset(UNPRIVILEGED_SCOPES | (app - {DEFAULT_CEILING_SENTINEL}))
-    return frozenset(app)
+    resolved: set[str] = (
+        set(UNPRIVILEGED_SCOPES | (app - {DEFAULT_CEILING_SENTINEL})) if DEFAULT_CEILING_SENTINEL in app else set(app)
+    )
+    return frozenset(resolved | {scope.replace(":write", ":read") for scope in resolved if scope.endswith(":write")})
 
 
 def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
@@ -477,8 +484,15 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     - A `*` token is left untouched (narrowing it would strip all resource
       access; `*` retirement is handled separately).
     - Otherwise returns the sorted intersection with the ceiling plus any
-      always-allowed scopes, or `None` when that intersection is empty (the
-      caller should reject with `invalid_grant` and force re-authorization).
+      always-allowed scopes, or `None` when a non-empty scope set narrows to
+      nothing (the caller should reject with `invalid_grant` and force
+      re-authorization, which can then grant whatever is inside the ceiling).
+
+    A token that never held any scope is not that case, and rejecting it would
+    loop: `/authorize` clamps rather than rejecting, so the re-authorization the
+    rejection forces returns the same empty grant, which refreshes and is
+    rejected again. It narrows to the empty list instead, leaving one stable
+    token whose resource calls 403 by scope.
     """
     original_list = list(original)
     ceiling = resolve_ceiling(app_scopes)
@@ -490,7 +504,7 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
         return original_list
 
     narrowed = (original_set & ceiling) | (original_set & ALWAYS_ALLOWED_SCOPES)
-    if not narrowed:
+    if not narrowed and original_set:
         return None
     return sorted(narrowed)
 

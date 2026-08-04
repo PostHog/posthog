@@ -1358,6 +1358,29 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
 
+    def test_refresh_of_an_empty_grant_succeeds_instead_of_looping(self):
+        # A request that clamps to nothing mints a scope-less token. Rejecting its
+        # refresh would send the client back to /authorize, which now clamps rather
+        # than failing and returns another empty grant, so the client would refresh,
+        # be rejected, and re-authorize forever. It refreshes to an empty grant.
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json().get("scope", ""), "")
+
     def test_refresh_rejected_when_token_scopes_outside_ceiling(self):
         self.confidential_application.scopes = ["experiment:read"]
         self.confidential_application.save()
@@ -2777,30 +2800,58 @@ class TestOAuthAPI(APIBaseTest):
         grant = self._first_party_authorize_grant(app, requested)
         self.assertEqual(set(grant.scope.split()), expected)
 
-    def test_authorize_clamping_captures_event(self):
+    def test_authorize_clamping_captures_event_on_the_consent_grant(self):
+        # The event fires where the grant is minted, so the consent path is covered.
+        # Capturing on the GET instead would both miss a direct POST and count
+        # authorizations the user went on to abandon.
         self._set_ceiling("experiment:read")
-        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):
-            with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
-                response = self.client.get(f"{self.base_authorization_url}&scope=experiment:read insight:write")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self._authorize_post("experiment:read insight:write")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         clamped = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_scopes_clamped"]
         self.assertEqual(len(clamped), 1)
         props = clamped[0].kwargs["properties"]
         self.assertEqual(props["dropped_scopes"], ["insight:write"])
+        self.assertEqual(props["granted_scope_count"], 1)
         self.assertEqual(props["app_id"], str(self.confidential_application.pk))
         self.assertEqual(props["client_name"], self.confidential_application.name)
         self.assertEqual(props["registration_type"], "manual")
         self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
         self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
 
-    def test_authorize_within_ceiling_captures_no_clamping_event(self):
+    def test_authorize_rendering_consent_captures_no_clamping_event(self):
+        # Rendering the consent screen grants nothing, so an authorization the user
+        # never completes must not inflate the clamping numbers.
         self._set_ceiling("experiment:read")
         with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):
             with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
-                response = self.client.get(f"{self.base_authorization_url}&scope=experiment:read")
+                response = self.client.get(f"{self.base_authorization_url}&scope=experiment:read insight:write")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         clamped = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_scopes_clamped"]
         self.assertEqual(clamped, [])
+
+    def test_authorize_within_ceiling_captures_no_clamping_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self._authorize_post("experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        clamped = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_scopes_clamped"]
+        self.assertEqual(clamped, [])
+
+    def test_read_only_consent_under_a_write_ceiling_grants_read(self):
+        # The consent screen's read-only toggle downgrades `insight:write` to
+        # `insight:read`. A ceiling naming only the write half must still admit it,
+        # or the user is told they granted read access and the token carries nothing.
+        # `insight:write` is optional here because a required scope cannot be
+        # deselected at consent, so the toggle is only reachable for optional ones.
+        self._set_ceiling("experiment:read")
+        self.confidential_application.optional_scopes = ["insight:write"]
+        self.confidential_application.save()
+
+        response = self._authorize_post("experiment:read insight:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+        self.assertEqual(set(OAuthGrant.objects.get(code=code).scope.split()), {"experiment:read", "insight:read"})
 
     def test_authorize_wildcard_narrowing_captures_event(self):
         self._set_ceiling("experiment:read")

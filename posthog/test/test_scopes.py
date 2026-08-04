@@ -234,6 +234,38 @@ class TestScopesWithinCeiling(SimpleTestCase):
     ) -> None:
         assert scopes_within_ceiling(requested, app_scopes) is True
 
+    @parameterized.expand(
+        [
+            ("write_entry_admits_its_read_half", ["insight:write"], ["insight:read"], ["insight:read"]),
+            ("read_entry_does_not_admit_write", ["insight:read"], ["insight:write"], []),
+            (
+                "read_only_downgrade_of_a_whole_write_ceiling",
+                ["insight:write", "experiment:write"],
+                ["insight:read", "experiment:read"],
+                ["experiment:read", "insight:read"],
+            ),
+        ]
+    )
+    def test_write_ceiling_entry_admits_read(
+        self, _name: str, app_scopes: list[str], requested: list[str], expected: list[str]
+    ) -> None:
+        assert clamp_scopes_to_ceiling(requested, app_scopes) == expected
+
+    @parameterized.expand(
+        [
+            # A token that HELD scopes now outside the ceiling: rejecting is right,
+            # because re-authorizing can still grant whatever is inside it.
+            ("held_scopes_now_outside_ceiling_rejects", ["experiment:write"], None),
+            # A token that never held any: rejecting would loop, since /authorize
+            # clamps and hands the same empty grant back on re-authorization.
+            ("never_held_any_scope_narrows_to_empty", [], []),
+        ]
+    )
+    def test_nothing_surviving_narrowing_depends_on_whether_there_was_anything(
+        self, _name: str, original: list[str], expected: list[str] | None
+    ) -> None:
+        assert narrow_scopes_to_ceiling(original, ["dashboard:read"]) == expected
+
     def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
         # The one resolution difference between callers: /authorize grandfathers `*`
         # under an empty ceiling, provisioning (default) does not.
