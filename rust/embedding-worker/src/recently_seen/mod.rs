@@ -25,7 +25,7 @@ pub struct DocumentKey {
     pub document_id: String,
 }
 
-/// A document the worker emitted, with the moment it was emitted.
+/// A document the worker emitted, with the time its Kafka transaction committed.
 #[derive(Debug, Clone)]
 pub struct SeenRecord {
     pub team_id: i32,
@@ -135,15 +135,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn expired_records_are_not_returned() {
+    async fn ttl_starts_when_record_is_observed() {
         let store = InMemoryStore::new(Duration::seconds(604800));
-        // Emitted just over a week ago — past the 1-week TTL.
         let stale = Utc::now() - chrono::Duration::weeks(1) - chrono::Duration::hours(1);
         store
             .record(&[SeenRecord {
                 team_id: 1,
                 key: key("old"),
                 emitted_at: stale,
+            }])
+            .await;
+
+        let hits = store.lookup(1, vec![key("old")]).await;
+        assert_eq!(hits.get(&key("old")), Some(&Some(stale)));
+    }
+
+    #[tokio::test]
+    async fn expired_records_are_not_returned() {
+        let store = InMemoryStore::new(Duration::seconds(-1));
+        store
+            .record(&[SeenRecord {
+                team_id: 1,
+                key: key("old"),
+                emitted_at: Utc::now(),
             }])
             .await;
 

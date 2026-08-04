@@ -31,9 +31,9 @@ impl InMemoryStore {
 impl RecentlySeenStore for InMemoryStore {
     async fn record(&self, documents: &[SeenRecord]) {
         let ttl = self.ttl_chrono();
+        let expires_at = Utc::now() + ttl;
         let mut entries = self.entries.lock().await;
         for doc in documents {
-            let expires_at = doc.emitted_at + ttl;
             entries.insert((doc.team_id, doc.key.clone()), (doc.emitted_at, expires_at));
         }
     }

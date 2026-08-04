@@ -1,14 +1,17 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration as StdDuration};
 
+use aws_config::retry::RetryConfig;
 use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes, PutRequest, WriteRequest};
 use axum::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use metrics::counter;
+use rand::Rng;
+use tokio::time::sleep;
 use tracing::{error, warn};
 
 use crate::{
     config::Config,
-    metrics_utils::{RECENTLY_SEEN_READ_ERRORS, RECENTLY_SEEN_WRITE_ERRORS},
+    metrics_utils::{RECENTLY_SEEN_READ_ERRORS, RECENTLY_SEEN_RETRIES, RECENTLY_SEEN_WRITE_ERRORS},
     recently_seen::{DocumentKey, RecentlySeenStore, SeenRecord},
 };
 use anyhow::Result;
@@ -20,6 +23,16 @@ const TTL_ATTR: &str = "expires_at";
 // DynamoDB caps BatchWriteItem at 25 items and BatchGetItem at 100 keys per request.
 const BATCH_WRITE_CHUNK: usize = 25;
 const BATCH_GET_CHUNK: usize = 100;
+const AWS_MAX_ATTEMPTS: u32 = 5;
+const UNPROCESSED_MAX_ATTEMPTS: usize = 5;
+const UNPROCESSED_INITIAL_BACKOFF_MS: u64 = 50;
+
+async fn backoff_before_retry(operation: &'static str, attempt: usize) {
+    counter!(RECENTLY_SEEN_RETRIES, "operation" => operation).increment(1);
+    let max_delay_ms = UNPROCESSED_INITIAL_BACKOFF_MS * 2_u64.pow((attempt - 1) as u32);
+    let delay_ms = rand::thread_rng().gen_range(max_delay_ms / 2..=max_delay_ms);
+    sleep(StdDuration::from_millis(delay_ms)).await;
+}
 
 /// Partition key encodes the dimensions a lookup shares; the document id is the sort
 /// key. This lets a single lookup fan out efficiently within a team's partitions.
@@ -38,7 +51,8 @@ pub struct DynamoDbStore {
 
 pub async fn build_dynamodb_store(config: &Config) -> Result<DynamoDbStore> {
     let ttl = Duration::seconds(config.recent_ids_ttl_seconds);
-    let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
+    let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .retry_config(RetryConfig::standard().with_max_attempts(AWS_MAX_ATTEMPTS));
     if let Some(region) = &config.aws_region {
         loader = loader.region(aws_sdk_dynamodb::config::Region::new(region.clone()));
     }
@@ -55,11 +69,10 @@ pub async fn build_dynamodb_store(config: &Config) -> Result<DynamoDbStore> {
 #[async_trait]
 impl RecentlySeenStore for DynamoDbStore {
     async fn record(&self, documents: &[SeenRecord]) {
-        let ttl_secs = self.ttl.num_seconds();
+        let expires_at = Utc::now().timestamp() + self.ttl.num_seconds();
         for chunk in documents.chunks(BATCH_WRITE_CHUNK) {
             let mut write_requests = Vec::with_capacity(chunk.len());
             for doc in chunk {
-                let expires_at = doc.emitted_at.timestamp() + ttl_secs;
                 let item = HashMap::from([
                     (
                         PK.to_string(),
@@ -90,31 +103,42 @@ impl RecentlySeenStore for DynamoDbStore {
                 continue;
             }
 
-            // UnprocessedItems (throttling) aren't retried — this is a best-effort cache.
-            match self
-                .client
-                .batch_write_item()
-                .request_items(self.table.clone(), write_requests)
-                .send()
-                .await
-            {
-                Ok(response) => {
-                    let unprocessed_count = response
-                        .unprocessed_items()
-                        .and_then(|items| items.get(&self.table))
-                        .map(Vec::len)
-                        .unwrap_or_default();
-                    if unprocessed_count > 0 {
-                        warn!(
-                            "DynamoDB left {unprocessed_count} recently-seen records unprocessed"
-                        );
-                        counter!(RECENTLY_SEEN_WRITE_ERRORS).increment(unprocessed_count as u64);
+            let mut pending = write_requests;
+            for attempt in 1..=UNPROCESSED_MAX_ATTEMPTS {
+                let pending_count = pending.len();
+                let mut response = match self
+                    .client
+                    .batch_write_item()
+                    .request_items(self.table.clone(), pending)
+                    .send()
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(e) => {
+                        error!("Failed to write recently-seen records to DynamoDB: {e:?}");
+                        counter!(RECENTLY_SEEN_WRITE_ERRORS).increment(pending_count as u64);
+                        break;
                     }
+                };
+
+                pending = response
+                    .unprocessed_items
+                    .as_mut()
+                    .and_then(|items| items.remove(&self.table))
+                    .unwrap_or_default();
+                if pending.is_empty() {
+                    break;
                 }
-                Err(e) => {
-                    error!("Failed to write recently-seen records to DynamoDB: {e:?}");
-                    counter!(RECENTLY_SEEN_WRITE_ERRORS).increment(chunk.len() as u64);
+                if attempt == UNPROCESSED_MAX_ATTEMPTS {
+                    warn!(
+                        "DynamoDB left {} recently-seen records unprocessed after {attempt} attempts",
+                        pending.len()
+                    );
+                    counter!(RECENTLY_SEEN_WRITE_ERRORS).increment(pending.len() as u64);
+                    break;
                 }
+
+                backoff_before_retry("write", attempt).await;
             }
         }
     }
@@ -152,7 +176,7 @@ impl RecentlySeenStore for DynamoDbStore {
                 continue;
             }
 
-            let keys_and_attributes = match KeysAndAttributes::builder()
+            let mut pending = match KeysAndAttributes::builder()
                 .set_keys(Some(request_keys))
                 .projection_expression(format!("{PK}, {SK}, {EMITTED_AT}"))
                 .build()
@@ -164,50 +188,68 @@ impl RecentlySeenStore for DynamoDbStore {
                 }
             };
 
-            let response = match self
-                .client
-                .batch_get_item()
-                .request_items(self.table.clone(), keys_and_attributes)
-                .send()
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    error!("Failed to read recently-seen records from DynamoDB: {e:?}");
-                    counter!(RECENTLY_SEEN_READ_ERRORS).increment(chunk.len() as u64);
-                    continue;
-                }
-            };
-
-            let unprocessed_count = response
-                .unprocessed_keys()
-                .and_then(|keys| keys.get(&self.table))
-                .map(|keys| keys.keys().len())
-                .unwrap_or_default();
-            if unprocessed_count > 0 {
-                warn!("DynamoDB left {unprocessed_count} recently-seen lookups unprocessed");
-                counter!(RECENTLY_SEEN_READ_ERRORS).increment(unprocessed_count as u64);
-            }
-
-            let Some(items) = response.responses.as_ref().and_then(|r| r.get(&self.table)) else {
-                continue;
-            };
-
-            for item in items {
-                let (Some(Ok(pk)), Some(Ok(sk))) = (
-                    item.get(PK).map(AttributeValue::as_s),
-                    item.get(SK).map(AttributeValue::as_s),
-                ) else {
-                    continue;
+            for attempt in 1..=UNPROCESSED_MAX_ATTEMPTS {
+                let pending_count = pending.keys().len();
+                let mut response = match self
+                    .client
+                    .batch_get_item()
+                    .request_items(self.table.clone(), pending)
+                    .send()
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(e) => {
+                        error!("Failed to read recently-seen records from DynamoDB: {e:?}");
+                        counter!(RECENTLY_SEEN_READ_ERRORS).increment(pending_count as u64);
+                        break;
+                    }
                 };
-                if let Some(doc_key) = index.get(&(pk.clone(), sk.clone())) {
-                    let emitted = item
-                        .get(EMITTED_AT)
-                        .and_then(|v| v.as_s().ok())
-                        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                        .map(|dt| dt.with_timezone(&Utc));
-                    results.insert(doc_key.clone(), emitted);
+
+                if let Some(items) = response
+                    .responses
+                    .as_mut()
+                    .and_then(|responses| responses.remove(&self.table))
+                {
+                    for item in items {
+                        let (Some(Ok(pk)), Some(Ok(sk))) = (
+                            item.get(PK).map(AttributeValue::as_s),
+                            item.get(SK).map(AttributeValue::as_s),
+                        ) else {
+                            continue;
+                        };
+                        if let Some(doc_key) = index.get(&(pk.clone(), sk.clone())) {
+                            let emitted = item
+                                .get(EMITTED_AT)
+                                .and_then(|v| v.as_s().ok())
+                                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                                .map(|dt| dt.with_timezone(&Utc));
+                            results.insert(doc_key.clone(), emitted);
+                        }
+                    }
                 }
+
+                let Some(next_pending) = response
+                    .unprocessed_keys
+                    .as_mut()
+                    .and_then(|keys| keys.remove(&self.table))
+                else {
+                    break;
+                };
+                if next_pending.keys().is_empty() {
+                    break;
+                }
+                pending = next_pending;
+
+                if attempt == UNPROCESSED_MAX_ATTEMPTS {
+                    warn!(
+                        "DynamoDB left {} recently-seen lookups unprocessed after {attempt} attempts",
+                        pending.keys().len()
+                    );
+                    counter!(RECENTLY_SEEN_READ_ERRORS).increment(pending.keys().len() as u64);
+                    break;
+                }
+
+                backoff_before_retry("read", attempt).await;
             }
         }
 

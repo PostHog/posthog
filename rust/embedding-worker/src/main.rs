@@ -1,4 +1,4 @@
-use std::{collections::HashMap, future::ready, sync::Arc};
+use std::{collections::HashMap, future::ready, sync::Arc, time::Instant};
 
 use axum::{
     extract::{Json, State},
@@ -15,11 +15,14 @@ use embedding_worker::{
     app_context::AppContext,
     config::Config,
     handle_batch,
-    metrics_utils::DROPPED_REQUESTS,
+    metrics_utils::{
+        DROPPED_REQUESTS, RECENTLY_SEEN_DOCUMENTS, RECENTLY_SEEN_OPERATIONS,
+        RECENTLY_SEEN_OPERATION_TIME,
+    },
     recently_seen::{dedup_seen, DocumentKey, SeenRecord},
 };
 
-use metrics::counter;
+use metrics::{counter, histogram};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::level_filters::LevelFilter;
@@ -101,10 +104,22 @@ async fn recently_seen_handler(
     Json(request): Json<RecentlySeenRequest>,
 ) -> Json<RecentlySeenResponse> {
     let documents = request.documents;
+    let started_at = Instant::now();
     let lookup = context
         .recently_seen
         .lookup(request.team_id, documents.clone())
         .await;
+    histogram!(RECENTLY_SEEN_OPERATION_TIME, "operation" => "read")
+        .record(started_at.elapsed().as_secs_f64());
+    counter!(RECENTLY_SEEN_OPERATIONS, "operation" => "read").increment(1);
+    let hit_count = lookup
+        .values()
+        .filter(|emitted_at| emitted_at.is_some())
+        .count();
+    counter!(RECENTLY_SEEN_DOCUMENTS, "operation" => "read", "result" => "hit")
+        .increment(hit_count as u64);
+    counter!(RECENTLY_SEEN_DOCUMENTS, "operation" => "read", "result" => "miss")
+        .increment((lookup.len() - hit_count) as u64);
 
     Json(RecentlySeenResponse {
         results: recently_seen_results(documents, &lookup),
@@ -226,21 +241,6 @@ async fn main() {
             res.expect("We can emit to kafka");
         }
 
-        // Capture each document's emit time before `responses` is consumed.
-        let mut emitted_at: HashMap<(i32, DocumentKey), DateTime<Utc>> = HashMap::new();
-        for response in &responses {
-            let req = &response.request;
-            let key = DocumentKey {
-                product: req.product.clone(),
-                document_type: req.document_type.clone(),
-                rendering: req.rendering.clone(),
-                document_id: req.document_id.clone(),
-            };
-            emitted_at
-                .entry((req.team_id, key))
-                .or_insert(req.timestamp);
-        }
-
         // Write the embedding records to CH
         let records: Vec<EmbeddingRecord> = responses
             .into_iter()
@@ -286,23 +286,28 @@ async fn main() {
         // cheaply check processing status. Best effort - better to write the same document
         // twice to CH (where it'll be de-duped anyway) than falsely advertise that we
         // processed it
-        let seen = dedup_seen(records.iter().filter_map(|record| {
+        let emitted_at = Utc::now();
+        let seen = dedup_seen(records.iter().map(|record| {
             let key = DocumentKey {
                 product: record.product.clone(),
                 document_type: record.document_type.clone(),
                 rendering: record.rendering.clone(),
                 document_id: record.document_id.clone(),
             };
-            emitted_at
-                .get(&(record.team_id, key.clone()))
-                .map(|ts| SeenRecord {
-                    team_id: record.team_id,
-                    key,
-                    emitted_at: *ts,
-                })
+            SeenRecord {
+                team_id: record.team_id,
+                key,
+                emitted_at,
+            }
         }));
         if !seen.is_empty() {
+            let started_at = Instant::now();
             context.recently_seen.record(&seen).await;
+            histogram!(RECENTLY_SEEN_OPERATION_TIME, "operation" => "write")
+                .record(started_at.elapsed().as_secs_f64());
+            counter!(RECENTLY_SEEN_OPERATIONS, "operation" => "write").increment(1);
+            counter!(RECENTLY_SEEN_DOCUMENTS, "operation" => "write", "result" => "attempted")
+                .increment(seen.len() as u64);
         }
     }
 }
