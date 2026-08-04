@@ -17,6 +17,11 @@ class Migration(migrations.Migration):
                     name="DuckgresSinkSchemaState",
                 ),
             ],
-            database_operations=[],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_duckgresserver ALTER COLUMN sink_max_concurrency SET DEFAULT 4;",
+                    reverse_sql="ALTER TABLE posthog_duckgresserver ALTER COLUMN sink_max_concurrency DROP DEFAULT;",
+                ),
+            ],
         ),
     ]
