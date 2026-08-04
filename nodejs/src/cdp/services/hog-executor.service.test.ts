@@ -86,7 +86,7 @@ describe('Hog Executor', () => {
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         executor = new HogExecutorAsyncService(
             new HogExecutorService(
-                { hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                { executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
                 hogInputsService
             ),
             {

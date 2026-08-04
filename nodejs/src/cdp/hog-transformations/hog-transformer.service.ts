@@ -30,8 +30,6 @@ export interface HogTransformerConfig {
     mmdbFileLocation: string
 }
 
-const HOG_TRANSFORMATION_TIMEOUT_MS = 550
-
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
     help: 'Indicates how many events are dropped by hog transformations',
@@ -371,7 +369,7 @@ export class HogTransformerService implements HogTransformer {
 /** Config read by createHogTransformerService when running inside ingestion. */
 export type HogTransformerServiceConfig = Pick<
     CommonConfig,
-    'SITE_URL' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'
+    'SITE_URL' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION' | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
 >
 
 export interface HogTransformerServiceDeps {
@@ -395,7 +393,7 @@ export function createHogTransformerService(
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogInputsService = new HogInputsService(deps.integrationManager, undefined, deps.encryptedFields)
     const hogExecutor = new HogExecutorService(
-        { hogCostTimingUpperMs: HOG_TRANSFORMATION_TIMEOUT_MS },
+        { executionTimeoutMs: config.TRANSFORMATIONS_HOG_TIMEOUT_MS },
         hogInputsService
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)

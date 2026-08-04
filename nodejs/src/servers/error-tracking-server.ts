@@ -58,7 +58,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * This is the union of:
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - ErrorTrackingConsumerConfig: error tracking pipeline, cymbal, overflow
- * - HogTransformerServiceConfig: CDP keys needed by the hog transformer running in-process
+ * - HogTransformerServiceConfig: the transformation-only keys the in-process hog transformer reads.
+ *   No CDP delivery config (Redis, watcher, SES, fetch) - transformations run the synchronous
+ *   Hog core alone, so those keys are deliberately absent rather than inherited.
  * - Infrastructure configs: Kafka broker, Postgres, Redis, consumer tuning
  * - Remaining CommonConfig picks: server mode, services, observability
  */

@@ -217,7 +217,7 @@ export class TemplateTester {
         )
         return new HogExecutorAsyncService(
             new HogExecutorService(
-                { hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                { executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
                 hogInputsService
             ),
             {

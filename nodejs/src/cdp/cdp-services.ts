@@ -445,7 +445,7 @@ export function createCdpCoreServices(
     )
 
     const hogExecutorAsync = new HogExecutorAsyncService(
-        new HogExecutorService({ hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
+        new HogExecutorService({ executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
         {
             googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
             fetchRetries: config.CDP_FETCH_RETRIES,

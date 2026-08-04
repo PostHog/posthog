@@ -20,7 +20,8 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 
 export interface HogExecutorConfig {
-    hogCostTimingUpperMs: number
+    /** Hard wall-clock limit for one Hog program. The VM aborts the invocation once it elapses. */
+    executionTimeoutMs: number
 }
 
 export const MAX_ASYNC_STEPS = 5
@@ -204,7 +205,7 @@ export class HogExecutorService {
 
                 const execHogOutcome = await execHog(invocationInput, {
                     globals,
-                    timeout: this.config.hogCostTimingUpperMs,
+                    timeout: this.config.executionTimeoutMs,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: asyncFunctions,
                     functions: {

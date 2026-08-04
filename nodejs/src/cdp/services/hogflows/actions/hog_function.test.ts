@@ -73,7 +73,7 @@ describe('HogFunctionHandler', () => {
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService(
-                { hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                { executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
                 hogInputsService
             ),
             {

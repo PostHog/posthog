@@ -76,6 +76,9 @@ describe('HogTransformer', () => {
             SITE_URL: hub.SITE_URL,
             CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
             MMDB_FILE_LOCATION: hub.MMDB_FILE_LOCATION,
+            // Deliberately not the default, so the assertion below proves the value is plumbed
+            // through rather than hardcoded in the factory.
+            TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,
         }
         const transformer = createHogTransformerService(config, {
             ...hub,
@@ -83,6 +86,7 @@ describe('HogTransformer', () => {
         })
 
         expect(transformer['hogExecutor']['hogInputsService']['recipientTokensService']).toBeUndefined()
+        expect(transformer['hogExecutor']['config'].executionTimeoutMs).toBe(123)
 
         await transformer.stop()
     })

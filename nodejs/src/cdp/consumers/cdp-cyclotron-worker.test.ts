@@ -474,7 +474,7 @@ describe('CdpCyclotronWorker', () => {
                     })
                 )
 
-                processor.hogExecutorAsync.hogExecutor['config'].hogCostTimingUpperMs = blockTime
+                processor.hogExecutorAsync.hogExecutor['config'].executionTimeoutMs = blockTime
 
                 const numberToTest = 5
                 const invocations = Array.from({ length: numberToTest }, () =>

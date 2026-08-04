@@ -191,6 +191,9 @@ export type CommonConfig = BaseServerConfig & {
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
     CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
 
+    /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
+    TRANSFORMATIONS_HOG_TIMEOUT_MS: number
+
     // Event loop yield helper (yieldEventLoopIfNeeded)
     EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
@@ -361,6 +364,7 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+        TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
