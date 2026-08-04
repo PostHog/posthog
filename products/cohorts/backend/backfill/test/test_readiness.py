@@ -47,6 +47,8 @@ KINDS = [
     BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
     BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
 )
 class TestBackfillReadiness(BaseTest):
     def _filters(self, window_days: int, *, person_hash: str | None = None) -> dict:
@@ -185,6 +187,27 @@ class TestBackfillReadiness(BaseTest):
         participation.refresh_from_db()
         self.assertIsNone(cohort.last_backfill_events_at)
         self.assertIsNone(participation.stamped_at)
+
+    def test_person_edit_revert_is_fenced_by_the_receiver(self) -> None:
+        # A -> B -> A restores the pinned person hash, so the stamp's CAS passes again. Only the
+        # `superseded_at` that `cohort_person_shape_changed_supersede` set on the first edit keeps
+        # readiness off a backfill whose seeded state went stale during the B window.
+        cohort, run = self._cohort_and_run(create_person_backfill_run_for_cohort)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            cohort.filters = self._filters(7, person_hash="person-b")
+            cohort.save(update_fields=["filters"])
+            cohort.filters = self._filters(7, person_hash="person-a")
+            cohort.save(update_fields=["filters"])
+
+        cohort.refresh_from_db()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        self.assertEqual(cohort.person_filters_shape_hash, participation.person_filters_shape_hash)
+
+        self.assertFalse(stamp_person_properties_readiness(run, cohort.id))
+
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.last_backfill_person_properties_at)
 
     @parameterized.expand(KINDS)
     def test_supersession_racing_the_stamp_rolls_the_cohort_back(
