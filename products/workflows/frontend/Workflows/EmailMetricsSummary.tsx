@@ -51,9 +51,10 @@ export function EmailMetricsSummary({ logicKey }: { logicKey: string }): JSX.Ele
                             previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
                             color={metric.color}
                             colorIfZero={getColorVar('muted')}
+                            hidePeriodDiff
                             subtitle={
                                 key !== 'email_sent' && sentTotal > 0
-                                    ? `${percentage(sumAppMetricsTimeSeries(timeSeries) / sentTotal, 1)} of sent`
+                                    ? percentage(sumAppMetricsTimeSeries(timeSeries) / sentTotal, 1)
                                     : null
                             }
                         />

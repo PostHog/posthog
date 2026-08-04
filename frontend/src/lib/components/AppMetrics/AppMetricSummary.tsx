@@ -28,6 +28,7 @@ export type AppMetricSummaryProps = {
     hideIfZero?: boolean
     /** Extra context shown beneath the total, e.g. this metric's share of another metric. */
     subtitle?: string | null
+    hidePeriodDiff?: boolean
 }
 
 export function AppMetricSummary({
@@ -40,6 +41,7 @@ export function AppMetricSummary({
     loading,
     hideIfZero = false,
     subtitle,
+    hidePeriodDiff = false,
 }: AppMetricSummaryProps): JSX.Element | null {
     const total = useMemo(() => sumAppMetricsTimeSeries(timeSeries), [timeSeries])
 
@@ -71,7 +73,7 @@ export function AppMetricSummary({
                 ) : (
                     <>
                         {subtitle ? <span>{subtitle}</span> : null}
-                        {diffForDisplay ? <span>{diffForDisplay}</span> : null}
+                        {!hidePeriodDiff && diffForDisplay ? <span>{diffForDisplay}</span> : null}
                     </>
                 )}
             </div>
