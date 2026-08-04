@@ -60,6 +60,11 @@ IDENTITY_VERIFICATION_COUNTER = Counter(
     labelnames=["outcome", "source"],
 )
 
+SIGNING_SECRET_STALE_COUNTER = Counter(
+    "conversations_signing_secret_stale_total",
+    "Signing secret rows skipped because they do not match the team's current secret API token",
+)
+
 
 class IdentityVerificationFailed(Exception):
     """Raised when identity fields are present but HMAC verification fails."""
@@ -85,9 +90,10 @@ def _identity_secrets(team: Team) -> list[tuple[str, str]]:
     secret survive a rotation.
 
     While the legacy column exists it remains the revocation authority: rotating and then
-    deleting the backup has to actually revoke the old key. A signing secret matching
-    neither current legacy value is stale (a rotation whose sync didn't land), so it is
-    skipped rather than allowed to keep a revoked key working.
+    deleting the backup has to actually revoke the old key. The row is compared against the
+    current secret API token only — a row still holding the previous key matches the rotation
+    backup, so counting that as agreement would report a team whose sync failed as fully
+    migrated. Verification is unaffected: such a row still verifies via `legacy_backup`.
     """
     legacy_secrets: list[tuple[str, str]] = []
     if team.secret_api_token:
@@ -98,10 +104,10 @@ def _identity_secrets(team: Team) -> list[tuple[str, str]]:
     secrets: list[tuple[str, str]] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()
     if signing_secret and signing_secret.secret:
-        legacy_values = [secret for _, secret in legacy_secrets]
-        if not legacy_values or signing_secret.secret in legacy_values:
+        if not legacy_secrets or signing_secret.secret == team.secret_api_token:
             secrets.append(("signing_secret", signing_secret.secret))
         else:
+            SIGNING_SECRET_STALE_COUNTER.inc()
             logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
 
     return secrets + legacy_secrets
@@ -109,7 +115,8 @@ def _identity_secrets(team: Team) -> list[tuple[str, str]]:
 
 def _verify_identity(data: dict, team: Team) -> str | None:
     """
-    Verify HMAC identity fields against the team's signing secret.
+    Verify HMAC identity fields against the team's signing secret, falling back to the
+    legacy secret API token and its rotation backup.
     Returns the verified distinct_id, or None if identity fields not present.
     Raises IdentityVerificationFailed if identity was attempted but failed.
     """
@@ -120,7 +127,10 @@ def _verify_identity(data: dict, team: Team) -> str | None:
 
     secrets = _identity_secrets(team)
     if not secrets:
-        logger.warning("Identity verification attempted but team has no signing secret")
+        logger.warning(
+            "Identity verification attempted but team has no signing secret or legacy token",
+            extra={"team_id": team.id},
+        )
         IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none").inc()
         raise IdentityVerificationNotConfigured("Team has no signing secret")
 
