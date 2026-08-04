@@ -47,6 +47,10 @@ class TestXenditSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.XENDIT
 
+    def test_connection_host_fields_pin_sub_account(self):
+        # Retargeting the stored key at another sub-account must force credential re-entry.
+        assert self.source.connection_host_fields == ["sub_account_user_id"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

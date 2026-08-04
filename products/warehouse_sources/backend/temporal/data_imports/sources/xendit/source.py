@@ -49,6 +49,12 @@ class XenditSource(ResumableSource[XenditSourceConfig, XenditResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.XENDIT
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `sub_account_user_id` picks which xenPlatform sub-account the stored key reads via the
+        # `for-user-id` header, so retargeting it must re-require the key.
+        return ["sub_account_user_id"]
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
