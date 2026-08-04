@@ -170,7 +170,7 @@ class ModelRegistryService:
                 ModelInfo(
                     id=BASETEN_DEEPSEEK_PUBLIC_MODEL,
                     provider="baseten",
-                    context_window=128_000,
+                    context_window=1_048_000,
                     supports_streaming=True,
                     supports_vision=False,
                 )

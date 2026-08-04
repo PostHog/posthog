@@ -389,6 +389,12 @@ class TestBasetenModelAdvertising:
             assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "review_hog") is True
             assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "llm_gateway") is False
             assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "posthog_code") is False
+            model = next(
+                model
+                for model in ModelRegistryService.get_instance().get_available_models("review_hog")
+                if model.id == "deepseek-ai/deepseek-v4-flash-0731"
+            )
+            assert model.context_window == 1_048_000
 
 
 class TestModelMatchesAllowlist:

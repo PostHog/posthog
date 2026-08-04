@@ -32,7 +32,7 @@ def test_inject_baseten_params_maps_model_and_pins_api_key() -> None:
     assert kwargs["model"] == BASETEN_MODEL
     assert kwargs["api_base"] == "https://inference.baseten.co/v1"
     assert "headers" not in kwargs
-    assert kwargs["extra_headers"] == {"Authorization": "Api-Key test-key"}
+    assert kwargs["extra_headers"] == {"Authorization": "Bearer test-key"}
     assert kwargs["drop_params"] is True
     assert COST_ALIASES[BASETEN_MODEL] == (BASETEN_METRIC_MODEL, "openai")
     assert MODEL_COST_OVERRIDES[BASETEN_METRIC_MODEL]["input_cost_per_token"] == 1.4e-06
@@ -42,13 +42,24 @@ def test_inject_baseten_params_maps_model_and_pins_api_key() -> None:
 
 
 def test_inject_baseten_params_maps_deepseek_model_and_costs() -> None:
-    kwargs: dict[str, Any] = {"model": BASETEN_DEEPSEEK_PUBLIC_MODEL}
+    kwargs: dict[str, Any] = {
+        "model": BASETEN_DEEPSEEK_PUBLIC_MODEL,
+        "headers": {"Authorization": "Bearer attacker"},
+        "extra_headers": {"X-Other": "no"},
+        "messages": [{"role": "user", "content": "hi"}],
+        "stream": True,
+    }
 
     _inject_baseten_params(kwargs, "https://inference.baseten.co/v1", "test-key")
 
     litellm_model = f"openai/{BASETEN_DEEPSEEK_MODEL}"
     metric_model = "baseten/deepseek-ai/deepseek-v4-flash-0731"
     assert kwargs["model"] == litellm_model
+    assert kwargs["api_base"] == "https://inference.baseten.co/v1"
+    assert kwargs["extra_headers"] == {"Authorization": "Bearer test-key"}
+    assert "headers" not in kwargs
+    assert kwargs["messages"] == [{"role": "user", "content": "hi"}]
+    assert kwargs["stream_options"] == {"include_usage": True, "continuous_usage_stats": True}
     assert COST_ALIASES[litellm_model] == (metric_model, "openai")
     assert MODEL_COST_OVERRIDES[metric_model]["input_cost_per_token"] == 1.3e-07
     assert MODEL_COST_OVERRIDES[metric_model]["cache_read_input_token_cost"] == 2.8e-08

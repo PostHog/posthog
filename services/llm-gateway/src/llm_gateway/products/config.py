@@ -103,6 +103,13 @@ UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Models reserved for a specific internal evaluation product must stay restricted even when a
+# product otherwise allows every model (`allowed_models=None`). This is an authorization boundary,
+# not merely a model-registry advertising filter.
+_RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
+    "deepseek-ai/deepseek-v4-flash-0731": frozenset({"review_hog"}),
+}
+
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
         allowed_application_ids=None,
@@ -485,6 +492,10 @@ def check_product_access(
         and (settings.posthog_code_model_gate_enabled or resolved_product in UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS)
     ):
         return False, f"Product '{product}' requires a server-minted credential"
+
+    if model and (allowed_products := _RESTRICTED_MODEL_PRODUCTS.get(model.lower())):
+        if resolved_product not in allowed_products:
+            return False, f"Model '{model}' not allowed for product '{product}'"
 
     if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(

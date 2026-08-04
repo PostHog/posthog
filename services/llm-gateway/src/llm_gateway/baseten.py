@@ -43,7 +43,7 @@ def _inject_baseten_params(kwargs: dict[str, Any], api_base: str, api_key: str) 
     kwargs["api_base"] = api_base
     kwargs["api_key"] = api_key
     kwargs.pop("headers", None)
-    kwargs["extra_headers"] = {"Authorization": f"Api-Key {api_key}"}
+    kwargs["extra_headers"] = {"Authorization": f"Bearer {api_key}"}
     kwargs["model"] = f"openai/{BASETEN_MODELS[model]}"
     kwargs.setdefault("drop_params", True)
     if kwargs.get("stream"):
