@@ -150,11 +150,17 @@ tools. They are declared in `products/mcp_analytics/mcp/tools.yaml`.
 **Harness** is the friendly label for the calling client (Claude Code, Cursor, ChatGPT,
 Windsurf, and ~30 other buckets). It is resolved at query time only, with no stored column:
 `mcp_harness.py::HARNESS_TOKEN_SQL` picks the strongest available signal in priority order
-(`mcp_vendor_client` -> Claude Code user-agent surface -> Grok user-agent -> `$mcp_client_name`
+(vendor client header -> Claude Code user-agent surface -> Grok user-agent -> `$mcp_client_name`
 -> `mcp_session_client_name` -> generic user-agent token -> `$mcp_oauth_client_name`), then
 `harness_label_sql()` buckets it (or `harness_label_or_token_sql()`, which names an
 unrecognized client verbatim instead of collapsing it into "Other" — use it for ranked
 top-N lists, never where labels feed an array or unbounded GROUP BY).
+
+The vendor client header arrives under two spellings — our own server stamps
+`mcp_vendor_client`, `@posthog/mcp` stamps `$mcp_vendor_client` (the SDK `$`-prefixes its
+whole public vocabulary) — and the token SQL coalesces both. The SDK also captures
+`$mcp_client_user_agent`, which is what lets a customer's own dashboard split one
+`clientInfo.name` into its separate surfaces.
 
 **`$mcp_client_name` is one mid-priority input, not a synonym for harness** — grouping by
 it directly gives a different, messier answer. It rides on the session's `initialize` and

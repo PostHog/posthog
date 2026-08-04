@@ -38,6 +38,14 @@ controls, never request input.
 # Leading product token of the User-Agent, e.g. "claude-code" from "claude-code/2.1.x (cli)".
 _UA_PRODUCT = "extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')"
 
+# The vendor client header, under either spelling. PostHog's hosted MCP server has
+# always stamped it unprefixed; `@posthog/mcp` stamps the `$`-prefixed name, which is
+# the convention for every property in its public vocabulary. Customer-instrumented
+# servers therefore only reach the vendor branches below through the prefixed name.
+_VENDOR_CLIENT = (
+    "lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), toString(properties.mcp_vendor_client)))"
+)
+
 # Product token + first parenthetical (the surface) with the version dropped,
 # e.g. "claude-code cli", "openai-mcp chatgpt". Used both gated to claude-code
 # (step 2, to keep the CLI/SDK/IDE split) and as the generic fallback (step 4).
@@ -46,10 +54,10 @@ _UA_TOKEN = f"trim(concat({_UA_PRODUCT}, ' ', extract(toString(properties.$mcp_c
 # The ordered resolution steps, mirroring HARNESS_ROWS_QUERY in the frontend.
 _RAW_TOKEN = f"""coalesce(
     multiIf(
-        lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
-        lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
-        lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
-        lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
+        {_VENDOR_CLIENT} = 'claudecode', 'claude-code',
+        {_VENDOR_CLIENT} = 'claudeai', 'claude-ai',
+        {_VENDOR_CLIENT} = 'cowork', 'cowork',
+        {_VENDOR_CLIENT} = 'claudedesign', 'claude-design',
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),

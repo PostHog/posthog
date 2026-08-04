@@ -70,6 +70,8 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 
 **Server-stamped extras (PostHog's own server only, not the SDK):** `$mcp_session_id` (transport-level session handle — see "Three identifiers" below), `$mcp_region` (cloud region that handled the request, e.g. `us`/`eu`), `$mcp_mode` (`cli` for single-exec, `tools` for one-tool-per-name), `$mcp_consumer` (upstream surface, e.g. `posthog-code`/`slack`), and the non-`$`-prefixed `mcp_vendor_client` (vendor/client identity from the `x-anthropic-client` header, e.g. `ClaudeCode`/`ClaudeAI` — used to resolve the harness in the bucketing SQL below) and `mcp_runtime` (server runtime, e.g. `hono`).
 
+**Transport identity from the SDK:** `@posthog/mcp` also captures `$mcp_client_user_agent` and `$mcp_vendor_client` (note the `$` — the SDK prefixes every property in its public vocabulary, so the vendor header arrives under a different name than our own server's `mcp_vendor_client`; the bucketing SQL coalesces both). These matter because `clientInfo.name` cannot separate a vendor's surfaces: Anthropic reports `claude-code` from the CLI, the Agent SDK, the VS Code extension and the desktop app alike, and only the User-Agent parenthetical tells them apart.
+
 **Three identifiers, not one.** `$session_id` is the materialised column — `GROUP BY`/join on this one. `$mcp_session_id` is the transport-level handle the MCP SDK observed (MCP `extra.sessionId` or a framework session cookie); it rotates on process restart, reconnect, or framework boundary. `$mcp_conversation_id` is agent-echoed and stable across reconnects — reach for it when a "session" needs to survive a client reconnecting mid-task. In practice `$session_id` and `$mcp_session_id` carry the same value; `$mcp_conversation_id` is the more durable one when they diverge.
 
 **Effective tool name.** New-SDK events wrap the real tool in a single-exec call, so to filter/group by the tool the agent actually invoked, use:
@@ -206,10 +208,12 @@ FROM (
             trim(replaceRegexpAll(lower(
                 coalesce(
                     multiIf(
-                        lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
-                        lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
-                        lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
-                        lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
+                        -- Both spellings: PostHog's own server stamps the unprefixed name,
+                        -- `@posthog/mcp` stamps `$mcp_vendor_client`.
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), toString(properties.mcp_vendor_client))) = 'claudecode', 'claude-code',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), toString(properties.mcp_vendor_client))) = 'claudeai', 'claude-ai',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), toString(properties.mcp_vendor_client))) = 'cowork', 'cowork',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), toString(properties.mcp_vendor_client))) = 'claudedesign', 'claude-design',
                         NULL
                     ),
                     if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',

@@ -120,6 +120,18 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         [
             ("vendor_cowork", {"mcp_vendor_client": "Cowork"}, "Cowork"),
             ("vendor_claudecode", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            # `@posthog/mcp` stamps the `$`-prefixed spelling, so a customer-instrumented
+            # server reaches the vendor branches only through this one.
+            ("vendor_prefixed_from_sdk", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            ("vendor_prefixed_cowork_from_sdk", {"$mcp_vendor_client": "Cowork"}, "Cowork"),
+            # The surface split the SDK now makes possible for customers: `clientInfo.name`
+            # is the same "claude-code" for every Anthropic surface, so only the User-Agent
+            # separates the VS Code extension from the CLI.
+            (
+                "sdk_ua_splits_surface_behind_shared_client_name",
+                {"$mcp_client_name": "claude-code", "$mcp_client_user_agent": "claude-code/2.1.0 (claude-vscode)"},
+                "Claude Code (VS Code)",
+            ),
             ("session_codex", {"mcp_session_client_name": "codex-mcp-client"}, "OpenAI Codex"),
             ("session_cursor", {"mcp_session_client_name": "cursor-vscode"}, "Cursor"),
             # The posthog-node MCP analytics SDK reports clientInfo.name as $mcp_client_name,
