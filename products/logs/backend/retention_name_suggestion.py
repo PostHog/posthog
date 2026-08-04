@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
+
 import structlog
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 
 logger = structlog.get_logger(__name__)
 
+# gpt-4.1-mini, not the gpt-4.1 that log explanation uses — a rule name is a much smaller job than
+# summarising a log line, and this fires on every filter edit.
+SUGGESTION_MODEL = "gpt-4.1-mini"
+SUGGESTION_TIMEOUT = 15
 MAX_PROMPT_CHARS = 2000
 MAX_NAME_CHARS = 60
 MAX_LEAF_VALUES_RENDERED = 10
@@ -52,25 +60,25 @@ def describe_filter_group(node: Any, depth: int = 0) -> str:
     return f"{key} {operator} {rendered}"
 
 
-def suggest_retention_rule_name(retention_days: int, filter_group: Any, *, distinct_id: str) -> str:
-    """Ask Haiku for a rule name. Returns "" when unavailable — callers hide the suggestion."""
-    # Deferred: the llm client pulls google.genai (Gemini SDK), and this module is reachable from a
-    # logs view that the file-system registrations import at AppConfig.ready() — a module-level
-    # import here would drag the SDK onto the django.setup() path that every process pays for.
-    from products.ai_observability.backend.llm.client import Client  # noqa: PLC0415
-    from products.ai_observability.backend.llm.types import CompletionRequest  # noqa: PLC0415
+def suggest_retention_rule_name(retention_days: int, filter_group: Any, *, distinct_id: str, team_id: int) -> str:
+    """Suggest a name for a retention rule. Returns "" when unavailable — callers hide the suggestion.
 
+    The caller is responsible for checking the organization's AI data processing consent; this only
+    guards on the key being configured, so self-hosted instances without one degrade quietly.
+    """
     description = describe_filter_group(filter_group)[:MAX_PROMPT_CHARS]
-    if not description:
+    if not description or not settings.OPENAI_API_KEY:
         return ""
 
     try:
-        client = Client(distinct_id=distinct_id)
-        request = CompletionRequest(
-            model="claude-haiku-4-5-20251001",
-            provider="anthropic",
-            system=SYSTEM_PROMPT,
+        client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
+        response = client.chat.completions.create(  # type: ignore[misc]
+            model=SUGGESTION_MODEL,
+            temperature=0.2,
+            max_tokens=32,
+            timeout=SUGGESTION_TIMEOUT,
             messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": (
@@ -79,12 +87,13 @@ def suggest_retention_rule_name(retention_days: int, filter_group: Any, *, disti
                         f"<retention_days>{retention_days}</retention_days>\n"
                         f"<filters>{description}</filters>\n\nOutput the name now:"
                     ),
-                }
+                },
             ],
-            temperature=0.2,
-            max_tokens=32,
+            user=f"team/{team_id}/logs-retention-rule-name",
+            posthog_distinct_id=distinct_id,
+            posthog_properties={"ai_product": "logs", "ai_feature": "retention-rule-name-suggestion"},
         )
-        name = (client.complete(request).content or "").strip()
+        name = (response.choices[0].message.content or "").strip()
         if name.lower().startswith(("name:", "rule:")):
             name = name.split(":", 1)[1].strip()
         name = name.strip('"').strip()

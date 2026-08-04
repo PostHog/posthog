@@ -233,20 +233,26 @@ export const logsRetentionFormLogic = kea<logsRetentionFormLogicType>([
                     if (values.suggestedName?.fingerprint === fingerprint) {
                         return values.suggestedName
                     }
+                    let response: { name?: string } | null
                     try {
-                        const response = await logsRetentionRulesSuggestNameCreate(
+                        response = await logsRetentionRulesSuggestNameCreate(
                             String(values.currentTeamId),
                             payload as never
                         )
-                        const name = response?.name?.trim()
-                        return name ? { fingerprint, name } : null
                     } catch {
                         // A suggestion is cosmetic: missing AI consent (403), the shared AI throttle
                         // (429) and provider errors all just hide the hint. Swallowing here also keeps
                         // initKea's loader failure handler from toasting the 429 — it only suppresses
-                        // 403 for load* actions.
+                        // 403 for load* actions. Scoped to the request so it can't swallow the
+                        // breakpoint below, which aborts by throwing.
                         return null
                     }
+                    // The filters may have moved on while the request was in flight — abort a
+                    // superseded response rather than showing (and letting the user apply) a name for
+                    // a configuration that no longer exists.
+                    breakpoint()
+                    const name = response?.name?.trim()
+                    return name ? { fingerprint, name } : null
                 },
             },
         ],

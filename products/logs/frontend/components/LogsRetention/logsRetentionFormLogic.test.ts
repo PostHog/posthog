@@ -64,8 +64,26 @@ describe('logsRetentionFormLogic', () => {
     })
 })
 
+/** Poll until `predicate` holds, yielding to timers/microtasks so kea listeners and loaders run. */
+async function waitUntil(predicate: () => boolean, timeoutMs = 10000): Promise<void> {
+    const startedAt = Date.now()
+    while (!predicate()) {
+        if (Date.now() - startedAt > timeoutMs) {
+            throw new Error('waitUntil timed out')
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+}
+
 describe('logsRetentionFormLogic name suggestion', () => {
     const EMPTY_GROUP = { type: FilterLogicalOperator.And, values: [] }
+    const PAYMENTS_GROUP = {
+        type: FilterLogicalOperator.And,
+        values: [
+            { key: 'service.name', type: 'log_resource_attribute', operator: 'exact', value: 'payments' } as never,
+        ],
+    }
     const EXISTING_RULE = { id: 'rule-1', name: 'keep api logs', enabled: true, config: {} } as LogsRetentionRuleApi
 
     let logic: ReturnType<typeof logsRetentionFormLogic.build>
@@ -148,6 +166,34 @@ describe('logsRetentionFormLogic name suggestion', () => {
             .toNotHaveDispatchedActions(['loadSuggestedNameFailure'])
         expect(logic.values.suggestedName).toBeNull()
     })
+
+    it('drops a superseded response instead of showing a name for stale filters', async () => {
+        let resolveFirst: (value: { name: string }) => void = () => {}
+        mockSuggestName.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveFirst = resolve
+                })
+        )
+        mockSuggestName.mockResolvedValueOnce({ name: 'Keep payments logs for 14 days' })
+        mountNew()
+
+        // Let the first request get past the debounce and actually go in flight — otherwise the
+        // second change would abort it at the debounce and there'd be no race to test.
+        logic.actions.setRetentionFormValue('filter_group', form().filter_group)
+        await waitUntil(() => mockSuggestName.mock.calls.length === 1)
+
+        // Move the filters on while that first request is still pending.
+        await expectLogic(logic, () => {
+            logic.actions.setRetentionFormValue('filter_group', PAYMENTS_GROUP)
+        }).toDispatchActions(['loadSuggestedNameSuccess'])
+        expect(logic.values.suggestedName?.name).toEqual('Keep payments logs for 14 days')
+
+        // The stale response lands last and must not win.
+        resolveFirst({ name: 'Keep api logs for 30 days' })
+        await waitUntil(() => true)
+        expect(logic.values.suggestedName?.name).toEqual('Keep payments logs for 14 days')
+    }, 15000)
 
     it('does not re-request when nothing feeding the prompt changed', async () => {
         mountNew()

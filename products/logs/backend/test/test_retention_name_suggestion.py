@@ -1,4 +1,8 @@
+from contextlib import contextmanager
+
 from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from products.logs.backend.retention_name_suggestion import (
     MAX_LEAF_VALUES_RENDERED,
@@ -60,37 +64,55 @@ class TestDescribeFilterGroup:
 
 
 class TestSuggestRetentionRuleName:
-    def _patched_client(self, content):
+    @contextmanager
+    def _patched_client(self, content=None, *, error=None, api_key="sk-test"):
+        """Patch the OpenAI client and the API key together — the suggestion no-ops without a key."""
         client = MagicMock()
-        client.complete.return_value = MagicMock(content=content)
-        return patch("products.ai_observability.backend.llm.client.Client", return_value=client)
+        if error is not None:
+            client.chat.completions.create.side_effect = error
+        else:
+            client.chat.completions.create.return_value = MagicMock(
+                choices=[MagicMock(message=MagicMock(content=content))]
+            )
+        with override_settings(OPENAI_API_KEY=api_key):
+            with patch("products.logs.backend.retention_name_suggestion.OpenAI", return_value=client) as mock_client:
+                yield mock_client
+
+    def _suggest(self, retention_days=14, filter_group=None):
+        return suggest_retention_rule_name(
+            retention_days,
+            _leaf() if filter_group is None else filter_group,
+            distinct_id="user-1",
+            team_id=1,
+        )
 
     def test_returns_generated_name(self):
         with self._patched_client("Keep api logs for 30 days"):
-            name = suggest_retention_rule_name(30, _leaf(), distinct_id="user-1")
-        assert name == "Keep api logs for 30 days"
+            assert self._suggest(retention_days=30) == "Keep api logs for 30 days"
 
     def test_strips_prefix_and_quotes(self):
         with self._patched_client('  Name: "Keep api logs for 14 days"  '):
-            name = suggest_retention_rule_name(14, _leaf(), distinct_id="user-1")
-        assert name == "Keep api logs for 14 days"
+            assert self._suggest() == "Keep api logs for 14 days"
 
     def test_truncates_long_name(self):
         with self._patched_client("x" * 200):
-            name = suggest_retention_rule_name(14, _leaf(), distinct_id="user-1")
-        assert len(name) == 60
+            assert len(self._suggest()) == 60
 
     def test_too_short_name_is_dropped(self):
         with self._patched_client("ok"):
-            assert suggest_retention_rule_name(14, _leaf(), distinct_id="user-1") == ""
+            assert self._suggest() == ""
 
     def test_no_llm_call_for_empty_filter_group(self):
         with self._patched_client("Keep api logs") as mock_client:
-            assert suggest_retention_rule_name(14, _group("AND", []), distinct_id="user-1") == ""
+            assert self._suggest(filter_group=_group("AND", [])) == ""
         mock_client.assert_not_called()
 
     def test_client_failure_returns_blank(self):
-        client = MagicMock()
-        client.complete.side_effect = RuntimeError("provider down")
-        with patch("products.ai_observability.backend.llm.client.Client", return_value=client):
-            assert suggest_retention_rule_name(14, _leaf(), distinct_id="user-1") == ""
+        with self._patched_client(error=RuntimeError("provider down")):
+            assert self._suggest() == ""
+
+    def test_no_llm_call_when_key_is_unconfigured(self):
+        # Self-hosted instances without a key degrade quietly rather than erroring per keystroke.
+        with self._patched_client("Keep api logs for 14 days", api_key="") as mock_client:
+            assert self._suggest() == ""
+        mock_client.assert_not_called()

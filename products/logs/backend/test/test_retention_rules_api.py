@@ -171,6 +171,7 @@ class TestLogsRetentionRuleSuggestName(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"name": "Keep api logs for 14 days"}
         assert mock_suggest.call_args.args == (14, VALID_FILTER_GROUP)
+        assert mock_suggest.call_args.kwargs["team_id"] == self.team.pk
 
     def test_requires_ai_data_processing_approval(self):
         self.organization.is_ai_data_processing_approved = False

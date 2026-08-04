@@ -22,6 +22,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
+from products.logs.backend.facade.retention import suggest_retention_rule_name
 from products.logs.backend.models import LogsRetentionRule
 from products.logs.backend.presentation.filter_group_validation import (
     MAX_FILTER_GROUP_DEPTH,
@@ -33,7 +34,6 @@ from products.logs.backend.presentation.filter_group_validation import (
     filter_group_leaf_value_count,
     filter_group_node_count,
 )
-from products.logs.backend.retention_name_suggestion import suggest_retention_rule_name
 
 # Retention tiers a rule may assign. Derived from the same source as the team-wide setting in
 # `TeamSerializer` (`posthog/api/team.py`): 14 is the always-available default, and every other
@@ -305,5 +305,6 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.validated_data["retention_days"],
             serializer.validated_data["filter_group"],
             distinct_id=str(user.distinct_id) if user.is_authenticated else "logs-retention-name",
+            team_id=self.team_id,
         )
         return Response({"name": name}, status=status.HTTP_200_OK)
