@@ -13289,7 +13289,6 @@ export namespace Schemas {
       readonly pinned: boolean;
       /** @nullable */
       readonly pinned_at: string | null;
-      readonly is_home: boolean;
       /**
          * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
          * @nullable
@@ -13494,8 +13493,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
-      /** Create the canvas as the channel's home board (at most one per channel). */
-      is_home?: boolean;
     }
 
     /**
@@ -43148,6 +43145,13 @@ export namespace Schemas {
       output_name?: string;
       /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
       refs?: NotebookSQLV2RunRequestRefs;
+      /**
+         * SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog.
+         * @nullable
+         */
+      connection_id?: string | null;
+      /** Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells. */
+      send_raw_query?: boolean;
     }
 
     export interface NotebookSQLV2RunResponse {
@@ -77666,10 +77670,6 @@ export namespace Schemas {
      * Only return canvases in this channel.
      */
     channel?: string;
-    /**
-     * Filter by channel-home status.
-     */
-    is_home?: boolean;
     /**
      * Number of results to return per page.
      */
