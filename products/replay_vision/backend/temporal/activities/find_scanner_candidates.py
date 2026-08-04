@@ -61,4 +61,5 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
         saturated=len(candidates) == limit,
+        swept_through=candidate_query.settle_cutoff,
     )
