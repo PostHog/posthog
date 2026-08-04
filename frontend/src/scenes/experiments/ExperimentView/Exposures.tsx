@@ -6,41 +6,37 @@ import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } fr
 import {
     LineChart,
     type LineChartConfig,
-    type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { getSeriesColor } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    ExperimentExposureCriteria,
-    ExperimentExposureQueryResponse,
-    ExperimentExposureTimeSeries,
-} from '~/queries/schema/schema-general'
+import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
+import { buildExposureSeries } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
 
 /** `LineChart` rather than quill's `Sparkline`: the sparkline reserves 6px top and bottom for its
  *  hover ring, which in this 20px box would leave an 8px plot. This chart is inert, so it can use
- *  the full height. */
+ *  nearly the full height — 1px a side keeps the peak point's 2px stroke off the canvas edge.
+ *  Held outside `useChartConfig` because the app defaults turn on axis lines and tick marks, which
+ *  `hideXAxis`/`hideYAxis` don't suppress and which have nowhere to go in a 20px box. */
 const MICRO_CHART_CONFIG: LineChartConfig = {
     hideXAxis: true,
     hideYAxis: true,
     showGrid: false,
     showCrosshair: false,
     curve: 'monotone',
-    margins: { top: 0, right: 0, bottom: 0, left: 0 },
+    margins: { top: 1, right: 0, bottom: 1, left: 0 },
     tooltip: { enabled: false },
 }
 
@@ -51,36 +47,13 @@ interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
 }
 
-// Single-day timeseries get a synthetic prior day with 0 exposures so the chart
-// can draw a line instead of a single point.
-function buildExposureSeries(timeseries: ExperimentExposureTimeSeries[]): {
-    labels: string[]
-    series: Series[]
-} {
-    const [firstDay] = timeseries[0].days
-    let labels = timeseries[0].days
-    let series: Series[] = timeseries.map((variantSeries, index) => ({
-        key: variantSeries.variant,
-        label: variantSeries.variant,
-        color: getSeriesColor(index),
-        data: variantSeries.exposure_counts,
-    }))
-
-    if (labels.length === 1) {
-        // Mirror the backend's day shape (`date` vs `datetime` isoformat) so both labels parse alike.
-        const dayFormat = firstDay.includes('T') ? 'YYYY-MM-DDTHH:mm:ss' : 'YYYY-MM-DD'
-        labels = [dayjs(firstDay).subtract(1, 'day').format(dayFormat), ...labels]
-        series = series.map((variantSeries) => ({ ...variantSeries, data: [0, ...variantSeries.data] }))
-    }
-
-    return { labels, series }
-}
-
 export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const timeseries = exposures?.timeseries
-    const series = useMemo(() => (timeseries?.length ? buildExposureSeries(timeseries).series : []), [timeseries])
-    const labels = useMemo(() => series[0]?.data.map((_, i) => String(i)) ?? [], [series])
+    const { labels, series } = useMemo(
+        () => (timeseries?.length ? buildExposureSeries(timeseries) : { labels: [], series: [] }),
+        [timeseries]
+    )
 
     if (!timeseries?.length) {
         return null
