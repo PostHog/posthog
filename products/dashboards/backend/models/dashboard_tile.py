@@ -85,6 +85,22 @@ class DashboardTile(models.Model):
         null=True,
         db_index=False,
     )
+    dashboard_group = models.OneToOneField(
+        "dashboards.DashboardGroup",
+        on_delete=models.CASCADE,
+        related_name="tile",
+        null=True,
+        db_index=False,
+        db_constraint=False,
+    )
+    parent_group = models.ForeignKey(
+        "dashboards.DashboardGroup",
+        on_delete=models.PROTECT,
+        related_name="member_tiles",
+        null=True,
+        db_index=False,
+        db_constraint=False,
+    )
     # Denormalized from `dashboard.team_id` so this table can be exposed via HogQL,
     # whose printer injects `WHERE team_id = <ctx.team_id>` against every PostgresTable.
     # Auto-populated in save() when omitted. The index is created concurrently
@@ -135,7 +151,9 @@ class DashboardTile(models.Model):
                 condition=Q(("widget__isnull", False)),
             ),
             models.CheckConstraint(
-                condition=build_unique_relationship_check(("insight", "text", "button_tile", "widget")),
+                condition=build_unique_relationship_check(
+                    ("insight", "text", "button_tile", "widget", "dashboard_group")
+                ),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
@@ -174,10 +192,25 @@ class DashboardTile(models.Model):
         super().clean()
 
         related_fields = sum(
-            map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile", "widget")])
+            map(
+                bool,
+                [
+                    getattr(self, relation)
+                    for relation in ("insight", "text", "button_tile", "widget", "dashboard_group")
+                ],
+            )
         )
         if related_fields != 1:
-            raise ValidationError("Can only set exactly one of insight, text, button_tile, or widget for this tile")
+            raise ValidationError(
+                "Can only set exactly one of insight, text, button_tile, widget, or dashboard_group for this tile"
+            )
+
+        if self.dashboard_group_id is not None and self.parent_group_id is not None:
+            raise ValidationError("Dashboard group tiles cannot belong to another group")
+
+        for group in (self.dashboard_group, self.parent_group):
+            if group is not None and group.dashboard_id != self.dashboard_id:
+                raise ValidationError("Dashboard groups and tiles must belong to the same dashboard")
 
         if self.insight is None and (
             self.filters_hash is not None
@@ -216,7 +249,7 @@ class DashboardTile(models.Model):
                 raise ValidationError("This content is already on the destination dashboard.")
             stale.delete()
 
-    def copy_to_dashboard(self, dashboard: Dashboard) -> None:
+    def copy_to_dashboard(self, dashboard: Dashboard, parent_group=None) -> None:
         """
         Place this tile's content on another dashboard: create a new row, or undelete a soft-deleted
         row for the same insight, text, or button (unique constraint would block a second insert otherwise).
@@ -249,6 +282,7 @@ class DashboardTile(models.Model):
             existing.show_description = self.show_description
             existing.transparent_background = self.transparent_background
             existing.filters_overrides = self.filters_overrides
+            existing.parent_group = parent_group
             existing.save()
             return
 
@@ -263,6 +297,7 @@ class DashboardTile(models.Model):
             show_description=self.show_description,
             transparent_background=self.transparent_background,
             filters_overrides=self.filters_overrides,
+            parent_group=parent_group,
         )
 
     @staticmethod
@@ -286,6 +321,8 @@ class DashboardTile(models.Model):
                 "text",
                 "button_tile",
                 "widget",
+                "dashboard_group",
+                "parent_group",
                 "insight__created_by",
                 "insight__last_modified_by",
                 "insight__team",
@@ -294,6 +331,7 @@ class DashboardTile(models.Model):
             )
             .prefetch_related("text__dashboard_tiles", "button_tile__dashboard_tiles", "widget__dashboard_tiles")
             .exclude(dashboard__deleted=True, deleted=True)
+            .filter(dashboard_group__isnull=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )

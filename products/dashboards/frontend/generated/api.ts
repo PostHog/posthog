@@ -15,9 +15,11 @@ import type {
     BulkUpdateTagsResponseApi,
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
+    CreateDashboardGroupRequestApi,
     CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardGroupApi,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
@@ -30,6 +32,10 @@ import type {
     DashboardsCreateUnlistedDashboardCreateParams,
     DashboardsDeleteTileParams,
     DashboardsDestroyParams,
+    DashboardsGroupsCreateParams,
+    DashboardsGroupsDeleteCreateParams,
+    DashboardsGroupsMoveTileCreateParams,
+    DashboardsGroupsUpdatePartialUpdateParams,
     DashboardsListParams,
     DashboardsMoveTileCreateParams,
     DashboardsMoveTilePartialUpdateParams,
@@ -47,7 +53,9 @@ import type {
     DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
     DataColorThemesListParams,
+    DeleteDashboardGroupRequestApi,
     DeleteTileRequestApi,
+    MoveDashboardTileToGroupRequestApi,
     MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
@@ -56,6 +64,7 @@ import type {
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
     PatchedPatchedDashboardOpenApiApi,
+    PatchedUpdateDashboardGroupRequestApi,
     PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
@@ -572,6 +581,142 @@ export const dashboardsDeleteTile = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(deleteTileRequestApi),
+    })
+}
+
+export const getDashboardsGroupsCreateUrl = (projectId: string, id: number, params?: DashboardsGroupsCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/groups/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/groups/`
+}
+
+export const dashboardsGroupsCreate = async (
+    projectId: string,
+    id: number,
+    createDashboardGroupRequestApi: CreateDashboardGroupRequestApi,
+    params?: DashboardsGroupsCreateParams,
+    options?: RequestInit
+): Promise<DashboardGroupApi> => {
+    return apiMutator<DashboardGroupApi>(getDashboardsGroupsCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createDashboardGroupRequestApi),
+    })
+}
+
+export const getDashboardsGroupsDeleteCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsGroupsDeleteCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/groups/delete/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/groups/delete/`
+}
+
+export const dashboardsGroupsDeleteCreate = async (
+    projectId: string,
+    id: number,
+    deleteDashboardGroupRequestApi: DeleteDashboardGroupRequestApi,
+    params?: DashboardsGroupsDeleteCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardsGroupsDeleteCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deleteDashboardGroupRequestApi),
+    })
+}
+
+export const getDashboardsGroupsMoveTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsGroupsMoveTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/groups/move-tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/groups/move-tile/`
+}
+
+export const dashboardsGroupsMoveTileCreate = async (
+    projectId: string,
+    id: number,
+    moveDashboardTileToGroupRequestApi: MoveDashboardTileToGroupRequestApi,
+    params?: DashboardsGroupsMoveTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardTileApi> => {
+    return apiMutator<DashboardTileApi>(getDashboardsGroupsMoveTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(moveDashboardTileToGroupRequestApi),
+    })
+}
+
+export const getDashboardsGroupsUpdatePartialUpdateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsGroupsUpdatePartialUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/groups/update/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/groups/update/`
+}
+
+export const dashboardsGroupsUpdatePartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedUpdateDashboardGroupRequestApi?: PatchedUpdateDashboardGroupRequestApi,
+    params?: DashboardsGroupsUpdatePartialUpdateParams,
+    options?: RequestInit
+): Promise<DashboardGroupApi> => {
+    return apiMutator<DashboardGroupApi>(getDashboardsGroupsUpdatePartialUpdateUrl(projectId, id, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateDashboardGroupRequestApi),
     })
 }
 
