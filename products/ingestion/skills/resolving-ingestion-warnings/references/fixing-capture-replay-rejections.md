@@ -3,7 +3,7 @@
 Covers `missing_session_id`, `invalid_session_id`, and `missing_snapshot_data`.
 
 These come from capture's session replay endpoint, `/s`, not from the replay consumer.
-They carry `source: capture` and `path: replay`, which is how you tell them apart from the other `replay`-category warnings, whose batches had already been accepted.
+They carry `source = 'capture'` and a `path` detail of `/s` or `/s/`, which is how you tell them apart from the other `replay`-category warnings, whose batches had already been accepted and which carry `source = 'plugin-server'`.
 
 Three things about this endpoint shape every diagnosis:
 

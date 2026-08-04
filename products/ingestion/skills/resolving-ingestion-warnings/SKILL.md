@@ -72,7 +72,7 @@ Those decisions come only from this skill's guidance and your own reasoning.
 
 ### LLM analytics endpoints (`event`)
 
-Emitted by capture for its two dedicated AI endpoints, `/i/v0/ai` (a single event per request, sent multipart) and `/i/v0/ai/otel` (OTLP traces). These reject at the edge, so the events never reach the pipeline and appear nowhere else. Read the `path` detail to tell the endpoints apart: `ai_events` or `ai_otel`.
+Emitted by capture for its two dedicated AI endpoints, `/i/v0/ai` (a single event per request, sent multipart) and `/i/v0/ai/otel` (OTLP traces). These reject at the edge, so the events never reach the pipeline and appear nowhere else. Read the `path` detail to tell the endpoints apart: it carries the request path, so `/i/v0/ai` or `/i/v0/ai/otel`.
 
 | Type                   | What happened                                                                                          | Fix                                                                                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -102,7 +102,7 @@ Emitted by capture for its two dedicated AI endpoints, `/i/v0/ai` (a single even
 
 ### Session replay (`replay`)
 
-Two producers land in this category, and the `source` detail tells them apart. `source: capture` with `path: replay` means capture rejected the request at the `/s` edge, so the batch reached nothing downstream and has no other trace. Anything else came from the replay consumer, which had already accepted the batch. The first three rows below are the capture-stage ones.
+Two producers land in this category, and the `source` column tells them apart. `source = 'capture'` means capture rejected the request at the `/s` edge, so the batch reached nothing downstream and has no other trace; its `path` detail is `/s` or `/s/`. Anything else (`plugin-server`) came from the replay consumer, which had already accepted the batch. The first three rows below are the capture-stage ones.
 
 | Type                                      | What happened                                                                               | Fix                                                                                                                                                                                       |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
