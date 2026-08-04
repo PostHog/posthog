@@ -36,6 +36,7 @@ from posthog.permissions import DenyMCPBuiltInAgentOAuth
 from ..agents import built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
 from ..gateway import installation_for_agent_access, installation_for_agent_grant, members_can_manage_agent_access
 from ..models import (
+    AGENT_GRANT_SCOPE_CHOICES,
     APPROVAL_STATES,
     AUTH_TYPE_CHOICES,
     POLICY_PRESET_CHOICES,
@@ -200,6 +201,13 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 
     service_account_id = serializers.UUIDField(help_text="Service account granted access.")
     user = UserBasicSerializer(help_text="The member whose connection the agent uses.")
+    scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        help_text=(
+            "'personal' lets the agent use this connection only when working for the member who shared it. "
+            "'team' lets it use the connection for the whole project's agent runs."
+        ),
+    )
     name = serializers.CharField(help_text="Agent display name.")
     handle = serializers.CharField(help_text="Agent identity handle, e.g. posthog-support.")
     status = serializers.ChoiceField(
@@ -356,6 +364,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             {
                 "service_account_id": access.service_account_id,
                 "user": UserBasicSerializer(access.user).data,
+                "scope": access.scope,
                 "name": access.service_account.name,
                 "handle": access.service_account.handle,
                 "status": access.service_account.status,
@@ -558,6 +567,13 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(help_text="Gateway server granted to the agent.")
     shared_by = UserBasicSerializer(help_text="The member whose connection the agent uses.")
+    scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        help_text=(
+            "'personal' lets the agent use this connection only when working for the member who shared it. "
+            "'team' lets it use the connection for the whole project's agent runs."
+        ),
+    )
     name = serializers.CharField(help_text="Server display name.")
     description = serializers.CharField(help_text="Server description.")
     icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
@@ -636,6 +652,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                 {
                     "id": server.id,
                     "shared_by": UserBasicSerializer(access.user).data,
+                    "scope": access.scope,
                     "name": server.name,
                     "description": server.description,
                     "icon_key": server.template.icon_key if server.template else "",
@@ -659,6 +676,18 @@ class ServiceAccountAccessUpdateSerializer(serializers.Serializer):
     gateway_server_id = serializers.UUIDField(help_text="Gateway server to share or stop sharing.")
     enabled = serializers.BooleanField(
         help_text="True shares the caller's own connection with the agent, false removes the caller's share."
+    )
+    scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        required=False,
+        default="personal",
+        help_text=(
+            "Applies to the caller's own share, and only alongside enabled=true. "
+            "'personal' lets the agent use the connection when it works for the caller. "
+            "'team' lets it use the connection for the whole project's agent runs, including "
+            "runs nobody started. It never lets another person use the connection. "
+            "Defaults to personal, so re-sharing without this field resets the caller's share to personal."
+        ),
     )
     all = serializers.BooleanField(
         required=False,
@@ -724,6 +753,9 @@ class MCPAuditEventSerializer(serializers.ModelSerializer):
     actor_service_account = serializers.SerializerMethodField(
         help_text="Agent that made the call, if any. Null for member calls."
     )
+    credential_owner = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="Member whose connection an agent call used. Null for member calls."
+    )
 
     class Meta:
         model = MCPAuditEvent
@@ -736,13 +768,26 @@ class MCPAuditEventSerializer(serializers.ModelSerializer):
             "actor_user",
             "actor_service_account",
             "actor_label",
+            "credential_owner",
+            "grant_scope",
         ]
-        read_only_fields = ["id", "created_at", "server_name", "tool_name", "decision", "actor_label"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "server_name",
+            "tool_name",
+            "decision",
+            "actor_label",
+            "grant_scope",
+        ]
         extra_kwargs = {
             "server_name": {"help_text": "Gateway server name at call time (denormalized)."},
             "tool_name": {"help_text": "Tool that was called."},
             "decision": {"help_text": "How the gateway decided the call."},
             "actor_label": {"help_text": "Denormalized actor label (email or handle) that survives deletion."},
+            "grant_scope": {
+                "help_text": ("Scope of the agent grant the call used: 'personal', 'team', or empty for member calls.")
+            },
         }
 
     @extend_schema_field(AuditActorServiceAccountSerializer(allow_null=True))
@@ -1194,7 +1239,11 @@ class MCPServiceAccountViewSet(
         """Share, or stop sharing, one gateway server with this agent.
 
         Sharing is personal. `enabled=true` delegates the caller's own
-        connection, and the agent may use it only when acting for the caller.
+        connection, and the agent may use it only when acting for the caller,
+        unless the caller sends `scope=team` to lend it to the project's agent
+        runs generally. Scope only ever applies to the caller's own share: it is
+        their credential to lend, so no admin permission is involved and no
+        member can change someone else's share.
         `enabled=false` removes the caller's own share and leaves other members'
         shares, and the agent's tool policies, in place.
 
@@ -1235,6 +1284,7 @@ class MCPServiceAccountViewSet(
                         "team_id": self.team_id,
                         "installation": installation,
                         "granted_by": user,
+                        "scope": data.get("scope", "personal"),
                     },
                 )
                 for entry in policies:
@@ -1274,6 +1324,7 @@ class MCPServiceAccountViewSet(
                 "handle": account.handle,
                 "server_name": server.name,
                 "enabled": data["enabled"],
+                "scope": data.get("scope", "personal"),
                 "all_members": bool(data.get("all")),
             },
             team=self.team,
@@ -1344,7 +1395,7 @@ class MCPAuditEventViewSet(
     def safely_get_queryset(self, queryset: QuerySet[MCPAuditEvent]) -> QuerySet[MCPAuditEvent]:
         return (
             MCPAuditEvent.objects.for_team(self.team_id)
-            .select_related("actor_user", "actor_service_account")
+            .select_related("actor_user", "actor_service_account", "credential_owner")
             .order_by("-created_at")
         )
 

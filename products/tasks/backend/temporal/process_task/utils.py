@@ -522,9 +522,11 @@ def get_user_mcp_server_configs(
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Unmapped tasks include shared team installations. Built-in agent tasks only
-    include the connections ``credential_owner_id`` granted to that agent, and
-    never include a member's personal installations. Grants are personal, so an
-    agent task whose persisted owner is missing mounts nothing. A mapped origin
+    include the connections granted to that agent: those ``credential_owner_id``
+    granted, plus any member's team-scoped grants. They never include a member's
+    personal installations. An agent task whose persisted owner is missing still
+    mounts the team-scoped grants, which is what keeps autonomous runs
+    (support replies, creatorless scouts) working. A mapped origin
     without its persisted agent marker gets no Store installations. Built-in
     agent handling is gated per team on the ``mcp-gateway`` rollout flag; teams without it
     resolve mapped origins like unmapped tasks. For unmapped tasks,

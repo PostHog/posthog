@@ -161,18 +161,26 @@ def get_built_in_agent(team_id: int, agent_key: str) -> MCPServiceAccount | None
 @dataclass(frozen=True, kw_only=True)
 class GatewayAgentPrincipal:
     """Who a gateway agent token authenticates as: the agent, plus the person
-    whose MCP grants the run may use."""
+    whose MCP grants the run may use.
+
+    `credential_owner_id` is None for a run nobody owns (an autonomous support
+    reply, a creatorless scout). Such a principal reaches team-scoped grants
+    only, never a member's personal grant.
+    """
 
     account: MCPServiceAccount
-    credential_owner_id: int
+    credential_owner_id: int | None
 
 
-def create_gateway_agent_token(account: MCPServiceAccount, *, credential_owner_id: int) -> str:
-    payload = {
+def create_gateway_agent_token(account: MCPServiceAccount, *, credential_owner_id: int | None) -> str:
+    payload: dict[str, str | int] = {
         "service_account_id": str(account.id),
         "team_id": account.team_id,
-        "user_id": credential_owner_id,
     }
+    # Omitted rather than set to null so the claim's presence alone means "this
+    # run has an owner", which is what the resolver keys off.
+    if credential_owner_id is not None:
+        payload["user_id"] = credential_owner_id
     return GATEWAY_AGENT_TOKEN_PREFIX + signing.dumps(payload, salt=GATEWAY_AGENT_TOKEN_SALT)
 
 
@@ -193,10 +201,13 @@ def resolve_gateway_agent_token(token: str) -> GatewayAgentPrincipal | None:
     account_id = payload.get("service_account_id")
     team_id = payload.get("team_id")
     credential_owner_id = payload.get("user_id")
-    # Grants are per person, so a token that names no credential owner can
-    # authorize nothing. Tokens minted before the claim existed resolve to
-    # nothing and expire within GATEWAY_AGENT_TOKEN_MAX_AGE_SECONDS.
-    if not account_id or not isinstance(team_id, int) or not isinstance(credential_owner_id, int):
+    if not account_id or not isinstance(team_id, int):
+        return None
+    # A token with no owner claim runs in the team lane: it reaches team-scoped
+    # grants and nothing else. A claim that is present but not an int is
+    # malformed rather than absent, so it fails closed instead of being widened
+    # into the team lane.
+    if credential_owner_id is not None and not isinstance(credential_owner_id, int):
         return None
     try:
         # TeamScopeError: the token can outlive its team — treat a deleted team

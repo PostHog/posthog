@@ -344,7 +344,8 @@ class Task(DeletedMetaFields, models.Model):
 
         Only meaningful on a stamped built-in agent task, so it reads through
         `mcp_builtin_agent_key` — an unstamped or untrusted origin can never
-        borrow someone's grants, and a task with no owner mounts nothing.
+        borrow someone's grants. None means the run belongs to nobody, which
+        limits it to the team-scoped grants members have lent to agents.
         """
         if self.mcp_builtin_agent_key is None:
             return None
