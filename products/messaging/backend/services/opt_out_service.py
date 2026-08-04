@@ -4,7 +4,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from django.db import transaction
+from django.db import connections, transaction
+from django.db.models import Q
 
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 
@@ -83,30 +84,47 @@ class OptOutService:
 
         The category is resolved eagerly so an unknown key surfaces as a normal
         error rather than half way through a response that already sent a 200.
+
+        Rows are fetched in keyset-paginated batches with the DB connection closed
+        after each fetch: streaming_response() releases the request connections
+        before the body runs, so anything the generator opens would otherwise stay
+        pinned to a pgbouncer slot for as long as the client takes to download.
         """
         category_id = self.resolve_category_id(category_key)
         export_key = category_key or ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 
-        opt_outs = (
-            MessageRecipientPreference.objects.filter(
+        def fetch_batch(after: Optional[tuple[Any, Any]]) -> list[tuple[str, Any, Any]]:
+            queryset = MessageRecipientPreference.objects.filter(
                 team_id=self.team_id,
                 **{f"preferences__{category_id}": PreferenceStatus.OPTED_OUT.value},
-            )
-            .order_by("-updated_at")
-            .values_list("identifier", "updated_at")
-        )
+            ).order_by("-updated_at", "-id")
+            if after is not None:
+                queryset = queryset.filter(Q(updated_at__lt=after[0]) | Q(updated_at=after[0], id__lt=after[1]))
+            batch = list(queryset.values_list("identifier", "updated_at", "id")[:BATCH_SIZE])
+            # Same guard as _release_request_connections: severing an open transaction
+            # corrupts it (only tests stream inside one).
+            connection = connections[MessageRecipientPreference.objects.db]
+            if not connection.in_atomic_block:
+                connection.close()
+            return batch
 
         def rows() -> Iterator[str]:
             writer = csv.writer(_Echo())
             yield writer.writerow(EXPORT_HEADER)
-            for identifier, updated_at in opt_outs.iterator(chunk_size=BATCH_SIZE):
-                yield writer.writerow(
-                    [
-                        sanitize_formula_injection(identifier),
-                        sanitize_formula_injection(export_key),
-                        updated_at.isoformat(),
-                    ]
-                )
+            after: Optional[tuple[Any, Any]] = None
+            while True:
+                batch = fetch_batch(after)
+                if not batch:
+                    return
+                for identifier, updated_at, _ in batch:
+                    yield writer.writerow(
+                        [
+                            sanitize_formula_injection(identifier),
+                            sanitize_formula_injection(export_key),
+                            updated_at.isoformat(),
+                        ]
+                    )
+                after = (batch[-1][1], batch[-1][2])
 
         return rows()
 
