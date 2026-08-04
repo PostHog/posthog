@@ -11,9 +11,9 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import { getToolCategory } from '@/tools/toolDefinitions'
+import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
-import { buildMCPSessionAnalyticsProperties } from './mcp-context'
+import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
 function buildBaseProperties(
@@ -25,6 +25,13 @@ function buildBaseProperties(
 } {
     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
     const requestContext = state.requestContext
+    // Live-first per-field: `clientInfo` only arrives on `initialize`, so a mid-session
+    // `tools/call` has no live client identity of its own. Falls back to the
+    // session-pinned value per field (not swapping in the whole session object) so a
+    // live value from a concurrent request on the same server always wins. See
+    // `getEffectiveMCPClientIdentity` for why this must differ from
+    // `getEffectiveMCPClientContext`.
+    const clientIdentity = getEffectiveMCPClientIdentity(requestContext, state.sessionContext)
 
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
@@ -32,14 +39,14 @@ function buildBaseProperties(
         $mcp_server_name: MCP_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
         $mcp_version: MCP_ANALYTICS_VERSION,
-        $mcp_client_name: requestContext.mcpClientName,
-        $mcp_client_version: requestContext.mcpClientVersion,
+        $mcp_client_name: clientIdentity.mcpClientName,
+        $mcp_client_version: clientIdentity.mcpClientVersion,
         $mcp_client_user_agent: requestContext.clientUserAgent,
-        $mcp_protocol_version: requestContext.mcpProtocolVersion,
+        $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
         $mcp_transport: requestContext.transport,
         $mcp_session_id: requestContext.mcpSessionId,
         $mcp_conversation_id: requestContext.mcpConversationId,
-        $mcp_consumer: requestContext.mcpConsumer,
+        $mcp_consumer: clientIdentity.mcpConsumer,
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
         ...(analyticsContext
@@ -52,7 +59,7 @@ function buildBaseProperties(
               }
             : {}),
         mcp_runtime: 'hono',
-        mcp_vendor_client: requestContext.mcpVendorClient,
+        mcp_vendor_client: clientIdentity.mcpVendorClient,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }
@@ -104,7 +111,8 @@ export async function trackToolCall(
     isError: boolean,
     state: ResolvedState,
     extraProperties?: Record<string, unknown>,
-    intentMeta?: ToolCallIntentMeta
+    intentMeta?: ToolCallIntentMeta,
+    servedDescription?: string
 ): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
@@ -117,6 +125,16 @@ export async function trackToolCall(
         // (it never maps tool→category itself). Omitted when unknown (e.g. the `exec`
         // wrapper), which the dashboard buckets as "Uncategorized".
         const toolCategory = getToolCategory(toolName)
+        // The description the agent saw when it picked this tool, clipped. Powers the
+        // tool-detail Descriptions table and description-vs-intent fit in MCP
+        // analytics. Callers pass servedDescription when the advertised text differs
+        // from the catalog (execute-sql's is formatted per request); otherwise the
+        // catalog text is what was served. Inner exec calls reach here with the
+        // resolved inner tool name, so the fallback lands on the inner tool's own
+        // description.
+        const toolDescription = servedDescription
+            ? servedDescription.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+            : getToolDescription(toolName)
 
         // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
         // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
@@ -136,6 +154,7 @@ export async function trackToolCall(
                 ...properties,
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
                 ...extraProperties,
             },
         })

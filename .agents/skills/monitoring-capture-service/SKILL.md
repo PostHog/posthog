@@ -186,19 +186,27 @@ Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 
 ### Grafana dashboards
 
-| UID                                    | Title                                                                    |
-| -------------------------------------- | ------------------------------------------------------------------------ |
-| `capture`                              | Capture (golden-chart backend overview)                                  |
-| `ddfkdj56ds11xce`                      | Capture Golden (Synced folder)                                           |
-| `dffkdlee8ub5s0a`                      | Ingestion - Capture Golden                                               |
-| `capture-3000-envoy-codes`             | Capture 3000 — Envoy Response Code Investigation                         |
-| `ingestion-general`                    | Cross-service ingestion overview                                         |
-| `ingestion-analytics`                  | Ingestion - Analytics (per-pipeline breakdown)                           |
-| `ingestion-reliability`                | Error rates and reliability signals                                      |
-| `ingestion-pipeline-performance`       | End-to-end pipeline latency                                              |
-| `b2348f37-f276-498e-b72e-7cc2b5ec1455` | New capture (legacy)                                                     |
-| `contour`                              | Envoy L7 proxy (set `envoy_cluster_name=posthog_capture-analytics_3000`) |
-| `ingestion-session-recordings`         | Session Replay ingestion                                                 |
+| UID                       | Title                      | Use for                                                                    |
+| ------------------------- | -------------------------- | -------------------------------------------------------------------------- |
+| `capture`                 | Capture                    | Overview across capture deployments — start here                           |
+| `capture-v1-details`      | V1 Details                 | Per-panel detail for the v1 pipeline (`/i/v1/analytics/events`)            |
+| `ddfkdj56ds11xce`         | Legacy Details             | Per-panel detail for the legacy v0 pipeline (`/e/`, `/batch/`, `/i/v0/e/`) |
+| `ingestion-health`        | Ingestion - Health         | Cross-service ingestion health                                             |
+| `ingestion-analytics`     | Ingestion - Analytics      | Downstream analytics pipeline, per lane                                    |
+| `ingestion-pipelines`     | Ingestion - Pipelines      | End-to-end pipeline throughput and lag                                     |
+| `ingestion-reliability`   | Ingestion - Reliability    | Ingested-event trends, processing-lag SLOs, pod restarts                   |
+| `ingestion-sessionreplay` | Ingestion - Session Replay | Session replay ingestion                                                   |
+| `contour`                 | Contour Ingress            | Envoy L7 proxy (set `envoy_cluster_name=posthog_capture-analytics_3000`)   |
+| `AWSRedis`                | AWS ElastiCache Redis      | Per-cluster CloudWatch Redis metrics (filter `cacheclusterId`)             |
+
+The two details boards live under `Capture/Ingestion/` and cross-link each other
+plus the overview. Sections for machinery shared by both pipelines (Global Rate
+Limiter, Event restrictions, Hyper server, Contour, billing/quota) appear on
+**both** details boards, so use whichever one you are already on.
+
+One board you will find via `search_dashboards` but should not rely on:
+`capture-3000-envoy-codes` is a personal, US-only Envoy investigation board (not
+synced to EU).
 
 ## Discovery workflows
 

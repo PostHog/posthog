@@ -9,7 +9,7 @@ import {
     HogFunctionMasking,
 } from '../../types'
 import { execHog } from '../../utils/hog-exec'
-import { mirrorCall } from '../../utils/mirror-call'
+import { mirrorCompare } from '../../utils/mirror-call'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
@@ -30,6 +30,21 @@ type MaskContext = {
 
 type GenericHogInvocationWithMasker = CyclotronJobInvocation & {
     masker?: MaskContext
+}
+
+type MaskPipelineResult = Awaited<ReturnType<RedisV2['usePipeline']>>
+
+function allowedExecutionsForResult(result: MaskPipelineResult, index: number, masker: MaskContext): number | null {
+    const newValue: number | null = result ? result[index * 2][1] : null
+    if (newValue === null) {
+        return null
+    }
+
+    const oldValue = newValue - masker.increment
+    if (masker.threshold) {
+        return Math.floor((newValue - 1) / masker.threshold) - Math.floor((oldValue - 1) / masker.threshold)
+    }
+    return oldValue === 0 ? 1 : 0
 }
 
 function isHogFunctionInvocation(invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFunction {
@@ -154,34 +169,26 @@ export class HogMaskerService {
             })
         }
 
-        const [result] = await Promise.all([
-            this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
-            mirrorCall('hog-masker.filterByMasking', () =>
-                this.redisMirror?.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline)
-            ),
-        ])
+        const maskContexts = Object.values(masks)
+        const result = await mirrorCompare(
+            'hog-masker.filterByMasking',
+            () => this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
+            () => this.redisMirror?.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline),
+            (primary, mirror) =>
+                maskContexts.every(
+                    (masker, index) =>
+                        allowedExecutionsForResult(primary, index, masker) ===
+                        allowedExecutionsForResult(mirror, index, masker)
+                )
+        )
 
-        Object.values(masks).forEach((masker, index) => {
-            const newValue: number | null = result ? result[index * 2][1] : null
-            if (newValue === null) {
+        maskContexts.forEach((masker, index) => {
+            const allowedExecutions = allowedExecutionsForResult(result, index, masker)
+            if (allowedExecutions === null) {
                 // We fail closed here as with a masking config the typical case will be not to send
                 return
             }
-
-            const oldValue = newValue - masker.increment
-
-            // Simplest case - the previous value was 0
-            masker.allowedExecutions = oldValue === 0 ? 1 : 0
-
-            if (masker.threshold) {
-                // TRICKY: We minus 1 to account for the "first" execution
-                const thresholdsPasses =
-                    Math.floor((newValue - 1) / masker.threshold) - Math.floor((oldValue - 1) / masker.threshold)
-
-                if (thresholdsPasses) {
-                    masker.allowedExecutions = thresholdsPasses
-                }
-            }
+            masker.allowedExecutions = allowedExecutions
         })
 
         return invocationsWithMasker.reduce(

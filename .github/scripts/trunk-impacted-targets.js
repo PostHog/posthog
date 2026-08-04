@@ -11,6 +11,35 @@
 // and anything unrecognized falls through to "ALL" (overlaps everything, which
 // is the single-lane behavior we had before this script existed).
 //
+// The bias is relaxed in exactly two places, both bounded by what one PR can
+// name in another. The conflict that lanes exist to prevent is semantic rather
+// than textual, because a textual one would force a rebase and a retest: PR A
+// renames a facade function and updates every current caller, PR B adds a new
+// call to the old name, and master breaks on a combination neither run held.
+//
+//   1. Only a change to a product's declared contract surface seeds the
+//      dependent cascade. A file that no module outside the product can import
+//      cannot be the shared symbol two PRs disagree about, so a change confined
+//      to internals keeps its own product's lane. The surface is the product's
+//      own `backend:contract-check` inputs in products/<name>/turbo.json, the
+//      same declaration turbo-discover reads to decide whether dependent test
+//      suites run, so the two mechanisms cannot drift apart. A product that
+//      declares no narrowed inputs cascades on every backend file as before.
+//      This makes the declaration load-bearing for correctness: an input list
+//      that omits a file other products import puts those products in a
+//      parallel lane.
+//
+//   2. The cascade names direct importers rather than the transitive closure.
+//      Only a direct importer can reference the changed product's symbols.
+//      ACCEPTED RISK: a conflict mediated through an intermediate product (A
+//      changes warehouse_sources, B changes code whose behavior depends on
+//      product_analytics, which depends on warehouse_sources) is no longer
+//      serialized, and master's post-merge run is the only net for it. The
+//      transitive closure was not a usable alternative: a 31-product cycle in
+//      tach.toml means every member reaches every other, so any seed inside it
+//      expanded to the whole backend and the cascade could not distinguish
+//      products at all.
+//
 // That bias is the opposite of the one in ci-*.yml path filters. Those filters
 // decide which tests to run, where an over-broad match wastes runner minutes
 // and an under-broad match skips tests. They are tuned to over-run and are NOT
@@ -32,7 +61,9 @@
 // paths in ci-e2e-playwright.yml, which puts all such PRs back in one lane.
 //
 // Input:  changed file paths, one per line, on stdin
-// Output: JSON on stdout, either the string "ALL" or an array of target names
+// Output: JSON on stdout, either the string "ALL" or an array of target names.
+//         A change set of nothing but prose reports the single "prose" lane,
+//         which overlaps only other prose-only PRs.
 //         Diagnostics on stderr
 
 const fs = require('fs')
@@ -86,6 +117,24 @@ const TRIPWIRES = [
     // bin/ appears in the backend, frontend, and E2E path filters alike.
     'bin/**',
     'patches/**',
+    // Holds the Depot-runner copies of the workflows and composite actions in
+    // .github/, so it decides what runs for everyone the same way.
+    '.depot/**',
+    // The toolchain every suite runs inside. ci-python.yml gates on
+    // .flox/env/manifest.toml for that reason.
+    '.flox/**',
+    // ClickHouse, Postgres, and Temporal configuration mounted by every
+    // docker-compose file, so it defines the services all the suites test
+    // against.
+    'docker/**',
+    // duckgres.yaml is mounted into the same stack, and intent-map.yaml steers
+    // bin/sandbox and hogli, both already tripwires.
+    'devenv/**',
+    // Lint rules that run repo-wide: a new rule fails code that merged in a
+    // parallel lane, which is the same conflict .oxlintrc.json is here for.
+    '.semgrep/**',
+    // Holds the markdownlint config, which is the same class of rule change.
+    '.config/**',
     'tsconfig.json',
     'tsconfig.*.json',
     'babel.config.js',
@@ -118,6 +167,60 @@ const TOOLS_INDEPENDENT = [
     'infra-scripts',
 ]
 
+// Top-level trees that hold a lane instead of falling through to ALL, keyed by
+// directory. Every entry names the suite that would catch a conflict in it, and
+// a tree nobody has placed here still widens, so the list grows by decision
+// rather than by default.
+const STANDALONE_TREES = new Map([
+    // A cargo workspace of its own (cli/Cargo.lock, outside rust/ and outside
+    // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
+    // so the two trees have to share a lane.
+    ['cli', ['cli', 'svc:mcp']],
+    // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
+    // so its Hog implementation is not covered by the shared hog suite either.
+    ['livestream', ['livestream']],
+    // Another standalone cargo workspace, and nothing in the dev or CI stack
+    // builds it: the UDF binary reaches ClickHouse through its image.
+    ['funnel-udf', ['funnel-udf']],
+    // Terragrunt definitions for dashboards and alerts. No suite compiles them,
+    // and terragrunt-posthog.yaml is the only workflow that reads the tree.
+    ['terraform', ['terraform']],
+    // ci-python.yml validates the policy files through the pr-approval-agent
+    // pytest suite, which already owns that lane.
+    ['.stamphog', ['tools:pr-approval-agent']],
+])
+
+// Editor, IDE, and agent configuration. No suite reads any of it, so one shared
+// lane between the lot costs nothing and keeps the inert set to files that
+// genuinely compile into nothing. Two trees stay off both lists: agent-os/ and
+// share/ hold only markdown today, which the prose rule already claims, and
+// anything else appearing there should widen until someone classifies it.
+//
+// .posthog-code is the entry that looks like an exception and is not. The
+// desktop app does parse .posthog-code/environments/*.toml, but it parses
+// whichever repository a user opens, and EnvironmentService's suite writes its
+// fixtures to a temp directory instead of reading this repository's copy. That
+// suite also covers a file being invalid TOML or off-schema, both of which the
+// service skips, so a config and a parser that disagree leave an environment
+// unlisted rather than failing anything. No suite here would catch the pair, so
+// sharing the desktop product's lane would serialize the two for no validation.
+const REPO_CONFIG_DIRS = [
+    '.claude',
+    '.codex',
+    '.cursor',
+    '.dagster_home',
+    '.husky',
+    '.idea',
+    '.interface-design',
+    '.posthog-code',
+    '.run',
+    '.vscode',
+    '.zed',
+]
+for (const dir of REPO_CONFIG_DIRS) {
+    STANDALONE_TREES.set(dir, ['repo-config'])
+}
+
 // Supports the three forms used in TRIPWIRES: `**` spanning directories, `*`
 // within a single path segment, and literal names. The two star forms are
 // parked on placeholders first so neither rewrites the other's output.
@@ -143,10 +246,21 @@ function isTripwire(file) {
     return TRIPWIRE_MATCHERS.some((re) => re.test(file))
 }
 
+// Tool caches share the directory with the products, so a local run can pick up
+// directories such as .ruff_cache, .pytest_cache, and __pycache__ as products and
+// invent a lane for each. CI never sees them because a fresh checkout has only
+// tracked directories and this job does not run Python, so this keeps a local run
+// consistent with CI rather than fixing a live miscount. Dropping a real product
+// would only ever widen, because an unrecognized product name falls through to
+// ALL, so the filter is safe in the one direction it can be wrong.
+function isProductDirectory(name) {
+    return !name.startsWith('.') && !name.startsWith('__') && name !== 'node_modules'
+}
+
 function listProducts(repoRoot) {
     return fs
         .readdirSync(path.join(repoRoot, 'products'), { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
+        .filter((entry) => entry.isDirectory() && isProductDirectory(entry.name))
         .map((entry) => entry.name)
         .sort()
 }
@@ -168,6 +282,315 @@ function listIsolatedProducts(repoRoot, products) {
         }
     }
     return isolated
+}
+
+// --- Nested JS workspaces ---
+
+// A product that vendors its own pnpm workspace (products/desktop is the one
+// today) has an apps/ + packages/ layout instead of the backend/ + frontend/
+// split the product rules assume. Its manifests, configs, and assets are none
+// of .py, backend/, or .tsx, so they land in the "could be either" bucket and
+// widen to every backend lane, which is how a package.json under packages/
+// serializes a TypeScript-only PR against all of Python.
+//
+// The workspace file is the product's own declaration of which subtrees are JS
+// packages, so it is a safer signal than an extension allowlist: a path only
+// narrows when the product itself says a JS package lives there. Anything
+// outside those subtrees (the product's root manifests, scripts/, backend/)
+// keeps the old widening behavior.
+const WORKSPACE_DECLARATION = 'pnpm-workspace.yaml'
+
+// pnpm's own two files at the product root. A pnpm-workspace.yaml makes that
+// directory a workspace root rather than a member of the repo-root one, so the
+// lockfile beside it resolves that workspace's packages and nothing else. The
+// repo-root lockfile is a separate file and stays a tripwire in its own right.
+// Neither of these is importable from Python, and neither is a contract
+// declaration, so without this rule they fall through the layout checks below
+// and claim every backend lane: a desktop dependency bump lands in the same
+// lane as all of Python.
+//
+// The self-gating hazard that keeps CONTRACT_DECLARATIONS widening does not
+// transfer here. turbo.json and package.json declare a Python import surface,
+// so a PR that narrows one and edits under it in the same commit would gate
+// itself against its own new contract. This pair declares no Python surface,
+// and the .py carve-out below applies whatever the globs say.
+const WORKSPACE_OWN_FILES = [WORKSPACE_DECLARATION, 'pnpm-lock.yaml']
+
+// Minimal reader for the `packages:` block of a pnpm workspace file. Only the
+// list-of-globs form is understood; anything else yields no globs, which leaves
+// the product on the old behavior rather than guessing.
+function parseWorkspacePackageGlobs(text) {
+    const globs = []
+    let inPackages = false
+    for (const rawLine of text.split('\n')) {
+        const line = rawLine.replace(/#.*$/, '').trimEnd()
+        if (!line.trim()) {
+            continue
+        }
+        if (/^packages:\s*$/.test(line)) {
+            inPackages = true
+            continue
+        }
+        if (!inPackages) {
+            continue
+        }
+        const item = line.match(/^\s+-\s+(.+)$/)
+        if (!item) {
+            break
+        }
+        globs.push(item[1].trim().replace(/^['"]|['"]$/g, ''))
+    }
+    return globs
+}
+
+function compileWorkspaceMatcher(globs) {
+    const include = []
+    const exclude = []
+    for (const glob of globs) {
+        const negated = glob.startsWith('!')
+        const matcher = globToRegExp(negated ? glob.slice(1) : glob)
+        ;(negated ? exclude : include).push(matcher)
+    }
+    if (include.length === 0) {
+        return null
+    }
+    // The globs name package directories, so a file is inside the workspace
+    // when one of its ancestor directories matches. Testing the file path
+    // itself would miss everything below the package root.
+    return (relativePath) => {
+        const segments = relativePath.split('/')
+        for (let depth = 1; depth < segments.length; depth++) {
+            const dir = segments.slice(0, depth).join('/')
+            if (include.some((re) => re.test(dir)) && !exclude.some((re) => re.test(dir))) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+function loadProductWorkspaces(repoRoot, products) {
+    const workspaces = new Map()
+    for (const product of products) {
+        const declaration = path.join(repoRoot, 'products', product, WORKSPACE_DECLARATION)
+        if (!fs.existsSync(declaration)) {
+            continue
+        }
+        let matcher
+        try {
+            matcher = compileWorkspaceMatcher(parseWorkspacePackageGlobs(fs.readFileSync(declaration, 'utf8')))
+        } catch (error) {
+            console.error(
+                `Could not read products/${product}/${WORKSPACE_DECLARATION} (${error.message}); its files keep widening to every backend lane`
+            )
+            continue
+        }
+        if (matcher) {
+            workspaces.set(product, matcher)
+        }
+    }
+    return workspaces
+}
+
+function isInProductWorkspace(product, file, productWorkspaces) {
+    const matcher = productWorkspaces.get(product)
+    if (!matcher) {
+        return false
+    }
+    const relativePath = file.slice(`products/${product}/`.length)
+    return WORKSPACE_OWN_FILES.includes(relativePath) || matcher(relativePath)
+}
+
+// --- Backend-detached products ---
+
+// The narrowing above stops at the layout rules: a product with a vendored
+// workspace still owns every backend lane the moment one of its files reads as
+// backend, because the product rules assume every product is a Django product
+// whose Python some other product may import. products/desktop is not one. It
+// is a standalone app imported from another repository, with no manifest.tsx,
+// no backend/, no entry in frontend/src/products.json, and its own desktop-*
+// CI. The Python it does carry is a vendored copy of that repository's own
+// tooling under tools/, which this repository's suites never load.
+//
+// Two enforced declarations say so, and both have to hold:
+//
+//   1. pytest.ini ignores the subtree, so no backend test collects a single
+//      file under it. ci-backend.yml carries the same exclusion in its path
+//      filter, but a filter tuned to over-run is not a safe source for lane
+//      assignment, while an --ignore is a statement that the suite does not
+//      cover the path at all.
+//   2. The product is absent from tach.toml, the enforced Python module graph,
+//      so no declared module may import it.
+//
+// A product satisfying both cannot fail another product's backend suite, so
+// its files claim its own lanes instead of all of them. Either condition
+// missing keeps the old widening, and so does an unreadable pytest.ini or an
+// unavailable tach graph. Both declarations are already tripwires, so a PR
+// that detaches a product cannot itself run beside anything.
+const PYTEST_CONFIG = 'pytest.ini'
+
+// Reads the --ignore paths out of pytest's addopts. Nothing matching yields an
+// empty list, which leaves every product on the old widening.
+function parsePytestIgnores(text) {
+    return [...text.matchAll(/--ignore[= ](\S+)/g)].map((match) => match[1].replace(/\/+$/, ''))
+}
+
+function loadBackendDetachedProducts(repoRoot, products, tachGraph) {
+    if (!tachGraph) {
+        return new Set()
+    }
+    let ignored
+    try {
+        ignored = new Set(parsePytestIgnores(fs.readFileSync(path.join(repoRoot, PYTEST_CONFIG), 'utf8')))
+    } catch (error) {
+        console.error(`Could not read ${PYTEST_CONFIG} (${error.message}); every product widens to all backend lanes`)
+        return new Set()
+    }
+    const detached = new Set()
+    for (const product of products) {
+        // tach spells its modules both ways across the file, so a product
+        // counts as declared under either spelling.
+        const declared = tachGraph.graph.has(product) || tachGraph.graph.has(product.replace(/_/g, '-'))
+        if (ignored.has(`products/${product}`) && !declared) {
+            detached.add(product)
+        }
+    }
+    return detached
+}
+
+// --- Contract surfaces ---
+
+const CONTRACT_TASK = 'backend:contract-check'
+
+// turbo.json permits comments, which JSON.parse rejects. Strip them outside
+// string literals so a `//` inside a glob survives.
+function stripJsonComments(text) {
+    let out = ''
+    let inString = false
+    let escaped = false
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i]
+        const next = text[i + 1]
+        if (inString) {
+            out += char
+            if (escaped) {
+                escaped = false
+            } else if (char === '\\') {
+                escaped = true
+            } else if (char === '"') {
+                inString = false
+            }
+            continue
+        }
+        if (char === '"') {
+            inString = true
+            out += char
+            continue
+        }
+        if (char === '/' && next === '/') {
+            while (i < text.length && text[i] !== '\n') {
+                i++
+            }
+            out += '\n'
+            continue
+        }
+        if (char === '/' && next === '*') {
+            i += 2
+            while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
+                i++
+            }
+            i++
+            continue
+        }
+        out += char
+    }
+    return out
+}
+
+// Compiles a task's `inputs` into a predicate over product-relative paths. A
+// path is contract when at least one positive glob matches it and no negated
+// one does, matching how Turbo reads the same list.
+function compileContractMatcher(inputs) {
+    const include = []
+    const exclude = []
+    for (const input of inputs) {
+        const negated = input.startsWith('!')
+        const glob = negated ? input.slice(1) : input
+        // An input reaching outside the product (../../uv.lock and the like)
+        // cannot be expressed as a product-relative path. Dropping it is safe
+        // because every such file in use today is already a tripwire or lands
+        // in py:core, both of which overlap this product's lane anyway.
+        if (glob.startsWith('../')) {
+            continue
+        }
+        if (negated) {
+            exclude.push(globToRegExp(glob))
+        } else {
+            include.push(globToRegExp(glob))
+        }
+    }
+    if (include.length === 0) {
+        return null
+    }
+    return (relativePath) => include.some((re) => re.test(relativePath)) && !exclude.some((re) => re.test(relativePath))
+}
+
+// Only products that narrow `backend:contract-check` in their own turbo.json get
+// an entry. Absence means "every backend file is contract", so a product that
+// has not declared a surface, or whose turbo.json cannot be read, keeps
+// cascading on every backend change.
+function loadContractSurfaces(repoRoot, products) {
+    const surfaces = new Map()
+    for (const product of products) {
+        const manifest = path.join(repoRoot, 'products', product, 'turbo.json')
+        if (!fs.existsSync(manifest)) {
+            continue
+        }
+        let inputs
+        try {
+            const parsed = JSON.parse(stripJsonComments(fs.readFileSync(manifest, 'utf8')))
+            const tasks = parsed.tasks || parsed.pipeline || {}
+            inputs = (tasks[CONTRACT_TASK] || {}).inputs
+        } catch (error) {
+            console.error(
+                `Could not read products/${product}/turbo.json (${error.message}); every backend file counts as its contract`
+            )
+            continue
+        }
+        if (!Array.isArray(inputs)) {
+            continue
+        }
+        const matcher = compileContractMatcher(inputs)
+        if (matcher) {
+            surfaces.set(product, matcher)
+        }
+    }
+    return surfaces
+}
+
+// The files that define the gate for their own product: turbo.json holds the
+// contract inputs, package.json decides whether the product is isolated at all.
+// Neither is importable, so the surface test would call them internal, and both
+// are read from the PR's own tree. A change that drops a path from the contract
+// and edits a file under that path in the same commit would then be gated
+// against its own new, narrower contract and keep the lane to itself, which is
+// exactly when the dependents most need to be tested alongside it.
+const CONTRACT_DECLARATIONS = ['turbo.json', 'package.json']
+
+function isContractDeclaration(product, file) {
+    return CONTRACT_DECLARATIONS.includes(file.slice(`products/${product}/`.length))
+}
+
+function touchesContractSurface(product, file, contractSurfaces) {
+    const relativePath = file.slice(`products/${product}/`.length)
+    if (isContractDeclaration(product, file)) {
+        return true
+    }
+    const matcher = contractSurfaces.get(product)
+    if (!matcher) {
+        return true
+    }
+    return matcher(relativePath)
 }
 
 // --- Rust crate graph ---
@@ -348,7 +771,15 @@ const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
 function computeTargets(changedFiles, context) {
-    const { products, isolatedProducts, rustGraph, tachGraph } = context
+    const {
+        products,
+        isolatedProducts,
+        rustGraph,
+        tachGraph,
+        contractSurfaces = new Map(),
+        productWorkspaces = new Map(),
+        backendDetachedProducts = new Set(),
+    } = context
     const targets = new Set()
 
     const allPyProducts = () => {
@@ -364,23 +795,42 @@ function computeTargets(changedFiles, context) {
         }
     }
 
-    const changedIsolatedProducts = new Set()
+    const cascadeSeeds = new Set()
+    let inertFiles = 0
 
     for (const file of changedFiles) {
         if (isTripwire(file)) {
             return ALL
         }
 
-        // Markdown never compiles into any tree, so it is classified before the
-        // directory rules that would otherwise pull a README under posthog/
-        // into the backend lane.
-        if (/\.mdx?$/.test(file)) {
-            targets.add('docs')
-            continue
-        }
-
         const segments = file.split('/')
         const top = segments[0]
+
+        // Prose compiles into nothing and no PR can disagree with another about
+        // it, so it claims no lane at all rather than the shared one it used to
+        // get, which serialized any two PRs that happened to touch a markdown
+        // file. Classified before the directory rules that would otherwise pull
+        // a README under posthog/ into the backend lane.
+        //
+        // The exception is markdown that is a build input: `hogli build:skills`
+        // zips products/*/skills/*, ci-agent-skills.yml gates on those paths and
+        // on .agents/, and ci-python.yml runs the pr-approval-agent suite over
+        // .stamphog/. All of them fall through to their directory rules below.
+        const isBuildInput =
+            top === '.agents' || top === '.stamphog' || (top === 'products' && segments[2] === 'skills')
+
+        // The same suite reads every AGENT_APPROVALS.md wherever it sits, so the
+        // file belongs to that lane rather than to the tree holding it. On the
+        // product lane its own directory rule would give it, a policy change and
+        // a parser change would be free to merge in parallel.
+        if (segments[segments.length - 1] === 'AGENT_APPROVALS.md') {
+            targets.add('tools:pr-approval-agent')
+            continue
+        }
+        if (/\.mdx?$/.test(file) && !isBuildInput) {
+            inertFiles++
+            continue
+        }
 
         if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
@@ -404,12 +854,24 @@ function computeTargets(changedFiles, context) {
             targets.add(`svc:${segments[1]}`)
             continue
         }
-        if (top === 'docs') {
-            targets.add('docs')
+        // docs/ is prose, which the markdown rule above has already taken, with
+        // one exception: docs/onboarding is the @posthog/docs-onboarding
+        // workspace package that frontend/package.json depends on, so its
+        // sources compile into the app. Anything else non-prose under docs/ is
+        // unclassified and falls through to ALL at the end of the loop.
+        if (top === 'docs' && segments[1] === 'onboarding') {
+            allFeProducts()
             continue
         }
         if (top === '.agents') {
             targets.add('agents')
+            continue
+        }
+        const standalone = STANDALONE_TREES.get(top)
+        if (standalone) {
+            for (const target of standalone) {
+                targets.add(target)
+            }
             continue
         }
         if (top === 'tools') {
@@ -459,14 +921,37 @@ function computeTargets(changedFiles, context) {
             }
             const isBackend = segments[2] === 'backend' || file.endsWith('.py')
             const isFrontend = segments[2] === 'frontend' || /\.tsx?$/.test(file)
+            // Only reached for a file that is neither, and only inside a
+            // package the product's own pnpm workspace declares. A .py there
+            // is still backend: the workspace says the directory holds a JS
+            // package, not that Python cannot be checked into it.
+            const isWorkspaceOnly = !isBackend && !isFrontend && isInProductWorkspace(product, file, productWorkspaces)
 
             if (isFrontend || (!isBackend && !isFrontend)) {
                 targets.add(feProduct(product))
             }
-            if (isBackend || (!isBackend && !isFrontend)) {
+            if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
                 if (isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
-                    changedIsolatedProducts.add(product)
+                    if (touchesContractSurface(product, file, contractSurfaces)) {
+                        cascadeSeeds.add(product)
+                    }
+                } else if (backendDetachedProducts.has(product)) {
+                    // No backend suite covers this product and no declared
+                    // module imports it, so the lane it keeps is its own. This
+                    // case comes first because it also answers the declaration
+                    // case below: a product absent from the module graph has no
+                    // importers for the cascade to name.
+                    targets.add(pyProduct(product))
+                } else if (isContractDeclaration(product, file)) {
+                    // A non-isolated product's backend code has no declared
+                    // boundary, so it keeps widening below. Its declarations
+                    // are a different kind of file: they configure this
+                    // product's own tasks, including the backend:test command
+                    // most of them carry, and every importer that a change to
+                    // them can reach is named by the cascade instead.
+                    targets.add(pyProduct(product))
+                    cascadeSeeds.add(product)
                 } else {
                     allPyProducts()
                 }
@@ -486,8 +971,13 @@ function computeTargets(changedFiles, context) {
     // so a non-isolated dependent is named here rather than widening to every
     // backend target. Only 14 of the products declare a contract check, so
     // widening on each of them would collapse every cascade to the full set.
-    if (changedIsolatedProducts.size > 0) {
-        const dependents = tachDependentProducts([...changedIsolatedProducts], tachGraph)
+    //
+    // The seeds are the products whose contract surface changed, plus any
+    // product whose own declarations changed, and the dependents are one hop
+    // deep. See the two numbered narrowings at the top of this file for what
+    // that gives up.
+    if (cascadeSeeds.size > 0) {
+        const dependents = tachDependentProducts([...cascadeSeeds], tachGraph)
         if (dependents === null) {
             allPyProducts()
         } else {
@@ -518,7 +1008,18 @@ function computeTargets(changedFiles, context) {
     }
 
     if (targets.size === 0) {
-        return ALL
+        // A change set of nothing but prose overlaps only other prose. Trunk
+        // does not document what it does with an empty target list, and the one
+        // documented rule is that a PR is not processed until its targets are
+        // uploaded, so a lane of its own avoids betting a docs PR's ability to
+        // enter the queue on undocumented behavior. This is deliberately not
+        // added per file: emitting it alongside real lanes is what made the old
+        // docs target serialize two PRs whose only overlap was a README.
+        //
+        // Anything else that reaches an empty set contains a path no rule
+        // claimed, which is the failure mode that silently breaks master, so it
+        // still widens to ALL.
+        return inertFiles === changedFiles.length ? ['prose'] : ALL
     }
     return [...targets].sort()
 }
@@ -534,7 +1035,8 @@ function tachDependentProducts(changedProducts, tachGraph) {
         const { tachDependents } = tachGraph
         return tachDependents(
             changedProducts.map((product) => product.replace(/_/g, '-')),
-            tachGraph.graph
+            tachGraph.graph,
+            { direct: true }
         ).map((product) => product.replace(/-/g, '_'))
     } catch (error) {
         console.error(`Dependent cascade failed (${error.message}); widening to all backend targets`)
@@ -555,22 +1057,32 @@ function loadTachGraph(repoRoot) {
 
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
+    const tachGraph = loadTachGraph(repoRoot)
     return {
         products,
         isolatedProducts: listIsolatedProducts(repoRoot, products),
+        contractSurfaces: loadContractSurfaces(repoRoot, products),
+        productWorkspaces: loadProductWorkspaces(repoRoot, products),
+        backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         rustGraph: loadRustGraph(repoRoot),
-        tachGraph: loadTachGraph(repoRoot),
+        tachGraph,
     }
 }
 
 module.exports = {
     computeTargets,
     buildContext,
+    compileContractMatcher,
+    compileWorkspaceMatcher,
     globToRegExp,
+    isProductDirectory,
     isTripwire,
+    parsePytestIgnores,
+    parseWorkspacePackageGlobs,
     parseCrateDependencies,
     parseCrateName,
     reverseClosure,
+    stripJsonComments,
     ALL,
 }
 

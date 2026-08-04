@@ -136,6 +136,8 @@ def _repo_overview() -> contracts.RepoOverview:
         billable_minutes_prev=90.0,
         estimated_cost_usd=12.5,
         estimated_cost_usd_prev=11.0,
+        merge_queue_billable_minutes=30.0,
+        merge_queue_billable_minutes_prev=0.0,
         jobs_available=True,
         default_branch="master",
         cost_series=[],
@@ -163,6 +165,7 @@ def _workflow_run() -> contracts.WorkflowRunDetail:
         duration_seconds=120,
         run_attempt=2,
         pr_number=42,
+        commit_pr_number=None,
     )
 
 
@@ -321,6 +324,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         data = response.json()
         assert data["merged_pr_count"] == 42
         assert data["merged_pr_count_prev"] == 40
+        assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
         assert data["cost_series"] == []
 
     def test_repo_overview_400_on_bad_include_series(self) -> None:

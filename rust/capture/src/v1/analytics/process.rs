@@ -19,11 +19,12 @@ use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
+use crate::v0_request::is_ai_event;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
-use crate::ingestion_warnings::{emit_rate_limit_warning, v1_request_context};
+use crate::ingestion_warnings::emit_rate_limit_warning;
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -43,16 +44,16 @@ use common_ingestion_warnings::{
 /// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 ///
 /// When `route_ai_events` is set (this batch's token routes to the AI topic
-/// per the configured `AiRouting` policy: mode plus token allowlist), `$ai_*`
-/// events are diverted to `Destination::AiEvents`; otherwise they fall through
-/// to `AnalyticsMain` exactly as before, so an unconfigured AI topic or
-/// `primary` mode is a strict no-op.
+/// per the configured `AiRouting` policy: mode plus token allowlist), AI events
+/// (per [`is_ai_event`]) are diverted to `Destination::AiEvents`; otherwise they
+/// fall through to `AnalyticsMain` exactly as before, so an unconfigured AI
+/// topic or `primary` mode is a strict no-op.
 fn destination_for_event_name(name: &str, route_ai_events: bool) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
         "$$heatmap" => Destination::HeatmapMain,
         "$$client_ingestion_warning" => Destination::ClientIngestionWarning,
-        _ if route_ai_events && name.starts_with("$ai_") => Destination::AiEvents,
+        _ if route_ai_events && is_ai_event(name) => Destination::AiEvents,
         _ => Destination::AnalyticsMain,
     }
 }
@@ -347,7 +348,7 @@ fn emit_batch_abort_warning(
     // one occurrence, so never charge a count of zero.
     emit_request_warning(
         state.ingestion_warning_emitter.as_deref(),
-        &v1_request_context(context),
+        &context.warning_context(),
         CAPTURE_V1_ANALYTICS,
         warning,
         serde_json::Map::new(),
@@ -391,7 +392,7 @@ fn emit_validation_drop_warnings(
         }
     }
 
-    let request = v1_request_context(context);
+    let request = context.warning_context();
     for (warning, (count, single_event)) in grouped {
         let mut details = serde_json::Map::new();
         if let Some((distinct_id, uuid)) = single_event {
@@ -919,7 +920,7 @@ async fn apply_token_distinct_id_limits(
 
         emit_rate_limit_warning(
             emitter,
-            &v1_request_context(context),
+            &context.warning_context(),
             CAPTURE_V1_RATE_LIMIT,
             &limited_distinct_ids,
             limited_event_count,
@@ -2020,11 +2021,17 @@ mod tests {
     #[case("$pageview", true, Destination::AnalyticsMain)]
     #[case("custom_event", false, Destination::AnalyticsMain)]
     #[case("$autocapture", false, Destination::AnalyticsMain)]
-    // $ai_* diverts only when AI routing is enabled; otherwise stays on Main.
+    // Allowlisted AI events divert only when AI routing is enabled; otherwise stay on Main.
     #[case("$ai_generation", true, Destination::AiEvents)]
     #[case("$ai_span", true, Destination::AiEvents)]
     #[case("$ai_trace", true, Destination::AiEvents)]
+    #[case("$ai_generation_summary", true, Destination::AiEvents)]
     #[case("$ai_generation", false, Destination::AnalyticsMain)]
+    // $ai_ prefixed names absent from the allowlist stay on Main so the
+    // ingestion AI pipeline doesn't DLQ them.
+    #[case("$ai_call", true, Destination::AnalyticsMain)]
+    #[case("$ai_generation_enriched", true, Destination::AnalyticsMain)]
+    #[case("$ai_model_failover", true, Destination::AnalyticsMain)]
     fn destination_for_event_name_mapping(
         #[case] event_name: &str,
         #[case] route_ai_events: bool,

@@ -17,6 +17,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TagSelect } from 'lib/components/TagSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -27,6 +28,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
@@ -72,6 +74,12 @@ import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
 const HedgehogExperiment = pngHoggie(experimentPng)
+
+// Renders nothing on purpose: throwaway code that exists only so the experiment-cleanup-e2e-dummy
+// flag has references in the repo for the flag-cleanup PR flow to remove.
+const CleanupDummyExperiment = (): JSX.Element | null => {
+    return null
+}
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -253,6 +261,8 @@ const ExperimentsTable = ({
 
     const [matchingExperimentIds, setMatchingExperimentIds] = useState<readonly number[] | null>(null)
     const [matchingExperimentIdsLoading, setMatchingExperimentIdsLoading] = useState(false)
+    // State rather than a ref so mounting the slot re-renders and the bar's portal finds it.
+    const [bulkSelectionBarContainer, setBulkSelectionBarContainer] = useState<HTMLDivElement | null>(null)
 
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
@@ -575,10 +585,13 @@ const ExperimentsTable = ({
             <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
             <LemonDivider className="my-0" />
             {count ? (
-                <div>
+                // min-h-9 matches the bulk selection bar's own height so the row doesn't jump
+                // when a selection appears. The bar portals into the right-hand slot.
+                <div className="flex items-center justify-between gap-2 min-h-9" data-attr="experiments-count-row">
                     <span className="text-secondary">
                         {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
                     </span>
+                    <div ref={setBulkSelectionBarContainer} className="flex items-center" />
                 </div>
             ) : null}
 
@@ -606,6 +619,7 @@ const ExperimentsTable = ({
                         })
                     }
                     bulkSelection={{
+                        barPortalTarget: bulkSelectionBarContainer,
                         getKey: (experiment: Experiment): number =>
                             typeof experiment.id === 'number' ? experiment.id : -1,
                         isRowSelectable: (experiment: Experiment) =>
@@ -683,6 +697,9 @@ const ExperimentsTable = ({
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const cleanupDummyTestVariant = featureFlags[FEATURE_FLAGS.EXPERIMENT_CLEANUP_E2E_DUMMY] === 'test'
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
@@ -762,6 +779,7 @@ export function Experiments(): JSX.Element {
                     ) : undefined
                 }
             />
+            {cleanupDummyTestVariant && <CleanupDummyExperiment />}
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}

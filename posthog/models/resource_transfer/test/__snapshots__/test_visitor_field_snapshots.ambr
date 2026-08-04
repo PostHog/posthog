@@ -28,6 +28,7 @@
     'last_error_at',
     'pending_version',
     'people',
+    'person_filters_shape_hash',
     'version',
   ])
 # ---
@@ -159,7 +160,6 @@
     'last_calculation_duration_ms',
     'last_realtime_cohort_calculation_at',
     'name',
-    'person_filters_shape_hash',
     'query',
   ])
 # ---
@@ -227,6 +227,7 @@
     'stats_config',
     'type',
     'variants',
+    'version',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_ExperimentHoldout
@@ -542,6 +543,7 @@
     'objects',
     'pending_version',
     'people',
+    'person_filters_shape_hash',
     'properties',
     'remove_user_by_uuid',
     'save',
