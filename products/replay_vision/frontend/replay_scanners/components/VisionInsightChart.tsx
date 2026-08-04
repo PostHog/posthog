@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -19,6 +20,9 @@ interface VisionInsightChartProps {
     className?: string
     /** Custom handler for data point clicks (must be stable/memoized). Without one, charts stay static. */
     onDataPointClick?: QueryContext['onDataPointClick']
+    /** Overrides the generic "no matching events" copy shown when the query legitimately returns no rows. */
+    emptyStateHeading?: string
+    emptyStateDetail?: string
 }
 
 /** Vision events all belong to one synthetic person, so the generic persons modal would only list meaningless actors. */
@@ -36,19 +40,25 @@ export function adHocInsightProps(insightProps: InsightLogicProps, query: Insigh
     }
 }
 
-export type ChartOverlayState = 'none' | 'loading' | 'error'
+export type ChartOverlayState = 'none' | 'loading' | 'timeout' | 'error'
 
 /**
  * `insightData` is always a truthy object, but `insightData.result` is `undefined` until a query resolves (an empty
  * result is `[]`), so it — not the object — is the real "is there anything to render" signal. No data while loading is
- * a spinner; no data once settled is a failed/cancelled query we surface as a retry rather than a blank box.
+ * a spinner, unless the query has already run long enough to flag `timedOut` — then we say so instead of leaving an
+ * opaque spinner up with no hint anything is wrong. No data once settled is a failed/cancelled query we surface as a
+ * retry rather than a blank box.
  */
 export function chartOverlayState(
     insightData: { result?: unknown } | null | undefined,
-    loading: boolean
+    loading: boolean,
+    timedOut: boolean
 ): ChartOverlayState {
     if (insightData?.result != null) {
         return 'none'
+    }
+    if (timedOut) {
+        return 'timeout'
     }
     return loading ? 'loading' : 'error'
 }
@@ -63,18 +73,20 @@ export function VisionInsightChart({
     insightProps,
     className,
     onDataPointClick,
+    emptyStateHeading,
+    emptyStateDetail,
 }: VisionInsightChartProps): JSX.Element {
     const chartQuery = useMemo(() => embeddedVisionChartQuery(query), [query])
     const chartProps = useMemo(() => adHocInsightProps(insightProps, chartQuery), [insightProps, chartQuery])
     const context = useMemo<QueryContext>(
-        () => ({ insightProps: chartProps, onDataPointClick }),
-        [chartProps, onDataPointClick]
+        () => ({ insightProps: chartProps, onDataPointClick, emptyStateHeading, emptyStateDetail }),
+        [chartProps, onDataPointClick, emptyStateHeading, emptyStateDetail]
     )
     const logic = insightVizDataLogic(chartProps)
-    const { insightData, insightDataLoading } = useValues(logic)
+    const { insightData, insightDataLoading, timedOutQueryId } = useValues(logic)
     const { loadData } = useActions(logic)
 
-    const overlay = chartOverlayState(insightData, insightDataLoading)
+    const overlay = chartOverlayState(insightData, insightDataLoading, !!timedOutQueryId)
 
     return (
         <div className={clsx('relative', className)}>
@@ -83,6 +95,14 @@ export function VisionInsightChart({
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg-light">
                     {overlay === 'loading' ? (
                         <Spinner className="text-2xl" />
+                    ) : overlay === 'timeout' ? (
+                        <>
+                            <IconWarning className="text-2xl text-warning" />
+                            <span className="text-muted text-sm">This query is taking longer than usual.</span>
+                            <LemonButton size="small" type="secondary" onClick={() => loadData('force_async')}>
+                                Retry
+                            </LemonButton>
+                        </>
                     ) : (
                         <>
                             <span className="text-muted text-sm">Couldn't load this chart.</span>

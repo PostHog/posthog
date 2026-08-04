@@ -160,6 +160,11 @@ export function ScannerInsightsChart({
     const { overviewDateFrom, overviewDateTo, coverageStats, overviewStatsApiLoading } = useValues(
         scannerOverviewLogic({ scannerId })
     )
+    // A scanner that hasn't scanned any sessions yet has no observations for reasons that have nothing to do
+    // with the date range or filters, so the generic "no matching events" advice would send users off tuning
+    // filters that were never the problem. Only trust this once the (fast) stats call has actually settled,
+    // or a brand-new scanner would flash the "hasn't run" copy before its real coverage loads in.
+    const hasNotScannedYet = !overviewStatsApiLoading && coverageStats.totalSessions === 0
     // Memoized so a re-render (e.g. stats arriving) can't churn the query and abort an in-flight load.
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const chartQuery = useMemo<InsightVizNode>(
@@ -211,6 +216,10 @@ export function ScannerInsightsChart({
                 insightProps={chartInsightProps}
                 className="InsightCard h-80"
                 onDataPointClick={canDrillIntoObservations ? onDataPointClick : undefined}
+                emptyStateHeading={hasNotScannedYet ? "This scanner hasn't scanned any sessions yet" : undefined}
+                emptyStateDetail={
+                    hasNotScannedYet ? 'Observations will appear here once it scans its first sessions.' : undefined
+                }
             />
         </div>
     )
