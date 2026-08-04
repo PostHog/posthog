@@ -2979,16 +2979,19 @@ class DashboardsViewSet(
         serializer = CreateDashboardGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        layouts = serializer.validated_data.get("layouts")
-        if layouts is None:
-            existing_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
-            max_bottom = max((layout["y"] + layout["h"] for layout in existing_layouts), default=0)
-            layouts = {"sm": {"x": 0, "y": max_bottom, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}}
-        elif "sm" in layouts:
-            layouts["sm"] = {**layouts["sm"], "x": 0, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}
-
         user = cast(User, request.user)
         with transaction.atomic():
+            dashboard = Dashboard.objects.select_for_update().get(id=dashboard.id)
+            layouts = serializer.validated_data.get("layouts", {})
+            if "sm" not in layouts:
+                existing_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
+                max_bottom = max((layout["y"] + layout["h"] for layout in existing_layouts), default=0)
+                layouts = {
+                    **layouts,
+                    "sm": {"x": 0, "y": max_bottom, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1},
+                }
+            else:
+                layouts["sm"] = {**layouts["sm"], "x": 0, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}
             group = DashboardGroup.all_teams.create(
                 dashboard=dashboard,
                 team=dashboard.team,
@@ -3021,20 +3024,23 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         serializer = UpdateDashboardGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        group = get_object_or_404(dashboard.groups.select_related("tile"), id=serializer.validated_data["group_id"])
-
         fields_changed: list[str] = []
-        if "name" in serializer.validated_data:
-            group.name = serializer.validated_data["name"]
-            group.last_modified_by = request.user
-            group.last_modified_at = now()
-            group.save(update_fields=["name", "last_modified_by", "last_modified_at"])
-            fields_changed.append("name")
-        if "layouts" in serializer.validated_data:
-            layouts = serializer.validated_data["layouts"]
-            if "sm" in layouts:
-                layouts["sm"] = {**layouts["sm"], "x": 0, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}
-            with transaction.atomic():
+        with transaction.atomic():
+            dashboard = Dashboard.objects.select_for_update().get(id=dashboard.id)
+            group = get_object_or_404(
+                dashboard.groups.select_related("tile").select_for_update(of=("self",)),
+                id=serializer.validated_data["group_id"],
+            )
+            if "name" in serializer.validated_data:
+                group.name = serializer.validated_data["name"]
+                group.last_modified_by = request.user
+                group.last_modified_at = now()
+                group.save(update_fields=["name", "last_modified_by", "last_modified_at"])
+                fields_changed.append("name")
+            if "layouts" in serializer.validated_data:
+                layouts = {**group.tile.layouts, **serializer.validated_data["layouts"]}
+                if "sm" in layouts:
+                    layouts["sm"] = {**layouts["sm"], "x": 0, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}
                 group_tile = DashboardTile.objects.select_for_update().get(id=group.tile.id)
                 previous_y = group_tile.layouts.get("sm", {}).get("y")
                 next_y = layouts.get("sm", {}).get("y")
@@ -3051,7 +3057,8 @@ class DashboardsViewSet(
                                 "sm": {**member_layout, "y": member_layout["y"] + next_y - previous_y},
                             }
                     DashboardTile.objects.bulk_update(members, ["layouts"])
-            fields_changed.append("layouts")
+                group.tile = group_tile
+                fields_changed.append("layouts")
 
         if fields_changed:
             report_user_action(
@@ -3069,20 +3076,22 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         serializer = MoveDashboardTileToGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        tile = get_object_or_404(
-            DashboardTile.objects.filter(dashboard=dashboard, dashboard_group__isnull=True),
-            id=serializer.validated_data["tile_id"],
-        )
-        group_id = serializer.validated_data.get("group_id")
-        group = get_object_or_404(dashboard.groups, id=group_id) if group_id is not None else None
-        source_group_id = tile.parent_group_id
+        with transaction.atomic():
+            dashboard = Dashboard.objects.select_for_update().get(id=dashboard.id)
+            tile = get_object_or_404(
+                DashboardTile.objects.select_for_update().filter(dashboard=dashboard, dashboard_group__isnull=True),
+                id=serializer.validated_data["tile_id"],
+            )
+            group_id = serializer.validated_data.get("group_id")
+            group = get_object_or_404(dashboard.groups, id=group_id) if group_id is not None else None
+            source_group_id = tile.parent_group_id
 
-        tile.parent_group = group
-        update_fields = ["parent_group"]
-        if "layouts" in serializer.validated_data:
-            tile.layouts = serializer.validated_data["layouts"]
-            update_fields.append("layouts")
-        tile.save(update_fields=update_fields)
+            tile.parent_group = group
+            update_fields = ["parent_group"]
+            if "layouts" in serializer.validated_data:
+                tile.layouts = {**tile.layouts, **serializer.validated_data["layouts"]}
+                update_fields.append("layouts")
+            tile.save(update_fields=update_fields)
 
         report_user_action(
             cast(User, request.user),
@@ -3104,18 +3113,16 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         serializer = DeleteDashboardGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        group = get_object_or_404(dashboard.groups, id=serializer.validated_data["group_id"])
         member_handling = serializer.validated_data["member_handling"]
 
         with transaction.atomic():
-            members = list(group.member_tiles.select_for_update())
-            for member in members:
-                member.parent_group = None
-                update_fields = ["parent_group"]
-                if member_handling == "delete_tiles":
-                    member.deleted = True
-                    update_fields.append("deleted")
-                member.save(update_fields=update_fields)
+            dashboard = Dashboard.objects.select_for_update().get(id=dashboard.id)
+            group = get_object_or_404(dashboard.groups.select_for_update(), id=serializer.validated_data["group_id"])
+            members = group.member_tiles.select_for_update()
+            if member_handling == "delete_tiles":
+                members.update(parent_group=None, deleted=True)
+            else:
+                members.update(parent_group=None)
             group.delete()
 
         report_user_action(

@@ -112,3 +112,23 @@ class TestDashboardGroups(APIBaseTest):
         group = dashboard.groups.get()
         self.assertEqual(group.name, "Acquisition")
         self.assertEqual(group.member_tiles.get().text.body, "Signups")
+
+    def test_template_rejects_unknown_group_membership(self) -> None:
+        template = DashboardTemplate(
+            template_name="Invalid grouped template",
+            dashboard_description="",
+            dashboard_filters={},
+            tags=[],
+            tiles=[
+                {
+                    "type": "TEXT",
+                    "group_key": "unknown",
+                    "body": "Signups",
+                    "layouts": {"sm": {"x": 0, "y": 1, "w": 12, "h": 2}},
+                }
+            ],
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="From invalid template")
+
+        with self.assertRaisesMessage(ValueError, "unknown group keys"):
+            create_from_template(dashboard, template, self.user)

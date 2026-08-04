@@ -499,6 +499,15 @@ def create_from_template(
     *,
     user_access_control: UserAccessControl | None = None,
 ) -> None:
+    template_tiles = template.tiles or []
+    group_keys = {tile["group_key"] for tile in template_tiles if tile.get("type") == "GROUP" and tile.get("group_key")}
+    referenced_group_keys = {
+        tile["group_key"] for tile in template_tiles if tile.get("type") != "GROUP" and tile.get("group_key")
+    }
+    missing_group_keys = referenced_group_keys - group_keys
+    if missing_group_keys:
+        raise ValueError(f"Dashboard template references unknown group keys: {sorted(missing_group_keys)}")
+
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
@@ -514,7 +523,7 @@ def create_from_template(
     dashboard.save()
 
     groups_by_key: dict[str, DashboardGroup] = {}
-    for template_tile in template.tiles or []:
+    for template_tile in template_tiles:
         if template_tile.get("type") != "GROUP":
             continue
         group_key = template_tile.get("group_key")
@@ -536,7 +545,7 @@ def create_from_template(
         )
         groups_by_key[group_key] = group
 
-    for template_tile in template.tiles or []:
+    for template_tile in template_tiles:
         tile_type = template_tile.get("type")
         if tile_type == "GROUP":
             continue

@@ -369,6 +369,7 @@ export function calculateLayoutsWithGroups(
 ): Partial<Record<DashboardLayoutSize, Layout>> {
     const layouts = calculateLayouts(tiles)
     const sm = [...(layouts.sm ?? [])]
+    const groupTileIds = new Set(groups.map((group) => String(group.tile_id)))
 
     for (const group of groups) {
         const groupLayout = group.layouts.sm
@@ -391,7 +392,7 @@ export function calculateLayoutsWithGroups(
     let xsY = 0
     const xs = sm.map((layout) => {
         const existing = existingXs.get(layout.i)
-        const isGroup = groups.some((group) => String(group.tile_id) === layout.i)
+        const isGroup = groupTileIds.has(layout.i)
         const h = isGroup ? 1 : (existing?.h ?? layout.h)
         const result = { ...existing, i: layout.i, x: 0, y: xsY, w: 1, h }
         xsY += h

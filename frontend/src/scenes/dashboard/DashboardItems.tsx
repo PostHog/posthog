@@ -145,7 +145,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const toggleGroupCollapsed = useCallback(
         (groupId: string) => {
-            if (!dashboard?.id || placement === DashboardPlacement.Export) {
+            if (!dashboard?.id || layoutEditMode || placement === DashboardPlacement.Export) {
                 return
             }
             setCollapsedGroupIds((current) => {
@@ -159,7 +159,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 return next
             })
         },
-        [dashboard?.id, placement]
+        [dashboard?.id, layoutEditMode, placement]
     )
 
     const effectiveCollapsedGroupIds = layoutEditMode ? EMPTY_COLLAPSED_GROUP_IDS : collapsedGroupIds
@@ -641,8 +641,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                     }
                                     onDelete={() =>
                                         LemonDialog.open({
-                                            title: 'Delete group?',
-                                            description: `${group.member_tile_ids.length} tiles are in this group.`,
+                                            title: 'Delete group and its tiles?',
+                                            description: `${group.member_tile_ids.length} tiles are in this group. Deleting them is permanent.`,
                                             primaryButton: {
                                                 children: 'Delete group and tiles',
                                                 status: 'danger',
