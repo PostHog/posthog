@@ -810,16 +810,13 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
         payload.update(overrides)
         return payload
 
-    def test_create_refreshes_estimate(self) -> None:
+    def test_create_does_not_refresh_estimate_synchronously(self) -> None:
+        # Regression guard: the create POST used to run the ClickHouse-backed estimate refresh inline,
+        # which made "Create scanner" hang for tens of seconds on a slow query. The periodic estimate
+        # sweep (list_stale_scanner_estimates_activity) picks up the null `estimated_at` instead.
         resp = self.client.post(self.scanners_url, data=self._create_payload(), format="json")
         self.assertEqual(resp.status_code, 201, resp.json())
-        self.mock_refresh_estimate.assert_called_once()
-        self.assertEqual(str(self.mock_refresh_estimate.call_args.args[0].id), resp.json()["id"])
-
-    def test_create_succeeds_when_estimate_refresh_fails(self) -> None:
-        self.mock_refresh_estimate.side_effect = RuntimeError("clickhouse down")
-        resp = self.client.post(self.scanners_url, data=self._create_payload(), format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
+        self.mock_refresh_estimate.assert_not_called()
         self.assertIsNone(resp.json()["estimated_monthly_observations"])
 
     def test_response_exposes_estimated_monthly_observations(self) -> None:

@@ -491,7 +491,10 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
-        _refresh_estimate_fail_soft(scanner)
+        # The estimate is deliberately not refreshed inline: it's a 30-day ClickHouse count whose only
+        # bound is ClickHouse's own execution time, so a slow query would stall the whole create request.
+        # `estimated_at` is left null, which the periodic estimate-refresher sweep already treats as stale
+        # and prioritizes ahead of every other scanner (see list_stale_scanner_estimates_activity).
         # Every scanner starts with a built-in daily digest so the overview has a summary to show.
         # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
         if is_replay_vision_actions_enabled(user, team):

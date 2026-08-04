@@ -13,7 +13,9 @@ import {
     ObservationTriggeredByValue,
     ObservationVerdictValue,
     replayScannerLogic,
+    ScannerCreateTimeoutError,
     shouldGuardScannerNavigation,
+    withCreateTimeout,
 } from './replayScannerLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
@@ -246,6 +248,29 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+    })
+
+    describe('withCreateTimeout', () => {
+        beforeEach(() => jest.useFakeTimers())
+        afterEach(() => jest.useRealTimers())
+
+        // Regression guard: a create POST that never returns must not leave the caller awaiting forever
+        // (the wizard's "Create scanner" hang) — the wait is bounded and the request is aborted.
+        it('rejects and aborts the request when the work outlasts the timeout', async () => {
+            let capturedSignal: AbortSignal | undefined
+            const promise = withCreateTimeout((signal) => {
+                capturedSignal = signal
+                return new Promise<string>(() => {}) // never settles
+            }, 20_000)
+            const assertion = expect(promise).rejects.toThrow(ScannerCreateTimeoutError)
+            jest.advanceTimersByTime(20_000)
+            await assertion
+            expect(capturedSignal?.aborted).toBe(true)
+        })
+
+        it('resolves with the value when the work finishes before the timeout', async () => {
+            await expect(withCreateTimeout(() => Promise.resolve('ok'), 20_000)).resolves.toBe('ok')
         })
     })
 

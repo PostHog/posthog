@@ -81,6 +81,39 @@ export const OBSERVATIONS_PAGE_SIZE = 50
 // Past this many rows the clipboard is the wrong tool.
 const COPY_ALL_OBSERVATIONS_LIMIT = 500
 
+// How long "Create scanner" waits before it stops blocking on the request and tells the user to retry.
+// The create POST is normally sub-second; a wait this long means the server is wedged, not just busy.
+export const SCANNER_CREATE_TIMEOUT_MS = 20_000
+
+export class ScannerCreateTimeoutError extends Error {
+    constructor() {
+        super('Creating the scanner is taking longer than expected.')
+        this.name = 'ScannerCreateTimeoutError'
+    }
+}
+
+/** Reject with a ScannerCreateTimeoutError if `promise` hasn't settled within `timeoutMs`, and abort the request. */
+export async function withCreateTimeout<T>(
+    run: (signal: AbortSignal) => Promise<T>,
+    timeoutMs = SCANNER_CREATE_TIMEOUT_MS
+): Promise<T> {
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            controller.abort()
+            reject(new ScannerCreateTimeoutError())
+        }, timeoutMs)
+    })
+    try {
+        return await Promise.race([run(controller.signal), timeout])
+    } finally {
+        if (timer) {
+            clearTimeout(timer)
+        }
+    }
+}
+
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
     return typeof value === 'string' ? value : null
@@ -676,9 +709,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 const body = scanner.query == null ? omitQuery(scanner) : scanner
-                try {
-                    if (props.id === 'new') {
-                        const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
+                if (props.id === 'new') {
+                    // Bound the wait so a wedged create POST can't leave the button spinning indefinitely
+                    // with no feedback; the timeout surfaces a retryable error instead.
+                    const progressToastId = lemonToast.loading('Creating scanner…')
+                    try {
+                        const response = await withCreateTimeout((signal) =>
+                            visionScannersCreate(String(teamId), scannerToApiBody(body), { signal })
+                        )
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
                         // First results are minutes away on the schedule — hand off to the instant on-demand tab.
@@ -689,15 +727,28 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 dataAttr: 'vision-scanner-created-scan-now',
                             },
                         })
-                    } else {
+                    } catch (error: any) {
+                        if (error instanceof ScannerCreateTimeoutError) {
+                            lemonToast.error(
+                                'Creating the scanner is taking longer than expected. It may still have been created, so reload to check, or try again.'
+                            )
+                        } else {
+                            lemonToast.error(`Failed to create scanner${error.detail ? `: ${error.detail}` : ''}`)
+                        }
+                        throw error
+                    } finally {
+                        lemonToast.dismiss(progressToastId)
+                    }
+                } else {
+                    try {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
                         router.actions.push(urls.replayVision(props.id))
+                    } catch (error: any) {
+                        lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)
+                        throw error
                     }
-                } catch (error: any) {
-                    lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)
-                    throw error
                 }
             },
         },
