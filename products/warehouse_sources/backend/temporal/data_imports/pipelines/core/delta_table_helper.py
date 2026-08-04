@@ -10,7 +10,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
+from products.data_warehouse.backend.facade.api import aget_s3_client, delta_proxy_storage_options, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -97,7 +97,7 @@ def delta_storage_options() -> dict[str, str]:
             "AWS_ALLOW_HTTP": "true",
         }
     else:
-        options = {}
+        options = dict(delta_proxy_storage_options())
 
     # Conditional puts make a clashing concurrent commit fail loudly instead of
     # clobbering _delta_log; set explicitly so a library default change can't undo it.
