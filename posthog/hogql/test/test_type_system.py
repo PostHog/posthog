@@ -8,6 +8,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatArrayDatabaseField
+from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.resolver import resolve_types
@@ -775,15 +776,20 @@ class TestHogQLTypeSystem:
     @pytest.mark.parametrize(
         "name,arg_types,expected_nullable",
         [
-            # String input routes to the ClickHouse `*OrNull` parser (`toDateOrNull`,
-            # `parseDateTime64BestEffortOrNull`), so the result really can be NULL.
+            # Falls through to the `*OrNull` parser, so the result really can be NULL.
             ("toDate", [ast.StringType(nullable=False)], True),
             ("toDateTime", [ast.StringType(nullable=False)], True),
+            # toDate overloads only for Date/DateTime, so an integer still parses.
+            ("toDate", [ast.IntegerType(nullable=False)], True),
+            # toDateTimeUS declares no overloads at all — always the US best-effort parser.
             ("toDateTimeUS", [ast.StringType(nullable=False)], True),
-            # Date/datetime/integer input overloads to the plain constructor, which cannot fail.
+            ("toDateTimeUS", [ast.DateTimeType(nullable=False)], True),
+            # An overload wins, printing the plain constructor, which cannot fail.
             ("toDate", [ast.DateTimeType(nullable=False)], False),
             ("toDateTime", [ast.DateTimeType(nullable=False)], False),
             ("toDateTime", [ast.IntegerType(nullable=False)], False),
+            # `_toDate` is already the plain constructor, so it never parses.
+            ("_toDate", [ast.StringType(nullable=False)], False),
             # A nullable argument stays nullable down either path.
             ("toDateTime", [ast.DateTimeType(nullable=True)], True),
             # `toDateTime64` maps straight through to ClickHouse's non-nullable constructor.
@@ -793,7 +799,11 @@ class TestHogQLTypeSystem:
     def test_date_conversion_nullability_follows_the_printed_overload(
         self, name: str, arg_types: list[ast.ConstantType], expected_nullable: bool
     ) -> None:
-        return_type = infer_function_return_type(name, arg_types).return_type
+        # Reads the real catalog entry rather than a restated copy of it, so the expectations here
+        # track whatever the printer would actually emit for these arguments.
+        meta = find_hogql_function(name)
+        assert meta is not None
+        return_type = infer_function_return_type(name, arg_types, meta=meta).return_type
         assert return_type.nullable is expected_nullable
 
     def test_string_parsed_date_conversion_keeps_its_assume_not_null_wrapper(self) -> None:
