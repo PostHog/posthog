@@ -6,7 +6,10 @@ including multiple variant handling and exposure filtering logic.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Optional, Union
+
+import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
@@ -33,6 +36,49 @@ logger = logging.getLogger(__name__)
 # pairing in `get_exposure_event_and_property` (and the handling of configs that explicitly
 # name `$feature_flag_called`) must move with it.
 DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
+
+# The dedicated exposure event that replaces $feature_flag_called as the default,
+# gated per team by the flag below while it rolls out.
+EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
+EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
+
+# When $experiment_exposure ingestion goes live. Experiments started before this timestamp ran
+# (at least partly) without the new event, so they must keep counting exposures via
+# $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
+# after the cutoff can rely on $experiment_exposure covering their whole exposure window.
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 8, 5, tzinfo=UTC)
+
+
+def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
+    """
+    Returns the event to count exposures on when the experiment doesn't configure a custom one.
+
+    Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure,
+    provided the team is flagged into the rollout. Everything else stays on $feature_flag_called:
+    older experiments predate the new event, and because ingestion duplicates flag events into
+    $experiment_exposure, counting exactly one of the two is what avoids double counting.
+    """
+    if start_date is None:
+        return DEFAULT_EXPOSURE_EVENT
+    if start_date.tzinfo is None:
+        # Query-supplied start dates can be naive ISO strings; the stored values are UTC.
+        start_date = start_date.replace(tzinfo=UTC)
+    if start_date < EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
+        return DEFAULT_EXPOSURE_EVENT
+    # only_evaluate_locally keeps this off the network - it runs on the query hot path, so an
+    # inconclusive or failed local evaluation must fall back to the pre-rollout default.
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            EXPERIMENT_EXPOSURE_EVENT_FLAG,
+            str(team.id),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return DEFAULT_EXPOSURE_EVENT
+    return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
 def _is_actions_node_dict(config: dict) -> bool:

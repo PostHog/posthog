@@ -54,7 +54,7 @@ class TestRepartitionActivityDeltaFolder:
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
-    @patch(f"{MODULE}.DeltaTableHelper")
+    @patch(f"{MODULE}.DeltaTableRef")
     @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
@@ -84,7 +84,7 @@ class TestRepartitionActivityDeltaFolder:
         assert mock_repartition.await_count == 1
         await_args = mock_repartition.await_args
         assert await_args is not None
-        assert await_args.kwargs["helper"] is mock_helper_cls.return_value
+        assert await_args.kwargs["table_ref"] is mock_helper_cls.return_value
         assert mock_job_model.objects.get.call_args.kwargs == {"id": JOB_ID}
 
 
