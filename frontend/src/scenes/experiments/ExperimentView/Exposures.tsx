@@ -1,14 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LineChart,
+    type LineChartConfig,
+    type Series,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
+} from '@posthog/quill-charts'
 
-import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ExperimentExposureCriteria,
@@ -19,10 +27,22 @@ import {
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { isDefaultExposureConfig } from '../exposureContract'
-import { useChartColors } from '../MetricsView/shared/colors'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 import { VariantTag } from './VariantTag'
+
+/** `LineChart` rather than quill's `Sparkline`: the sparkline reserves 6px top and bottom for its
+ *  hover ring, which in this 20px box would leave an 8px plot. This chart is inert, so it can use
+ *  the full height. */
+const MICRO_CHART_CONFIG: LineChartConfig = {
+    hideXAxis: true,
+    hideYAxis: true,
+    showGrid: false,
+    showCrosshair: false,
+    curve: 'monotone',
+    margins: { top: 0, right: 0, bottom: 0, left: 0 },
+    tooltip: { enabled: false },
+}
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
@@ -31,97 +51,38 @@ interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
 }
 
-interface ExposureSeries {
-    variant: string
-    data: number[]
-}
-
 // Single-day timeseries get a synthetic prior day with 0 exposures so the chart
 // can draw a line instead of a single point.
-function buildExposureDatasets(timeseries: ExperimentExposureTimeSeries[]): {
+function buildExposureSeries(timeseries: ExperimentExposureTimeSeries[]): {
     labels: string[]
-    datasets: ExposureSeries[]
+    series: Series[]
 } {
-    let labels = timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
-    let datasets: ExposureSeries[] = timeseries.map((series: ExperimentExposureTimeSeries) => ({
-        variant: series.variant,
-        data: series.exposure_counts,
+    const [firstDay] = timeseries[0].days
+    let labels = timeseries[0].days
+    let series: Series[] = timeseries.map((variantSeries, index) => ({
+        key: variantSeries.variant,
+        label: variantSeries.variant,
+        color: getSeriesColor(index),
+        data: variantSeries.exposure_counts,
     }))
 
-    if (timeseries[0].days.length === 1) {
-        const previousDay = dayjs(timeseries[0].days[0]).subtract(1, 'day').format('MM/DD')
-        labels = [previousDay, ...labels]
-        datasets = datasets.map((dataset) => ({
-            ...dataset,
-            data: [0, ...dataset.data],
-        }))
+    if (labels.length === 1) {
+        // Mirror the backend's day shape (`date` vs `datetime` isoformat) so both labels parse alike.
+        const dayFormat = firstDay.includes('T') ? 'YYYY-MM-DDTHH:mm:ss' : 'YYYY-MM-DD'
+        labels = [dayjs(firstDay).subtract(1, 'day').format(dayFormat), ...labels]
+        series = series.map((variantSeries) => ({ ...variantSeries, data: [0, ...variantSeries.data] }))
     }
 
-    return { labels, datasets }
+    return { labels, series }
 }
 
 export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
-    const { canvasRef } = useChart({
-        getConfig: () => {
-            if (!exposures?.timeseries?.length) {
-                return null
-            }
+    const theme = useChartTheme()
+    const timeseries = exposures?.timeseries
+    const series = useMemo(() => (timeseries?.length ? buildExposureSeries(timeseries).series : []), [timeseries])
+    const labels = useMemo(() => series[0]?.data.map((_, i) => String(i)) ?? [], [series])
 
-            const { datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
-            const datasets = rawDatasets.map((series, index) => ({
-                data: series.data,
-                borderColor: getSeriesColor(index),
-                fill: false,
-                tension: 0.3,
-                borderWidth: 1.5,
-                pointRadius: 0,
-            }))
-
-            return {
-                type: 'line' as const,
-                data: {
-                    labels: datasets[0].data.map((_, i) => i),
-                    datasets,
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    scales: {
-                        x: {
-                            display: false,
-                            grid: {
-                                display: false,
-                            },
-                        },
-                        y: {
-                            display: false,
-                            beginAtZero: true,
-                            grid: {
-                                display: false,
-                            },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            display: false,
-                        },
-                        tooltip: {
-                            enabled: false,
-                        },
-                    },
-                    elements: {
-                        line: {
-                            borderJoinStyle: 'round',
-                        },
-                    },
-                },
-            }
-        },
-        deps: [exposures],
-    })
-
-    if (!exposures?.timeseries?.length) {
+    if (!timeseries?.length) {
         return null
     }
 
@@ -136,87 +97,28 @@ export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 borderRight: '1px solid var(--color-border-primary)',
             }}
         >
-            <canvas ref={canvasRef} />
+            <LineChart series={series} labels={labels} theme={theme} config={MICRO_CHART_CONFIG} />
         </div>
     )
 }
 
 interface ExposuresChartProps {
     exposures: ExperimentExposureQueryResponse
-    axisLineColor: string
 }
 
-function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.Element {
-    const { canvasRef } = useChart({
-        getConfig: () => {
-            if (!exposures?.timeseries?.length) {
-                return null
-            }
-
-            const { labels, datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
-            const datasets = rawDatasets.map((series, index) => ({
-                label: series.variant,
-                data: series.data,
-                borderColor: getSeriesColor(index),
-                backgroundColor: getSeriesBackgroundColor(index),
-                fill: false,
-                tension: 0,
-                borderWidth: 2,
-                pointRadius: 0,
-            }))
-
-            return {
-                type: 'line' as const,
-                data: { labels, datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'nearest',
-                        axis: 'x',
-                    },
-                    scales: {
-                        x: {
-                            ticks: {
-                                maxTicksLimit: 8,
-                                autoSkip: true,
-                                maxRotation: 0,
-                                minRotation: 0,
-                            },
-                            grid: {
-                                display: true,
-                                color: axisLineColor,
-                            },
-                        },
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                display: true,
-                                color: axisLineColor,
-                            },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            display: false,
-                            labels: {
-                                boxWidth: 4,
-                                boxPadding: 20,
-                                pointStyle: 'dash',
-                            },
-                        },
-                        crosshair: false,
-                    },
-                },
-            }
-        },
-        deps: [exposures, axisLineColor],
-    })
+function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
+    const { timezone } = useValues(teamLogic)
+    const theme = useChartTheme()
+    const { labels, series } = useMemo(() => buildExposureSeries(exposures.timeseries), [exposures.timeseries])
+    // quill's built-in date tick formatter only kicks in when both interval and timezone are set.
+    const config = useChartConfig<TimeSeriesLineChartConfig>(
+        () => ({ xAxis: { interval: 'day', timezone }, tooltip: { placement: 'cursor' } }),
+        [timezone]
+    )
 
     return (
         <div className="relative h-[200px]">
-            <canvas ref={canvasRef} />
+            <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
         </div>
     )
 }
@@ -245,7 +147,6 @@ export function Exposures(): JSX.Element {
         resolvedExposureEvent,
     } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
-    const colors = useChartColors()
 
     const [isCollapsed, setIsCollapsed] = useState(true)
 
@@ -397,7 +298,7 @@ export function Exposures(): JSX.Element {
                                     </div>
                                 </div>
                             ) : (
-                                <ExposuresChart exposures={exposures} axisLineColor={colors.EXPOSURES_AXIS_LINES} />
+                                <ExposuresChart exposures={exposures} />
                             )}
 
                             {/* Exposure Criteria Section */}
