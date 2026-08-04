@@ -4,22 +4,25 @@ import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { availableOnboardingProducts, toSentenceCase } from 'scenes/onboarding/shared/utils'
+
+import type { OnboardingProduct } from '~/types'
 
 import type { DataFreshnessSourceApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { projectDataFreshnessLogic } from './projectDataFreshnessLogic'
 
 /**
- * `data_source` is a `ProductKey`, and a product key humanizes into its own product name, so a
- * product that starts declaring a data source renders correctly with no frontend change. Only
- * keys that humanize wrongly need listing here.
+ * `data_source` is a `ProductKey`, so onboarding's product catalog is the maintained name for
+ * it and a rename lands here for free. It's Title Case there, hence `toSentenceCase`, which
+ * also keeps short acronyms intact ("AI observability", not "Ai observability").
+ *
+ * Products the catalog doesn't list fall back to humanizing the key, which is right for the
+ * ones whose name is just the key ("Tracing").
  */
-const DATA_SOURCE_LABEL_OVERRIDES: Record<string, string> = {
-    llm_analytics: 'LLM analytics',
-}
-
 function dataSourceLabel(source: string): string {
-    return DATA_SOURCE_LABEL_OVERRIDES[source] ?? capitalizeFirstLetter(source.replace(/_/g, ' '))
+    const catalogued = (availableOnboardingProducts as Partial<Record<string, OnboardingProduct>>)[source]
+    return catalogued ? toSentenceCase(catalogued.name) : capitalizeFirstLetter(source.replace(/_/g, ' '))
 }
 
 function SourceBreakdown({
