@@ -120,6 +120,7 @@ from posthog.temporal.session_replay.session_summary.workflow import (
     SummarizeSingleSessionWorkflow,
     execute_summarize_session_video_stream,
 )
+from posthog.utils import capture_exception_throttled
 
 from products.replay.backend.models.team_session_summaries_config import TeamSessionSummariesConfig
 
@@ -2215,8 +2216,22 @@ def list_recordings_from_query(
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        with personhog_caller_tag("replay/recordings-persons"):
-            distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        try:
+            with personhog_caller_tag("replay/recordings-persons"):
+                distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        except Exception as e:
+            # Person data decorates the list (name/avatar); it isn't a dependency of it. A
+            # personhog outage or misconfiguration shouldn't 500 the whole recordings list —
+            # fall back to no person data and let MissingPerson stand in per-recording.
+            throttle_key = f"recordings_list_person_hydration_failure:{team.pk}"
+            captured = capture_exception_throttled(throttle_key, e, ttl=60)
+            logger.warning(
+                "recordings_list_person_hydration_failed",
+                team_id=team.pk,
+                exception_captured=captured,
+                exc_info=True,
+            )
+            distinct_id_to_person = {}
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         for recording in recordings:
