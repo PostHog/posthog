@@ -15,8 +15,8 @@ from posthog.temporal.ai.slack_app.attachments import (
     prepare_slack_file_artifacts,
 )
 from posthog.temporal.ai.slack_app.helpers import (
-    SLACK_THREAD_CONTEXT_TAG,
-    SLACK_THREAD_CONTEXT_UPDATE_TAG,
+    SLACK_THREAD_CONTEXT_TAG as _THREAD_CONTEXT_TAG,
+    SLACK_THREAD_CONTEXT_UPDATE_TAG as _THREAD_CONTEXT_UPDATE_TAG,
     block_if_team_over_quota,
     safe_react,
     strip_slack_thread_context_tags,
@@ -380,7 +380,7 @@ def _build_posthog_code_task_description(
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""
     context_block = "\n".join(context_entries)
     return (
-        f"<{SLACK_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{SLACK_THREAD_CONTEXT_TAG}>"
+        f"<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>"
         f"\n\n{_with_slack_delivery_constraints(prompt, canvas_file_artifacts_enabled=canvas_file_artifacts_enabled, living_artifacts_enabled=living_artifacts_enabled)}"
     )
 
@@ -490,7 +490,7 @@ def build_thread_context_update_block(
         )
     header = "\n".join(header_lines)
     body = "\n".join(entries)
-    block = f"<{SLACK_THREAD_CONTEXT_UPDATE_TAG}>\n{header}\n\n{body}\n</{SLACK_THREAD_CONTEXT_UPDATE_TAG}>"
+    block = f"<{_THREAD_CONTEXT_UPDATE_TAG}>\n{header}\n\n{body}\n</{_THREAD_CONTEXT_UPDATE_TAG}>"
     return block, new_watermark
 
 
