@@ -15,9 +15,17 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
+import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
+
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+    },
+}))
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
@@ -51,10 +59,14 @@ describe('replayScannerLogic', () => {
         initKeaTests()
         logic = replayScannerLogic({ id: 'new' })
         logic.mount()
+        // The wizard's step lives in scannerEditorSceneLogic; mount it so form validation and the submit
+        // handler (which read the current step from here, not the URL) behave like they do in the real editor.
+        scannerEditorSceneLogic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        scannerEditorSceneLogic.unmount()
     })
 
     describe('form defaults', () => {
@@ -219,7 +231,7 @@ describe('replayScannerLogic', () => {
 
     describe('submit intent', () => {
         it('advance intent routes to /triggers without calling the API', async () => {
-            router.actions.push('/replay-vision/new/configure')
+            scannerEditorSceneLogic.actions.setStep('configure')
             logic.actions.setScannerValues({
                 name: 'Test scanner',
                 scanner_config: { prompt: 'Q?' },
@@ -231,7 +243,7 @@ describe('replayScannerLogic', () => {
         })
 
         it('advance does not mark the draft as saved, so the unsaved-changes guard stays armed', async () => {
-            router.actions.push('/replay-vision/new/configure')
+            scannerEditorSceneLogic.actions.setStep('configure')
             logic.actions.setScannerValues({ name: 'Draft scanner', scanner_config: { prompt: 'Q?' } })
             logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
@@ -241,10 +253,21 @@ describe('replayScannerLogic', () => {
         })
 
         it('default-intent submit (Enter) on the new-scanner configure step advances instead of creating', async () => {
-            router.actions.push('/replay-vision/new/configure')
+            scannerEditorSceneLogic.actions.setStep('configure')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+
+        it('advances from the step scannerEditorSceneLogic reports, even if the URL disagrees', async () => {
+            // A drifting pathname must not wedge the wizard on the same step forever - the step used to
+            // come from string-matching the URL, so a mismatch here re-derived 'configure' and looped.
+            router.actions.push('/replay-vision/new/self_driving')
+            scannerEditorSceneLogic.actions.setStep('configure')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
     })
@@ -263,7 +286,10 @@ describe('replayScannerLogic', () => {
             },
             {
                 name: 'flags sampling rate outside (0, 1]',
-                setup: () => logic.actions.setScannerValues({ sampling_rate: 0 }),
+                setup: () => {
+                    scannerEditorSceneLogic.actions.setStep('triggers')
+                    logic.actions.setScannerValues({ sampling_rate: 0 })
+                },
                 expectedErrors: { sampling_rate: expect.any(String) },
             },
             {
@@ -365,6 +391,36 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic).toMatchValues({
                 isScannerValid: true,
             })
+        })
+
+        it.each([
+            {
+                name: 'an invalid sampling rate (triggers-owned) does not block the configure step',
+                step: 'configure' as const,
+                setup: () =>
+                    logic.actions.setScannerValues({
+                        name: 'Test',
+                        scanner_config: { prompt: 'Q?' },
+                        sampling_rate: 0,
+                    }),
+            },
+            {
+                name: 'a missing name (configure-owned) does not block the triggers step',
+                step: 'triggers' as const,
+                setup: () => logic.actions.setScannerValues({ sampling_rate: 0.5 }),
+            },
+        ])('$name', async ({ step, setup }) => {
+            scannerEditorSceneLogic.actions.setStep(step)
+            setup()
+            await expectLogic(logic).toMatchValues({ isScannerValid: true })
+        })
+
+        it('surfaces a toast when a step-scoped validation failure rejects submit', async () => {
+            const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast')
+            scannerEditorSceneLogic.actions.setStep('configure')
+            // Name left blank - the configure step's own validation should reject the submit.
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(lemonToast.error).toHaveBeenCalledWith('Please fix the highlighted errors before continuing')
         })
     })
 

@@ -620,52 +620,58 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         scanner: {
             defaults: newScanner(props.id === 'new' ? currentTemplateKey() : null),
             errors: (scanner: ReplayScanner) => {
+                // The wizard mounts only the current step's fields, so validating fields that belong to a
+                // different (unseen) step blocks Next/Create with no way for the user to see or fix them.
+                // Scope validation to whichever step is actually on screen.
+                const step = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
                 const configErrors: Record<string, string | undefined> = {}
-                if (!scanner.scanner_config?.prompt?.trim()) {
-                    configErrors.prompt = 'Prompt is required'
-                }
-                if (scanner.scanner_type === 'classifier') {
-                    const tags = scanner.scanner_config.tags ?? []
-                    if (tags.length === 0) {
-                        configErrors.tags = 'Add at least one tag to the vocabulary'
-                    } else if (tags.some((t) => !t.trim())) {
-                        configErrors.tags = "Tags can't be blank"
-                    } else if (new Set(tags.map((t) => t.trim().toLowerCase())).size !== tags.length) {
-                        configErrors.tags = 'Tags must be unique'
+                if (step === 'configure') {
+                    if (!scanner.scanner_config?.prompt?.trim()) {
+                        configErrors.prompt = 'Prompt is required'
                     }
-                }
-                if (scanner.scanner_type === 'scorer') {
-                    const { min, max } = scanner.scanner_config.scale
-                    if (
-                        typeof min !== 'number' ||
-                        typeof max !== 'number' ||
-                        !Number.isFinite(min) ||
-                        !Number.isFinite(max)
-                    ) {
-                        configErrors.scale = 'Scale min and max must be numbers'
-                    } else if (min >= max) {
-                        configErrors.scale = 'Scale max must be greater than min'
+                    if (scanner.scanner_type === 'classifier') {
+                        const tags = scanner.scanner_config.tags ?? []
+                        if (tags.length === 0) {
+                            configErrors.tags = 'Add at least one tag to the vocabulary'
+                        } else if (tags.some((t) => !t.trim())) {
+                            configErrors.tags = "Tags can't be blank"
+                        } else if (new Set(tags.map((t) => t.trim().toLowerCase())).size !== tags.length) {
+                            configErrors.tags = 'Tags must be unique'
+                        }
+                    }
+                    if (scanner.scanner_type === 'scorer') {
+                        const { min, max } = scanner.scanner_config.scale
+                        if (
+                            typeof min !== 'number' ||
+                            typeof max !== 'number' ||
+                            !Number.isFinite(min) ||
+                            !Number.isFinite(max)
+                        ) {
+                            configErrors.scale = 'Scale min and max must be numbers'
+                        } else if (min >= max) {
+                            configErrors.scale = 'Scale max must be greater than min'
+                        }
                     }
                 }
                 return {
-                    name: !scanner.name?.trim() ? 'Name is required' : undefined,
+                    name: step === 'configure' && !scanner.name?.trim() ? 'Name is required' : undefined,
                     sampling_rate:
-                        scanner.sampling_rate > 0 && scanner.sampling_rate <= 1
-                            ? undefined
-                            : 'Sampling rate must be between 0% and 100%',
+                        step === 'triggers' && !(scanner.sampling_rate > 0 && scanner.sampling_rate <= 1)
+                            ? 'Sampling rate must be between 0% and 100%'
+                            : undefined,
                     scanner_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
                 }
             },
             submit: async (scanner: ReplayScanner) => {
                 // Advance to the next visible step instead of persisting, when the footer asked to (intent
                 // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step. The step
-                // order and self-driving visibility live in the editor scene, so read visibleSteps from there;
-                // findMounted keeps this usable in isolation (tests), falling back to the full order.
+                // order, visibility, and current step live in the editor scene, so read them from there;
+                // findMounted keeps this usable in isolation (tests), falling back to the full order and
+                // 'configure'. Reading `step` from the scene logic (rather than matching the URL) means a
+                // drifting pathname can't wedge the wizard on the same step forever.
                 const steps = scannerEditorSceneLogic.findMounted()?.values.visibleSteps ?? SCANNER_EDITOR_STEPS
-                const currentStep = steps.find((step) =>
-                    router.values.location.pathname.endsWith(scannerStepUrl(step, props.id))
-                )
-                const nextStep = currentStep ? steps[steps.indexOf(currentStep) + 1] : undefined
+                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
+                const nextStep = steps[steps.indexOf(currentStep) + 1]
                 if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
                     actions.setSubmitIntent('save')
                     router.actions.push(scannerStepUrl(nextStep, props.id))
@@ -1132,6 +1138,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservationStats()
         }
         return {
+            // kea-forms rejects submitScanner with this exact error when client-side validation fails
+            // (see `errors` above) — without this listener that rejection was silent: no toast, no
+            // loading-state change, just a dead button and a small badge on the stepper.
+            submitScannerFailure: ({ error }) => {
+                if (error.message === 'Validation Failed') {
+                    lemonToast.error('Please fix the highlighted errors before continuing')
+                }
+            },
+
             loadScanner: async () => {
                 if (props.id === 'new') {
                     const templateKey = currentTemplateKey()
