@@ -42,8 +42,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
@@ -79,7 +79,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
-    """Convert sync type to write type for DeltaTableHelper."""
+    """Convert sync type to write type for DeltaTableRef."""
     if sync_type in ("incremental", "cdc"):
         return "incremental"
     elif sync_type == "append":
@@ -349,13 +349,13 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         if schema is None:
             raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
-        delta_table_helper = DeltaTableHelper(
+        delta_table_ref = DeltaTableRef(
             resource_name=export_signal.resource_name,
             job=job,
             logger=logger,
         )
 
-        delta_table = await delta_table_helper.get_delta_table()
+        delta_table = await delta_table_ref.get_delta_table()
         if delta_table is None:
             logger.error(
                 "no_delta_table_for_post_load",
@@ -374,7 +374,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             job=job,
             schema=schema,
             source=schema.source,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
             row_count=export_signal.total_rows or 0,
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
@@ -697,7 +697,7 @@ def process_message(
         if schema is None:
             raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
-        delta_table_helper = DeltaTableHelper(
+        delta_table_ref = DeltaTableRef(
             resource_name=export_signal.resource_name,
             job=job,
             logger=logger,
@@ -709,7 +709,7 @@ def process_message(
             export_signal.schema_id,
             export_signal.run_uuid,
             export_signal.batch_index,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
         )
 
         if already_processed and not export_signal.is_final_batch:
@@ -768,7 +768,7 @@ def process_message(
             column_names=pa_table.column_names,
         )
 
-        existing_delta_table = async_to_sync(delta_table_helper.get_delta_table)()
+        existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
         pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
@@ -811,7 +811,7 @@ def process_message(
                 team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
             ).time():
                 scd2_writer = Scd2DeltaWriter(
-                    delta_table_helper,
+                    delta_table_ref,
                     valid_from_column=SCD2_VALID_FROM_COLUMN,
                     valid_to_column=SCD2_VALID_TO_COLUMN,
                 )
@@ -837,7 +837,7 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
             ).time():
-                delta_table = async_to_sync(DeltaWriter(delta_table_helper).write)(
+                delta_table = async_to_sync(DeltaWriter(delta_table_ref).write)(
                     data=pa_table,
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,
@@ -893,7 +893,7 @@ def process_message(
                 job=job,
                 schema=schema,
                 source=schema.source,
-                delta_table_helper=delta_table_helper,
+                delta_table_ref=delta_table_ref,
                 row_count=export_signal.total_rows or 0,
                 table_schema_dict=internal_schema.to_hogql_types(),
                 resource_name=export_signal.resource_name,

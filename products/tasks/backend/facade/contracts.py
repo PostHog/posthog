@@ -180,6 +180,21 @@ class ChannelDTO:
     repositories: list[str]
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
+    starred: bool = False
+
+
+@dataclass(frozen=True)
+class ChannelInstructionsDTO:
+    """The HTTP representation of a channel's CONTEXT.md instructions version.
+
+    A channel that has never had instructions published reads as a blank
+    version 0 — publish against ``base_version: 0`` to create version 1."""
+
+    channel: UUID
+    content: str
+    version: int
+    created_at: datetime | None = None
+    created_by: "TaskUserBasicInfo | None" = None
 
 
 @dataclass(frozen=True)

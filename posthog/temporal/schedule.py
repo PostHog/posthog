@@ -56,10 +56,6 @@ from posthog.temporal.health_checks.schedule import create_health_check_schedule
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
-from posthog.temporal.messaging.schedule import (
-    create_all_realtime_cohort_calculation_schedules,
-    create_reconcile_precalculated_data_schedule,
-)
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
@@ -641,6 +637,34 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
             await a_delete_schedule(client, schedule_id)
 
 
+async def cleanup_cohort_calculation_schedules(client: Client):
+    """Delete the realtime cohort calculation and precalculated-data reconcile schedules.
+
+    This ClickHouse-query-based path did not scale and was putting load on ClickHouse it could not
+    carry. rust/cohort-stream-processor replaces it with incremental evaluation off the event stream,
+    and owns reconciliation too (its workers/reconcile.rs and sweep/reconcile.rs), so nothing here
+    needs to run on a cadence any more.
+
+    The workflows stay registered on the messaging worker only until the Python implementation is
+    deleted. In-flight executions finish on their own; deleting a schedule doesn't cancel them.
+    """
+    legacy_schedule_ids = [
+        "realtime-cohort-calculation-p0-p50",
+        "realtime-cohort-calculation-p50-p80",
+        "realtime-cohort-calculation-p80-p90",
+        "realtime-cohort-calculation-p90-p95",
+        "realtime-cohort-calculation-p95-p99",
+        "realtime-cohort-calculation-p99-p100",
+        "realtime-cohort-calculation-p0-p90",
+        "realtime-cohort-calculation-p95-p100",
+        "realtime-cohort-calculation-schedule",
+        "reconcile-precalculated-data-schedule",
+    ]
+    for schedule_id in legacy_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def create_run_usage_reports_schedule(client: Client):
     """Intraday usage report run every 30 minutes.
 
@@ -830,8 +854,7 @@ schedules = [
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
-    create_all_realtime_cohort_calculation_schedules,
-    create_reconcile_precalculated_data_schedule,
+    cleanup_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,

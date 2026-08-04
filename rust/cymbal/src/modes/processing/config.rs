@@ -182,18 +182,8 @@ pub struct ProcessingConfig {
     pub spike_alert_enabled_team_ids: String,
 
     // ----------------------------------------------------------------------
-    // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.
-    //
-    // When `remote_resolution_enabled` is true, cymbal routes exception-level
-    // symbol resolution through the configured `cymbal-resolution` service
-    // pool instead of running the local resolver inline. There is no silent
-    // local fallback: if the pool can't satisfy the request, the stage
-    // surfaces the failure to its caller. Local mode (the default) is
-    // unchanged.
+    // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ENABLED", default = "false")]
-    pub remote_resolution_enabled: bool,
-
     /// Hostname of the cymbal-resolution service. Resolved via DNS, then each
     /// returned address gets its own gRPC channel in the endpoint pool.
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_HOST", default = "")]
@@ -261,15 +251,6 @@ pub struct ProcessingConfig {
         default = "30000"
     )]
     pub remote_resolution_overload_ejection_decay_ms: u64,
-
-    /// Deterministic event-level rollout sample for remote resolution.
-    /// Defaults to `0.0` so flipping `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`
-    /// alone does not start sending traffic — the rollout has to be ramped
-    /// explicitly. Values outside 0.0..=1.0 are clamped by
-    /// `RemoteResolutionConfig`, matching the defensive normalization used
-    /// by adjacent duration knobs.
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
-    pub remote_resolution_sample_rate: f64,
 
     /// Flattens remote resolution routing across the rendezvous-ranked candidate
     /// list. `0.0` sends all traffic to the top-ranked endpoint, `1.0` is

@@ -51,6 +51,12 @@ interface IssueStatusConfig {
     tooltip?: string
 }
 
+const UNKNOWN_STATUS_CONFIG: IssueStatusConfig = {
+    color: '#6b7280',
+    intentLabel: 'Unknown status',
+    label: 'Unknown',
+}
+
 export const ISSUE_STATUS_CONFIG: Record<IssueStatus, IssueStatusConfig> = {
     active: {
         color: '#f59e0b',
@@ -82,12 +88,18 @@ export const ISSUE_STATUS_CONFIG: Record<IssueStatus, IssueStatusConfig> = {
     },
 }
 
-export const IssueStatusDot = ({ status, className }: { status: IssueStatus; className?: string }): JSX.Element => (
-    <Dot
-        className={clsx('!border-0 !p-0 [&_[data-slot=dot-inner]]:!bg-[var(--error-tracking-status-color)]', className)}
-        style={{ '--error-tracking-status-color': ISSUE_STATUS_CONFIG[status].color } as React.CSSProperties}
-    />
-)
+export const IssueStatusDot = ({ status, className }: { status: IssueStatus; className?: string }): JSX.Element => {
+    const config = ISSUE_STATUS_CONFIG[status] ?? UNKNOWN_STATUS_CONFIG
+    return (
+        <Dot
+            className={clsx(
+                '!border-0 !p-0 [&_[data-slot=dot-inner]]:!bg-[var(--error-tracking-status-color)]',
+                className
+            )}
+            style={{ '--error-tracking-status-color': config.color } as React.CSSProperties}
+        />
+    )
+}
 
 interface StatusIndicatorProps {
     status: IssueStatus
@@ -102,7 +114,7 @@ export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorP
     { status, size = 'small', intent = false, className, withTooltip },
     ref
 ): JSX.Element {
-    const config = ISSUE_STATUS_CONFIG[status]
+    const config = ISSUE_STATUS_CONFIG[status] ?? UNKNOWN_STATUS_CONFIG
     const tooltip = withTooltip ? config.tooltip : undefined
     const content = (
         <div ref={ref} className={clsx('flex items-center', className, sizeVariants[size])}>

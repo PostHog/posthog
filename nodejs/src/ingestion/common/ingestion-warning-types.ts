@@ -64,6 +64,16 @@ export const INGESTION_WARNING_TYPES = {
     missing_event_uuid: { category: 'event', severity: 'error', captureProduced: true },
     invalid_event_uuid: { category: 'event', severity: 'error', captureProduced: true },
     duplicate_event_uuid: { category: 'event', severity: 'error', captureProduced: true },
+    // Capture's AI endpoints (/i/v0/ai, /i/v0/ai/otel), which validate more
+    // strictly than the analytics paths: they accept only the six `$ai_*` event
+    // names and require `$ai_model`, and their payloads are multipart or OTLP
+    // rather than a JSON batch.
+    invalid_ai_event: { category: 'event', severity: 'error', captureProduced: true },
+    invalid_ai_payload: { category: 'event', severity: 'error', captureProduced: true },
+    // Severity is 'warning', not 'error': the OTLP export succeeded and only
+    // non-AI spans were in it, so nothing the AI pipeline owns was dropped. The
+    // customer still needs to know their export produced no AI events.
+    no_ai_spans_ingested: { category: 'event', severity: 'warning', captureProduced: true },
     ignored_invalid_timestamp: { category: 'event', severity: 'warning' },
     schema_validation_failed: { category: 'event', severity: 'error' },
     skipping_event_invalid_distinct_id: { category: 'event', severity: 'error' },
