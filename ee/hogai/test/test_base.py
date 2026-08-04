@@ -90,3 +90,11 @@ class TestAssistantBase(BaseTest):
 
         result = node._is_first_turn(state_with_conversation)
         self.assertFalse(result)
+
+    def test_is_first_turn_false_with_empty_messages(self):
+        node = DummyNode(self.team, self.user)
+
+        state = AssistantState(messages=[])
+
+        result = node._is_first_turn(state)
+        self.assertFalse(result)

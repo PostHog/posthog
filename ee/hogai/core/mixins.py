@@ -140,6 +140,8 @@ class AssistantContextMixin(ABC):
         return (config.get("configurable") or {}).get("thread_id") or None
 
     def _is_first_turn(self, state: AssistantState) -> bool:
+        if not state.messages:
+            return False
         last_message = state.messages[-1]
         if isinstance(last_message, HumanMessage):
             return last_message == find_start_message(state.messages, start_id=state.start_id)
