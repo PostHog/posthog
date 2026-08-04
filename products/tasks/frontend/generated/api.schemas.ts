@@ -212,9 +212,9 @@ export const RuntimeAdapterEnumApi = {
  * * `max` - max
  * * `ultracode` - ultracode
  */
-export type AgentReasoningEffortEnumApi = (typeof AgentReasoningEffortEnumApi)[keyof typeof AgentReasoningEffortEnumApi]
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
 
-export const AgentReasoningEffortEnumApi = {
+export const ReasoningEffortEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
@@ -408,7 +408,7 @@ export interface LoopWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi | null
+    reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
      * @maxItems 1
@@ -475,7 +475,7 @@ export interface PatchedLoopWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi | null
+    reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
      * @maxItems 1
@@ -1702,7 +1702,7 @@ export interface TaskCreateApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi | null
+    reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -1845,7 +1845,7 @@ export interface TaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi | null
+    reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -1973,7 +1973,7 @@ export interface PatchedTaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi | null
+    reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -2202,7 +2202,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
      * * `200k` - 200k
@@ -2324,7 +2324,7 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
      * * `200k` - 200k
@@ -3816,7 +3816,7 @@ export interface WarmTaskRequestApi {
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: AgentReasoningEffortEnumApi | null
+    reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Optional sandbox environment to provision before the task is submitted.
      * @nullable

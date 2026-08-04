@@ -614,7 +614,7 @@ SPECTACULAR_SETTINGS = {
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
         "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
-        "AgentReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
+        "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
         "TaskRunReasoningEffortEnum": [
             "off",
             "minimal",
