@@ -84338,6 +84338,10 @@ export namespace Schemas {
      */
     scout?: string;
     /**
+     * Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.
+     */
+    scout_prefix?: string;
+    /**
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;
