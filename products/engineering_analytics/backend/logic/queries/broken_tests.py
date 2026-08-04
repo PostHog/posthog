@@ -22,6 +22,12 @@ the Python classifier never does timezone-sensitive datetime math on the returne
 by name (the log record's ``job_name`` vs the warehouse job ``name``). When the job-level source
 isn't synced there is no job status at all, so those fingerprints fall through to ``flaky`` /
 ``pr_only`` — the panel degrades rather than misreports.
+
+``blocking_merge_queue`` needs neither: it reads only the failure lines' branches. A merge queue
+runs the full suite on a gate branch carrying the PR rebased onto trunk, so a failure there is on a
+commit the PR's own CI already passed. Without this verdict those land as ``pr_only`` — a single
+gate branch is a single branch — which is exactly backwards for the one failure class the queue was
+installed to surface.
 """
 
 from datetime import datetime, timedelta
@@ -36,6 +42,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     BrokenTestsResult,
     BrokenTestState,
 )
+from products.engineering_analytics.backend.logic.merge_queue import merge_queue_branch_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.views import ci_failures
 
@@ -54,10 +61,11 @@ _FLAKY_MIN_SPAN_HOURS = 24  # ...and recurring over more than a day
 # Sort rank: lowest surfaces first (breaking master on top, PR-only last).
 _SEVERITY: dict[BrokenTestState, int] = {
     BrokenTestState.BREAKING_MASTER: 0,
-    BrokenTestState.NOVEL_BURST: 1,
-    BrokenTestState.POTENTIALLY_RESOLVED: 2,
-    BrokenTestState.FLAKY: 3,
-    BrokenTestState.PR_ONLY: 4,
+    BrokenTestState.BLOCKING_MERGE_QUEUE: 1,
+    BrokenTestState.NOVEL_BURST: 2,
+    BrokenTestState.POTENTIALLY_RESOLVED: 3,
+    BrokenTestState.FLAKY: 4,
+    BrokenTestState.PR_ONLY: 5,
 }
 
 # Fingerprint aggregation over the failure-lines view. ``age_hours`` / ``span_hours`` /
@@ -81,6 +89,7 @@ _FINGERPRINTS_SELECT = """
         count() AS occurrences,
         uniqExactIf(branch, branch != '') AS branches,
         countIf(branch IN {default_branches}) AS master_hits,
+        countIf(__MERGE_QUEUE_BRANCH__) AS merge_queue_hits,
         -- Aliased away from `repo`: HogQL binds a WHERE identifier to a matching SELECT alias, so
         -- `any(repo) AS repo` would make the `lower(repo)` filter below resolve to this aggregate and
         -- 500 with "aggregate function found in WHERE". Keep the alias distinct from the filtered column.
@@ -92,7 +101,7 @@ _FINGERPRINTS_SELECT = """
     FROM __FAILURES_SOURCE__
     WHERE timestamp >= {date_from} AND lower(repo) = lower({repository})
     GROUP BY fingerprint
-    ORDER BY master_hits DESC, branches DESC, last_seen DESC
+    ORDER BY master_hits DESC, merge_queue_hits DESC, branches DESC, last_seen DESC
     LIMIT {limit_plus_one}
 """
 
@@ -136,6 +145,7 @@ _MASTER_JOBS_SELECT = """
 def _classify(
     *,
     master_hits: int,
+    merge_queue_hits: int,
     age_hours: int,
     span_hours: int,
     branches: int,
@@ -160,6 +170,12 @@ def _classify(
     # Breaking trunk right now: hit the default branch and that job's latest run is still red.
     if master_hits > 0 and master_red:
         return BrokenTestState.BREAKING_MASTER
+    # Stopped a merge on a commit that had already passed the PR's own CI, and trunk is still clean —
+    # the semantic conflict the queue exists to catch. Gated on never having hit trunk so a
+    # broadly-failing test (which fails on gate branches too, just by breadth) still classifies by
+    # its trunk behavior instead of every flake landing here.
+    if merge_queue_hits > 0 and master_hits == 0:
+        return BrokenTestState.BLOCKING_MERGE_QUEUE
     # New today and already spreading across branches, but not on trunk yet.
     if age_hours < _NOVEL_BURST_MAX_AGE_HOURS and branches >= _NOVEL_BURST_MIN_BRANCHES and master_hits == 0:
         return BrokenTestState.NOVEL_BURST
@@ -202,6 +218,9 @@ def query_broken_tests(
         )
 
     failures_source = f"({ci_failures.build_query()})"
+    fingerprints_sql = _FINGERPRINTS_SELECT.replace(
+        "__MERGE_QUEUE_BRANCH__", merge_queue_branch_expr("branch")
+    ).replace("__FAILURES_SOURCE__", failures_source)
     logs_placeholders: dict[str, ast.Expr] = {
         "default_branches": ast.Constant(value=_DEFAULT_BRANCHES),
         "repository": ast.Constant(value=repository),
@@ -211,7 +230,7 @@ def query_broken_tests(
     }
     fingerprint_rows = (
         curated.run(
-            _FINGERPRINTS_SELECT.replace("__FAILURES_SOURCE__", failures_source),
+            fingerprints_sql,
             query_type="engineering_analytics.broken_tests_fingerprints",
             placeholders=logs_placeholders,
             workload=Workload.LOGS,
@@ -278,6 +297,7 @@ def query_broken_tests(
         occurrences,
         branches,
         master_hits,
+        merge_queue_hits,
         repo,
         latest_run_id,
         latest_branch,
@@ -287,6 +307,7 @@ def query_broken_tests(
         latest_conclusion, latest_completed_age = master_by_key.get((workflow_name, job_name), (None, None))
         state = _classify(
             master_hits=master_hits,
+            merge_queue_hits=merge_queue_hits,
             age_hours=age_hours,
             span_hours=span_hours,
             branches=branches,

@@ -110,5 +110,8 @@ def run_scope_filter_clause(
         # query_default_branch resolves per-repo, not reused here because it costs an extra query.
         # The cost queries pass the cost source's columns; there pr_number is 0→NULL normalized, so
         # "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
+        # Merge-queue gate runs stay in this scope on purpose: a gate run is CI the PR paid for on
+        # its way to landing, and the runs builder already credits it to that PR rather than to the
+        # throwaway PR the queue opened. ``is_merge_queue`` is what separates the two populations.
         return f"AND {branch_column} NOT IN ('master', 'main') AND {attributed_predicate}"
     return ""

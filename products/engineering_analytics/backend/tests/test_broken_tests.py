@@ -24,36 +24,53 @@ from products.engineering_analytics.backend.logic.sources import GitHubTables
 # Ages are seconds-ago-from-now (smaller = more recent). last_master_hit_age is the fingerprint's most
 # recent trunk failure; latest_completed_age is the matched job's newest completed run.
 @pytest.mark.parametrize(
-    "master_hits,age_hours,span_hours,branches,latest_conclusion,last_master_hit_age,latest_completed_age,expected",
+    "master_hits,queue_hits,age_hours,span_hours,branches,latest_conclusion,last_master_hit_age,latest_completed_age,expected",
     [
         # Breaking trunk: hit master and that job's latest run is still red — highest priority.
-        (3, 5, 48, 5, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
-        (1, 40, 100, 2, "timed_out", 100, 50, BrokenTestState.BREAKING_MASTER),
+        (3, 0, 5, 48, 5, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        (1, 0, 40, 100, 2, "timed_out", 100, 50, BrokenTestState.BREAKING_MASTER),
         # Breaking wins even when the row also looks novel (fresh + spreading).
-        (3, 5, 5, 4, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        (3, 0, 5, 5, 4, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        # Trunk breakage outranks a merge-queue hit: a broadly-failing test fails on gate branches
+        # too, and must still classify by its trunk behavior.
+        (3, 4, 5, 48, 5, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        # Failed on a gate branch and never on trunk — the merge it stopped had already passed the
+        # PR's own CI. One gate branch would otherwise read as pr_only, the lowest signal.
+        (0, 1, 5, 2, 1, None, 0, None, BrokenTestState.BLOCKING_MERGE_QUEUE),
+        # ...and it outranks novel_burst, which is the weaker "spreading, might be nothing" case.
+        (0, 1, 5, 5, 4, None, 0, None, BrokenTestState.BLOCKING_MERGE_QUEUE),
         # Novel burst: fresh (<24h), spread across >=3 branches, never on trunk.
-        (0, 5, 5, 4, None, 0, None, BrokenTestState.NOVEL_BURST),
+        (0, 0, 5, 5, 4, None, 0, None, BrokenTestState.NOVEL_BURST),
         # Hit trunk but the green run finished AFTER the last failure (100 < 1000) — a real recovery.
-        (2, 40, 100, 3, "success", 1000, 100, BrokenTestState.POTENTIALLY_RESOLVED),
+        (2, 0, 40, 100, 3, "success", 1000, 100, BrokenTestState.POTENTIALLY_RESOLVED),
         # Green but STALE: the green predates the last trunk failure (1000 > 100), so the warehouse is
         # just lagging the fresher logs — not resolved, falls through to flaky.
-        (2, 40, 100, 3, "success", 100, 1000, BrokenTestState.FLAKY),
+        (2, 0, 40, 100, 3, "success", 100, 1000, BrokenTestState.FLAKY),
         # Flaky: sporadic across >=2 branches over more than a day, not on trunk.
-        (0, 100, 48, 3, None, 0, None, BrokenTestState.FLAKY),
+        (0, 0, 100, 48, 3, None, 0, None, BrokenTestState.FLAKY),
         # Degradation: hit trunk but no job status (source unsynced) — falls through, not misreported.
-        (3, 100, 48, 3, None, 100, None, BrokenTestState.FLAKY),
+        (3, 0, 100, 48, 3, None, 100, None, BrokenTestState.FLAKY),
         # PR-only: one branch, recent, short span — the lowest signal.
-        (0, 5, 2, 1, None, 0, None, BrokenTestState.PR_ONLY),
+        (0, 0, 5, 2, 1, None, 0, None, BrokenTestState.PR_ONLY),
         # Not novel (only 2 branches) and not flaky (span within a day) → PR-only.
-        (0, 5, 10, 2, None, 0, None, BrokenTestState.PR_ONLY),
+        (0, 0, 5, 10, 2, None, 0, None, BrokenTestState.PR_ONLY),
     ],
 )
 def test_classify_states(
-    master_hits, age_hours, span_hours, branches, latest_conclusion, last_master_hit_age, latest_completed_age, expected
+    master_hits,
+    queue_hits,
+    age_hours,
+    span_hours,
+    branches,
+    latest_conclusion,
+    last_master_hit_age,
+    latest_completed_age,
+    expected,
 ):
     assert (
         _classify(
             master_hits=master_hits,
+            merge_queue_hits=queue_hits,
             age_hours=age_hours,
             span_hours=span_hours,
             branches=branches,
@@ -96,6 +113,7 @@ def _fp_row(
     age=100,
     span=48,
     last_master_hit_age=500,
+    merge_queue_hits=0,
 ):
     # Column order mirrors _FINGERPRINTS_SELECT (workflow_name + last_master_hit_age appended last).
     return (
@@ -110,6 +128,7 @@ def _fp_row(
         10,
         branches,
         master_hits,
+        merge_queue_hits,
         "PostHog/posthog",
         latest_run_id,
         "some-branch",

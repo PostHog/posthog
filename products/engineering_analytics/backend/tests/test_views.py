@@ -91,6 +91,14 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 ),
                 _pr_row(11, "dependabot[bot]", "closed", 0, "2026-01-11 10:00:00", merged_at="2026-01-11 12:00:00"),
                 _pr_row(12, "charlie", "open", 1, "2026-01-08 10:00:00"),
+                _pr_row(
+                    13,
+                    "trunk-io[bot]",
+                    "open",
+                    1,
+                    "2026-01-13 10:00:00",
+                    head_ref="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
+                ),
             ],
         )
 
@@ -119,6 +127,9 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert by_number[12][6] == "open"
         assert by_number[12][7] == 1
         assert by_number[12][9] is None
+        # A merge-queue gate branch is a CI artifact, not a PR — dropped here so no PR surface
+        # (list, cards, medians) has to remember to exclude it.
+        assert 13 not in by_number
 
     def test_workflow_runs_view_maps_columns(self) -> None:
         table_name = self._create_table(
@@ -128,18 +139,35 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 _run_row(2001, "CI", "sha1", "completed", "success", "2026-01-20 10:00:00", "2026-01-20 10:30:00"),
                 _run_row(2002, "CI", "sha2", "completed", "failure", "2026-01-22 10:00:00", "2026-01-22 10:45:00"),
                 _run_row(2003, "Deploy", "sha3", "in_progress", None, "2026-01-25 10:00:00", "2026-01-25 10:05:00"),
+                _run_row(
+                    2004,
+                    "CI",
+                    "sha4",
+                    "completed",
+                    "success",
+                    "2026-01-26 10:00:00",
+                    "2026-01-26 10:20:00",
+                    # A gate run's own association names the throwaway PR the queue opened (9001);
+                    # the branch names the PR being landed (44), which is the one every surface asks
+                    # about. Reading the association here loses the gate run from that PR's rollup
+                    # and cost, and files it under a PR no surface shows.
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-44/cabec75e-5181-4429-aea5-0501a52d0688",
+                ),
             ],
         )
 
         rows = self._select(
-            "SELECT workflow_name, status, conclusion, duration_seconds, repo_owner, repo_name "
+            "SELECT workflow_name, status, conclusion, duration_seconds, repo_owner, repo_name, "
+            "pr_number, is_merge_queue "
             f"FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
         )
 
         # completed runs carry a duration; in-progress run has null duration and null conclusion
-        assert rows[0] == ("CI", "completed", "success", 1800, "PostHog", "posthog")
+        assert rows[0][:6] == ("CI", "completed", "success", 1800, "PostHog", "posthog")
         assert rows[1][3] == 2700
-        assert rows[2] == ("Deploy", "in_progress", None, None, "PostHog", "posthog")
+        assert rows[2][:6] == ("Deploy", "in_progress", None, None, "PostHog", "posthog")
+        assert rows[3][6:] == (44, 1)
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.

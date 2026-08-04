@@ -10,6 +10,13 @@ is user-chosen. Every query module embeds this ``SELECT`` as a subquery (see
 ``_curated``) rather than re-deriving the columns from JSON; nothing registers it as a
 global HogQL view, so the product stays off the per-query catalog hot path.
 
+Merge-queue gate branches are filtered out here (see ``logic.merge_queue``). A queue opens a
+draft PR per merge attempt — a third of this repo's PR rows — and those are CI artifacts, not
+units of work: they carry no diff of their own, never merge, and no PR surface can act on one.
+Dropping them at the builder is deliberately unlike the bot/draft rule, which stays a per-read
+default so bot-impact analysis can still see bots (SPEC §6). Nothing is lost for attribution:
+the gate branch's *runs* stay in the runs substrate, re-keyed to the PR they were landing.
+
 The real GitHub source lands timestamps as **strings** and the nested objects
 (``user`` / ``head`` / ``base`` / ``labels``) as **Nullable** JSON, so this builder
 runs in two layers: an inner SELECT parses each timestamp with
@@ -19,6 +26,8 @@ rejects an Array nested inside a Nullable); the outer SELECT then derives state,
 identity, labels and the duration off those parsed columns. Splitting the layers also
 avoids referencing a same-SELECT alias as another expression's input.
 """
+
+from products.engineering_analytics.backend.logic.merge_queue import merge_queue_branch_expr
 
 # Bots whose handle does not carry GitHub's automatic ``[bot]`` suffix. Kept
 # deliberately small; per-team configuration is deferred.
@@ -84,4 +93,5 @@ def build_query(table_name: str) -> str:
                 parseDateTimeBestEffort(closed_at) AS closed_at
             FROM {table_name}
         )
+        WHERE NOT {merge_queue_branch_expr("head_branch")}
     """

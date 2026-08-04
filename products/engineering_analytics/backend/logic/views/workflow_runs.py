@@ -25,6 +25,14 @@ and a run shared across more than one of our PRs (uncommon — one head tied to 
 which is credited to its first PR only, not fanned out across all of them. That's a deliberate v1
 simplification: the rollup is an approximate friction signal (pushes / re-runs), not billing.
 
+A merge-queue gate run is the one case where the association is present but wrong for the product's
+purpose: it points at the throwaway PR the queue opened, not the PR being landed. The gate branch
+names its source PR (``trunk-merge/pr-77271/...``), so ``pr_number`` resolves through the branch
+whenever it is one, and ``is_merge_queue`` marks those rows for consumers that need the two
+populations apart. Without this a PR's CI rollup and cost card omit the full-suite run its own merge
+paid for — ~13% of this repo's CI spend — while it lands on a PR no surface shows. See
+``logic.merge_queue`` for the branch shapes and why the branch name is a sound key here.
+
 ``commit_pr_number`` is the complementary key: it is how a push run gets PR attribution at all,
 since a merged commit on the default branch has no association of its own. Consumers prefer
 ``pr_number`` and fall back to this (SPEC §6, "two PR keys, by design"); ``ci_job_history``
@@ -63,6 +71,8 @@ the scan. Callers register the ``{run_started_floor}`` placeholder via ``run_sta
 Every query module embeds this ``SELECT`` as a subquery (see ``_curated``);
 nothing registers it as a global HogQL view.
 """
+
+from products.engineering_analytics.backend.logic.merge_queue import source_pr_number_expr
 
 # The run's PR association, narrowed to PRs based in the run's OWN repo (see module docstring).
 # ``> 0`` guards the both-missing case: JSONExtractInt yields 0 for an absent key, so a malformed
@@ -129,7 +139,10 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             created_at,
             run_attempt,
             default_branch,
-            pr_number,
+            merge_queue_pr_number > 0 AS is_merge_queue,
+            -- A gate run's own association names the throwaway PR the queue opened; the branch names
+            -- the PR being landed, which is the one every surface asks about.
+            if(merge_queue_pr_number > 0, merge_queue_pr_number, association_pr_number) AS pr_number,
             {commit_pr_number} AS commit_pr_number,
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
             arrayElement(repo_parts, 1) AS repo_owner,
@@ -143,7 +156,8 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
                 status,
                 conclusion,
                 run_attempt,
-                JSONExtractInt({_OWN_REPO_PR}, 'number') AS pr_number,
+                JSONExtractInt({_OWN_REPO_PR}, 'number') AS association_pr_number,
+                {source_pr_number_expr("head_branch")} AS merge_queue_pr_number,
                 {_MESSAGE_PR_NUMBER} AS message_pr_number,
                 splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
                 ifNull(JSONExtractString(repository, 'default_branch'), '') AS default_branch,
