@@ -954,6 +954,7 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(pending_content_response.status_code, status.HTTP_409_CONFLICT)
 
         asset = ExportedAsset.objects.get(id=export_id)
+        assert asset.export_context is not None
         self.assertEqual(asset.export_context["kind"], DATASET_EXPORT_KIND)
         asset.content = b'{"input":{"question":"First"}}\n'
         asset.save(update_fields=["content"])

@@ -45,23 +45,4 @@ class Migration(migrations.Migration):
                 to="ai_observability.dataset",
             ),
         ),
-        migrations.RunSQL(
-            sql="""
-                UPDATE llm_analytics_datasetitemversion_v2 AS version
-                SET dataset_id = item.dataset_id
-                FROM llm_analytics_datasetitem_v2 AS item
-                WHERE version.dataset_item_id = item.id
-                  AND version.dataset_id IS NULL
-            """,
-            reverse_sql=migrations.RunSQL.noop,
-        ),
-        migrations.AlterField(
-            model_name="datasetitemversion",
-            name="dataset",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="item_versions",
-                to="ai_observability.dataset",
-            ),
-        ),
     ]
