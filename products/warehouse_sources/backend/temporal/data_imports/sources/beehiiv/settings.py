@@ -19,7 +19,7 @@ class BeehiivEndpointConfig:
     path: str
     pagination: PaginationStyle
     primary_key: str = "id"
-    # Only creation timestamps are used — beehiiv rows are partitioned by when they were made,
+    # Only creation timestamps are used because beehiiv rows are partitioned by when they were made,
     # never by a column that moves after the fact.
     partition_key: str | None = None
     # Left unset where beehiiv documents no ordering for the endpoint, so the pipeline never

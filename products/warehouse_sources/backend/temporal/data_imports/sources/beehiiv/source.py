@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BeehiivSource(ResumableSource[BeehiivSourceConfig, BeehiivResumeConfig]):
-    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.beehiiv.com/api-reference"
@@ -125,8 +125,13 @@ class BeehiivSource(ResumableSource[BeehiivSourceConfig, BeehiivResumeConfig]):
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         publication_id = config.publication_id.strip()
-        if not publication_id or "/" in publication_id:
-            return False, "Publication ID is not valid"
+        if not publication_id:
+            return False, "Publication ID is required."
+        if "/" in publication_id:
+            return (
+                False,
+                "Publication ID must be a single value with no slashes, for example pub_00000000-0000-0000-0000-000000000000.",
+            )
 
         return validate_beehiiv_credentials(
             api_key=config.api_key,

@@ -104,13 +104,29 @@ class TestBeehiivValidateCredentialsWiring:
     def setup_method(self) -> None:
         self.source = BeehiivSource()
 
-    @pytest.mark.parametrize("publication_id", ["", "   ", "pub_1/webhooks", "../publications"])
-    def test_rejects_publication_ids_that_are_not_a_single_path_segment(self, publication_id: str) -> None:
+    @pytest.mark.parametrize(
+        ("publication_id", "expected_error"),
+        [
+            ("", "Publication ID is required."),
+            ("   ", "Publication ID is required."),
+            (
+                "pub_1/webhooks",
+                "Publication ID must be a single value with no slashes, for example pub_00000000-0000-0000-0000-000000000000.",
+            ),
+            (
+                "../publications",
+                "Publication ID must be a single value with no slashes, for example pub_00000000-0000-0000-0000-000000000000.",
+            ),
+        ],
+    )
+    def test_rejects_publication_ids_that_are_not_a_single_path_segment(
+        self, publication_id: str, expected_error: str
+    ) -> None:
         with patch(VALIDATE_PATCH) as mock_validate:
             is_valid, error = self.source.validate_credentials(_config(publication_id), team_id=7)
 
         assert is_valid is False
-        assert error == "Publication ID is not valid"
+        assert error == expected_error
         mock_validate.assert_not_called()
 
     @pytest.mark.parametrize(
