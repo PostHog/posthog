@@ -18,6 +18,7 @@ from products.signals.backend.signal_metadata import (
 )
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
+    fetch_report_ids_for_scout_prefix,
     fetch_signals_for_report_sync,
 )
 
@@ -283,6 +284,38 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
             self.team, ["signals-scout-error-tracking", "signals-scout-session-replay"]
         ) == {"rErrors", "rReplay"}
         assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-unknown"]) == set()
+
+    def test_prefix_matches_the_scout_family_and_nothing_else(self) -> None:
+        # Guards the family-prefix filter: a scout added under the prefix must appear without a
+        # caller name-list change, while other scouts and non-scout signals stay excluded.
+        self._emit_version(
+            document_id="d1",
+            report_id="rHealth",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-customer-analytics",
+        )
+        self._emit_version(
+            document_id="d2",
+            report_id="rMix",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-customer-analytics-product-mix",
+        )
+        self._emit_version(
+            document_id="d3",
+            report_id="rErrors",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(document_id="d4", report_id="rPipeline", source_product="errors", inserted_at=self.base)
+
+        assert fetch_report_ids_for_scout_prefix(self.team, "signals-scout-customer-analytics") == {
+            "rHealth",
+            "rMix",
+        }
+        assert fetch_report_ids_for_scout_prefix(self.team, "signals-scout-unknown") == set()
 
     def test_deleted_in_latest_version_drops_out(self) -> None:
         self._emit_version(
