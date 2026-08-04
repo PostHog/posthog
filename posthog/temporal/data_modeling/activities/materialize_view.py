@@ -395,7 +395,9 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
         arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
-    await logger.adebug(f"Running clickhouse query: {arrow_printed}")
+    # The query goes in a field rather than the message: only the message is copied into the
+    # log_entries row users can read, and the compiled query is the saved query's own SQL.
+    await logger.adebug("Running clickhouse query", query=arrow_printed)
 
     async with (
         _clickhouse_query_semaphore,
