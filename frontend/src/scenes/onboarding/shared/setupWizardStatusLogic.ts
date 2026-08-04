@@ -69,16 +69,13 @@ export function isRunRunning(run: Partial<LatestRunDetail> | null): boolean {
     return typeof run?.status === 'string' && RUNNING_STATUSES.includes(run.status)
 }
 
-/**
- * Collapse the live installation progress into the coarse setup status. The stream does not know
- * whether a PR got merged, so `merged` only ever turns true via the REST snapshot.
- */
+/** Collapse the live installation progress into the coarse setup status. */
 export function statusFromProgress(progress: InstallationProgress | null): SetupWizardStatus | null {
     if (!progress?.isCurrent) {
         return null
     }
     if (progress.prUrl) {
-        return { kind: 'pull_request', pullRequest: { url: progress.prUrl, merged: false } }
+        return { kind: 'pull_request', pullRequest: { url: progress.prUrl, merged: progress.prMerged } }
     }
     if (progress.phase === 'connecting' || progress.phase === 'running') {
         return { kind: 'installing', mode: 'cloud' }
@@ -150,8 +147,8 @@ export type setupWizardStatusLogicType = MakeLogicType<
  *
  * Two complementary sources, merged in `setupStatus`:
  *  - REST discovery (`loadDiscoveredRun`): finds the newest onboarding task via the tasks API, so
- *    runs kicked off elsewhere (another browser, before a refresh) are found too. Also the only
- *    source that knows whether the PR got merged.
+ *    runs kicked off elsewhere (another browser, before a refresh) are found too, including
+ *    whether its PR got merged.
  *  - Live streaming: when a run handle is known (the persisted `activeCloudRunLogic` handle, or a
  *    still-running discovered run), `installationProgressLogic` is mounted for it and its
  *    normalized progress is mirrored here, so the status updates in real time.
@@ -277,9 +274,16 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
                 const live = statusFromProgress(liveProgress)
                 const discovered = discoveredRun?.status ?? null
                 if (live?.kind === 'pull_request') {
-                    // Only REST knows whether the PR got merged, so prefer its record of the same PR
+                    // Both sources can learn of a merge independently; a merge seen by either one
+                    // must stick; don't let a snapshot that hasn't caught up yet override it
                     if (discovered?.kind === 'pull_request' && discovered.pullRequest.url === live.pullRequest.url) {
-                        return discovered
+                        return {
+                            kind: 'pull_request',
+                            pullRequest: {
+                                url: live.pullRequest.url,
+                                merged: live.pullRequest.merged || discovered.pullRequest.merged,
+                            },
+                        }
                     }
                     return live
                 }
@@ -313,6 +317,16 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
         // skipped since afterMount already covers it.
         currentTeamId: (teamId: number | null, prevTeamId: number | null | undefined) => {
             if (teamId !== null && prevTeamId !== undefined && teamId !== prevTeamId) {
+                actions.loadDiscoveredRun()
+            }
+        },
+        // The live stream is the fastest way to learn a PR merged; re-poll REST so its own
+        // snapshot (used once this logic remounts, e.g. after a page refresh) catches up too.
+        liveProgress: (
+            progress: InstallationProgress | null,
+            prevProgress: InstallationProgress | null | undefined
+        ) => {
+            if (progress?.prMerged && !prevProgress?.prMerged) {
                 actions.loadDiscoveredRun()
             }
         },
