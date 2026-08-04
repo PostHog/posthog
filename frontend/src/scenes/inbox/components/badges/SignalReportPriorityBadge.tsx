@@ -55,7 +55,7 @@ export function SignalReportPriorityBadge({
     // The API passes priority strings through from agent-written artefacts, so a malformed or
     // legacy value can fall outside P0–P4 despite the type — degrade to a plain chip, don't crash.
     const meaning: { label: string; description: string } | undefined = PRIORITY_MEANING[priority]
-    const genericLine = meaning ? `${priority} · ${meaning.label} priority – ${meaning.description}` : null
+    const genericLine = meaning ? `${priority} · ${meaning.label} priority: ${meaning.description}` : null
 
     if (!explanation?.trim()) {
         if (!genericLine) {

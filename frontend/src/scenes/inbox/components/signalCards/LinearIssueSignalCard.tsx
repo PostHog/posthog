@@ -2,8 +2,6 @@ import clsx from 'clsx'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-
 import type { LinearIssueSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ExternalSignalCard, type StatePill } from './ExternalSignalCard'
@@ -78,20 +76,12 @@ export function LinearIssueSignalCard({ signal }: SignalCardProps): JSX.Element 
         </>
     )
 
-    const footerLeft = (
-        <span>
-            Opened {humanFriendlyDetailedTime(extra.created_at)}
-            {extra.updated_at !== extra.created_at && <> · Updated {humanFriendlyDetailedTime(extra.updated_at)}</>}
-        </span>
-    )
-
     return (
         <ExternalSignalCard
             signal={signal}
             title={<span className="font-mono">{title}</span>}
             statePill={statePillForState(extra)}
             metaChips={metaChips}
-            footerLeft={footerLeft}
             link={{ to: extra.url, label: 'View in Linear' }}
         >
             {signal.content}

@@ -179,7 +179,7 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
     'not-actionable':
-        'Reports judged not actionable – too vague, missing supporting evidence, or describing expected behavior.',
+        'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
     runs: 'Project-wide list of agent runs, for debugging.',
     archived: 'Reports you archived. You can restore them to the inbox at any time.',
     config: 'Set up signal sources, scouts, and how autonomously agents can act.',
