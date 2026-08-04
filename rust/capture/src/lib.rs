@@ -10,6 +10,7 @@ pub mod global_rate_limiter;
 pub mod ingestion_warnings;
 pub mod log_util;
 pub mod metrics_middleware;
+pub mod ordering;
 pub mod otel;
 pub mod payload;
 pub mod prometheus;

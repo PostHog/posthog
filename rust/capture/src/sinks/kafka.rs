@@ -19,6 +19,7 @@
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
+use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Output, OutputRegistry};
 use crate::sinks::Event;
@@ -195,25 +196,6 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// The ordering guarantee a route preserves — what the customer can rely on.
-/// The sink realizes it as a Kafka partition key; `route` only decides the
-/// guarantee from metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OrderingGuarantee {
-    /// Ordering preserved per distinct id — the guarantee for every
-    /// non-replay lane. Partitions on the event's canonical key
-    /// ([`CapturedEvent::key`]): `token:distinct_id`, or `token:ip` in
-    /// cookieless mode, where the ip stands in for the distinct id derived
-    /// later in the pipeline.
-    PerDistinctId,
-    /// Ordering preserved per replay session: partitions on the raw
-    /// `session_id`, no token prefix (a missing id is rejected by `route()`).
-    PerSession,
-    /// No guarantee — no partition key, round-robin; ordering is
-    /// intentionally dropped to spread load.
-    None,
-}
-
 /// The pure routing decision for a single event: which output, and which
 /// ordering guarantee. Depends only on [`ProcessedEventMetadata`] (stamped
 /// upstream by the pipeline) and the AI overflow valve — the one piece of
@@ -227,17 +209,6 @@ enum OrderingGuarantee {
 struct Route {
     target: Output,
     ordering: OrderingGuarantee,
-}
-
-/// Ordering shared by the AnalyticsMain default and force-overflow paths:
-/// drop the guarantee when person processing is skipped, otherwise keep
-/// per-distinct-id ordering.
-fn person_ordering(skip_person_processing: bool) -> OrderingGuarantee {
-    if skip_person_processing {
-        OrderingGuarantee::None
-    } else {
-        OrderingGuarantee::PerDistinctId
-    }
 }
 
 /// Decide an event's route from its metadata. DLQ and custom-topic redirects
