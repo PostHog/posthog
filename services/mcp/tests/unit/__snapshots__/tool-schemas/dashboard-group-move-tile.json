@@ -1,30 +1,23 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "body": {
-            "description": "New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.",
-            "maxLength": 4000,
-            "minLength": 1,
-            "type": "string"
-        },
-        "color": {
+        "group_id": {
             "anyOf": [
                 {
-                    "maxLength": 400,
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "New accent color name, empty string or null to clear. Omit to leave unchanged."
+            "description": "Destination group ID, or null to move the tile to the ungrouped section."
         },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
         },
         "layouts": {
-            "description": "New grid layout per breakpoint. Omit to leave the layout unchanged.",
+            "description": "Optional new layout for the moved tile.",
             "properties": {
                 "sm": {
                     "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
@@ -52,7 +45,7 @@
             "type": "object"
         },
         "tile_id": {
-            "description": "ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.",
+            "description": "Content tile ID to move.",
             "type": "number"
         }
     },
