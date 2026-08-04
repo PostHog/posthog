@@ -335,18 +335,22 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
 - [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
       scoped to an organization ID this source does not collect).
 
-### Linear — needs confirmation
+### Linear — spec-verified
 
-Eight tables. Two small additions unblock the cycle-time use case.
+Verified 2026-08-04 against the root `Query` type published by `@linear/sdk` 89.0.0 (npm), which is
+generated from Linear's live GraphQL schema.
 
-- [ ] `workflow_states` — issues carry a state ID with no way to resolve it to a name or type (backlog / started / completed). Highest value item.
-- [ ] `issue_history` — state transitions over time. Without it, cycle time, lead time, and time-in-state cannot be computed.
-- [ ] `project_milestones`, `initiatives`, `roadmaps`.
-- [ ] `attachments` — links out to PRs and tickets, which is how Linear connects to GitHub.
-- [ ] `issue_relations` — blocks / blocked-by / duplicates.
-- [ ] `project_updates`, `documents`.
-- [ ] `team_memberships`, `organization`.
-- [ ] Custom views, templates, reactions, triage responsibilities.
+Have: issues, projects, teams, users, comments, labels, cycles, resources, workflow_states,
+project_milestones, initiatives, team_memberships, issue_relations, project_updates, documents.
+
+- [x] `workflow_states` — issues carry a state ID with no way to resolve it to a name or type (backlog / started / completed). Highest value item.
+- [ ] `issue_history` — state transitions over time. Without it, cycle time, lead time, and time-in-state cannot be computed. (skipped: no root `issueHistory` query — history is only reachable as `issue(id).history`, so it would need a per-issue fan-out)
+- [x] `project_milestones`, [x] `initiatives`, [ ] `roadmaps` (skipped: the schema marks `roadmaps` deprecated in favour of `initiatives`)
+- [x] `attachments` — links out to PRs and tickets, which is how Linear connects to GitHub. (already shipped as the `resources` table)
+- [x] `issue_relations` — blocks / blocked-by / duplicates.
+- [x] `project_updates`, [x] `documents`.
+- [x] `team_memberships`, [ ] `organization` (skipped: a singleton object, not a paginated connection)
+- [ ] Custom views, templates, reactions, triage responsibilities. (skipped: `templates` returns a plain list with no pagination, and there is no root `reactions` query; custom views and triage responsibilities are UI configuration rather than analyzable records)
 
 ## Tier 2
 
