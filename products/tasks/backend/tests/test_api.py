@@ -1057,6 +1057,7 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
         run = child.runs.get()
         self.assertEqual(child.channel_id, channel.id)
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.state["pending_user_message"], child.description)
         self.assertEqual(
             {key: run.state[key] for key in ("parent_task_id", "parent_run_id", "wake_on")},
             {
