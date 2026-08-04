@@ -66,9 +66,16 @@ export function LogoMark({
           key={d}
           d={d}
           className={wave ? "ph-spike-wave" : undefined}
+          // Negative delays: a positive delay leaves later spikes sitting at
+          // their natural full-height, full-opacity state until their first
+          // cycle starts — a bright flash on every mount. Starting each spike
+          // mid-cycle keeps the stagger and makes the wave already rolling on
+          // first paint.
           style={
             wave
-              ? { animationDelay: `${index * WAVE_STAGGER_MS}ms` }
+              ? {
+                  animationDelay: `${(index - SPIKE_PATHS.length) * WAVE_STAGGER_MS}ms`,
+                }
               : undefined
           }
         />

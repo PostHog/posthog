@@ -424,17 +424,22 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
    travels rather than blinks. Only `opacity` and `transform` animate, so it
    composites without repainting. `fill-box` plus a bottom-centre origin scale
    each spike within its own bounds, anchored at the baseline: spikes stretch
-   upward like spikes, and never detach from the back. */
+   upward like spikes, and never detach from the back.
+   The crest is scaleY(1) — the spike's full drawn height — and the rest state
+   sits below it, because the spikes already reach the top of the mark's
+   viewBox and an svg clips at its own box: a crest past 1 comes back with its
+   tip sliced flat at every size. Resting settled and rising to exactly full
+   height keeps the wave inside the geometry by construction. */
 @keyframes ph-spike-wave {
   0%,
   45%,
   100% {
     opacity: 0.4;
-    transform: scaleY(1);
+    transform: scaleY(0.88);
   }
   12% {
     opacity: 1;
-    transform: scaleY(1.14);
+    transform: scaleY(1);
   }
 }
 
