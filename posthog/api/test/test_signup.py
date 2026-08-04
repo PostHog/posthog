@@ -1207,6 +1207,126 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
+    def _org_enforcing_verified_domain(self) -> Organization:
+        org = Organization.objects.create(name="Enforced org", enforce_verified_domains=True)
+        OrganizationDomain.objects.create(
+            domain="hogflix.posthog.com",
+            verified_at=timezone.now(),
+            organization=org,
+        )
+        Team.objects.create(organization=org, name="Enforced project")
+        return org
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_login_refused_for_blocked_member_but_gated_for_blocked_admin(self, mock_sso_providers, mock_request):
+        # A blocked member is refused outright; a blocked admin still completes the SSO login and
+        # lands in a gated session so they can reach the enforcement escape hatch.
+        with self.is_cloud(True):
+            org = self._org_enforcing_verified_domain()
+            member = User.objects.create_and_join(
+                organization=org, email="outsider@gmail.com", password=None, first_name="Outsider"
+            )
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, "outsider@gmail.com")
+            self.assertRedirects(response, "/login?error_code=verified_domain_required")
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertEqual(member.organization_memberships.count(), 1)
+
+            member.organization_memberships.update(level=OrganizationMembership.Level.ADMIN)
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, "outsider@gmail.com")
+            self.assertRedirects(response, "/")
+            self.assertIn("_auth_user_id", self.client.session)
+            team = org.teams.first()
+            assert team is not None
+            gated = self.client.get(f"/api/projects/{team.id}/")
+            self.assertEqual(gated.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(gated.json()["code"], "verified_domain_required")
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_login_allowed_for_member_on_verified_domain(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            org = self._org_enforcing_verified_domain()
+            User.objects.create_and_join(
+                organization=org, email="insider@hogflix.posthog.com", password=None, first_name="Insider"
+            )
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, "insider@hogflix.posthog.com")
+
+        self.assertRedirects(response, "/")
+        self.assertIn("_auth_user_id", self.client.session)
+
+    def _complete_sso_with_invite_id(self, mock_request, invite_id: str, email: str):
+        begin = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(begin.status_code, status.HTTP_302_FOUND)
+        state = self.client.session["google-oauth2_state"]
+        session = self.client.session
+        session["invite_id"] = invite_id
+        session.save()
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"}) + f"?code=2&state={state}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": email, "sub": "123"}
+        return self.client.get(url, follow=True)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_legacy_team_signup_token_respects_domain_enforcement(self, mock_sso_providers, mock_request):
+        # TeamInviteSurrogate joins with no email binding and no expiry, so the surrogate branch runs
+        # the domain gate itself — otherwise an old signup link silently voids the setting.
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            org = self._org_enforcing_verified_domain()
+            team = org.teams.first()
+            assert team is not None
+            team.signup_token = "legacy-signup-token"
+            team.save()
+
+            response = self._complete_sso_with_invite_id(mock_request, "legacy-signup-token", "outsider@gmail.com")
+            self.assertRedirects(response, "/login?error_code=invalid_invite")
+            self.assertFalse(User.objects.filter(email="outsider@gmail.com").exists())
+
+            # Without enforcement the legacy token keeps working — the gate must not kill it wholesale.
+            org.enforce_verified_domains = False
+            org.save()
+            self._complete_sso_with_invite_id(mock_request, "legacy-signup-token", "outsider2@gmail.com")
+            joined = User.objects.get(email="outsider2@gmail.com")
+            self.assertTrue(joined.organizations.filter(pk=org.pk).exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_invite_acceptance_blocked_for_unverified_domain(self, mock_sso_providers, mock_request):
+        # Accepting an invite is a new join, so an outside-domain invitee into an enforcing org is
+        # refused — this catches invites created before the restriction shipped.
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            org = self._org_enforcing_verified_domain()
+            invite = OrganizationInvite.objects.create(organization=org, target_email="outsider@gmail.com")
+
+            begin = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+            self.assertEqual(begin.status_code, status.HTTP_302_FOUND)
+            state = self.client.session["google-oauth2_state"]
+            session = self.client.session
+            session["invite_id"] = str(invite.id)
+            session.save()
+
+            url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+            url += f"?code=2&state={state}"
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": "outsider@gmail.com",
+                "sub": "123",
+            }
+            response = self.client.get(url, follow=True)
+
+        self.assertRedirects(response, "/login?error_code=verified_domain_required")
+        # The invite is left unconsumed and no account is created.
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+        self.assertFalse(User.objects.filter(email="outsider@gmail.com").exists())
+
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
@@ -2628,6 +2748,21 @@ class TestInviteSignupAPI(APIBaseTest):
         # Verify no user was created and invite was not used
         self.assertFalse(User.objects.filter(email="test+sso@posthog.com").exists())
         self.assertFalse(OrganizationInvite.objects.filter(target_email="test+sso@posthog.com").exists())
+
+    def test_api_signup_with_domain_enforcement_blocks_unverified_domain_invite(self):
+        # A pre-existing invite to an outside domain must not be acceptable with a password once the
+        # org requires a verified email domain — otherwise it's a bypass of the boundary.
+        organization = Organization.objects.create(name="Test Org", enforce_verified_domains=True)
+        OrganizationDomain.objects.create(domain="hogflix.com", organization=organization, verified_at=timezone.now())
+        invite = OrganizationInvite.objects.create(target_email="outsider@gmail.com", organization=organization)
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": VALID_TEST_PASSWORD}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.assertFalse(User.objects.filter(email="outsider@gmail.com").exists())
 
     # Social signup (use invite)
 

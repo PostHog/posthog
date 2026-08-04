@@ -14,10 +14,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.signals import secret_api_token_rotated
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
-from .models import EmailOutboxMessage, Ticket
+from .models import EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
 from .tasks import (
     post_reply_to_github,
@@ -580,3 +581,17 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
             logger.exception("github_reply_signal_failed", item_id=item_id)
 
     transaction.on_commit(do_post_to_github)
+
+
+@receiver(secret_api_token_rotated)
+def sync_signing_secret_on_rotation(sender, team, **kwargs):
+    """Mirror the rotated legacy token into the conversations signing secret.
+
+    Never breaks rotation: while both stores exist, widget identity verification
+    falls back to the legacy token, so a failed sync degrades to current behavior.
+    """
+    try:
+        SigningSecret.objects.for_team(team.id).update_or_create(team=team, defaults={"secret": team.secret_api_token})
+    except Exception as e:
+        logger.exception("conversations_signing_secret_sync_failed", team_id=team.id)
+        capture_exception(e)

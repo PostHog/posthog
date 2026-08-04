@@ -84,6 +84,7 @@
         "@posthog/products-ai-observability": "workspace:*",
         "@posthog/products-alerts": "workspace:*",
         "@posthog/products-annotations": "workspace:*",
+        "@posthog/products-apm": "workspace:*",
         "@posthog/products-batch-exports": "workspace:*",
         "@posthog/products-business-knowledge": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
