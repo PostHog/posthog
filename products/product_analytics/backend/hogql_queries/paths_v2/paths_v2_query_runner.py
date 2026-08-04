@@ -59,10 +59,11 @@ ELEMENT_KIND_NODE = "node"
 ELEMENT_KIND_EDGE = "edge"
 ELEMENT_KIND_DROP_OFF = "dropoff"
 
-# Anchored mode carries per-chain prefix counts for the hover funnel preview. This caps how many the
-# runner returns, keeping the response bounded on large teams; the most common chains (which include
-# every visible top-item chain) survive the descending-count ordering, and the long tail of chains
-# through non-top items is dropped from the hover data only — the grid and persons modal stay whole.
+# Anchored mode carries per-chain prefix counts for the hover funnel preview. This caps how many rows
+# the prefix query returns, keeping the aggregation bounded on large teams; the most common chains
+# (which include every visible top-item chain) survive the descending-count ordering, so the cap only
+# ever costs long-tail hover data, never grid or persons-modal counts. Chains through items the grid
+# buckets into the other row are then removed from the response entirely (_displayed_prefixes).
 MAX_PREFIX_ROWS = 10_000
 
 
@@ -546,8 +547,9 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         """Per-chain prefix counts for the hover funnel preview (anchored mode only). Each actor has
         one sequence, so its prefixes nest into the chain tree the hover walks; a prefix's count is the
         unique actors whose sequence begins with exactly that chain. Ordered by descending count and
-        capped at MAX_PREFIX_ROWS, so the visible top-item chains are always carried and only long-tail
-        chains through non-top items can be dropped from the hover data."""
+        capped at MAX_PREFIX_ROWS, so the visible top-item chains are always carried. Chains through
+        items the grid buckets into the other row still occupy rows here; _displayed_prefixes drops
+        them before the response ships."""
         return parse_select(
             """
             WITH sequences AS (
@@ -831,6 +833,21 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             prefixes.append(PathsV2Prefix(items=items, count=actor_count))
         return prefixes
 
+    @staticmethod
+    def _displayed_prefixes(steps: dict[int, PathsV2Step], prefixes: list[PathsV2Prefix]) -> list[PathsV2Prefix]:
+        """Only chains whose every item is a named row the grid renders at that position. Chains through
+        the other bucket never render (the hover preview skips them), and the serialized response must
+        not carry the bucketed labels: a shared insight hands raw results to viewers who cannot run
+        queries of their own, so labels the chart hides behind "Other" would leak there."""
+        displayed_items = {
+            (step_index, row.item.event, row.item.label) for step_index, step in steps.items() for row in step.rows
+        }
+        return [
+            prefix
+            for prefix in prefixes
+            if all((position, item.event, item.label) in displayed_items for position, item in enumerate(prefix.items))
+        ]
+
     def _to_results(self, rows: list[tuple[Any, ...]], prefixes: list[PathsV2Prefix]) -> PathsV2Results:
         steps: dict[int, PathsV2Step] = {}
         edges: list[PathsV2Edge] = []
@@ -872,7 +889,11 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             key=lambda edge: (edge.stepIndex, -edge.count, item_sort_key(edge.source), item_sort_key(edge.target))
         )
 
-        return PathsV2Results(steps=[steps[index] for index in sorted(steps)], edges=edges, prefixes=prefixes)
+        return PathsV2Results(
+            steps=[steps[index] for index in sorted(steps)],
+            edges=edges,
+            prefixes=self._displayed_prefixes(steps, prefixes),
+        )
 
     def _execute(self, query: ast.SelectQuery | ast.SelectSetQuery) -> Any:
         return execute_hogql_query(

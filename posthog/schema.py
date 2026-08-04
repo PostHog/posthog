@@ -18222,7 +18222,9 @@ class PathsV2Results(BaseModel):
         description=(
             "Concrete anchored chains with per-chain unique-actor counts, ordered by"
             " descending count. Empty in open mode; in anchored mode it carries the"
-            " counts the hover funnel preview reads per chain."
+            " counts the hover funnel preview reads per chain. Only chains the grid"
+            " displays in full are carried: chains through the other bucket are"
+            " omitted, so the response never exposes labels the chart hides."
         ),
     )
     steps: list[PathsV2Step]
