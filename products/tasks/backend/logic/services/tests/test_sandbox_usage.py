@@ -17,7 +17,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     open_sandbox_session,
     record_task_run_user_activity,
 )
-from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
+from products.tasks.backend.models import Loop, SandboxSession, Task, TaskClientProvenance, TaskRun
 
 
 def _config(**overrides) -> SandboxConfig:
@@ -230,7 +230,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
     END = datetime(2026, 1, 3, tzinfo=UTC)
 
     def _session(self, **overrides) -> SandboxSession:
-        run = self._run()
+        run = overrides.pop("task_run", None) or self._run()
         defaults: dict = {
             "team": self.team,
             "task_run": run,
@@ -246,6 +246,33 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         defaults.setdefault("sandbox_id", f"sb-{SandboxSession.objects.unscoped().count()}")
         defaults.setdefault("ttl_expires_at", defaults["created_at"] + timedelta(seconds=defaults["ttl_seconds"]))
         return SandboxSession.objects.unscoped().create(**defaults)
+
+    def _loop_session(
+        self, *, internal: bool, client_provenance: TaskClientProvenance | None = TaskClientProvenance.POSTHOG_DESKTOP
+    ) -> SandboxSession:
+        loop = Loop.objects.create(
+            team=self.team,
+            name="loop",
+            instructions="run",
+            runtime_adapter="claude",
+            internal=internal,
+            client_provenance=client_provenance,
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="loop run",
+            description="",
+            origin_product=Task.OriginProduct.LOOP,
+            internal=True,
+            loop=loop,
+            client_provenance=client_provenance,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+        return self._session(
+            task_run=run,
+            origin_product=Task.OriginProduct.LOOP,
+            client_provenance=client_provenance,
+        )
 
     def _rate(self, **overrides) -> ComputeRateCard:
         defaults = {
@@ -270,6 +297,16 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.memory_gib_seconds == [(self.team.id, 57600.0)]
         assert usage.cpu_cost_microusd == [(self.team.id, 14_400_000)]
         assert usage.memory_cost_microusd == [(self.team.id, 5_760_000)]
+        assert usage.credits == [(self.team.id, 2016)]
+
+    def test_billable_compute_includes_user_loops_and_excludes_internal_loops(self):
+        self._loop_session(internal=False)
+        self._loop_session(internal=True)
+        self._loop_session(internal=False, client_provenance=None)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.cpu_core_seconds == [(self.team.id, 14400.0)]
         assert usage.credits == [(self.team.id, 2016)]
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
