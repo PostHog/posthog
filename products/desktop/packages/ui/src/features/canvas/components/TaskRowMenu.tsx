@@ -4,11 +4,13 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
   DropdownMenu,
   DropdownMenuTrigger,
+  Separator,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -21,7 +23,7 @@ import {
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
 import { toast } from "@posthog/ui/primitives/toast";
-import { type ComponentType, type ReactNode, useMemo } from "react";
+import { type ComponentType, Fragment, type ReactNode, useMemo } from "react";
 
 /**
  * What a row's menu can do. The row owns the handlers because they're the same
@@ -65,17 +67,23 @@ interface MenuParts {
   }>;
   Sub: ComponentType<{ children: ReactNode }>;
   SubTrigger: ComponentType<{ children: ReactNode }>;
+  Separator: ComponentType;
 }
 
 const CONTEXT_PARTS: MenuParts = {
   Item: ContextMenuItem,
   Sub: ContextMenuSub,
   SubTrigger: ContextMenuSubTrigger,
+  Separator: ContextMenuSeparator,
 };
 
 /**
- * The row's actions, in the order the native menu used: the edits, then the
- * places a task can be sent, then the destructive one last.
+ * The row's actions in three groups, separated by a rule:
+ *   1. mark it       — pin, watch, rename (things you do to the item in place)
+ *   2. send it       — Command Center, File to… (put it somewhere else)
+ *   3. remove it     — archive, delete (get rid of it)
+ * A group with nothing in it (a canvas has no "send" actions) drops out along
+ * with the separator that would have led it, so the rule never floats alone.
  */
 function TaskRowMenuItems({
   parts,
@@ -84,7 +92,7 @@ function TaskRowMenuItems({
   parts: MenuParts;
   menu: TaskRowMenuProps;
 }) {
-  const { Item, Sub, SubTrigger } = parts;
+  const { Item, Sub, SubTrigger, Separator } = parts;
   // "File to…" is a Project Bluebird feature; gate the channel fetch behind the
   // flag so neither the submenu nor its request reaches ungated users.
   const bluebirdEnabled = useFeatureFlag(
@@ -111,67 +119,100 @@ function TaskRowMenuItems({
     current: channel.id === menu.channelId,
   }));
 
+  // Sits with Pin — both are "keep an eye on this", not a place to send it to.
+  const removeWatch =
+    menu.onRemoveFromWatchList ?? (() => removeFromWatchList(menu.id));
+  const watchItem = !isTask ? null : isWatched || menu.onRemoveFromWatchList ? (
+    <Item key="watch" onClick={removeWatch}>
+      Remove from watch list
+    </Item>
+  ) : (
+    <Item
+      key="watch"
+      onClick={() => {
+        addToWatchList({ id: menu.id, title: menu.title, addedAt: Date.now() });
+        toast.success("Added to watch list", { description: menu.title });
+      }}
+    >
+      Add to watch list
+    </Item>
+  );
+
+  const groups: { key: string; items: ReactNode[] }[] = [
+    {
+      key: "mark",
+      items: [
+        <Item key="pin" onClick={menu.onTogglePin}>
+          {menu.isPinned ? "Unpin" : "Pin"}
+        </Item>,
+        watchItem,
+        menu.onRename ? (
+          <Item key="rename" onClick={menu.onRename}>
+            Rename
+          </Item>
+        ) : null,
+      ],
+    },
+    {
+      key: "send",
+      items: [
+        isTask ? (
+          <Item
+            key="cc"
+            disabled={!menu.onAddToCommandCenter}
+            onClick={menu.onAddToCommandCenter}
+          >
+            Add to Command Center
+          </Item>
+        ) : null,
+        isTask && channelItems.length > 0 ? (
+          <Sub key="file">
+            <SubTrigger>File to…</SubTrigger>
+            <MenuSubFlyout className="w-64 p-0">
+              <SearchableMenuFlyout
+                items={channelItems}
+                placeholder="Search spaces…"
+                emptyLabel="No spaces"
+                onSelect={(channelId) =>
+                  fileToChannel(channelId, menu.id, menu.title)
+                }
+              />
+            </MenuSubFlyout>
+          </Sub>
+        ) : null,
+      ],
+    },
+    {
+      key: "remove",
+      items: [
+        menu.onArchive ? (
+          <Item key="archive" onClick={menu.onArchive}>
+            Archive
+          </Item>
+        ) : null,
+        // The ellipsis is the promise that a confirm follows — deleting a
+        // canvas takes it away from everyone in the space.
+        menu.onDelete ? (
+          <Item key="delete" variant="destructive" onClick={menu.onDelete}>
+            Delete…
+          </Item>
+        ) : null,
+      ],
+    },
+  ];
+
+  const visible = groups
+    .map((group) => ({ key: group.key, items: group.items.filter(Boolean) }))
+    .filter((group) => group.items.length > 0);
+
   return (
     <>
-      <Item onClick={menu.onTogglePin}>{menu.isPinned ? "Unpin" : "Pin"}</Item>
-      {menu.onRename && <Item onClick={menu.onRename}>Rename</Item>}
-      {isTask && (
-        <Item
-          disabled={!menu.onAddToCommandCenter}
-          onClick={menu.onAddToCommandCenter}
-        >
-          Add to Command Center
-        </Item>
-      )}
-      {isTask && channelItems.length > 0 && (
-        <Sub>
-          <SubTrigger>File to…</SubTrigger>
-          <MenuSubFlyout className="w-64 p-0">
-            <SearchableMenuFlyout
-              items={channelItems}
-              placeholder="Search spaces…"
-              emptyLabel="No spaces"
-              onSelect={(channelId) =>
-                fileToChannel(channelId, menu.id, menu.title)
-              }
-            />
-          </MenuSubFlyout>
-        </Sub>
-      )}
-      {/* Watch-list rows pass their own remover; every other task row toggles
-          the store directly, so a task can be watched from wherever it's
-          listed. Same action as ⌘⇧W. */}
-      {isTask &&
-        (menu.onRemoveFromWatchList ? (
-          <Item onClick={menu.onRemoveFromWatchList}>
-            Remove from watch list
-          </Item>
-        ) : isWatched ? (
-          <Item onClick={() => removeFromWatchList(menu.id)}>
-            Remove from watch list
-          </Item>
-        ) : (
-          <Item
-            onClick={() => {
-              addToWatchList({
-                id: menu.id,
-                title: menu.title,
-                addedAt: Date.now(),
-              });
-              toast.success("Added to watch list", { description: menu.title });
-            }}
-          >
-            Add to watch list
-          </Item>
-        ))}
-      {menu.onArchive && <Item onClick={menu.onArchive}>Archive</Item>}
-      {/* The ellipsis is the promise that a confirm follows — deleting a canvas
-          takes it away from everyone in the space. */}
-      {menu.onDelete && (
-        <Item variant="destructive" onClick={menu.onDelete}>
-          Delete…
-        </Item>
-      )}
+      {visible.map((group, index) => (
+        <Fragment key={group.key}>
+          {index > 0 && <Separator />}
+          {group.items}
+        </Fragment>
+      ))}
     </>
   );
 }
@@ -234,6 +275,7 @@ export function TaskRowMenuList({
           }
         />
       ),
+      Separator: () => <Separator className="my-1" />,
     }),
     [onAction, onSubmenuOpenChange],
   );
