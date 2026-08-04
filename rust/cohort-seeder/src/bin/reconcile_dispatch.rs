@@ -18,7 +18,7 @@ use cohort_seeder::store::chunks::PgChunkStore;
 use cohort_seeder::store::completion::{
     cas_run_reconciling, confirm_reconciling, ReconcilingClaim,
 };
-use cohort_seeder::store::runs::RunStatus;
+use cohort_seeder::store::runs::{RunKind, RunStatus};
 use common_database::get_pool_with_config;
 use envconfig::Envconfig;
 use sqlx::PgPool;
@@ -31,16 +31,17 @@ const PARTITION_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug, Parser)]
 #[command(
     name = "reconcile_dispatch",
-    about = "Dispatch partition-targeted reconcile snapshots for one behavioral cohort backfill run",
-    long_about = "Dispatch partition-targeted reconcile snapshots for one behavioral cohort \
-                  backfill run.\n\nThe default invocation is a mutation: on a complete run it \
-                  transitions the run to reconciling and persists the dispatch record (produce \
-                  HWMs + marker-watch positions). Re-run with --dry-run first to validate the run \
-                  and print the plan without touching it. --allow-incomplete produces tiles but \
-                  never persists."
+    about = "Dispatch partition-targeted reconcile snapshots for one cohort backfill run",
+    long_about = "Dispatch partition-targeted reconcile snapshots for one cohort backfill run. \
+                  The run's own row decides which definition fingerprint fences the snapshot, so \
+                  behavioral and person-property runs are dispatched the same way.\n\nThe default \
+                  invocation is a mutation: on a complete run it transitions the run to \
+                  reconciling and persists the dispatch record (produce HWMs + marker-watch \
+                  positions). Re-run with --dry-run first to validate the run and print the plan \
+                  without touching it. --allow-incomplete produces tiles but never persists."
 )]
 struct Args {
-    /// Behavioral cohort backfill run UUID.
+    /// Cohort backfill run UUID.
     run_id: Uuid,
 
     /// Validate the run and print what would be dispatched, without claiming it or producing tiles.
@@ -86,9 +87,10 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
         .context("validating reconcile dispatch")?;
     if args.dry_run {
         println!(
-            "dry run: run {} would dispatch {} active cohorts across {} seed partitions; \
+            "dry run: run {} ({}) would dispatch {} active cohorts across {} seed partitions; \
              {}/{} chunks unconfirmed; {}",
             prepared.run_id().0,
+            prepared.run_kind().as_str(),
             prepared.cohort_count(),
             COHORT_PARTITION_COUNT,
             prepared.remaining_chunks(),
@@ -100,6 +102,11 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
         );
         return Ok(());
     }
+    validate_person_dispatch(
+        run_id,
+        prepared.run_kind(),
+        config.seeder_person_reconcile_dispatch_enabled,
+    )?;
     eprintln!(
         "Dispatching {} active cohorts across {} seed partitions for run {}.",
         prepared.cohort_count(),
@@ -120,7 +127,8 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
         PreparedDispatch::Certified(certified) => {
             let run_id = certified.prepared().run_id();
             let status = certified.prepared().run_status();
-            let claim = acquire_claim(&pool, run_id, status).await?;
+            let claim =
+                acquire_claim(&pool, run_id, certified.prepared().run_kind(), status).await?;
             // `plan_chunks` gates its INSERT on a non-locking `status = 'seeding'` read, so a
             // statement whose snapshot predates the CAS can still add pending chunks the CAS's own
             // snapshot could not see. Re-read the ledger now that the run is frozen in
@@ -199,15 +207,29 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
 async fn acquire_claim(
     pool: &PgPool,
     run_id: RunId,
+    kind: RunKind,
     status: RunStatus,
 ) -> Result<ReconcilingClaim> {
     let claim = match status {
-        RunStatus::Seeding => cas_run_reconciling(pool, run_id).await,
-        RunStatus::Reconciling => confirm_reconciling(pool, run_id).await,
+        RunStatus::Seeding => cas_run_reconciling(pool, run_id, kind).await,
+        RunStatus::Reconciling => confirm_reconciling(pool, run_id, kind).await,
         other => bail!("run {run_id:?} has status {other:?}; expected seeding or reconciling"),
     }
     .context("claiming the run for reconcile dispatch")?;
     claim.context("the run changed state before it could be claimed for dispatch; re-run")
+}
+
+/// The kind is derived from the run row, so without this the CLI would put person-scoped tiles on
+/// the seed topic while the fleet-wide gate is still off. Keyed on the reconcile gate rather than
+/// the seed gate: producing tiles is the step an old processor cannot survive, and the two are
+/// staged separately. Called after the dry-run early return, so a rehearsal stays allowed.
+fn validate_person_dispatch(run_id: RunId, kind: RunKind, dispatch_enabled: bool) -> Result<()> {
+    anyhow::ensure!(
+        kind != RunKind::PersonProperty || dispatch_enabled,
+        "run {run_id:?} is a person_property run; set SEEDER_PERSON_RECONCILE_DISPATCH_ENABLED \
+         once every processor decodes reconcile_person tiles"
+    );
+    Ok(())
 }
 
 fn validate_partition_count(configured: u32) -> Result<()> {
@@ -264,5 +286,18 @@ mod tests {
     fn cli_rejects_a_noncontract_partition_count() {
         assert!(validate_partition_count(COHORT_PARTITION_COUNT).is_ok());
         assert!(validate_partition_count(8).is_err());
+    }
+
+    /// The gate an operator would otherwise be the only thing standing between a person run and
+    /// `reconcile_person` tiles a processor predating the split skip-commits without a marker,
+    /// stranding the run a marker short of complete.
+    #[test]
+    fn cli_dispatches_a_person_run_only_once_the_reconcile_gate_is_open() {
+        let run_id = RunId(Uuid::parse_str(RUN_ID).unwrap());
+        assert!(validate_person_dispatch(run_id, RunKind::PersonProperty, false).is_err());
+        assert!(validate_person_dispatch(run_id, RunKind::PersonProperty, true).is_ok());
+        // The gate is person-only: a behavioral run dispatches whatever it is set to.
+        assert!(validate_person_dispatch(run_id, RunKind::Behavioral, false).is_ok());
+        assert!(validate_person_dispatch(run_id, RunKind::Behavioral, true).is_ok());
     }
 }

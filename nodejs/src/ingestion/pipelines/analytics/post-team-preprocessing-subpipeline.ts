@@ -55,6 +55,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     groupsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
     flagCalledPersonlessDefaultTeams: string
+    personlessWritesDisabledTeams: string
     hogTransformer: HogTransformer
     cdpHogWatcherSampleRate: number
 }
@@ -83,6 +84,7 @@ export function createPostTeamPreprocessingSubpipeline<
         groupsPrefetchEnabled,
         groupTypeManager,
         flagCalledPersonlessDefaultTeams,
+        personlessWritesDisabledTeams,
         hogTransformer,
         cdpHogWatcherSampleRate,
     } = config
@@ -128,7 +130,11 @@ export function createPostTeamPreprocessingSubpipeline<
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
             .pipeChunk(
-                processPersonlessDistinctIdsChunkStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
+                processPersonlessDistinctIdsChunkStep(
+                    personsPrefetchEnabled,
+                    flagCalledPersonlessDefaultTeams,
+                    personlessWritesDisabledTeams
+                ),
                 {
                     retry: {
                         tries: 5,

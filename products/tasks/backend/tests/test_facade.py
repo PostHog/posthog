@@ -1,6 +1,7 @@
 import importlib
 from datetime import timedelta
 from typing import ClassVar
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -17,7 +18,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
@@ -31,7 +32,6 @@ FACADE_MODULES = [
     "products.tasks.backend.facade.temporal",
     "products.tasks.backend.facade.max_tools",
     "products.tasks.backend.facade.webhooks",
-    "products.tasks.backend.facade.file_system",
 ]
 
 
@@ -440,6 +440,33 @@ class TestFacadeReadsAndMappers(TestCase):
         else:
             self.assertNotIn("custom_image_id", new_run.state)
 
+    def test_run_task_resume_carries_self_driving_head_branch(self):
+        # The signals review carve-out binds a PR to its run by matching the PR head ref against the
+        # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
+        # stamp must be copied forward or the carve-out stops matching the successor — the receiver
+        # leg refuses on the run-id mismatch and the webhook leg drops a cancelled predecessor — which
+        # silently ends re-reviews after the usual resume-after-cancel. Mirrors the wizard_head_branch
+        # carry that sits beside it.
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
         now = django_timezone.now()
@@ -522,6 +549,67 @@ class TestFacadeReadsAndMappers(TestCase):
         env.refresh_from_db()
         self.assertFalse(env.private)
 
+    def test_upsert_internal_sandbox_env_never_adopts_user_created_row(self):
+        # Users can create environments with arbitrary names through the sandbox environment
+        # API. Adopting a same-named user row would carry its custom image / env vars into an
+        # internal run holding the run's tokens — so provisioning must create its own internal
+        # row alongside and leave the user's row untouched (not deleted, not converted).
+        user_env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="SIGNALS_X",
+            internal=False,
+            environment_variables={"EXFIL_TARGET": "https://attacker.example"},
+        )
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertNotEqual(str(env_id), str(user_env.id))
+        env = SandboxEnvironment.objects.get(id=env_id)
+        self.assertTrue(env.internal)
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        user_env.refresh_from_db()
+        self.assertFalse(user_env.internal)
+        self.assertEqual(user_env.environment_variables, {"EXFIL_TARGET": "https://attacker.example"})
+
+    def test_upsert_internal_sandbox_env_dedupes_only_internal_duplicates(self):
+        # Concurrent upserts can double-insert (no unique constraint on (team, name)). The
+        # dedupe must keep the oldest INTERNAL row, reassert policy on it, and never treat a
+        # same-named user-created row as a duplicate to delete.
+        user_env = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=False)
+        first = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        second = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        # Pin an unambiguous creation order so keeper selection is deterministic.
+        SandboxEnvironment.objects.filter(id=first.id).update(created_at=django_timezone.now() - timedelta(minutes=1))
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertEqual(str(env_id), str(first.id))
+        self.assertFalse(SandboxEnvironment.objects.filter(id=second.id).exists())
+        self.assertTrue(SandboxEnvironment.objects.filter(id=user_env.id).exists())
+        first.refresh_from_db()
+        self.assertEqual(first.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL.value)
+
+    def test_upsert_internal_sandbox_env_scrubs_execution_fields(self):
+        # Reasserting policy must cover the whole execution surface: env vars / repositories
+        # set on the internal row between calls (however they got there) are cleared, so they
+        # can never ride into the next internally provisioned run.
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED)
+        env = SandboxEnvironment.objects.get(id=env_id)
+        env.environment_variables = {"INJECTED": "value"}
+        env.repositories = ["attacker/repo"]
+        env.save(update_fields=["environment_variables", "repositories"])
+
+        env_id_2 = facade.upsert_internal_sandbox_env(
+            self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+        )
+
+        self.assertEqual(env_id_2, env_id)
+        env.refresh_from_db()
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        self.assertEqual(env.repositories, [])
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -559,6 +647,64 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state["pending_dispatch"]["create_pr"], False)
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
         self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)
+
+    def _make_channel(self, **kwargs) -> Channel:
+        # unscoped: no ambient team_scope in these tests, and the fail-closed manager
+        # raises on a bare write just as it does on a bare read.
+        defaults = {
+            "team": self.team,
+            "name": "engineering",
+            "channel_type": Channel.ChannelType.PUBLIC,
+            "created_by": self.user,
+        }
+        return Channel.objects.unscoped().create(**{**defaults, **kwargs})
+
+    def _make_teammates_personal_channel(self) -> Channel:
+        teammate = User.objects.create(email="teammate@test.com", distinct_id="teammate")
+        return self._make_channel(
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=teammate,
+        )
+
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
+            # Someone else's "#me" is private: filing into it would leak the task into
+            # their personal feed, so it must be dropped like an unknown id.
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_files_into_channel(self, _name, make_channel_id, expect_filed, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        channel_id = make_channel_id(self)
+
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Created via facade",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            user_id=self.user.id,
+            repository="posthog/posthog",
+            channel_id=channel_id,
+        )
+        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, channel_id if expect_filed else None)
+
+    def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
+        # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
+        first = facade.ensure_personal_channel_id(self.team.id, self.user.id)
+        second = facade.ensure_personal_channel_id(self.team.id, self.user.id)
+        self.assertEqual(first, second)
+        self.assertEqual(
+            list(
+                Channel.objects.unscoped()
+                .filter(team=self.team, channel_type=Channel.ChannelType.PERSONAL, deleted=False)
+                .values_list("id", flat=True)
+            ),
+            [first],
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):

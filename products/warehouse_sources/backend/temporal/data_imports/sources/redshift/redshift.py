@@ -887,6 +887,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return int(row[0] or 0)
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.errors.InsufficientPrivilege as e:
+            # The connecting role can SELECT the table itself but Redshift also gates access to a
+            # materialized view's base relation(s) separately (SQLSTATE 42501). Row-count
+            # estimation is best-effort (the caller defaults to 0), so skip gracefully instead of
+            # reporting the expected, non-actionable error to error tracking. Mirrors
+            # `fetch_table_stats`.
+            logger.debug(f"get_rows_to_sync: no privilege to run count query, using 0 as rows to sync: {e}")
+            return 0
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
             capture_exception(e)
