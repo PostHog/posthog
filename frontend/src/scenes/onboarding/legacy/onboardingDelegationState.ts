@@ -1,4 +1,4 @@
-import { UserType } from '~/types'
+import { TeamPublicType, TeamType, UserType } from '~/types'
 
 export function hasPendingDelegationForCurrentOrg(user: UserType | null | undefined): boolean {
     return Boolean(
@@ -30,4 +30,25 @@ export function isOnboardingRedirectSuppressed(user: UserType | null | undefined
     // fresh org are most likely delegates whose entire purpose is to *finish* onboarding —
     // suppressing for them would defeat the delegation feature.
     return hasSkippedForCurrentOrg(user) || hasPendingDelegationForCurrentOrg(user)
+}
+
+/**
+ * Whether this team is in the "must complete onboarding first" state — the non-path-specific
+ * half of the gate `sceneLogic` uses to redirect to `/onboarding`. Shared with the sidebar so it
+ * can stop advertising destinations the gate would immediately bounce the user out of; combine
+ * with a path check (`isOnboardingNotRequiredForPath` in `scenes/sceneLogic`) for the full gate.
+ */
+export function isOnboardingRequiredForTeam(
+    user: UserType | null | undefined,
+    team: TeamPublicType | TeamType | null | undefined,
+    hasOnboardedAnyProduct: boolean
+): boolean {
+    return Boolean(
+        team &&
+        !team.is_demo &&
+        user?.organization?.teams.length === 1 &&
+        !hasOnboardedAnyProduct &&
+        !team.ingested_event &&
+        !isOnboardingRedirectSuppressed(user)
+    )
 }

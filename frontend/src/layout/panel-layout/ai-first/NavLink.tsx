@@ -25,6 +25,7 @@ interface NavLinkProps {
     onClick?: (e: React.MouseEvent) => void
     sideAction?: NavLinkSideAction
     tag?: 'alpha' | 'beta' | 'new'
+    disabledReason?: string | null | false
 }
 
 export function NavLink({
@@ -36,6 +37,7 @@ export function NavLink({
     onClick,
     sideAction,
     tag,
+    disabledReason,
 }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
 
@@ -64,6 +66,7 @@ export function NavLink({
                 to={to}
                 data-attr={dataAttr}
                 onClick={onClick}
+                disabledReason={disabledReason}
                 tooltip={label}
                 tooltipPlacement="right"
             >

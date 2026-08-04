@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import { getAppContext } from 'lib/utils/getAppContext'
 import { toSentenceCase } from 'lib/utils/strings'
+import { isOnboardingNotRequiredForPath } from 'scenes/sceneLogic'
 import { Scene, sceneToAccessControlResourceType } from 'scenes/sceneTypes'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
@@ -304,6 +305,25 @@ export const getEntryAccessDisabledReason = (entry: {
         return undefined
     }
     return `You don't have access to ${entry.type ? `this ${entry.type.replace(/_/g, ' ')}` : 'this item'}`
+}
+
+/**
+ * Disabled reason for a product navigation item when the team must finish onboarding first —
+ * mirrors the `sceneLogic` redirect gate so the sidebar stops offering destinations that would
+ * otherwise silently bounce the user back to `/onboarding` the moment they click through.
+ *
+ * @param item - Navigation item carrying the href it would otherwise navigate to
+ * @param onboardingRequired - The non-path half of the gate (`isOnboardingRequiredForTeam`)
+ * @returns Reason to show on the disabled item, or undefined when the item is reachable
+ */
+export const getOnboardingRequiredDisabledReason = (
+    item: { href?: string | ((ref: string) => string) },
+    onboardingRequired: boolean
+): string | undefined => {
+    if (!onboardingRequired || typeof item.href !== 'string' || isOnboardingNotRequiredForPath(item.href)) {
+        return undefined
+    }
+    return 'Finish setting up your project before you continue'
 }
 
 /**

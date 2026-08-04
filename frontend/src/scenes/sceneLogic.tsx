@@ -56,7 +56,7 @@ import type { BillingType } from '../types'
 import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
-import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
+import { isOnboardingRequiredForTeam } from './onboarding/legacy/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { SceneProps } from './sceneTypes'
@@ -840,16 +840,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     } else if (
                         // Or redirect to onboarding in case we detect people have to do onboarding for their first project
-                        user.organization?.teams.length === 1 &&
-                        teamLogic.values.currentTeam &&
-                        !teamLogic.values.currentTeam.is_demo &&
-                        !teamLogic.values.hasOnboardedAnyProduct &&
-                        !teamLogic.values.currentTeam?.ingested_event &&
-                        // Suppress the redirect when the user has explicitly exited onboarding
-                        // (skipped for later, or delegated to a teammate with a pending invite).
-                        // If the delegation invite is cancelled or expires, the backend clears
-                        // onboarding_delegated_to_invite and the redirect re-fires.
-                        !isOnboardingRedirectSuppressed(user) &&
+                        isOnboardingRequiredForTeam(
+                            user,
+                            teamLogic.values.currentTeam,
+                            teamLogic.values.hasOnboardedAnyProduct
+                        ) &&
                         !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
                         const nextUrl =

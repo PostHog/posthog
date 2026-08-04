@@ -33,10 +33,14 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
+import { getOnboardingRequiredDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { isOnboardingRequiredForTeam } from 'scenes/onboarding/legacy/onboardingDelegationState'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
@@ -186,8 +190,12 @@ export function NavTabBrowse(): JSX.Element {
     const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const { toggleCommand } = useActions(commandLogic)
+    const { user } = useValues(userLogic)
+    const { currentTeam, hasOnboardedAnyProduct } = useValues(teamLogic)
     const showToolsSearchRow = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'tools-row' && !isLayoutNavCollapsed
     const currentPath = removeProjectIdIfPresent(pathname)
+    const onboardingRequired = isOnboardingRequiredForTeam(user, currentTeam, hasOnboardedAnyProduct)
+    const inboxDisabledReason = getOnboardingRequiredDisabledReason({ href: urls.inbox() }, onboardingRequired)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         const isOpening = activePanelIdentifier !== item
@@ -251,6 +259,7 @@ export function NavTabBrowse(): JSX.Element {
                             data-attr="nav-item-inbox"
                             tag="beta"
                             onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
+                            disabledReason={inboxDisabledReason}
                         />
                     )}
 

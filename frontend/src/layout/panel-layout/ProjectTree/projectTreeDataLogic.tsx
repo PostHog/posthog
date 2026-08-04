@@ -10,11 +10,17 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import {
+    getEntryAccessDisabledReason,
+    getOnboardingRequiredDisabledReason,
+    getProductAccessDisabledReason,
+} from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
+import { isOnboardingRequiredForTeam } from 'scenes/onboarding/legacy/onboardingDelegationState'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -46,7 +52,7 @@ import { UserBasicType } from '~/types'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Noun } from '../../../models/groupsModel'
 import type { UserProductListItem } from '../../../queries/schema/schema-general'
-import type { GroupType, GroupTypeIndex, ProjectTreeRef, UserType } from '../../../types'
+import type { GroupType, GroupTypeIndex, ProjectTreeRef, TeamPublicType, TeamType, UserType } from '../../../types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
@@ -168,6 +174,8 @@ export interface projectTreeDataLogicValues {
     groupTypesLoading: boolean // groupsModel
     groupsAccessStatus: GroupsAccessStatus // groupsModel
     user: UserType | null // userLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    hasOnboardedAnyProduct: boolean // teamLogic
     folderLoadOffset: Record<string, number>
     folderStates: Record<string, FolderState>
     folders: Record<string, FileSystemEntry[]>
@@ -500,7 +508,10 @@ export interface projectTreeDataLogicMeta {
         getStaticTreeItems: (
             featureFlags: FeatureFlagsSet,
             getShortcutTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[],
-            groupItems: FileSystemImport[]
+            groupItems: FileSystemImport[],
+            user: UserType | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            hasOnboardedAnyProduct: boolean
         ) => (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
         treeItemsNew: (
             getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
@@ -510,7 +521,10 @@ export interface projectTreeDataLogicMeta {
             customProducts: UserProductListItem[],
             featureFlags: FeatureFlagsSet,
             folderStates: Record<string, FolderState>,
-            users: Record<string, UserBasicType>
+            users: Record<string, UserBasicType>,
+            user: UserType | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            hasOnboardedAnyProduct: boolean
         ) => (searchTerm: string) => TreeDataItem[]
     }
 }
@@ -536,6 +550,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             ['customProducts'],
             userLogic,
             ['user'],
+            teamLogic,
+            ['currentTeam', 'hasOnboardedAnyProduct'],
         ],
         actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
@@ -1460,17 +1476,29 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         getStaticTreeItems: [
-            (s) => [s.featureFlags, s.getShortcutTreeItems, s.groupItems],
+            (s) => [
+                s.featureFlags,
+                s.getShortcutTreeItems,
+                s.groupItems,
+                s.user,
+                s.currentTeam,
+                s.hasOnboardedAnyProduct,
+            ],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 getShortcutTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[],
-                groupItems: FileSystemImport[]
+                groupItems: FileSystemImport[],
+                user: UserType | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                hasOnboardedAnyProduct: boolean
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
+                const onboardingRequired = isOnboardingRequiredForTeam(user, currentTeam, hasOnboardedAnyProduct)
                 const convert = (
                     imports: FileSystemImport[],
                     protocol: string,
                     searchTerm: string | undefined,
-                    onlyFolders: boolean
+                    onlyFolders: boolean,
+                    applyOnboardingGate: boolean
                 ): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
@@ -1487,22 +1515,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         searchTerm,
                         disabledReason: (item) =>
                             getProductAccessDisabledReason(item as FileSystemImport) ??
+                            (applyOnboardingGate
+                                ? getOnboardingRequiredDisabledReason(item as FileSystemImport, onboardingRequired)
+                                : undefined) ??
                             (onlyFolders && item.type !== 'folder' ? 'Only folders can be selected' : undefined),
                     })
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
-                    const data: [string, FileSystemImport[]][] = [
-                        ['products://', getDefaultTreeProducts()],
-                        ['data://', getDefaultTreeData()],
-                        ['persons://', [...getDefaultTreePersons(), ...groupItems]],
-                        ['data-and-people://', [...getDefaultTreeDataAndPeople(), ...groupItems]],
-                        ['new://', getDefaultTreeNew()],
+                    const data: [string, FileSystemImport[], boolean][] = [
+                        ['products://', getDefaultTreeProducts(), true],
+                        ['data://', getDefaultTreeData(), false],
+                        ['persons://', [...getDefaultTreePersons(), ...groupItems], false],
+                        ['data-and-people://', [...getDefaultTreeDataAndPeople(), ...groupItems], false],
+                        ['new://', getDefaultTreeNew(), false],
                     ]
-                    const staticItems = data.map(([protocol, files]) => ({
+                    const staticItems = data.map(([protocol, files, applyOnboardingGate]) => ({
                         id: protocol,
                         name: protocol,
                         displayName: <>{formatUrlAsName(protocol)}</>,
                         record: { type: 'folder', protocol, path: '' },
-                        children: convert(files, protocol, searchTerm, onlyFolders),
+                        children: convert(files, protocol, searchTerm, onlyFolders, applyOnboardingGate),
                     }))
                     staticItems.push({
                         id: 'shortcuts://',
@@ -1526,13 +1557,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
         getCustomProductTreeItems: [
-            (s) => [s.customProducts, s.featureFlags, s.folderStates, s.users],
+            (s) => [
+                s.customProducts,
+                s.featureFlags,
+                s.folderStates,
+                s.users,
+                s.user,
+                s.currentTeam,
+                s.hasOnboardedAnyProduct,
+            ],
             (
                 customProducts: import('~/queries/schema/schema-general').UserProductListItem[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 folderStates: Record<string, FolderState>,
-                users: Record<string, UserBasicType>
+                users: Record<string, UserBasicType>,
+                user: UserType | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                hasOnboardedAnyProduct: boolean
             ): ((searchTerm: string) => TreeDataItem[]) => {
+                const onboardingRequired = isOnboardingRequiredForTeam(user, currentTeam, hasOnboardedAnyProduct)
                 return function getCustomProductItems(searchTerm: string): TreeDataItem[] {
                     const allProducts = getDefaultTreeProducts()
                     const productMap = new Map<string, FileSystemImport>(allProducts.map((p) => [p.path, p]))
@@ -1587,7 +1630,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         // With only a few tools pinned, category headers add more noise than structure —
                         // list them in sequence instead.
                         disableCategories: imports.length <= 5,
-                        disabledReason: (item) => getProductAccessDisabledReason(item as FileSystemImport),
+                        disabledReason: (item) =>
+                            getProductAccessDisabledReason(item as FileSystemImport) ??
+                            getOnboardingRequiredDisabledReason(item as FileSystemImport, onboardingRequired),
                     })
                 }
             },
