@@ -1,14 +1,22 @@
 import { GithubLogoIcon, XIcon } from "@phosphor-icons/react";
 import {
+  Button,
+  Chip,
+  ChipClose,
   Input,
+  ItemContent,
+  ItemMedia,
+  ItemMenuItem,
+  ItemTitle,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Button as QuillButton,
+  Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
-import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { Flex, Spinner } from "@radix-ui/themes";
 import { useState } from "react";
 
 export const MAX_REPOSITORIES = 10;
@@ -18,27 +26,24 @@ const REPO_SEARCH_THRESHOLD = 10;
 function RepoChip({
   repository,
   onRemove,
+  disabled,
 }: {
   repository: string;
   onRemove: () => void;
+  disabled: boolean;
 }) {
   return (
-    <span className="group/chip inline-flex h-6 items-center gap-1.5 rounded-md bg-(--gray-a3) pr-2.5 pl-2 font-medium text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-a4)">
-      <button
-        type="button"
+    <Chip>
+      <GithubLogoIcon size={14} />
+      <span className="max-w-[200px] truncate">{repository}</span>
+      <ChipClose
         aria-label={`Remove ${repository}`}
-        className="relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0"
+        disabled={disabled}
         onClick={onRemove}
       >
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
-          <GithubLogoIcon size={14} />
-        </span>
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100 motion-reduce:transition-none">
-          <XIcon size={13} weight="bold" />
-        </span>
-      </button>
-      <span className="max-w-[200px] truncate">{repository}</span>
-    </span>
+        <XIcon size={13} weight="bold" />
+      </ChipClose>
+    </Chip>
   );
 }
 
@@ -72,10 +77,10 @@ function AddRepositoryPopover({
     >
       <PopoverTrigger
         render={
-          <QuillButton variant="outline" size="sm">
+          <Button variant="outline" size="sm">
             <GithubLogoIcon size={14} />
             {label}
-          </QuillButton>
+          </Button>
         }
       />
       <PopoverContent
@@ -101,18 +106,21 @@ function AddRepositoryPopover({
             </div>
           ) : (
             filtered.map((repository) => (
-              <button
+              <ItemMenuItem
                 key={repository}
-                type="button"
+                size="xs"
                 onClick={() => {
                   onAdd(repository);
                   setOpen(false);
                 }}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] hover:bg-[var(--fill-hover)]"
               >
-                <GithubLogoIcon size={14} className="shrink-0" />
-                <span className="truncate">{repository}</span>
-              </button>
+                <ItemMedia variant="icon">
+                  <GithubLogoIcon size={14} />
+                </ItemMedia>
+                <ItemContent variant="menuItem">
+                  <ItemTitle className="truncate">{repository}</ItemTitle>
+                </ItemContent>
+              </ItemMenuItem>
             ))
           )}
         </div>
@@ -176,34 +184,39 @@ export function RepositoriesField({
         : null;
 
   return (
-    // Radix spacing tokens are unavailable inside the dialog portal.
-    <Flex align="center" wrap="wrap" className="min-h-7 w-fit max-w-full gap-2">
+    <div className="flex min-h-7 w-fit max-w-full flex-wrap items-center gap-2">
       {selected.map((repository) => (
         <RepoChip
           key={repository}
           repository={repository}
+          disabled={disabled}
           onRemove={() => removeRepository(repository)}
         />
       ))}
 
       {disabled ? (
-        <QuillButton variant="outline" size="sm" disabled>
+        <Button variant="outline" size="sm" disabled>
           <GithubLogoIcon size={14} />
           Add repository
-        </QuillButton>
+        </Button>
       ) : isLoadingList && hasGithubIntegration ? (
-        <QuillButton variant="outline" size="sm" disabled>
-          <Spinner size="1" />
+        <Button variant="outline" size="sm" disabled>
+          <Spinner className="size-3.5" />
           Loading repositories…
-        </QuillButton>
+        </Button>
       ) : addDisabledReason ? (
-        <Tooltip content={addDisabledReason}>
-          <span className="inline-flex">
-            <QuillButton variant="outline" size="sm" disabled>
-              <GithubLogoIcon size={14} />
-              Add repository
-            </QuillButton>
-          </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="inline-flex">
+                <Button variant="outline" size="sm" disabled>
+                  <GithubLogoIcon size={14} />
+                  Add repository
+                </Button>
+              </span>
+            }
+          />
+          <TooltipContent>{addDisabledReason}</TooltipContent>
         </Tooltip>
       ) : (
         <AddRepositoryPopover
@@ -212,6 +225,6 @@ export function RepositoriesField({
           label={selected.length > 0 ? "Add…" : "Add repository…"}
         />
       )}
-    </Flex>
+    </div>
   );
 }

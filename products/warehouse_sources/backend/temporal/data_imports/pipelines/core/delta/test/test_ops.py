@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from django.test import override_settings
 
@@ -11,10 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     delta_merge_spill_kwargs,
     execute_with_conflict_retry,
 )
-
-
-def _make_logger():
-    return MagicMock(adebug=AsyncMock(), ainfo=AsyncMock(), awarning=AsyncMock(), aerror=AsyncMock())
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 
 class TestDeltaMergeSpillKwargs:
@@ -55,7 +52,7 @@ class TestExecuteWithConflictRetry:
         table = MagicMock()
         operation_fn = MagicMock(return_value={"num_output_rows": 1})
 
-        result = await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+        result = await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         assert result == {"num_output_rows": 1}
         operation_fn.assert_called_once()
@@ -71,7 +68,7 @@ class TestExecuteWithConflictRetry:
             ]
         )
 
-        result = await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+        result = await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         assert result == {"num_output_rows": 1}
         assert operation_fn.call_count == 2
@@ -87,7 +84,7 @@ class TestExecuteWithConflictRetry:
         )
 
         with pytest.raises(deltalake.exceptions.CommitFailedError):
-            await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         assert operation_fn.call_count == DELTA_MERGE_CONFLICT_RETRIES + 1
         assert table.update_incremental.call_count == DELTA_MERGE_CONFLICT_RETRIES
@@ -98,7 +95,7 @@ class TestExecuteWithConflictRetry:
         operation_fn = MagicMock(side_effect=ValueError("not a commit conflict"))
 
         with pytest.raises(ValueError):
-            await execute_with_conflict_retry(table, operation_fn, "op", _make_logger())
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
         operation_fn.assert_called_once()
         table.update_incremental.assert_not_called()

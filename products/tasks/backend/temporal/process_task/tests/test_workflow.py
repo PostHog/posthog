@@ -13,6 +13,7 @@ from django.conf import settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
@@ -291,17 +292,28 @@ class TestProcessTaskWorkflow:
                 activity_executor=ThreadPoolExecutor(max_workers=10),
             ),
         ):
-            result = await env.client.execute_workflow(
-                ProcessTaskWorkflow.run,
-                workflow_input,
-                id=workflow_id,
-                task_queue=settings.TASKS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=timedelta(minutes=60),
-            )
+            # The run row does not exist, so the terminal status write raises
+            # TaskRunDeletedError and the workflow fails rather than returning a result. A
+            # workflow with no row left to update has nowhere to record an outcome, so
+            # failing is the only way its end is visible.
+            with pytest.raises(WorkflowFailureError) as failure:
+                await env.client.execute_workflow(
+                    ProcessTaskWorkflow.run,
+                    workflow_input,
+                    id=workflow_id,
+                    task_queue=settings.TASKS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(minutes=60),
+                )
 
-        assert result.success is False
-        assert result.error is not None
+        # `WorkflowFailureError` carries only a generic message; the reason is in the cause
+        # chain, so assert there rather than on `str(failure.value)`.
+        causes = []
+        error: BaseException | None = failure.value
+        while error is not None:
+            causes.append(str(error))
+            error = error.__cause__
+        assert any("no longer exists" in cause or "not found" in cause for cause in causes), causes
 
 
 class TestProcessTaskFollowupDispatch:

@@ -301,7 +301,7 @@ export class EmailService {
             }
 
             if (success && assetRow) {
-                result.emailAssets.push(assetRow)
+                result.messageAssets.push(assetRow)
             }
         }
 
