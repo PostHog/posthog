@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 import pytest
 from unittest import mock
 
@@ -44,18 +42,18 @@ class TestOctolensSource:
         assert field.secret is True
         assert field.required is True
 
-    def test_get_schemas_marks_only_mentions_incremental(self) -> None:
+    def test_no_table_advertises_incremental(self) -> None:
+        """Octolens exposes no update-aware cursor, so nothing may advertise incremental.
+
+        The only date filter is `filters.startDate` on the mentions feed, and it filters on the
+        mention's post time — mention rows keep changing after that (scoring backfills `sentiment`,
+        `engaged`/`feedbackRelevant` follow user actions) and historical mentions are collected late,
+        so a post-time watermark would silently drop rows and updates.
+        """
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert set(schemas) == set(ENDPOINTS)
 
-        mentions = schemas["mentions"]
-        assert mentions.supports_incremental is True
-        assert [f["field"] for f in mentions.incremental_fields] == ["timestamp"]
-
-        # No other endpoint exposes a server-side date filter, so none may advertise incremental.
-        for name, schema in schemas.items():
-            if name == "mentions":
-                continue
+        for schema in schemas.values():
             assert schema.supports_incremental is False
             assert schema.incremental_fields == []
 
@@ -127,19 +125,13 @@ class TestOctolensSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is OctolensResumeConfig
 
-    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
     @mock.patch(f"{SOURCE_MODULE}.octolens_source")
-    def test_source_for_pipeline_plumbs_arguments(
-        self, mock_octolens_source: mock.MagicMock, should_use_incremental_field: bool
-    ) -> None:
-        watermark = datetime(2026, 5, 6, tzinfo=UTC)
+    def test_source_for_pipeline_plumbs_arguments(self, mock_octolens_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "mentions"
         inputs.team_id = 123
         inputs.job_id = "job-1"
         inputs.api_version = None
-        inputs.should_use_incremental_field = should_use_incremental_field
-        inputs.db_incremental_field_last_value = watermark
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -152,6 +144,6 @@ class TestOctolensSource:
         # An unset pin resolves to the source's default version rather than reaching the request layer as None.
         assert kwargs["api_version"] == "v2"
         assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is should_use_incremental_field
-        # A full-refresh sync must not carry a stale watermark into the request body.
-        assert kwargs["db_incremental_field_last_value"] == (watermark if should_use_incremental_field else None)
+        # Every table is full refresh, so no watermark can reach the request body.
+        assert "db_incremental_field_last_value" not in kwargs
+        assert "should_use_incremental_field" not in kwargs

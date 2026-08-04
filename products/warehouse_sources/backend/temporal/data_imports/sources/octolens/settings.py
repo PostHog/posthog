@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalField
 
 
 @dataclass
@@ -18,20 +18,7 @@ class OctolensEndpointConfig:
     pagination parameters and return the full collection in one response."""
     partition_key: Optional[str] = None
     """A STABLE creation-time field to partition on. `None` disables partitioning."""
-    incremental_fields: list[IncrementalField] = field(default_factory=list)
 
-
-# Only the mentions feed accepts a server-side date filter (`filters.startDate` on the POST body),
-# so it is the one incremental table. Keywords, feeds, notifications and members expose no date
-# filter and no pagination, so they full-refresh in a single request each.
-MENTIONS_INCREMENTAL_FIELDS: list[IncrementalField] = [
-    {
-        "label": "timestamp",
-        "type": IncrementalFieldType.DateTime,
-        "field": "timestamp",
-        "field_type": IncrementalFieldType.DateTime,
-    },
-]
 
 OCTOLENS_ENDPOINTS: dict[str, OctolensEndpointConfig] = {
     "mentions": OctolensEndpointConfig(
@@ -41,7 +28,6 @@ OCTOLENS_ENDPOINTS: dict[str, OctolensEndpointConfig] = {
         method="post",
         paginated=True,
         partition_key="timestamp",
-        incremental_fields=MENTIONS_INCREMENTAL_FIELDS,
     ),
     "keywords": OctolensEndpointConfig(name="keywords", path="/keywords", primary_key=["id"]),
     "feeds": OctolensEndpointConfig(name="feeds", path="/feeds", primary_key=["id"]),
@@ -51,6 +37,17 @@ OCTOLENS_ENDPOINTS: dict[str, OctolensEndpointConfig] = {
 
 ENDPOINTS = tuple(OCTOLENS_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in OCTOLENS_ENDPOINTS.items() if config.incremental_fields
-}
+# Every table is full refresh.
+#
+# The only date filter Octolens offers is `filters.startDate` on the mentions feed, and it filters on
+# `timestamp` — the time the mention was *posted*, not the time Octolens collected or last changed the
+# row. Mention rows are mutable after that post time: `sentiment` is null until scoring finishes, and
+# `engaged`/`feedbackRelevant` change as people act on a mention. Octolens also backfills historical
+# mentions for a keyword long after the fact. Watermarking on `timestamp` would therefore permanently
+# exclude both late-collected old mentions and every later edit to a row already synced, so the feed is
+# resynced in full until Octolens exposes an update-aware cursor (an `updatedAt` field or a
+# collected-at filter) we can safely watermark on.
+#
+# The other four endpoints expose no date filter and no pagination, so they full-refresh in a single
+# request each regardless.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in OCTOLENS_ENDPOINTS}

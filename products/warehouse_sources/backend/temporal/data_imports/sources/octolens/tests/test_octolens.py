@@ -1,6 +1,5 @@
 import json
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Optional, cast
 
 import pytest
@@ -13,11 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.o
     OCTOLENS_BASE_URL,
     PAGE_SIZE,
     OctolensResumeConfig,
-    _to_iso8601,
+    _resource,
     check_access,
     octolens_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.settings import (
+    ENDPOINTS,
+    OCTOLENS_ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -81,8 +83,6 @@ def _source(
     *,
     api_key: str = "dummy-key",
     api_version: str = "v2",
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
 ):
     return octolens_source(
         api_key=api_key,
@@ -91,28 +91,7 @@ def _source(
         job_id="j",
         api_version=api_version,
         resumable_source_manager=manager if manager is not None else _make_manager(),
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
     )
-
-
-class TestToIso8601:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (None, None),
-            # Mention timestamps arrive Tinybird-style with no offset; they are UTC.
-            ("2026-05-06 13:35:37.000", "2026-05-06T13:35:37.000Z"),
-            (datetime(2026, 5, 6, 13, 35, 37, tzinfo=UTC), "2026-05-06T13:35:37.000Z"),
-            # An offset-aware watermark must be converted, not truncated.
-            (datetime(2026, 5, 6, 15, 35, 37, tzinfo=timezone(timedelta(hours=2))), "2026-05-06T13:35:37.000Z"),
-            (datetime(2026, 5, 6, 13, 35, 37, 123000), "2026-05-06T13:35:37.123Z"),
-            ("not a date", None),
-            (12345, None),
-        ],
-    )
-    def test_formats_watermark(self, value: Any, expected: Optional[str]) -> None:
-        assert _to_iso8601(value) == expected
 
 
 class TestMentionsPagination:
@@ -168,45 +147,28 @@ class TestMentionsPagination:
         assert snapshots[0]["url"] == f"{OCTOLENS_BASE_URL}/api/v3/mentions"
 
 
-class TestMentionsIncremental:
+class TestMentionsFullRefresh:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_run_sends_the_watermark_as_start_date(self, MockSession) -> None:
+    def test_never_sends_a_date_filter(self, MockSession) -> None:
+        """`filters.startDate` filters on post time, which is not an update-aware cursor.
+
+        Mention rows mutate after they are posted (`sentiment` fills in once scoring finishes,
+        `engaged`/`feedbackRelevant` change as people act on them) and Octolens backfills historical
+        mentions, so a post-time watermark would permanently drop both. The feed resyncs in full.
+        """
         session = MockSession.return_value
         snapshots = _wire(session, [_mentions_page([])])
 
-        _rows(
-            _source(
-                "mentions",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 5, 6, 13, 35, 37, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[0]["json"]["filters"] == {"startDate": "2026-05-06T13:35:37.000Z"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_incremental_run_sends_no_date_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_mentions_page([])])
-
-        _rows(_source("mentions", should_use_incremental_field=True, db_incremental_field_last_value=None))
+        _rows(_source("mentions"))
 
         assert "filters" not in snapshots[0]["json"]
+        assert "startDate" not in json.dumps(snapshots[0]["json"])
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_ignores_a_stale_watermark(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_mentions_page([])])
-
-        _rows(
-            _source(
-                "mentions",
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2026, 5, 6, tzinfo=UTC),
-            )
-        )
-
-        assert "filters" not in snapshots[0]["json"]
+    def test_every_endpoint_replaces_rather_than_merges(self, MockSession) -> None:
+        for endpoint in ENDPOINTS:
+            resource = _resource(OCTOLENS_ENDPOINTS[endpoint], "v2")
+            assert resource["write_disposition"] == "replace"
 
 
 class TestResume:
@@ -283,8 +245,6 @@ class TestSourceResponseShape:
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
         assert response.partition_keys == ["timestamp"]
-        # The feed documents no ordering, so the watermark is only committed at the end of a run.
-        assert response.sort_mode == "desc"
 
     @pytest.mark.parametrize("endpoint", ["keywords", "feeds", "notifications", "org_members"])
     @mock.patch(CLIENT_SESSION_PATCH)

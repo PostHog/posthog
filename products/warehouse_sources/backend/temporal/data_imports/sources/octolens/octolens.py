@@ -1,8 +1,5 @@
 import dataclasses
-from datetime import UTC, datetime
 from typing import Any, Optional
-
-from dateutil import parser as date_parser
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -43,41 +40,16 @@ def _api_path(api_version: str, path: str) -> str:
     return f"/api/{api_version}{path}"
 
 
-def _to_iso8601(value: Any) -> Optional[str]:
-    """Format an incremental watermark as the ISO 8601 string `filters.startDate` expects.
-
-    Mention timestamps come back Tinybird-style (`YYYY-MM-DD HH:mm:ss.SSS`, UTC, no offset), so a
-    naive value is read as UTC rather than as local time.
-    """
-    if value is None:
-        return None
-
-    if isinstance(value, str):
-        try:
-            value = date_parser.parse(value)
-        except (ValueError, OverflowError):
-            return None
-
-    if not isinstance(value, datetime):
-        return None
-
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-def _mentions_body(db_incremental_field_last_value: Optional[Any]) -> dict[str, Any]:
-    body: dict[str, Any] = {
+def _mentions_body() -> dict[str, Any]:
+    # No `filters.startDate`: it filters on the mention's post time, which says nothing about when
+    # Octolens collected or last changed the row, so watermarking on it would drop late-collected
+    # historical mentions and every later edit to an already-synced row. See settings.py.
+    return {
         "limit": PAGE_SIZE,
         # Defaults to false, which silently drops low-relevance mentions. A warehouse copy should
         # mirror everything Octolens collected, so opt in.
         "includeAll": True,
     }
-    start_date = _to_iso8601(db_incremental_field_last_value)
-    if start_date is not None:
-        body["filters"] = {"startDate": start_date}
-    return body
 
 
 def _paginator(config: OctolensEndpointConfig) -> BasePaginator:
@@ -89,12 +61,7 @@ def _paginator(config: OctolensEndpointConfig) -> BasePaginator:
     )
 
 
-def _resource(
-    config: OctolensEndpointConfig,
-    api_version: str,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Optional[Any],
-) -> EndpointResource:
+def _resource(config: OctolensEndpointConfig, api_version: str) -> EndpointResource:
     endpoint: Endpoint = {
         "path": _api_path(api_version, config.path),
         "method": config.method,
@@ -102,15 +69,14 @@ def _resource(
         "paginator": _paginator(config),
     }
     if config.method == "post":
-        endpoint["json"] = _mentions_body(db_incremental_field_last_value if should_use_incremental_field else None)
+        endpoint["json"] = _mentions_body()
 
     return {
         "name": config.name,
         "table_name": config.name,
         "table_format": "delta",
-        "write_disposition": {"disposition": "merge", "strategy": "upsert"}
-        if should_use_incremental_field
-        else "replace",
+        # Every Octolens table is full refresh — the API exposes no update-aware cursor.
+        "write_disposition": "replace",
         "endpoint": endpoint,
     }
 
@@ -122,8 +88,6 @@ def octolens_source(
     job_id: str,
     api_version: str,
     resumable_source_manager: ResumableSourceManager[OctolensResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = OCTOLENS_ENDPOINTS[endpoint]
 
@@ -134,7 +98,7 @@ def octolens_source(
             "auth": {"type": "bearer", "token": api_key},
         },
         "resource_defaults": {},
-        "resources": [_resource(config, api_version, should_use_incremental_field, db_incremental_field_last_value)],
+        "resources": [_resource(config, api_version)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -144,8 +108,8 @@ def octolens_source(
             initial_paginator_state = {"cursor": resume.cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Fires AFTER a page is yielded, so a crash re-fetches from the page we were about to read
-        # and the merge dedupes on the primary key.
+        # Fires AFTER a page is yielded, so a crash re-fetches the page we were about to read rather
+        # than skipping it — completeness over an occasional replayed row.
         if state and state.get("cursor"):
             resumable_source_manager.save_state(OctolensResumeConfig(cursor=str(state["cursor"])))
 
@@ -153,7 +117,7 @@ def octolens_source(
         rest_config,
         team_id,
         job_id,
-        db_incremental_field_last_value,
+        None,
         resume_hook=save_checkpoint if config.paginated else None,
         initial_paginator_state=initial_paginator_state,
     )
@@ -162,10 +126,6 @@ def octolens_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_key,
-        # The mentions feed documents no ordering guarantee and offers no sort parameter, so we
-        # cannot claim ascending arrival. "desc" is the safe reading either way: it commits the
-        # watermark once, at the end of a completed run, from the maximum value actually seen.
-        sort_mode="desc" if config.incremental_fields else "asc",
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
