@@ -427,9 +427,10 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     the moment another connection closes, and the server begins accepting connections once
     startup/recovery finishes. Used by the read/sync connect retry (`_connect_with_dropped_retry`)
     and the `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit
-    refusals and server-startup refusals too (via `_is_dropped_or_connection_limit`) but deliberately
-    keeps failing fast on connect-time *timeouts*, where a timeout usually means an unreachable host /
-    unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    refusals, server-startup refusals, and recovery conflicts too (via
+    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
+    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
+    and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
@@ -443,17 +444,24 @@ def _is_dropped_or_connection_limit(error: BaseException) -> bool:
     """Transient conditions the background schema-discovery retry recovers from in process.
 
     A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
-    (`_is_connection_limit_error`), or a "server not ready" refusal while the source is still
-    starting up / recovering (`_is_server_starting_up_error`). All are transient — a slot frees as
-    connections close, a pooler-cached login failure clears once the upstream has capacity, and the
-    server begins accepting connections once startup/recovery finishes — so discovery retries them on
-    a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
-    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
-    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
-    should fail fast rather than burn the retry budget.
+    (`_is_connection_limit_error`), a "server not ready" refusal while the source is still starting
+    up / recovering (`_is_server_starting_up_error`), or a hot-standby recovery conflict
+    (`_is_recovery_conflict_error`). All are transient — a slot frees as connections close, a
+    pooler-cached login failure clears once the upstream has capacity, the server begins accepting
+    connections once startup/recovery finishes, and a recovery conflict clears once the replica's WAL
+    replay moves past the conflicting row versions — so discovery retries them on a fresh connection
+    instead of failing the activity and surfacing captured error-tracking noise. The import read path
+    already retries the same recovery-conflict condition mid-stream (see `handle_recovery_conflict`);
+    discovery just needed the same treatment. Unlike the read/sync connect path
+    (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is deliberately excluded: during
+    discovery a timeout usually means a now-unreachable host, which should fail fast rather than burn
+    the retry budget.
     """
     return (
-        _is_connection_dropped_error(error) or _is_connection_limit_error(error) or _is_server_starting_up_error(error)
+        _is_connection_dropped_error(error)
+        or _is_connection_limit_error(error)
+        or _is_server_starting_up_error(error)
+        or _is_recovery_conflict_error(error)
     )
 
 
@@ -1465,8 +1473,11 @@ def get_schemas(
     # captured error-tracking noise even though the next attempt would succeed. Connection-limit
     # refusals ("remaining connection slots are reserved", "sorry, too many clients already") are
     # retried the same way — the customer's database is momentarily out of slots and frees one as
-    # connections close. Permanent errors (auth failures, SSL-required) re-raise immediately because
-    # `_is_dropped_or_connection_limit` matches only transient drops and connection-limit refusals.
+    # connections close. A hot-standby recovery conflict ("canceling statement due to conflict with
+    # recovery") is retried too — the same transient condition the import read path already recovers
+    # from mid-stream — since discovery can run against a read replica just like the row-copy path.
+    # Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_dropped_or_connection_limit` matches only these known-transient conditions.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -2576,7 +2587,18 @@ class PostgreSQLColumn(Column):
 
 
 def _is_read_replica(cursor: psycopg.Cursor) -> bool:
-    cursor.execute("SELECT pg_is_in_recovery()")
+    try:
+        cursor.execute("SELECT pg_is_in_recovery()")
+    except Exception as e:
+        # Postgres-wire-compatible engines (e.g. DuckDB-backed proxies) accept the connection but
+        # don't implement `pg_is_in_recovery` — a Postgres-only replication concept. Such an engine
+        # is never a physical hot-standby, so degrade to "not a replica" like the other best-effort
+        # probes on this connection (mirrors `_is_unsupported_function_error` callers). The setup
+        # connection runs autocommit, so this failed statement can't poison later probes on it.
+        if not _is_unsupported_function_error(e, "pg_is_in_recovery"):
+            raise
+        return False
+
     row = cursor.fetchone()
     if row is None:
         return False

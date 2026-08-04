@@ -52,10 +52,15 @@ MB = 1024 * 1024
 
 Mode = Literal["off", "advisory", "enforce"]
 
-#: Fallback concurrency when neither the env override nor settings.MAX_CONCURRENT_ACTIVITIES is set.
-#: The Temporal SDK's own default is 100 (posthog's worker wrapper uses 50); we pick the higher
-#: value so an unknown concurrency yields a smaller, safer per-upsert slice rather than over-commit.
+#: Fallback concurrency when nothing else declares it. The Temporal SDK's own default is 100
+#: (posthog's worker wrapper uses 50); we pick the higher value so an unknown concurrency yields a
+#: smaller, safer per-upsert slice rather than over-commit.
 _DEFAULT_MAX_CONCURRENT = 100
+
+#: A process's real max concurrent upserts, declared at startup via ``configure_process_concurrency``
+#: (e.g. the v3 loader passes its BatchConsumer ``max_concurrency``). Set here rather than read from
+#: an env var so the governor uses the loader's actual source of truth. None until declared.
+_PROCESS_MAX_CONCURRENT: int | None = None
 
 # --- Memory model coefficients (mirror deltalite_planner.py; see REPORT.md §5.5-5.7) --------
 
@@ -261,16 +266,20 @@ class GovernorConfig:
     def _resolve_max_concurrent() -> int:
         """Max concurrent upserts on this process, from the same source of truth as the worker.
 
-        Prefers an explicit ``DELTALITE_GOVERNOR_MAX_CONCURRENT``, then
-        ``settings.MAX_CONCURRENT_ACTIVITIES`` (what the Temporal worker is configured with). Falls
-        back to ``_DEFAULT_MAX_CONCURRENT`` with a warning, so it is visible when the slice is sized
-        against a guess rather than the real concurrency. The v3 loader is a Kafka consumer, not a
-        Temporal worker, so ``MAX_CONCURRENT_ACTIVITIES`` does not describe it — set the explicit
-        override there to its consumer-thread count.
+        Resolution order:
+          1. ``DELTALITE_GOVERNOR_MAX_CONCURRENT`` env override (ops escape hatch).
+          2. A value declared by the process at startup via ``configure_process_concurrency`` — the
+             v3 Kafka loader passes its ``BatchConsumer.max_concurrency`` here, since it is not a
+             Temporal worker and ``MAX_CONCURRENT_ACTIVITIES`` does not describe it.
+          3. ``settings.MAX_CONCURRENT_ACTIVITIES`` — what the Temporal worker is configured with.
+          4. ``_DEFAULT_MAX_CONCURRENT`` with a warning, so it is visible when the slice is sized
+             against a guess rather than the real concurrency.
         """
         explicit = os.environ.get("DELTALITE_GOVERNOR_MAX_CONCURRENT")
         if explicit:
             return max(1, _env_int("DELTALITE_GOVERNOR_MAX_CONCURRENT", _DEFAULT_MAX_CONCURRENT))
+        if _PROCESS_MAX_CONCURRENT is not None:
+            return _PROCESS_MAX_CONCURRENT
         configured = getattr(settings, "MAX_CONCURRENT_ACTIVITIES", None)
         if configured:
             return max(1, int(configured))
@@ -299,6 +308,9 @@ class Admission:
     predicted_peak_mb: float | None
     #: The per-upsert memory slice this upsert was sized against, in MB.
     budget_mb: float | None
+    #: The max_parallel_partitions the governor would use — recorded in every mode (including
+    #: advisory, where ``upsert_kwargs`` stays empty) so we can see the planned parallelism.
+    planned_mpp: int | None = None
     #: True when even mpp=1 overflows the slice: an ops signal to chunk the source, raise the pod
     #: limit, or lower max_concurrent. Not a failure — deltalite still runs at mpp=1.
     capacity_exceeded: bool = False
@@ -365,20 +377,23 @@ class MemoryGovernor:
         budget_mb = self._per_upsert_budget_mb(limit_mb)
         plan = size_upsert(budget_mb, source_mb, n_partitions)
 
+        # Read live usage now, in every mode, so the observed cgroup delta over the upsert can be
+        # logged against the prediction — the calibration advisory mode exists for. Only enforce
+        # reserves against the budget; advisory is a pure no-op on the accounting.
+        current_at_admit = self.pod.current_mb()
         admitted = False
-        current_at_admit: float | None = None
-        with self._lock:
-            if self.config.mode == "enforce":
+        if self.config.mode == "enforce":
+            with self._lock:
                 self._reserved_mb += plan.predicted_peak_mb
                 self._inflight += 1
                 admitted = True
-                current_at_admit = self.pod.current_mb()
 
         adm = Admission(
             upsert_kwargs=plan.as_upsert_kwargs() if admitted else {},
             mode=self.config.mode,
             predicted_peak_mb=plan.predicted_peak_mb,
             budget_mb=round(budget_mb, 1),
+            planned_mpp=plan.max_parallel_partitions,
             capacity_exceeded=not plan.fits,
         )
         self._emit_decision(adm, source_mb)
@@ -389,11 +404,11 @@ class MemoryGovernor:
                 with self._lock:
                     self._reserved_mb -= plan.predicted_peak_mb
                     self._inflight -= 1
-                # Best-effort predicted-vs-actual: how much did cgroup usage actually rise?
-                if current_at_admit is not None:
-                    now = self.pod.current_mb()
-                    if now is not None:
-                        adm.observed_delta_mb = round(now - current_at_admit, 1)
+            # Best-effort predicted-vs-actual, all modes (whole-process delta, so noisy under load).
+            if current_at_admit is not None:
+                now = self.pod.current_mb()
+                if now is not None:
+                    adm.observed_delta_mb = round(now - current_at_admit, 1)
 
     # -- observability -----------------------------------------------------------------------
 
@@ -427,6 +442,20 @@ class MemoryGovernor:
 
 
 _GOVERNOR: MemoryGovernor | None = None
+
+
+def configure_process_concurrency(max_concurrent: int) -> None:
+    """Declare this process's real max concurrent upserts, from its own source of truth.
+
+    The v3 loader calls this with its ``BatchConsumer.max_concurrency`` at startup, before the first
+    upsert, so the governor sizes each memory slice against the loader's actual concurrency instead
+    of the Temporal-only ``MAX_CONCURRENT_ACTIVITIES`` (unset there) or a conservative default. Takes
+    precedence over the setting; the ``DELTALITE_GOVERNOR_MAX_CONCURRENT`` env override still wins.
+    Resets the singleton so the next ``get_governor()`` rebuilds with the declared value.
+    """
+    global _PROCESS_MAX_CONCURRENT, _GOVERNOR
+    _PROCESS_MAX_CONCURRENT = max(1, int(max_concurrent))
+    _GOVERNOR = None
 
 
 def get_governor() -> MemoryGovernor:

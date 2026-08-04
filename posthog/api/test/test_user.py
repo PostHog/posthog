@@ -2222,7 +2222,6 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
         [
             ("not_an_object", ["version"]),
             ("missing_version", {"sidebar": {}}),
-            ("unknown_top_level_key", {"version": 1, "surprise": True}),
             ("unknown_section", {"version": 1, "sidebar": {"sections": {"bogus": {"visible": False}}}}),
             ("unknown_item", {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}),
             ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
@@ -2240,6 +2239,8 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
         [
             ("null", None),
             ("minimal", {"version": 1}),
+            ("unknown_top_level_key", {"version": 1, "surprise": True}),
+            ("unknown_sidebar_key", {"version": 1, "sidebar": {"density": "compact", "surprise": True}}),
             (
                 "full",
                 {
