@@ -100,7 +100,9 @@ tools:
             - hog_flow:write
         annotations:
             readOnly: false
-            destructive: false
+            # Suppresses future sends for up to 1000 recipients per call with no un-opt-out
+            # API; destructive so approval gates cover it (the name has no destructive verb).
+            destructive: true
             idempotent: true
         title: Add recipients to the opt-out list
         description: >

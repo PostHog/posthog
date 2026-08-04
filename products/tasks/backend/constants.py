@@ -153,6 +153,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "inbox-reports-bulk-set-state",
     "inbox-reports-set-state",
     "llma-prompt-label-set",
+    "opt-outs-add",
     "organization-enforce-2fa",
     "organization-enforce-2fa-execute",
     "scout-scratchpad-forget",

@@ -996,104 +996,6 @@
         },
         "feature_flag": "product-business-knowledge"
     },
-    "canvas-builds-retrieve": {
-        "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed` (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task while its build is still queued or building.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Read canvas build status",
-        "title": "Read canvas build status",
-        "required_scopes": ["canvas:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "canvas-create": {
-        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Create canvas",
-        "title": "Create canvas",
-        "required_scopes": ["canvas:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "canvas-edit-create": {
-        "description": "Publish per-file edits against a canvas's current source, without resending the whole project. Each operation sets a file's complete content, or deletes it when `content` is null. `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Edit canvas source files",
-        "title": "Edit canvas source files",
-        "required_scopes": ["canvas:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "canvas-list": {
-        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "List canvases",
-        "title": "List canvases",
-        "required_scopes": ["canvas:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "canvas-publish-create": {
-        "description": "Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. The project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The canvas lives in PostHog, not on disk — this tool is what saves it.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Publish canvas source project",
-        "title": "Publish canvas source project",
-        "required_scopes": ["canvas:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "canvas-source-retrieve": {
-        "description": "Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit the returned files, then publish the complete project with canvas-publish-create, passing the `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten. Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds the React component.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Read canvas source project",
-        "title": "Read canvas source project",
-        "required_scopes": ["canvas:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "canvas-validate-create": {
-        "description": "Validate a candidate canvas source project without publishing it. Returns structured diagnostics (severity, code, message, file, line); `valid: false` means a publish would be rejected. Side-effect free — call it as often as needed while iterating, and fix every error-severity diagnostic (including undeclared-capability errors) before publishing.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "Validate canvas source project",
-        "title": "Validate canvas source project",
-        "required_scopes": ["canvas:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",
@@ -1352,40 +1254,12 @@
             "readOnlyHint": false
         }
     },
-    "channel-instructions-retrieve": {
-        "description": "Read a channel's CONTEXT.md instructions (versioned markdown describing the channel's context). Returns the latest `content` and its `version` — pass that version as `base_version` when publishing an update. A channel with no instructions yet reads as a blank version 0.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Read channel instructions",
-        "title": "Read channel instructions",
-        "required_scopes": ["task:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List channels",
         "title": "List channels",
-        "required_scopes": ["task:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "channel-retrieve": {
-        "description": "One channel by id, including its name and type.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Get a channel",
-        "title": "Get a channel",
         "required_scopes": ["task:read"],
         "annotations": {
             "destructiveHint": false,
@@ -5013,21 +4887,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-dataset-archive": {
-        "description": "Archive a dataset by ID. Its revisions and items remain readable, but item mutations are rejected until the dataset is restored. Archiving an already archived dataset leaves it unchanged.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Archive dataset",
-        "title": "Archive dataset",
-        "required_scopes": ["dataset:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
     "llma-dataset-create": {
         "description": "Create an empty dataset in the current project. Dataset names are unique within a project. The first immutable revision is created when the first item is added.",
         "category": "AI observability",
@@ -5038,21 +4897,6 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
-    "llma-dataset-item-archive": {
-        "description": "Archive an active dataset item by stable item ID. Pass its current version as `base_version` to prevent a stale write. This creates an immutable archived version and a new dataset revision while preserving history.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Archive dataset item",
-        "title": "Archive dataset item",
-        "required_scopes": ["dataset:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -5073,42 +4917,12 @@
         },
         "feature_flag": "llm-analytics-datasets"
     },
-    "llma-dataset-item-restore": {
-        "description": "Restore an archived item by stable item ID. Pass its current version as `base_version` to prevent a stale write. By default the archived version's content is copied into a new active version. Pass `source_version` to restore content from another historical version.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Restore dataset item",
-        "title": "Restore dataset item",
-        "required_scopes": ["dataset:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
     "llma-dataset-item-update": {
         "description": "Update an active item by stable item ID. Pass its current version as `base_version` to prevent a stale write. Each update creates a new immutable item version and dataset revision. Only `input`, `expected_output`, and `metadata` are editable; source fields remain unchanged.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update dataset item",
         "title": "Update dataset item",
-        "required_scopes": ["dataset:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
-    "llma-dataset-restore": {
-        "description": "Restore an archived dataset by ID. This makes item mutations available again without changing item states or creating a dataset revision. Restoring an active dataset leaves it unchanged.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Restore dataset",
-        "title": "Restore dataset",
         "required_scopes": ["dataset:write"],
         "annotations": {
             "destructiveHint": false,
@@ -6690,7 +6504,7 @@
         "title": "Add recipients to the opt-out list",
         "required_scopes": ["hog_flow:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
