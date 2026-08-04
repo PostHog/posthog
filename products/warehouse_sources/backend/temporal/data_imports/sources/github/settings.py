@@ -79,6 +79,12 @@ class GithubEndpointConfig:
     # checkpoints the watermark assuming ascending order. workflow_runs and deployments are the
     # original cases and are matched by name via _ALWAYS_NEWEST_FIRST_ENDPOINTS in github.py.
     always_desc: bool = False
+    # A 404 on this endpoint means the resource does not exist for this repository rather than that
+    # the repository or token is wrong, so the sync writes zero rows instead of failing. Issue types
+    # and repository teams only exist under an organization owner, so a user-owned repo 404s on both
+    # even with a perfectly good token. (The org-scoped endpoints predate this flag and are matched
+    # by name via ORG_SCOPED_ENDPOINTS in github.py.)
+    tolerate_not_found: bool = False
 
 
 def _datetime_field(field: str) -> IncrementalField:
@@ -424,6 +430,38 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         primary_key="repository",
         param_style="plain",
     ),
+    "repository_activity": GithubEndpointConfig(
+        name="repository_activity",
+        # Pushes, force pushes, merges, and branch creations and deletions, repo-wide. This is the
+        # only place force pushes and branch deletions are visible at all: they rewrite or remove
+        # history, so nothing in commits or pull_requests records that they happened.
+        # The endpoint takes no `since` filter but answers newest-first, so incremental syncs
+        # paginate down and stop at the watermark, the same way issue_events does.
+        path="/repos/{repository}/activity",
+        partition_key="timestamp",  # When the activity happened; immutable.
+        incremental_fields=[_datetime_field("timestamp")],
+        default_incremental_field="timestamp",
+        param_style="plain",
+        # desc is already the endpoint's default, but the descending walk is what makes the
+        # watermark stop correct, so send it rather than depend on the default staying put.
+        extra_params={"direction": "desc"},
+        sort_mode="desc",
+        always_desc=True,
+    ),
+    "repository_teams": GithubEndpointConfig(
+        name="repository_teams",
+        # The teams granted access to this repository, with the permission level each holds. Unlike
+        # the org-wide teams table this is repo-scoped, so it answers "who owns this repo" without
+        # the org membership grant.
+        path="/repos/{repository}/teams",
+        incremental_fields=[],
+        param_style="plain",
+        # GitHub answers 404 rather than 403 when the caller cannot see a repository's teams, and a
+        # user-owned repo has no teams at all, so a default connection could enable a table that
+        # only ever stays empty. Leave it deselected and let org-owned repos opt in.
+        should_sync_default=False,
+        tolerate_not_found=True,
+    ),
     # --- Issue and review discussion ------------------------------------------------------
     "issue_comments": GithubEndpointConfig(
         name="issue_comments",
@@ -444,6 +482,28 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         default_incremental_field="updated_at",
         param_style="sorted",
         supports_since_param=True,
+    ),
+    "commit_comments": GithubEndpointConfig(
+        name="commit_comments",
+        # The third comment surface, alongside issue_comments and pull_request_comments: comments
+        # left on a commit directly rather than through an issue or a pull request review.
+        path="/repos/{repository}/comments",
+        partition_key="created_at",
+        # Rows come back ordered by ascending id and the endpoint takes no `since` filter or sort,
+        # so an incremental sync would still walk every page. Full refresh only.
+        incremental_fields=[],
+        param_style="plain",
+    ),
+    "issue_types": GithubEndpointConfig(
+        name="issue_types",
+        # Lookup table for the issue type an issue carries (Bug, Feature, Task, plus whatever the
+        # organization defines). issues stores it as a nested object per row, so without this there
+        # is nothing to group by when a type is renamed or retired.
+        path="/repos/{repository}/issue-types",
+        incremental_fields=[],
+        param_style="plain",
+        # Issue types are inherited from the organization owner, so a user-owned repository 404s.
+        tolerate_not_found=True,
     ),
     "issue_events": GithubEndpointConfig(
         name="issue_events",
@@ -756,6 +816,15 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         path="/repos/{repository}/stats/code_frequency",
         incremental_fields=[],
         primary_key="week",
+        param_style="plain",
+    ),
+    "punch_card_stats": GithubEndpointConfig(
+        name="punch_card_stats",
+        # Returns positional arrays ([day, hour, commits]); the body transform names them. One row
+        # per weekday/hour bucket, so the whole table is at most 168 rows.
+        path="/repos/{repository}/stats/punch_card",
+        incremental_fields=[],
+        primary_key=["day", "hour"],
         param_style="plain",
     ),
 }

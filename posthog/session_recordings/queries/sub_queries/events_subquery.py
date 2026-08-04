@@ -406,18 +406,28 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return sessions_query
 
-    def _get_queries_for_matching(self, select_expr: ast.Expr, group_by: list[ast.Expr]) -> list[ast.SelectQuery]:
+    def _get_queries_for_matching(
+        self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False
+    ) -> list[ast.SelectQuery]:
         """
         takes each filter in the query that can be queried from the events table
         and makes a separate query for each
         this might be slower than the previous approach of having one huge event query
         but that approach is horribly complex, and we keep getting bug reports
         that are avoidable with a simpler approach
+
+        `union_entities` merges the event/action filters into a single subquery, for callers that
+        intersect the subqueries by event id rather than by session id (see
+        `get_query_for_event_id_matching`).
         """
         gathered_exprs: list[ast.Expr] = []
         event_where_exprs = self._event_predicates(self.entities, self._team)
         if event_where_exprs:
-            gathered_exprs += event_where_exprs
+            gathered_exprs += (
+                [ast.Or(exprs=event_where_exprs)]
+                if union_entities and len(event_where_exprs) > 1
+                else event_where_exprs
+            )
 
         # Skip event properties with negative operators since they're handled by _negative_guard_query
         skip_negative_properties = self._query.operand == "AND"
@@ -511,11 +521,21 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return self._negative_blocklist_query()
 
     def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """
+        The ids of a session's events that matched ANY ONE of the query's event/action filters,
+        still combined with the query's property filters under its operand. Deliberately weaker
+        than the session-id matching path: it does not prove the session satisfied every filter
+        (that's a question about the session, which `get_queries_for_session_id_matching`
+        answers), it names the events that made the session relevant.
+        """
         # Subqueries only need to return uuid for the GlobalIn comparison
         select_queries: list[ast.SelectQuery] = self._get_queries_for_matching(
             select_expr=ast.Field(chain=["uuid"]),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
             group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
+            # The subqueries are intersected by event id below, and an event has exactly one name,
+            # so keeping one subquery per entity would match nothing as soon as there are two.
+            union_entities=True,
         )
         select_exprs: list[ast.Expr] = []
         for q in select_queries:

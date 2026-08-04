@@ -13,16 +13,13 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   activityReadPayload,
-  channelIdForName,
-  createChannelIdByName,
   getUnreadActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
@@ -54,11 +51,6 @@ export function ActivityHoverCard({
   const unreadItems = getUnreadActivityItems(items);
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
-  const { channels } = useChannels();
-  const folderIdByName = useMemo(
-    () => createChannelIdByName(channels),
-    [channels],
-  );
   useEffect(() => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "view_activity",
@@ -124,10 +116,7 @@ export function ActivityHoverCard({
               <ActivityRow
                 key={item.taskId}
                 item={item}
-                folderChannelId={channelIdForName(
-                  folderIdByName,
-                  item.channelName,
-                )}
+                channelId={item.channelId}
                 onOpen={(activity) =>
                   markRead(activity.taskId, activity.activityAt)
                 }

@@ -58,6 +58,7 @@ import {
     EXPOSURE_FEATURE_FLAG_PROPERTY,
     EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
     featureFlagVariantProperty,
+    resolvedExposureEvent,
 } from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
@@ -274,10 +275,11 @@ export function getViewRecordingFiltersForVariant(
         return [createExposureFilter(exposureConfig, experiment.feature_flag_key, variantKeys)]
     }
 
+    const exposureEvent = resolvedExposureEvent(experiment)
     return [
         {
-            id: EXPOSURE_DEFAULT_EVENT,
-            name: EXPOSURE_DEFAULT_EVENT,
+            id: exposureEvent,
+            name: exposureEvent,
             type: 'events',
             properties: [
                 variantPropertyFilter(EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY, variantKeys),
@@ -479,7 +481,7 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
             eventNames.add(exposureConfig.event)
         }
     } else {
-        eventNames.add(EXPOSURE_DEFAULT_EVENT)
+        eventNames.add(resolvedExposureEvent(experiment))
     }
 
     const metrics = [
