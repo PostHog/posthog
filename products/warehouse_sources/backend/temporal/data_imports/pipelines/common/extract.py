@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import enrich_death_event_properties
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -143,24 +144,26 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
             )
 
-            posthoganalytics.capture(
-                "dwh_pod_heartbeat_timeout",
-                distinct_id=None,
-                properties={
-                    "team_id": inputs.team_id,
-                    "schema_id": str(inputs.schema_id),
-                    "source_id": str(inputs.source_id),
-                    "run_id": inputs.run_id,
-                    "host": last_heartbeat_host,
-                    "gap_between_beats": gap_between_beats,
-                    "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
-                    "task_queue": info.task_queue,
-                    "workflow_id": info.workflow_id,
-                    "workflow_run_id": info.workflow_run_id,
-                    "workflow_type": info.workflow_type,
-                    "attempt": info.attempt,
-                },
-            )
+            properties = {
+                "team_id": inputs.team_id,
+                "schema_id": str(inputs.schema_id),
+                "source_id": str(inputs.source_id),
+                "run_id": inputs.run_id,
+                "host": last_heartbeat_host,
+                "gap_between_beats": gap_between_beats,
+                "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
+                "task_queue": info.task_queue,
+                "workflow_id": info.workflow_id,
+                "workflow_run_id": info.workflow_run_id,
+                "workflow_type": info.workflow_type,
+                "attempt": info.attempt,
+            }
+            # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
+            # of death — the per-activity context this event otherwise cannot carry. Adds nothing when
+            # no reports exist.
+            enrich_death_event_properties(properties, run_id=str(inputs.run_id), host=last_heartbeat_host)
+
+            posthoganalytics.capture("dwh_pod_heartbeat_timeout", distinct_id=None, properties=properties)
 
             # Durable per-occurrence OOM record for the repartition trigger to read. Best-effort:
             # a write failure here must never disrupt the sync.
