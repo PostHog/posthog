@@ -17,6 +17,8 @@ SNAPSHOT_DATE = datetime.date(2026, 7, 29)
 BUILT_AT = datetime.datetime(2026, 7, 30, 2, 30, tzinfo=datetime.UTC)
 T1 = datetime.datetime(2026, 7, 20, 10, 0, tzinfo=datetime.UTC)
 T2 = datetime.datetime(2026, 7, 21, 10, 0, tzinfo=datetime.UTC)
+SNAPSHOT_END = datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
+AFTER_SNAPSHOT_END = datetime.datetime(2026, 7, 30, 1, 0, tzinfo=datetime.UTC)
 UUID_A = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
 UUID_B = "0198c0e8-93c8-0000-38f5-a934eeb1b93f"
 
@@ -134,17 +136,19 @@ def test_label_stream_columns_all_exist_in_defaults():
 
 
 @pytest.mark.parametrize(
-    "pg_status,pg_updated_at,latest_event,latest_event_at,expected",
+    "pg_status,pg_updated_at,latest_event,expected",
     [
-        (None, None, "resolved", T1, False),
-        ("resolved", T1, None, None, True),
-        ("resolved", T1, "resolved", T1, True),
-        ("potential", T2, "resolved", T1, True),
-        ("potential", T1, "resolved", T2, False),
+        (None, None, "resolved", False),
+        ("resolved", T1, None, True),
+        ("resolved", T1, "resolved", True),
+        # A mismatch is only excused by a Postgres write after the cutoff — the transition the label
+        # window couldn't see. An earlier one is unrelated activity (ingestion bumps updated_at).
+        ("potential", AFTER_SNAPSHOT_END, "resolved", True),
+        ("potential", T2, "resolved", False),
     ],
 )
-def test_label_provenance_cross_check(pg_status, pg_updated_at, latest_event, latest_event_at, expected):
-    assert label_provenance_ok(pg_status, pg_updated_at, latest_event, latest_event_at) is expected
+def test_label_provenance_cross_check(pg_status, pg_updated_at, latest_event, expected):
+    assert label_provenance_ok(pg_status, pg_updated_at, latest_event, snapshot_end=SNAPSHOT_END) is expected
 
 
 def _state_row(report_id: str, **overrides):
@@ -178,7 +182,7 @@ def test_assemble_model_rows_spine_and_join():
         _embedding_row("r2", embedding_small=None, is_tombstone=True),
         _embedding_row("r4"),
     ]
-    labels = [{"report_id": "r1", "open_count": 4, "latest_status_event": "resolved", "latest_status_event_at": T1}]
+    labels = [{"report_id": "r1", "open_count": 4, "latest_status_event": "ready", "latest_status_event_at": T1}]
 
     rows = {
         row["report_id"]: row

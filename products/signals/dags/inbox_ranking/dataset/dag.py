@@ -493,18 +493,24 @@ def label_provenance_ok(
     pg_status: str | None,
     pg_updated_at: datetime.datetime | None,
     latest_status_event: str | None,
-    latest_status_event_at: datetime.datetime | None,
+    *,
+    snapshot_end: datetime.datetime,
 ) -> bool:
     """Status labels cross-checked against Postgres current state (the label-telemetry PR's
     security-review requirement): the report must exist in Postgres, and its latest status event
-    must either match the current status or have been superseded by a later Postgres write."""
+    must either match the current status or be explained by the cutoff.
+
+    The only legitimate mismatch is a status that moved after the label window closed — labels are
+    bounded at the cutoff, Postgres is read at run time. Any *earlier* write is no excuse: signal
+    ingestion bumps `updated_at` without touching status, so accepting one would let stale or forged
+    status telemetry pass as soon as the report saw unrelated activity."""
     if pg_status is None:
         return False
     if latest_status_event is None:
         return True
     if latest_status_event == pg_status:
         return True
-    return pg_updated_at is not None and latest_status_event_at is not None and pg_updated_at > latest_status_event_at
+    return pg_updated_at is not None and pg_updated_at >= snapshot_end
 
 
 def assemble_model_rows(
@@ -526,6 +532,7 @@ def assemble_model_rows(
     Postgres row — so re-running a partition cannot scrub one. See the README's retention section:
     scrubbing means deleting the objects.
     """
+    _, snapshot_end = snapshot_bounds(snapshot_date.isoformat())
     state_by_id = {row["report_id"]: row for row in state_rows}
     embedding_by_id = {row["report_id"]: row for row in embedding_rows}
     labels_by_id = {row["report_id"]: row for row in label_rows}
@@ -567,7 +574,7 @@ def assemble_model_rows(
             row["status"],
             row["pg_updated_at"],
             row["latest_status_event"],
-            row["latest_status_event_at"],
+            snapshot_end=snapshot_end,
         )
         # Desktop Code app does not emit impressions yet, so p(open) negatives are cloud-only;
         # recorded per row so the caveat travels with the data.
@@ -644,8 +651,11 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     cron_schedule="30 2 * * *",
     job=inbox_ranking_dataset_job,
     execution_timezone="UTC",
+    # Only prod US runs on its own: the dogfood project this dag reads labels from lives there, so
+    # a DEV or E2E deployment (also `is_cloud()`) would fail every daily run on the missing team.
+    # Those deployments still register the location and can trigger a run by hand.
     default_status=dagster.DefaultScheduleStatus.RUNNING
-    if settings.CLOUD_DEPLOYMENT
+    if settings.CLOUD_DEPLOYMENT == "US"
     else dagster.DefaultScheduleStatus.STOPPED,
     tags=owner_tags,
 )

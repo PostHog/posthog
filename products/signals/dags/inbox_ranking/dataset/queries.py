@@ -247,8 +247,13 @@ STATUS_COLUMNS = (
     "status_event_actionability",
     "status_event_team_id",
 )
-# The inner query dedupes at-least-once analytics delivery within 10-minute buckets;
-# events.timestamp is qualified because the min() alias shadows the raw column in WHERE/GROUP BY.
+# The inner query dedupes at-least-once analytics delivery within 10-minute buckets; events.timestamp
+# is qualified because the min()/max() aliases shadow the raw column in WHERE/GROUP BY.
+#
+# A bucket keeps both its first and last timestamp because the grouping can also collapse genuine
+# repeats — dismiss, restore, dismiss again inside ten minutes is one bucket of two real events.
+# `first_*` reads the bucket's first timestamp and everything latest-wins reads its last, so the
+# intervening restore can no longer out-rank the dismissal that actually came after it.
 #
 # status_event_priority/actionability are the classification the *event* carried, which is why
 # capture_status_change_analytics snapshots them onto every transition: artefacts can be re-judged
@@ -257,31 +262,32 @@ STATUS_COLUMNS = (
 STATUS_SQL = """
 SELECT
     report_id,
-    nullIf(minIf(timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
-    nullIf(minIf(timestamp, outcome = 'dismissed'), fromUnixTimestamp(0)) AS first_dismissed_server_at,
-    nullIf(minIf(timestamp, outcome = 'failed'), fromUnixTimestamp(0)) AS first_failed_at,
-    nullIf(minIf(timestamp, outcome = 'snoozed'), fromUnixTimestamp(0)) AS first_snoozed_at,
-    argMax(status, timestamp) AS latest_status_event,
-    max(timestamp) AS latest_status_event_at,
+    nullIf(minIf(first_timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
+    nullIf(minIf(first_timestamp, outcome = 'dismissed'), fromUnixTimestamp(0)) AS first_dismissed_server_at,
+    nullIf(minIf(first_timestamp, outcome = 'failed'), fromUnixTimestamp(0)) AS first_failed_at,
+    nullIf(minIf(first_timestamp, outcome = 'snoozed'), fromUnixTimestamp(0)) AS first_snoozed_at,
+    argMax(status, last_timestamp) AS latest_status_event,
+    max(last_timestamp) AS latest_status_event_at,
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
     -- intended semantic: reasons only accompany dismissals/snoozes), not necessarily paired with
     -- latest_status_event above.
-    argMax(dismissal_reason, timestamp) AS dismissal_reason,
+    argMax(dismissal_reason, last_timestamp) AS dismissal_reason,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
     -- its classification as the one this outcome was judged at.
-    nullIf(argMax(coalesce(event_priority, ''), timestamp), '') AS status_event_priority,
-    nullIf(argMax(coalesce(event_actionability, ''), timestamp), '') AS status_event_actionability,
+    nullIf(argMax(coalesce(event_priority, ''), last_timestamp), '') AS status_event_priority,
+    nullIf(argMax(coalesce(event_actionability, ''), last_timestamp), '') AS status_event_actionability,
     -- The owning team as the transition itself reported it. This is the only tenant attribution a
     -- label-only row can have: reports outside this dag's region have no Postgres state and no
     -- embedding here. Deliberately *not* merged into report_team_id, which is a US team id by
     -- construction — team ids are per-region, so an EU 42 and a US 42 are different teams and
     -- nothing on the event says which region emitted it.
-    toInt(argMax(coalesce(event_team_id, ''), timestamp)) AS status_event_team_id
+    toInt(argMax(coalesce(event_team_id, ''), last_timestamp)) AS status_event_team_id
 FROM (
     SELECT
-        min(events.timestamp) AS timestamp,
+        min(events.timestamp) AS first_timestamp,
+        max(events.timestamp) AS last_timestamp,
         toString(properties.report_id) AS report_id,
         toString(properties.previous_status) AS previous_status,
         toString(properties.status) AS status,
@@ -292,10 +298,12 @@ FROM (
             toString(properties.previous_status) IN ('ready', 'resolved') AND toString(properties.status) = 'potential', 'snoozed',
             'other'
         ) AS outcome,
-        any(nullIf(toString(properties.dismissal_reason), '')) AS dismissal_reason,
-        any(nullIf(toString(properties.priority), '')) AS event_priority,
-        any(nullIf(toString(properties.actionability), '')) AS event_actionability,
-        any(nullIf(toString(properties.team_id), '')) AS event_team_id
+        -- Latest event in the bucket rather than any(): identical for the duplicate deliveries this
+        -- grouping targets, and the one that matches last_timestamp when it collapsed real repeats.
+        nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS dismissal_reason,
+        nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
+        nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
+        nullIf(argMax(toString(properties.team_id), events.timestamp), '') AS event_team_id
     FROM events
     WHERE event = 'signal_report_status_changed'
       AND events.timestamp >= toDateTime({labels_epoch}) AND events.timestamp < toDateTime({snapshot_end})
