@@ -55,6 +55,7 @@ export interface databaseTableListLogicValues {
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
     dataWarehouseTablesMapById: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
     database: Required<DatabaseSchemaQueryResponse> | null
+    databaseLoadError: string | null
     databaseLoading: boolean
     endpointTables: DatabaseSchemaEndpointTable[]
     externalDataSourceTables: DatabaseSchemaDataWarehouseTable[]
@@ -95,6 +96,9 @@ export interface databaseTableListLogicActions {
         }
     }
     refreshDatabaseSchema: () => {
+        value: true
+    }
+    resetConnectionScope: () => {
         value: true
     }
     setConnection: (connectionId: string | null) => {
@@ -161,6 +165,10 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setConnection: (connectionId: string | null) => ({ connectionId }),
         refreshDatabaseSchema: true,
+        // Drop any direct-connection scope and go back to the project's own catalog. This logic is
+        // shared and outlives the SQL editor, so without an explicit reset every other consumer
+        // (sources list, taxonomic filters, joins) keeps seeing the connection's tables.
+        resetConnectionScope: true,
     }),
     loaders(({ values }) => ({
         database: [
@@ -236,7 +244,20 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     })),
     reducers({
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
-        connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
+        // Without this the logic settles on `database: null, databaseLoading: false` after a failed
+        // load, which every consumer reads as "loaded, and the project has no tables".
+        databaseLoadError: [
+            null as string | null,
+            {
+                loadDatabase: () => null,
+                loadDatabaseSuccess: () => null,
+                loadDatabaseFailure: (_, { error }) => error || 'Unknown error',
+            },
+        ],
+        connectionId: [
+            null as string | null,
+            { setConnection: (_, { connectionId }) => connectionId, resetConnectionScope: () => null },
+        ],
     }),
     selectors({
         allPosthogTables: [
@@ -411,6 +432,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     listeners(({ actions }) => ({
         refreshDatabaseSchema: () => {
             actions.loadDatabase({ force: true })
+        },
+        // Reload immediately: the cached `database` still holds the connection's schema, and
+        // consumers that only load when `database` is empty would otherwise never refetch it.
+        resetConnectionScope: () => {
+            actions.loadDatabase()
         },
     })),
 ])

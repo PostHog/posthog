@@ -57,6 +57,8 @@ If your work overlaps it, read the companion skill first.
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import * as api from 'products/foo/frontend/generated/api'
+
 export interface FooLogicProps {
   fooId: string
 }
@@ -81,7 +83,7 @@ export const fooLogic = kea<fooLogicType>([
   connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
   actions({ setName: (name: string) => ({ name }) }),
   loaders(({ props }) => ({
-    foo: [null as Foo | null, { loadFoo: async () => api.foos.get(props.fooId) }],
+    foo: [null as Foo | null, { loadFoo: async () => api.foosRetrieve(props.fooId) }],
   })),
   reducers({ name: ['', { setName: (_, { name }) => name }] }),
   selectors({ nameUpper: [(s) => [s.name], (name): string => name.toUpperCase()] }),
@@ -164,22 +166,18 @@ Inline type blocks are produced by `kea-typegen` 3.8.3. Commands:
 - `pnpm --filter=@posthog/frontend typegen:write` — one-shot write
 - `pnpm --filter=@posthog/frontend typegen:check` — CI parity check
 
-### Iterating on one logic — skip the full scan
+### Iterating on one logic
 
-Full typegen + `tsc --noEmit` over the whole codebase is slow. When you're iterating
-on a single logic, scope both to that file:
+Full typegen over the whole codebase is slow. When you're iterating on a single
+logic, scope typegen to that file:
 
 ```sh
 # Regenerate the type for one logic
 pnpm --filter=@posthog/frontend typegen:file frontend/src/scenes/foo/fooLogic.ts
-
-# Type-check just that file (and its imports — fast, but won't catch downstream
-# breakage in other files that consume the new types)
-pnpm --filter=@posthog/frontend exec tsgo --noEmit \
-    frontend/src/scenes/foo/fooLogic.ts
 ```
 
-Use this loop while writing the logic; run the full `typegen:check` /
+Use this loop while writing the logic. The current `tsgo` does not support combining
+the project config with a file argument, so run the full `typegen:check` and
 `typescript:check` once at the end to confirm nothing else broke.
 
 Do not create or import a separate `*LogicType.ts` file. Change the logic and re-run

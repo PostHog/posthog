@@ -24,6 +24,9 @@ from google.ads.googleads.v23.services.services.google_ads_service import Google
 from google.ads.googleads.v24.common import types as ga_common_v24
 from google.ads.googleads.v24.enums import types as ga_enums_v24
 from google.ads.googleads.v24.resources import types as ga_resources_v24
+from google.ads.googleads.v25.common import types as ga_common_v25
+from google.ads.googleads.v25.enums import types as ga_enums_v25
+from google.ads.googleads.v25.resources import types as ga_resources_v25
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 from google.oauth2 import service_account
@@ -33,10 +36,10 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
 )
@@ -318,6 +321,7 @@ class GoogleAdsColumn(Column):
 _PROTO_MODULES_BY_VERSION: dict[str, dict[str, typing.Any]] = {
     "v23": {"common": ga_common, "enums": ga_enums, "resources": ga_resources},
     "v24": {"common": ga_common_v24, "enums": ga_enums_v24, "resources": ga_resources_v24},
+    "v25": {"common": ga_common_v25, "enums": ga_enums_v25, "resources": ga_resources_v25},
 }
 
 

@@ -34,9 +34,10 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
 
         # Generate SCIM token
-        self.plain_token, hashed_token = generate_scim_token()
+        token = generate_scim_token()
+        self.plain_token = token.plain
         config = IdentityProviderConfig.objects.create(
-            organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
         self.domain.identity_provider_config = config
         self.domain.save()

@@ -2,7 +2,6 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
     CAL_COM_ENDPOINTS,
     CalComEndpointConfig,
@@ -20,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CAL_COM_BASE_URL = "https://api.cal.com/v2"
 # Cheap single-object endpoint used to confirm an API key is genuine. The key is account-wide, so

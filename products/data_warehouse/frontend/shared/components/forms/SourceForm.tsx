@@ -196,11 +196,15 @@ export const sourceFieldToElement = (
     }
 
     if (field.type === 'switch-group') {
-        const enabled = !!lastValue?.[field.name]?.enabled || lastValue?.[field.name]?.enabled === 'True'
+        // job_inputs booleans round-trip through the encrypted field as the strings "True"/"False",
+        // and LemonSwitch treats anything but a real `true` as off — translate before rendering.
+        // `lastValue` is already scoped to this group by the caller.
+        const toBool = (flag: unknown): boolean => flag === true || flag === 'True'
+        const enabled = toBool(lastValue?.enabled)
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => {
-                    const isEnabled = value === undefined || value === null || value === 'False' ? enabled : value
+                    const isEnabled = value === undefined || value === null ? enabled : toBool(value)
                     return (
                         <>
                             {!!field.caption && <p className="mb-0">{field.caption}</p>}
@@ -949,8 +953,8 @@ export function SourceFormComponent({
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
-                    label="Table prefix (optional)"
-                    help="Use only letters, numbers, and underscores. Must start with a letter or underscore."
+                    label="Table name prefix (optional)"
+                    help="Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
                 >
                     {({ value, onChange }) => {
                         const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''

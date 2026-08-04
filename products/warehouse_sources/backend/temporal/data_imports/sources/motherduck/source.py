@@ -25,6 +25,7 @@ class MotherduckSource(SimpleSource[MotherduckSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.MOTHERDUCK,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql", "duckdb"],
             label="MotherDuck",
             iconPath="/static/services/motherduck.png",
             fields=cast(list[FieldType], []),

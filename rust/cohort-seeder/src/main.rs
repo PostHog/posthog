@@ -18,10 +18,12 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_seeder::app::{
     AutoDispatchPolicy, CompletionDriver, KafkaCommittedOffsets, KafkaTopicOffsets,
-    MarkerWatchTask, ObservePolicy, OrchestratorSettings, PgMarkerFlush, SeederOrchestrator,
-    WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE, ORCHESTRATOR_LIVENESS_DEADLINE,
+    MarkerWatchTask, ObservePolicy, OrchestratorSettings, PersonComponents, PgMarkerFlush,
+    SeederOrchestrator, WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE,
+    ORCHESTRATOR_LIVENESS_DEADLINE,
 };
 use cohort_seeder::clickhouse::client::build_client;
+use cohort_seeder::clickhouse::person_scanner::PersonScanner;
 use cohort_seeder::clickhouse::scanner::ChunkScanner;
 use cohort_seeder::config::Config;
 use cohort_seeder::kafka::committed::SeedGroupOffsetReader;
@@ -29,6 +31,7 @@ use cohort_seeder::kafka::markers::MarkerWatcher;
 use cohort_seeder::kafka::pacing::TilePacer;
 use cohort_seeder::kafka::producer::SeedTileProducer;
 use cohort_seeder::observability;
+use cohort_seeder::store::runs::RunKind;
 
 common_alloc::used!();
 
@@ -87,7 +90,8 @@ async fn async_main(config: Config) -> Result<()> {
 
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating cohort-seeder PostgreSQL pool")?;
-    let scanner = ChunkScanner::new(build_client(&config).context("building ClickHouse client")?);
+    let clickhouse_client = build_client(&config).context("building ClickHouse client")?;
+    let scanner = ChunkScanner::new(clickhouse_client.clone());
     let producer = SeedTileProducer::new(
         &config.build_kafka_config(),
         config.seed_events_topic.clone(),
@@ -109,9 +113,21 @@ async fn async_main(config: Config) -> Result<()> {
     );
     let settings =
         OrchestratorSettings::try_from(&config).context("validating orchestrator settings")?;
-    let completion = build_completion(&config, &pool, &producer, observe_policy, watch_handle)
-        .await
-        .context("validating completion driver policies")?;
+    // Shares the built ClickHouse client with the behavioral scanner.
+    let person = settings.person().map(|person_settings| PersonComponents {
+        scanner: PersonScanner::new(clickhouse_client),
+        pacer: TilePacer::new(person_settings.seeds_per_sec),
+    });
+    let completion = build_completion(
+        &config,
+        settings.completion_kinds(),
+        &pool,
+        &producer,
+        observe_policy,
+        watch_handle,
+    )
+    .await
+    .context("validating completion driver policies")?;
     let claimed_by = format!("cohort-seeder:{}", uuid::Uuid::now_v7());
     let orchestrator = SeederOrchestrator::new(
         pool,
@@ -123,6 +139,7 @@ async fn async_main(config: Config) -> Result<()> {
         seeder_handle,
         claimed_by,
         completion.driver,
+        person,
     );
 
     let guard = manager.monitor_background();
@@ -163,6 +180,7 @@ struct WiredCompletion {
 /// name would otherwise surface only as runs stuck re-dispatching forever.
 async fn build_completion(
     config: &Config,
+    kinds: &'static [RunKind],
     pool: &sqlx::PgPool,
     producer: &SeedTileProducer,
     observe_policy: ObservePolicy,
@@ -190,7 +208,7 @@ async fn build_completion(
     .context("joining membership topic verification task")?
     .context("verifying the membership topic is reachable")?;
 
-    let mut driver = CompletionDriver::new(pool.clone(), config.team_allowlist.clone());
+    let mut driver = CompletionDriver::new(pool.clone(), config.team_allowlist.clone(), kinds);
 
     if let AutoDispatchPolicy::Enabled(register_backfill) = dispatch_policy {
         let max_inflight = NonZeroUsize::new(config.seeder_max_inflight_tiles)
@@ -295,6 +313,11 @@ fn log_startup(config: &Config) {
         bands_per_day = config.seeder_bands_per_day,
         tiles_per_second = config.seeder_tiles_per_sec,
         max_inflight_tiles = config.seeder_max_inflight_tiles,
+        person_seeds_enabled = config.seeder_person_seeds_enabled,
+        person_seeds_per_sec = config.seeder_person_seeds_per_sec,
+        persons_per_chunk = config.seeder_persons_per_chunk,
+        person_max_concurrent_chunks = config.seeder_person_max_concurrent_chunks,
+        person_emit_nonmatchers = config.seeder_person_emit_nonmatchers,
         reconcile_auto_dispatch_enabled = config.seeder_reconcile_auto_dispatch_enabled,
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,
         reconcile_max_concurrent_dispatches = config.seeder_reconcile_max_concurrent_dispatches,

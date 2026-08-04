@@ -7,7 +7,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets
+from ee.tasks.subscriptions.subscription_utils import MAX_DASHBOARD_INSIGHTS, generate_assets
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -44,8 +44,8 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
             insights, assets = generate_assets(subscription)
 
         assert len(insights) == len(self.tiles)
-        assert len(assets) == DEFAULT_MAX_ASSET_COUNT
-        assert mock_export_task.si.call_count == DEFAULT_MAX_ASSET_COUNT
+        assert len(assets) == MAX_DASHBOARD_INSIGHTS
+        assert mock_export_task.si.call_count == MAX_DASHBOARD_INSIGHTS
 
     def test_raises_if_missing_resource(self, _mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         subscription = create_subscription(team=self.team, created_by=self.user)
