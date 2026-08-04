@@ -3437,6 +3437,9 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
+_TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
+
+
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
@@ -3576,6 +3579,43 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     )
     def test_invalid_session_replay_config_ai_config(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_replay_config", {"ai_config": value}, "invalid", expected_detail)
+
+    # `ProjectBackwardCompatSerializer` keeps its own copy of these validators, so both
+    # serializers are exercised here rather than only the Team one.
+    @parameterized.expand(
+        [
+            ["team app urls", TeamSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            ["team widget domains", TeamSerializer, "conversations_settings", {"widget_domains": _TOO_MANY_WILDCARDS}],
+            ["project app urls", ProjectBackwardCompatSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            [
+                "project widget domains",
+                ProjectBackwardCompatSerializer,
+                "conversations_settings",
+                {"widget_domains": _TOO_MANY_WILDCARDS},
+            ],
+        ]
+    )
+    def test_rejects_url_with_too_many_wildcards(
+        self, _name: str, serializer_class: type, field: str, value: Any
+    ) -> None:
+        serializer = serializer_class(data={field: value}, partial=True)
+        assert not serializer.is_valid()
+        assert str(serializer.errors[field][0]) == (
+            "Each URL can include up to 5 wildcards. Remove the extra ones from this entry."
+        )
+
+    @parameterized.expand(
+        [
+            ["number", 123],
+            ["object", {"nested": "value"}],
+            ["list", ["https://example.com"]],
+            ["boolean", True],
+        ]
+    )
+    def test_rejects_non_string_widget_domain(self, _name: str, entry: Any) -> None:
+        # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
+        serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
+        assert not serializer.is_valid()
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation
