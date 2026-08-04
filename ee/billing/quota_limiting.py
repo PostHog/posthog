@@ -27,6 +27,7 @@ from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
     get_signals_credited_refund_credits_for_org,
+    get_signals_credits_used_in_period_for_org,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
@@ -730,6 +731,32 @@ def update_org_billing_quotas(organization: Organization):
         dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
 
     invalidate_llm_gateway_quota_cache(teams_by_token.values())
+
+
+def refresh_org_signals_quota(organization_id: str) -> None:
+    """Recompute one org's live `signals_credits` usage for today and re-evaluate its quota limits.
+
+    Dispatched when a signals implementation run records its first PR URL (the billable moment), so
+    the Redis limited flag can flip within seconds of the PR that crosses the limit. Without this,
+    `update_org_billing_quotas` reads the `todays_usage` value patched by the last quota cron tick,
+    which by definition predates the PR that just landed — the cron (every 15 minutes) remains the
+    backstop for orgs that cross the limit without a PR event.
+    """
+    organization = Organization.objects.filter(id=organization_id).first()
+    if organization is None or not organization.usage:
+        return
+    resource_usage = organization.usage.get(QuotaResource.SIGNALS_CREDITS.value)
+    if not resource_usage:
+        return
+
+    period_start, period_end = get_current_day()
+    todays_credits = get_signals_credits_used_in_period_for_org(organization.id, period_start, period_end)
+    if resource_usage.get("todays_usage") != todays_credits:
+        resource_usage["todays_usage"] = todays_credits
+        _patch_organization_usage_jsonb(
+            organization, [([QuotaResource.SIGNALS_CREDITS.value, "todays_usage"], todays_credits)]
+        )
+    update_org_billing_quotas(organization)
 
 
 def set_org_usage_summary(

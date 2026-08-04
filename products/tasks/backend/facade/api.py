@@ -958,6 +958,8 @@ def create_and_run_task(
     An id the creator can't file into (see ``_visible_channel``) is ignored rather than
     raising — feed placement must never break task creation.
     """
+    if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        enforce_signals_pr_quota(team)
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
@@ -2162,6 +2164,53 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
     transaction.on_commit(lambda: send_wizard_pr_ready_email.delay(str(run.id)))
 
 
+def _refresh_signals_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> None:
+    """Queue an org-level signals quota re-evaluation when a signals-origin run records its first
+    PR URL. That write is the report's billable moment (products/signals/backend/billing.py), so
+    re-evaluating now lets the quota limiter flag the org within seconds of the PR that crosses
+    its limit; the 15-minute quota cron only re-reads usage on its next tick. Dispatched on
+    commit so the task reads the committed pr_url; best-effort because the cron is the backstop.
+    """
+    if old_pr_url:
+        return
+    new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+        return
+    organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return
+    from ee.tasks.quota_limiting import (
+        refresh_org_signals_quota_task,  # noqa: PLC0415 — keep billing deps off the api import path
+    )
+
+    def _dispatch() -> None:
+        try:
+            refresh_org_signals_quota_task.delay(str(organization_id))
+        except Exception:
+            logger.warning("signals_quota_refresh_dispatch_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+    transaction.on_commit(_dispatch)
+
+
+def enforce_signals_pr_quota(team: Team) -> None:
+    """Refuse to create a signals implementation task while the team is over its signals credits
+    quota with enforcement on. The implementation task is the step that leads to the billable PR,
+    so the manual create-from-report path must respect the same limit as the pipeline auto-start
+    gate (products/signals/backend/auto_start.py). Raises ``QuotaLimitExceeded`` (402).
+    """
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+
+    from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        signals_quota_gate,
+    )
+
+    if signals_quota_gate(team).enforced:
+        raise QuotaLimitExceeded(
+            "Your organization reached its self-driving pull request limit. "
+            "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
+        )
+
+
 def update_task_run(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -2291,6 +2340,7 @@ def update_task_run(
 
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
+        _refresh_signals_quota_for_pr(run, old_pr_url)
         _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
         post_pr_created_thread_update(run, new_pr_url)
@@ -2337,6 +2387,7 @@ def set_task_run_output(
     merged = merge_pr_output(existing, output)
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
+    _refresh_signals_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
@@ -4279,6 +4330,15 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
+
+    # The write serializer binds the report as `signal_report` (a PK field); direct callers may
+    # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
+    if (
+        (validated_data.get("signal_report") or validated_data.get("signal_report_id"))
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+        and signal_report_task_relationship in (None, "implementation")
+    ):
+        enforce_signals_pr_quota(team)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():

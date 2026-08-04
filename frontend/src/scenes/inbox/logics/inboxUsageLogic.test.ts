@@ -15,7 +15,8 @@ const CREDITS_PER_PR = 1500
 
 const mockUsageEndpoints = (
     currentUsage: number,
-    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count'>
+    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
 ): void => {
     useMocks({
         get: {
@@ -25,7 +26,7 @@ const mockUsageEndpoints = (
             ],
             '/api/projects/:team_id/signals/reports/refund-summary/': () => [
                 200,
-                { credited_refund_count: summary.credited_credits / CREDITS_PER_PR, ...summary },
+                { credited_refund_count: summary.credited_credits / CREDITS_PER_PR, quota_limited: false, ...summary },
             ],
         },
     })
@@ -39,7 +40,8 @@ const setRefundsFlag = (): void => {
 
 const mountWithUsage = async (
     currentUsage: number,
-    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count'>
+    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
 ): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
     mockUsageEndpoints(currentUsage, summary)
     featureFlagLogic.mount()

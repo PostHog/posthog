@@ -21,6 +21,7 @@ from products.signals.backend.task_run_artefacts import (
     aappend_task_run_artefact,
     append_task_run_artefact,
     record_implementation_task,
+    release_quota_cancelled_implementation,
     signals_task_ids,
 )
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -360,3 +361,56 @@ class TestReportsForTaskFilter(BaseTest):
         )
         assert self._matched_report_ids(other_task) == set()
         assert self._matched_report_ids(task) == {str(report.id)}
+
+
+class TestReleaseQuotaCancelledImplementation(BaseTest):
+    def _report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="t",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def test_release_removes_gate_records_and_leaves_only_the_report(self):
+        # The auto-start gate reads both the SignalReportTask row and the implementation artefact;
+        # leaving either behind after a quota cancel would permanently block re-implementation.
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        # A research artefact from another task must survive the release untouched.
+        research_task = self._task()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_RESEARCH,
+            task_id=str(research_task.id),
+        )
+
+        released = release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id))
+
+        assert released == [str(report.id)]
+        assert not SignalReportTask.objects.filter(task_id=task.id).exists()
+        assert not SignalReport.associated_task_runs(
+            report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        assert SignalReport.associated_task_runs(
+            report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_RESEARCH
+        )
+        note = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.NOTE)
+        assert "pull request limit" in json.loads(note.content)["note"]
+
+    def test_release_without_implementation_link_is_a_noop(self):
+        task = self._task()
+        assert release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id)) == []

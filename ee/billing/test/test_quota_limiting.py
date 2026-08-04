@@ -31,6 +31,7 @@ from ee.billing.quota_limiting import (
     get_team_attribute_by_quota_resource,
     list_limited_team_attributes,
     org_quota_limited_until,
+    refresh_org_signals_quota,
     replace_limited_team_tokens,
     set_org_usage_summary,
     update_all_orgs_billing_quotas,
@@ -2869,3 +2870,41 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
             org_quota_limited_until(self.organization, QuotaResource.EVENTS, [], [])
         mock_offset.assert_not_called()
+
+
+class TestRefreshOrgSignalsQuota(BaseTest):
+    def _set_signals_usage(self, usage: int, *, todays_usage: int = 0, limit: int = 4500) -> None:
+        self.organization.usage = {
+            "signals_credits": {"usage": usage, "todays_usage": todays_usage, "limit": limit},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_refresh_patches_todays_usage_and_flips_the_limiter(self, _feature_enabled, _capture) -> None:
+        # The event-driven path exists because the cron-patched todays_usage predates the PR that
+        # just landed: a stale value here means the flag doesn't flip until the next cron tick.
+        self._set_signals_usage(3000, todays_usage=0)
+        with patch(
+            "ee.billing.quota_limiting.get_signals_credits_used_in_period_for_org", return_value=1500
+        ) as live_mock:
+            refresh_org_signals_quota(str(self.organization.id))
+
+        assert live_mock.call_args.args[0] == self.organization.id
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        # 3000 recorded + 1500 live == the 4500 limit: the team must now be in the limited zset.
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    def test_refresh_is_a_noop_without_signals_usage(self) -> None:
+        self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}
+        self.organization.save()
+        with patch("ee.billing.quota_limiting.get_signals_credits_used_in_period_for_org") as live_mock:
+            refresh_org_signals_quota(str(self.organization.id))
+        live_mock.assert_not_called()

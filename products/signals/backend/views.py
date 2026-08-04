@@ -104,6 +104,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.quota import signals_quota_gate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
@@ -685,6 +686,13 @@ class SignalReportRefundSummaryResponseSerializer(serializers.Serializer):
             "that billing hasn't recorded yet, and already excluding refund-excluded and "
             "billing-exempt reports. Take the max of this and billing's recorded usage for a live "
             "PR count that reacts to new PRs and same-day refunds immediately."
+        ),
+    )
+    quota_limited = serializers.BooleanField(
+        help_text=(
+            "Whether autonomous PR generation is currently paused for this project because the "
+            "organization is over its signals credits quota. Read from the quota limiter, so it "
+            "reflects the same state the pipeline gates enforce."
         ),
     )
 
@@ -2245,6 +2253,7 @@ class SignalReportViewSet(
                 "credited_refund_count": aggregates["credited_refund_count"] or 0,
                 "credited_credits": aggregates["credited_credits"] or 0,
                 "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
+                "quota_limited": signals_quota_gate(self.team).enforced,
             }
         )
 
