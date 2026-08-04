@@ -301,7 +301,7 @@ class TestPathsV2EdgeContract(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._funnel_count(query, source, target), 2)
         self.assertEqual(self._edge_rows(query, source, target), [(0, 2)])
 
-    def test_excluded_items_edge_matches_funnel(self):
+    def test_excluded_items_edge_matches_funnel(self) -> None:
         journeys_for(
             team=self.team,
             events_by_person={
@@ -321,7 +321,7 @@ class TestPathsV2EdgeContract(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._funnel_count(query, source, target), 2)
         self.assertEqual(self._edge_rows(query, source, target), [(0, 2)])
 
-    def test_local_cleaning_edge_matches_funnel(self):
+    def test_local_cleaning_edge_matches_funnel(self) -> None:
         journeys_for(
             team=self.team,
             events_by_person={
@@ -451,7 +451,7 @@ class TestEdgeToFunnelsQuery(APIBaseTest):
         self.assertIn("in(event, ['signup', 'stage changed'])", universe_filter.key)
         self.assertIn("tuple('signup', '')", universe_filter.key)
         self.assertIn("tuple('stage changed', 'lead')", universe_filter.key)
-        self.assertIn("ifNull(toString(properties.stage), '')", universe_filter.key)
+        self.assertIn("toString(properties.stage)", universe_filter.key)
 
         self.assertEqual(funnels_query.dateRange, query.dateRange)
         self.assertEqual(funnels_query.properties, query.properties)

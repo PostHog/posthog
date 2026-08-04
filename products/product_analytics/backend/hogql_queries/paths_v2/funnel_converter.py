@@ -22,14 +22,12 @@ from products.product_analytics.backend.hogql_queries.paths_v2.path_item import 
     DEFAULT_GAP_INTERVAL,
     DEFAULT_GAP_INTERVAL_UNIT,
     PATHS_V2_OTHER,
-    excluded_item_tuples,
-    excluded_items_filter_expr,
     item_label,
     item_tuple_expr,
+    item_universe_filter_expr,
     path_item_expr,
     resolve_cleaning_rules,
     resolve_step_sources,
-    source_events_filter_expr,
     source_label_expr,
     step_source_for_event,
 )
@@ -55,23 +53,18 @@ def _item_strict_exclusion(
     to_step: int,
 ) -> FunnelExclusionEventsNode:
     """The item-strict universe as one all-events exclusion spanning the whole segment: an event
-    breaks the funnel iff it is an included path item whose derived item is not one of the segment's
-    own items. Events outside the step sources stay invisible, exactly as in the paths runner, and so
-    do events deriving to an excluded item. Active from the first step through `to_step` (the last),
-    so any intervening included item between any two consecutive segment steps disqualifies that
-    attempt."""
+    breaks the funnel iff it is part of the item universe (a step source's event, not an excluded
+    item) and its derived item is not one of the segment's own items. Events outside the universe
+    stay invisible, exactly as in the paths runner. Active from the first step through `to_step`
+    (the last), so any intervening included item between any two consecutive segment steps
+    disqualifies that attempt."""
     item_expr = path_item_expr(sources, cleaning_rules)
-    not_a_segment_item = ast.And(
-        exprs=[
-            ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=item_expr, right=segment_item_expr)
-            for segment_item_expr in segment_item_exprs
-        ]
+    not_a_segment_item = ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=item_expr,
+        right=ast.Tuple(exprs=segment_item_exprs),
     )
-    universe_exprs = [source_events_filter_expr(sources)]
-    not_excluded = excluded_items_filter_expr(item_expr, excluded_item_tuples(query.pathsV2Filter))
-    if not_excluded is not None:
-        universe_exprs.append(not_excluded)
-    universe = ast.And(exprs=[*universe_exprs, not_a_segment_item])
+    universe = ast.And(exprs=[item_universe_filter_expr(sources, query.pathsV2Filter, item_expr), not_a_segment_item])
     return FunnelExclusionEventsNode(
         event=None,
         funnelFromStep=0,

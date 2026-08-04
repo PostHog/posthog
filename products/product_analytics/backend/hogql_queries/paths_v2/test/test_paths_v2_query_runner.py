@@ -169,30 +169,41 @@ class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaisesMessage(ValidationError, "must be one of the step sources"):
             runner.validate()
 
-    def test_excluding_a_naming_property_item_needs_a_label(self) -> None:
-        runner = self._runner(
-            PathsV2Filter(
-                stepSources=[PathsV2StepSource(event="$pageview", namingProperty="$pathname")],
-                excludedItems=[PathsV2Item(event="$pageview")],
-            )
-        )
-        with self.assertRaisesMessage(ValidationError, "needs a label"):
-            runner.validate()
-
-    def test_excluding_the_anchor_rejects(self) -> None:
+    @parameterized.expand(
+        [
+            ("event_only", PathsV2Item(event="a")),
+            # A spurious label on a source without a naming property must not hide that the query
+            # anchors on (event, ''), which is the excluded item.
+            ("spurious_anchor_label", PathsV2Item(event="a", label="x")),
+        ]
+    )
+    def test_excluding_the_anchor_rejects(self, _name: str, anchor_item: PathsV2Item) -> None:
         runner = self._runner(
             PathsV2Filter(
                 stepSources=_sources("a", "b"),
-                anchor=PathsV2Anchor(type=PathsV2AnchorType.START, item=PathsV2Item(event="a")),
+                anchor=PathsV2Anchor(type=PathsV2AnchorType.START, item=anchor_item),
                 excludedItems=[PathsV2Item(event="a")],
             )
         )
         with self.assertRaisesMessage(ValidationError, "anchor"):
             runner.validate()
 
-    def test_excluding_a_non_source_event_is_allowed(self) -> None:
-        # Switching step sources must not invalidate a saved exclude list; the leftover exclusion is inert.
-        self._runner(PathsV2Filter(stepSources=_sources("a"), excludedItems=[PathsV2Item(event="gone")])).validate()
+    @parameterized.expand(
+        [
+            # Editing step sources must not invalidate a saved exclude list; this exclusion is inert.
+            ("non_source_event", _sources("a"), [PathsV2Item(event="gone")]),
+            # A label-less exclusion of a naming-property source pins the item whose property is missing.
+            (
+                "label_less_on_naming_source",
+                [PathsV2StepSource(event="$pageview", namingProperty="$pathname")],
+                [PathsV2Item(event="$pageview")],
+            ),
+        ]
+    )
+    def test_permissive_exclusions_are_allowed(
+        self, _name: str, sources: list[PathsV2StepSource], excluded: list[PathsV2Item]
+    ) -> None:
+        self._runner(PathsV2Filter(stepSources=sources, excludedItems=excluded)).validate()
 
     def test_anchor_on_naming_property_source_needs_a_label(self) -> None:
         runner = self._runner(
@@ -488,7 +499,7 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
             [_edge(0, _item("$pageview", label="/item/<id>"), _item("$pageview", label="/about"), 1)],
         )
 
-    def test_excluded_items_drop_from_universe(self):
+    def test_excluded_items_drop_from_universe(self) -> None:
         journeys_for(
             team=self.team,
             events_by_person={
@@ -512,7 +523,7 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(self._edges(results), [_edge(0, _item("a"), _item("b"), 1)])
 
-    def test_excluded_item_matches_the_label_not_the_event(self):
+    def test_excluded_item_matches_the_label_not_the_event(self) -> None:
         journeys_for(
             team=self.team,
             events_by_person={
@@ -543,7 +554,7 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
             [_edge(0, _item("$pageview", label="/home"), _item("$pageview", label="/app"), 1)],
         )
 
-    def test_local_path_cleaning_applies_after_team_rules(self):
+    def test_local_path_cleaning_applies_after_team_rules(self) -> None:
         self.team.path_cleaning_filters = [{"alias": "/item/:id", "regex": r"/item/\d+"}]
         self.team.save()
         journeys_for(
@@ -572,7 +583,7 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_team_path_cleaning_can_be_disabled(self):
+    def test_team_path_cleaning_can_be_disabled(self) -> None:
         self.team.path_cleaning_filters = [{"alias": "/item/<id>", "regex": r"/item/\d+"}]
         self.team.save()
         journeys_for(
@@ -596,6 +607,16 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (1, [_row("$pageview", 1, label="/item/2")], 0, 1),
             ],
         )
+
+    def test_null_team_path_cleaning_filters(self) -> None:
+        # The nullable JSONField's None must behave like "no rules", not crash rule resolution.
+        self.team.path_cleaning_filters = None
+        self.team.save()
+        journeys_for(team=self.team, events_by_person=_timeline("p1", "a"))
+
+        query = PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=PathsV2Filter(stepSources=_sources("a")))
+
+        self.assertEqual(self._steps(self._run(query)), [(0, [_row("a", 1)], 0, 1)])
 
     def test_max_steps_trims_journeys(self):
         journeys_for(

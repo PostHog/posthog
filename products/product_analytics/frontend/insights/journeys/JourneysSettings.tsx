@@ -1,43 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
-import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { PathCleaningControls } from 'lib/components/PathCleanFilters/PathCleaningControls'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { EditorFilterProps } from '~/types'
 
+import { MAX_ROWS_PER_STEP_BOUNDS, MAX_STEPS_BOUNDS } from './editorBounds'
 import { journeysDataLogic } from './journeysDataLogic'
 
-// Mirror the @minimum/@maximum bounds on PathsV2Filter, which the server enforces without clamping.
-const MAX_STEPS_BOUNDS = { min: 2, max: 20 }
-const MAX_ROWS_PER_STEP_BOUNDS = { min: 1, max: 10 }
-
 export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Element {
-    const { pathsV2Filter } = useValues(journeysDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(journeysDataLogic(insightProps))
-
-    const { currentTeam } = useValues(teamLogic)
-    const hasTeamCleaningRules = (currentTeam?.path_cleaning_filters || []).length > 0
-
-    const [localGrid, setLocalGrid] = useState<{ maxSteps?: number; maxRowsPerStep?: number }>({
-        maxSteps: pathsV2Filter?.maxSteps ?? undefined,
-        maxRowsPerStep: pathsV2Filter?.maxRowsPerStep ?? undefined,
-    })
-
-    const commitGridSize = (): void => {
-        if (
-            localGrid.maxSteps !== (pathsV2Filter?.maxSteps ?? undefined) ||
-            localGrid.maxRowsPerStep !== (pathsV2Filter?.maxRowsPerStep ?? undefined)
-        ) {
-            updateInsightFilter({ ...localGrid })
-        }
-    }
+    const { pathsV2Filter, draftMaxSteps, draftMaxRowsPerStep } = useValues(journeysDataLogic(insightProps))
+    const { updateInsightFilter, setDraftMaxSteps, setDraftMaxRowsPerStep, commitGridSize } = useActions(
+        journeysDataLogic(insightProps)
+    )
 
     return (
         <div className="flex flex-col gap-4 mt-2">
@@ -50,9 +27,9 @@ export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Eleme
                         type="number"
                         min={MAX_STEPS_BOUNDS.min}
                         max={MAX_STEPS_BOUNDS.max}
-                        value={localGrid.maxSteps}
+                        value={draftMaxSteps ?? pathsV2Filter?.maxSteps ?? undefined}
                         placeholder="5"
-                        onChange={(value) => setLocalGrid((state) => ({ ...state, maxSteps: value }))}
+                        onChange={(value) => setDraftMaxSteps(value ?? null)}
                         onBlur={commitGridSize}
                         onPressEnter={commitGridSize}
                         data-attr="journeys-max-steps"
@@ -66,9 +43,9 @@ export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Eleme
                         type="number"
                         min={MAX_ROWS_PER_STEP_BOUNDS.min}
                         max={MAX_ROWS_PER_STEP_BOUNDS.max}
-                        value={localGrid.maxRowsPerStep}
+                        value={draftMaxRowsPerStep ?? pathsV2Filter?.maxRowsPerStep ?? undefined}
                         placeholder="3"
-                        onChange={(value) => setLocalGrid((state) => ({ ...state, maxRowsPerStep: value }))}
+                        onChange={(value) => setDraftMaxRowsPerStep(value ?? null)}
                         onBlur={commitGridSize}
                         onPressEnter={commitGridSize}
                         data-attr="journeys-max-rows-per-step"
@@ -91,41 +68,13 @@ export function JourneysSettings({ insightProps }: EditorFilterProps): JSX.Eleme
                 >
                     Path cleaning rules
                 </LemonLabel>
-                <PathCleanFilters
-                    filters={pathsV2Filter?.localPathCleaningFilters ?? []}
-                    setFilters={(localPathCleaningFilters) => updateInsightFilter({ localPathCleaningFilters })}
+                <PathCleaningControls
+                    localFilters={pathsV2Filter?.localPathCleaningFilters ?? []}
+                    setLocalFilters={(localPathCleaningFilters) => updateInsightFilter({ localPathCleaningFilters })}
+                    applyGlobal={pathsV2Filter?.applyTeamPathCleaning ?? true}
+                    setApplyGlobal={(applyTeamPathCleaning) => updateInsightFilter({ applyTeamPathCleaning })}
+                    data-attr="journeys-apply-team-path-cleaning"
                 />
-                <Tooltip
-                    title={
-                        hasTeamCleaningRules
-                            ? 'Apply the path cleaning rules from the project settings.'
-                            : 'The project has no path cleaning rules. Configure them via the gear icon.'
-                    }
-                >
-                    {/* This div is necessary for the tooltip to work. */}
-                    <div className="inline-block mt-2 w-full">
-                        <LemonSwitch
-                            disabled={!hasTeamCleaningRules}
-                            checked={hasTeamCleaningRules && (pathsV2Filter?.applyTeamPathCleaning ?? true)}
-                            onChange={(applyTeamPathCleaning) => updateInsightFilter({ applyTeamPathCleaning })}
-                            label={
-                                <div className="flex items-center">
-                                    <span>Apply global path URL cleaning</span>
-                                    <LemonButton
-                                        icon={<IconGear />}
-                                        to={urls.settings('project-product-analytics', 'path-cleaning')}
-                                        size="small"
-                                        noPadding
-                                        className="ml-1"
-                                    />
-                                </div>
-                            }
-                            bordered
-                            fullWidth
-                            data-attr="journeys-apply-team-path-cleaning"
-                        />
-                    </div>
-                </Tooltip>
             </div>
         </div>
     )

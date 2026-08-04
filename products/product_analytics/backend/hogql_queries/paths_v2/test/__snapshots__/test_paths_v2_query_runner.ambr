@@ -46,7 +46,7 @@
               FROM
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-                        tuple(events.event, multiIf(equals(events.event, '$pageview'), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '')) AS path_item
+                        tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), NULL), '')) AS path_item
                  FROM events
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
