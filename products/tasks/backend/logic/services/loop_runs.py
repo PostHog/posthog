@@ -14,7 +14,9 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+from django.apps import apps
 from django.db import connection, transaction
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
@@ -99,11 +101,12 @@ def render_loop_run_message(loop_instructions: str, execution_context: str) -> s
     return f"{hidden_context}\n\n{loop_instructions}"
 
 
-# Least-privilege write grant for a loop that maintains a context's context.md or canvas: the two
-# file_system scopes only, added on top of whatever posthog_mcp_scopes the loop already carries,
-# rather than escalating the run to the broad `full` write surface. resolve_scopes() re-adds the
-# internal scopes at mint time.
-_CONTEXT_WRITE_SCOPES = ["file_system:read", "file_system:write"]
+# Least-privilege write grants for a loop that maintains a context's context.md or canvas,
+# added on top of whatever posthog_mcp_scopes the loop already carries rather than escalating
+# the run to the broad `full` write surface. resolve_scopes() re-adds the internal scopes at
+# mint time. Channel instructions ride the channels API (task scope); canvases have their own.
+_CONTEXT_MD_WRITE_SCOPES = ["task:read", "task:write"]
+_CANVAS_WRITE_SCOPES = ["canvas:read", "canvas:write"]
 
 
 @dataclass
@@ -130,12 +133,12 @@ def render_context_target_block(context_target: dict | None) -> str:
 
     Empty for an unattached loop or a feed-only attachment — filing the run into the feed needs no
     prompt (the run's Task.channel does it). The agent reaches these through the PostHog MCP tools
-    the run's token is scoped for (`file_system:write`, granted in `_create_loop_task_and_run`).
+    the run's token is scoped for (granted in `_create_loop_task_and_run`).
     """
     context_target = context_target or {}
     outputs = _context_outputs(context_target)
-    folder_id = context_target.get("folder_id")
-    if not folder_id or not (outputs["update_context"] or outputs["canvas_id"]):
+    channel_id = context_target.get("channel_id")
+    if not channel_id or not (outputs["update_context"] or outputs["canvas_id"]):
         return ""
 
     name = context_target.get("name") or "this context"
@@ -146,55 +149,65 @@ def render_context_target_block(context_target: dict | None) -> str:
     if outputs["update_context"]:
         lines.append(
             f"- Update its context.md: read the current version with the "
-            f"`desktop-file-system-instructions-retrieve` tool (id: {folder_id}), revise it to reflect "
+            f"`channel-instructions-retrieve` tool (id: {channel_id}), revise it to reflect "
             f"this run, then publish the full new markdown with "
-            f"`desktop-file-system-instructions-partial-update` (id: {folder_id}, base_version: the "
+            f"`channel-instructions-update` (id: {channel_id}, base_version: the "
             f"version you just read). Edit in place, carrying forward anything still true instead of "
             f"rewriting from scratch."
         )
     if outputs["canvas_id"]:
         lines.append(
-            f"- Update its canvas: publish the complete single-file React source with the "
-            f"`desktop-file-system-canvas-partial-update` tool (id: {outputs['canvas_id']}). Send the "
-            f"whole file each time; partial edits are not supported."
+            f"- Update its canvas (id: {outputs['canvas_id']}): read the current source project and "
+            f"`current_version_id` with `canvas-source-retrieve`, then publish the "
+            f"complete project with `canvas-publish-create`, passing the version you "
+            f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
         )
     return "\n".join(lines)
 
 
 def _resolve_feed_channel_id(loop: Loop) -> str | None:
-    """Resolve-or-create the public feed channel a loop's runs are filed into, by context name.
-
-    The context is a desktop folder whose feed is a `Channel` keyed by the same (normalized) name;
-    this bridges the two the way the client does. Returns None when the loop names no context.
-    """
-    name = (loop.context_target or {}).get("name")
-    if not name:
+    """The live channel a loop's runs are filed into — its context attachment, verified."""
+    channel_id = (loop.context_target or {}).get("channel_id")
+    if not channel_id:
         return None
-    # Same key as facade.api.normalize_channel_name (Slack-style: lowercase, whitespace to dashes).
-    # Replicated here so the logic layer doesn't import the facade.
-    normalized = re.sub(r"\s+", "-", str(name).strip().lower())[:128]
-    if not normalized:
-        return None
-    channel, _ = Channel.objects.for_team(loop.team_id, canonical=True).get_or_create(
-        name=normalized,
-        channel_type=Channel.ChannelType.PUBLIC,
-        deleted=False,
-        defaults={"team_id": loop.team_id, "created_by_id": loop.created_by_id},
+    visible = Channel.visible_to_q(loop.created_by_id)
+    exists = (
+        Channel.objects.for_team(loop.team_id, canonical=True)
+        .filter(Q(id=channel_id, deleted=False) & visible)
+        .exists()
     )
-    return str(channel.id)
+    return str(channel_id) if exists else None
 
 
-def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, needs_write: bool) -> PosthogMcpScopes:
-    """Add file_system write to a run's PostHog MCP scopes when it maintains context.md / a canvas.
+def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
+    """Whether `canvas_id` is a canvas in this team the user may see.
 
-    Least privilege: a preset/list is widened by exactly the two file_system scopes rather than
-    promoted to `full`, so a report-only loop that also freshens a context doesn't gain the whole
-    write surface. `full` already includes them, so it's returned unchanged.
+    The Canvas model belongs to the canvas product, which depends on tasks —
+    resolved through the app registry so this soft existence check doesn't
+    create a tasks → canvas import cycle.
     """
-    if not needs_write or scopes == "full":
+    canvas_model = apps.get_model("canvas", "Canvas")
+    visible = Channel.visible_to_q(user_id, relation="channel")
+    return canvas_model.objects.for_team(team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
+
+
+def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:
+    """Widen a run's PostHog MCP scopes by exactly what its context maintenance needs.
+
+    Least privilege: a preset/list gains only the scopes for the outputs the loop actually
+    maintains rather than being promoted to `full`, so a report-only loop that also freshens
+    a context doesn't gain the whole write surface. `full` already includes them, so it's
+    returned unchanged.
+    """
+    extra: list[str] = []
+    if outputs.get("update_context"):
+        extra.extend(_CONTEXT_MD_WRITE_SCOPES)
+    if outputs.get("canvas_id"):
+        extra.extend(_CANVAS_WRITE_SCOPES)
+    if not extra or scopes == "full":
         return scopes
     base = resolve_scopes(scopes, include_internal_scopes=False)
-    return list(dict.fromkeys([*base, *_CONTEXT_WRITE_SCOPES]))
+    return list(dict.fromkeys([*base, *extra]))
 
 
 def render_trigger_context(trigger_type: str, payload: dict | None, loop: Loop) -> str:
@@ -671,13 +684,20 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     context_target = loop.context_target if isinstance(loop.context_target, dict) else {}
     outputs = _context_outputs(context_target)
+    resolved_channel_id = (
+        _resolve_feed_channel_id(loop) if outputs["update_context"] or outputs["post_to_feed"] else None
+    )
+    if outputs["update_context"] and resolved_channel_id is None:
+        raise ValueError("The loop's context channel is no longer available.")
+    if outputs["canvas_id"] and not context_canvas_is_visible(loop.team_id, outputs["canvas_id"], loop.created_by_id):
+        raise ValueError("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)
     execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
     pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
-    feed_channel_id = _resolve_feed_channel_id(loop) if outputs["post_to_feed"] else None
+    feed_channel_id = resolved_channel_id if outputs["post_to_feed"] else None
 
     task = Task.objects.create(
         team_id=loop.team_id,
@@ -733,10 +753,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # API (LoopBehaviorsDTO), so the fire-time fallback must match, or a loop the caller never
     # opted into PR creation for could still push branches and open PRs.
     create_pr = bool(behaviors.get("create_prs", False))
-    needs_file_system_write = outputs["update_context"] or bool(outputs["canvas_id"])
-    posthog_mcp_scopes = _augment_scopes_for_context(
-        _resolve_posthog_mcp_scopes(loop.connectors), needs_write=needs_file_system_write
-    )
+    posthog_mcp_scopes = _augment_scopes_for_context(_resolve_posthog_mcp_scopes(loop.connectors), outputs=outputs)
     # Same contract as Task.create_and_run: persist the dispatch params on the row so the
     # orphaned-QUEUED-run reconciler re-dispatches a lost fire with the loop's real
     # configuration instead of its generic defaults (create_pr=True, full MCP scopes),

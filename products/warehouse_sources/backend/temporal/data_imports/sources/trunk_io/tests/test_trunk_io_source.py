@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -43,6 +44,7 @@ class TestTrunkIoSource:
             repo_host="github.com",
             repo_owner="my-org",
             repo_name="my-repo",
+            merge_queue_target_branch="main",
         )
 
     def test_source_type(self):
@@ -59,7 +61,14 @@ class TestTrunkIoSource:
 
     def test_get_source_config_field_names(self):
         field_names = [f.name for f in self.source.get_source_config.fields]
-        assert field_names == ["api_token", "org_url_slug", "repo_host", "repo_owner", "repo_name"]
+        assert field_names == [
+            "api_token",
+            "org_url_slug",
+            "repo_host",
+            "repo_owner",
+            "repo_name",
+            "merge_queue_target_branch",
+        ]
 
     def test_api_token_field_is_secret(self):
         field = next(f for f in self.source.get_source_config.fields if f.name == "api_token")
@@ -68,7 +77,12 @@ class TestTrunkIoSource:
 
     def test_get_schemas_returns_expected_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == {"UnhealthyTests", "QuarantinedTests", "FailingTests"}
+        assert {s.name for s in schemas} == {
+            "UnhealthyTests",
+            "QuarantinedTests",
+            "FailingTests",
+            "MergeQueuePullRequests",
+        }
 
     def test_get_schemas_filters_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["QuarantinedTests"])
@@ -79,6 +93,7 @@ class TestTrunkIoSource:
             ("UnhealthyTests", False),
             ("QuarantinedTests", False),
             ("FailingTests", True),
+            ("MergeQueuePullRequests", True),
         ]
     )
     def test_get_schemas_incremental_support(self, endpoint: str, supports_incremental: bool):
@@ -111,6 +126,7 @@ class TestTrunkIoSource:
             ("UnhealthyTests", "unhealthy_tests"),
             ("QuarantinedTests", "quarantined_tests"),
             ("FailingTests", "failing_tests"),
+            ("MergeQueuePullRequests", "merge_queue_pull_requests"),
         ]
     )
     def test_source_for_pipeline_dispatches_to_expected_transport(self, schema_name: str, transport_fn: str):
@@ -143,6 +159,7 @@ class TestTrunkIoSource:
             ("UnhealthyTests", ["id"]),
             ("QuarantinedTests", ["name", "parent", "file", "classname", "variant"]),
             ("FailingTests", ["id"]),
+            ("MergeQueuePullRequests", ["id"]),
         ]
     )
     def test_source_for_pipeline_primary_keys(self, schema_name: str, expected_keys: list[str]):
@@ -152,6 +169,7 @@ class TestTrunkIoSource:
             "UnhealthyTests": "unhealthy_tests",
             "QuarantinedTests": "quarantined_tests",
             "FailingTests": "failing_tests",
+            "MergeQueuePullRequests": "merge_queue_pull_requests",
         }[schema_name]
 
         with patch(
@@ -162,10 +180,41 @@ class TestTrunkIoSource:
 
         assert response.primary_keys == expected_keys
 
+    @parameterized.expand([("unset", None), ("blank", "   ")])
+    def test_merge_queue_without_target_branch_fails_permanently(self, _label: str, target_branch):
+        # Merge Queue is scoped to one branch, so without it the sync would call the API with an
+        # empty targetBranch forever. Fail once, with a message the user can act on.
+        config = TrunkIoSourceConfig(
+            api_token="test-token",
+            org_url_slug="my-org",
+            repo_host="github.com",
+            repo_owner="my-org",
+            repo_name="my-repo",
+            merge_queue_target_branch=target_branch,
+        )
+        inputs = _make_inputs("MergeQueuePullRequests")
+
+        with pytest.raises(ValueError) as excinfo:
+            self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), inputs)
+
+        assert any(key in str(excinfo.value) for key in self.source.get_non_retryable_errors())
+
+    def test_merge_queue_table_is_not_synced_by_default(self):
+        # Flaky-Tests-only orgs are the majority and have no merge queue, so the table is offered
+        # but left unselected rather than failing their syncs.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["MergeQueuePullRequests"].should_sync_default is False
+        assert schemas["FailingTests"].should_sync_default is True
+
     def test_get_non_retryable_errors_covers_auth_failures(self):
         errors = self.source.get_non_retryable_errors()
         assert any("401" in key for key in errors)
 
     def test_get_canonical_descriptions_covers_all_endpoints(self):
         descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == {"UnhealthyTests", "QuarantinedTests", "FailingTests"}
+        assert set(descriptions.keys()) == {
+            "UnhealthyTests",
+            "QuarantinedTests",
+            "FailingTests",
+            "MergeQueuePullRequests",
+        }

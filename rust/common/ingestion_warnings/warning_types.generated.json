@@ -122,6 +122,18 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_ai_event",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "invalid_ai_payload",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
       "type": "invalid_ai_token_property",
       "category": "event",
       "severity": "warning",
@@ -221,6 +233,12 @@
       "type": "missing_event_uuid",
       "category": "event",
       "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "no_ai_spans_ingested",
+      "category": "event",
+      "severity": "warning",
       "captureProduced": true
     },
     {

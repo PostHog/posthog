@@ -73,6 +73,7 @@ from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refr
 from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks import (
     flush_pending_email_replies,
     poll_teams_shared_channels,
@@ -805,6 +806,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="1", minute=str(randrange(0, 40))),
+        cleanup_canvas_builds.s(),
+        name="apply canvas build artifact retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        sweep_canvas_builds.s(),
+        name="recover stuck canvas builds",
     )
 
     sender.add_periodic_task(
