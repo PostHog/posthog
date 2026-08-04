@@ -702,12 +702,13 @@ def get_sandbox_ph_mcp_configs(
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
     task_id: str | None = None,
+    task_run_id: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
-    `task_id` is baked into an `X-PostHog-Task-Id` header so the MCP server (and through it the
-    PostHog API) can deterministically attribute the agent's writes to its task — the LLM never
-    handles its own task id.
+    `task_id` and `task_run_id` are baked into headers so the MCP server (and through it the PostHog
+    API) can deterministically attribute the agent's writes and run context — the LLM never handles
+    its own task or task-run id.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
@@ -728,6 +729,8 @@ def get_sandbox_ph_mcp_configs(
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
+    if task_run_id:
+        headers.append({"name": "X-PostHog-Task-Run-Id", "value": str(task_run_id)})
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
 
 

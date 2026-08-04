@@ -360,12 +360,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
 
+        parent_run_id = data.pop("parent_run_id", None)
+        if header_parent_run_id := request.headers.get("X-PostHog-Task-Run-Id"):
+            try:
+                parent_run_id = UUID(header_parent_run_id)
+            except ValueError:
+                raise ValidationError({"parent_run_id": "Must be a valid UUID"})
+        if parent_run_id is None:
+            raise ValidationError({"parent_run_id": "spawn requires a calling task-run context"})
+
         if not tasks_facade.tasks_orchestration_enabled(
             distinct_id=str(request.user.distinct_id), organization_id=str(self.organization.id)
         ):
             return Response({"detail": "Task orchestration is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
-        parent_run = tasks_facade.get_task_run(data.pop("parent_run_id"), self.team_id)
+        parent_run = tasks_facade.get_task_run(parent_run_id, self.team_id)
         if parent_run is None:
             raise NotFound("Parent run not found")
         if parent_run.is_terminal:
