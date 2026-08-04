@@ -185,15 +185,16 @@ class TestEvaluateSessionRisk(BaseTest):
             evaluate_session_risk(request)
         self.assertEqual(mock_capture.call_count, expected_calls)
 
-    def test_baseline_reuses_the_row_the_session_store_loaded(self):
-        # Loading the session already fetches this row, and scoring runs on every authenticated
-        # request, so reading the baseline must not cost a second SELECT for the same row.
+    def test_baseline_read_is_independent_of_the_session_store_load(self):
+        # SessionStore's own row load only selects the columns auth needs (see backend.py), so an
+        # unmigrated risk-baseline column can never break a plain session load — the baseline is
+        # always read by its own targeted query instead of off that row.
         key = self._login_session(self._make_user())
         self._seed_baseline(key)
         store = self.engine.SessionStore(session_key=key)
         store.load()
 
-        with self.assertNumQueries(0):
+        with self.assertNumQueries(1):
             baseline = _baseline_for_session(store, key)
 
         assert baseline is not None

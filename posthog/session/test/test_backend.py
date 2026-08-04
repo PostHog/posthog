@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest, NonAtomicBaseTest
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.sessions.backends.base import UpdateError
+from django.db import connection
 
 from asgiref.sync import async_to_sync
 from loginas import settings as la_settings
@@ -79,6 +80,23 @@ class TestSessionStore(BaseTest):
         self.assertEqual(row.short_user_agent, "Chrome 135 on macOS")
         self.assertEqual(row.location, "San Francisco, United States")
         self.assertEqual(row.user_id, user.pk)
+
+    def test_load_survives_a_column_the_store_does_not_select(self):
+        # Regression: a plain session load must not depend on columns owned by other code (risk
+        # baseline, display metadata) — if a migration adding one hasn't landed on this instance yet,
+        # loading a session must not 500 with "column does not exist".
+        user = self._make_user()
+        store = self._store()
+        store[SESSION_KEY] = str(user.pk)
+        store.create()
+        session_key = store.session_key
+
+        with connection.cursor() as cursor:
+            cursor.execute("ALTER TABLE django_session DROP COLUMN latitude")
+
+        fresh_store = self.engine.SessionStore(session_key=session_key)
+        data = fresh_store.load()
+        self.assertEqual(data[SESSION_KEY], str(user.pk))
 
     def test_save_raises_update_error_when_row_is_gone(self):
         # signup.py relies on this: a save that updates zero rows must raise UpdateError, not pass.

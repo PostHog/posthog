@@ -190,18 +190,8 @@ def risk_flags(user: User) -> RiskFlags:
 
 
 def _baseline_for_session(session: SessionBase, session_key: str) -> Optional[Baseline]:
-    # The session store already fetched this row to read session_data, so reuse it rather than issue a
-    # second SELECT for the same row on the same request — this runs on every authenticated request.
-    # Falls back to a query for stores that expose no loaded row (another engine, or a new session).
-    loaded = getattr(session, "loaded_row", None)
-    if loaded is not None:
-        return Baseline(
-            latitude=loaded.latitude,
-            longitude=loaded.longitude,
-            country_code=loaded.country_code,
-            ua_signature=loaded.ua_signature,
-            baseline_at=loaded.baseline_at,
-        )
+    # SessionStore's own row load only fetches the columns auth needs (see backend.py), so this
+    # always issues its own targeted query rather than reusing that row.
     row = (
         Session.objects.filter(session_key=session_key)
         .values("latitude", "longitude", "country_code", "ua_signature", "baseline_at")
