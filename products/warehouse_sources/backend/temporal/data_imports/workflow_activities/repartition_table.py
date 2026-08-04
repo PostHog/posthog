@@ -12,6 +12,7 @@ policy re-runs it in this run (the workflow swallows the failure if retries exha
 import time
 import uuid
 import asyncio
+import datetime as dt
 import dataclasses
 from typing import Any
 
@@ -36,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
     RepartitionUnpartitionableError,
@@ -82,6 +84,32 @@ _TRANSIENT_ERROR_SNIPPETS = (
     "error occurred while loading credentials",  # IMDS/credential-provider timeout inside the kernel
     "event loop is closed",  # s3fs client bound to an already-completed async_to_sync loop
 )
+
+
+# How much of the activity's budget to leave unused when the rewrite gives up, so the failed attempt
+# can still be recorded before Temporal kills the activity. Only the bookkeeping needs covering: a
+# couple of writes to the schema row and one event.
+REWRITE_DEADLINE_MARGIN = dt.timedelta(minutes=5)
+
+
+def _rewrite_deadline() -> float | None:
+    """Monotonic time by which the rewrite must stop to leave room to record its own failure.
+
+    None when there is no budget to derive one from: outside an activity context (direct calls from
+    tests), when the activity declares no `start_to_close_timeout`, or when that timeout is shorter
+    than the margin. In each case the rewrite runs unbounded, which is the behavior that predates
+    this deadline rather than an instant give-up.
+    """
+    try:
+        info = activity.info()
+    except RuntimeError:
+        return None
+    if info.start_to_close_timeout is None:
+        return None
+    budget = (info.start_to_close_timeout - REWRITE_DEADLINE_MARGIN).total_seconds()
+    if budget <= 0:
+        return None
+    return time.monotonic() + budget
 
 
 def _is_transient_infra_error(error: Exception) -> bool:
@@ -243,6 +271,20 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     pending = schema.repartition_pending
     swap = schema.repartition_swap
 
+    # The flag has to stop a queued rewrite too, not only detection. Once a table is flagged, the
+    # rewrite runs ahead of extraction on every sync, so a rewrite that can't finish delays the sync
+    # by the full activity budget indefinitely; the flag is the only lever support has to release
+    # such a table, and it does nothing here if it only gates detection. Two exclusions: a staged
+    # swap must always be driven to completion because temp is the source of truth in that window
+    # and live may already be deleted, and an operator-staged rewrite ignores the rollout flag
+    # because they staged it knowing that syncing on the old layout is the worse option.
+    if not enabled and pending is not None and swap is None and pending.get("trigger_reason") != "admin":
+        logger.info(
+            f"repartition: queued rewrite skipped, controller disabled by feature flag schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        return
+
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
     # CDC). Return here — before fetching the job and reading the delta log — so the common healthy
     # invocation avoids all on-disk I/O. Flagged tables fall through and measure the live size below.
@@ -303,7 +345,18 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 target=target,
                 logger=logger,
                 claim_token=claim_token,
+                deadline=_rewrite_deadline(),
             )
+    except RepartitionBudgetExceededError as e:
+        # The table is telling us its rewrite doesn't fit in one activity. Record it as a real failed
+        # attempt so `MAX_REPARTITION_ATTEMPTS` is reachable and the table eventually gives up,
+        # instead of restarting the same doomed rewrite in front of every sync forever.
+        logger.warning(f"repartition: {e}")
+        DELTA_REPARTITION_TOTAL.labels(
+            team_id=str(inputs.team_id),
+            outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger),
+        ).inc()
+        return
     except RepartitionSupersededError:
         # A newer attempt claimed the schema and owns the table now. Stop without recording a *failure*
         # (that would burn an attempt and double-report the run the newer claimant is already handling),
@@ -462,6 +515,11 @@ def _handle_failure(
         props["final"] = True
         schema.clear_repartition_pending()
         schema.clear_repartition_swap()
+        # Engage the cooldown as well, or the give-up never takes effect: the trigger that queued
+        # this rewrite (the largest partition is over budget) is just as true on the next sync and
+        # the layout is unchanged, so detection re-flags the table immediately with `attempts` back
+        # at 0 and the three attempts start over. The cooldown re-evaluates at most daily instead.
+        schema.stamp_last_repartition_at()
     else:
         updated = {**pending, "attempts": attempts}
         schema.set_repartition_pending(updated)
