@@ -1457,6 +1457,18 @@ class TestOrphanedTestFilesCheck:
         result = self._orphan_check.run(ctx)
         assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)
 
+    def test_signals_self_driving_verification_tests_are_exempted(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/test"},
+            name="signals",
+        )
+        verification_dir = ctx.product_dir / "eval" / "self_driving" / "tasks" / "example" / "verify"
+        verification_dir.mkdir(parents=True)
+        (verification_dir / "test_fix.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
 
 _IGNORE_IMPORTS_PYPROJECT = """
 [tool.importlinter]

@@ -980,7 +980,7 @@ class OrphanedTestFilesCheck(ProductCheck):
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
         "warehouse_sources": ("backend/temporal/",),
-        "signals": ("backend/emission/",),
+        "signals": ("backend/emission/", "eval/self_driving/tasks/"),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:
