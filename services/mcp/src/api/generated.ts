@@ -12499,6 +12499,22 @@ export namespace Schemas {
       last_seen: string | null;
     }
 
+    /**
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     */
+    export type BuildStatusEnum = typeof BuildStatusEnum[keyof typeof BuildStatusEnum];
+
+
+    export const BuildStatusEnum = {
+      Queued: 'queued',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
     export interface BulkOptOutEntry {
       /**
          * The recipient identifier to opt out (e.g. email address).
@@ -12526,22 +12542,6 @@ export namespace Schemas {
       /** The first few entry-level problems, so the caller can fix their list. */
       errors: string[];
     }
-
-    /**
-     * * `queued` - queued
-     * * `building` - building
-     * * `ready` - ready
-     * * `failed` - failed
-     */
-    export type BuildStatusEnum = typeof BuildStatusEnum[keyof typeof BuildStatusEnum];
-
-
-    export const BuildStatusEnum = {
-      Queued: 'queued',
-      Building: 'building',
-      Ready: 'ready',
-      Failed: 'failed',
-    } as const;
 
     /**
      * * `fully_rolled_out` - fully_rolled_out
