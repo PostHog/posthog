@@ -386,6 +386,12 @@ export interface HogTransformerServiceDeps {
     monitoringOutputs: IngestionOutputs<MonitoringOutput>
 }
 
+/**
+ * Keep this factory's config and dependencies intentionally minimal. Transformations run only the synchronous Hog
+ * execution core and must not inherit Redis, fetch, email, push, or other CDP delivery infrastructure just to satisfy
+ * a shared service constructor. If the shared executor gains another dependency, make it an optional capability or
+ * extract the smaller execution primitive instead of wiring it into ingestion here.
+ */
 export function createHogTransformerService(
     config: HogTransformerServiceConfig,
     deps: HogTransformerServiceDeps
