@@ -362,6 +362,29 @@ function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
+function parseJSONOrNull(text: string): any {
+    try {
+        return JSON.parse(text)
+    } catch {
+        return null
+    }
+}
+
+async function parseErrorResponse(response: Response): Promise<{ message: string; data: any }> {
+    const statusMessage = `HTTP ${response.status}`
+    const text = await response.text().catch(() => '')
+
+    if (!text) {
+        return { message: statusMessage, data: null }
+    }
+
+    const data = parseJSONOrNull(text)
+    const serverMessage = data?.detail || data?.error || data?.message
+    const detail = typeof serverMessage === 'string' ? serverMessage : text
+
+    return { message: `${statusMessage}: ${detail}`, data }
+}
+
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
@@ -3550,27 +3573,8 @@ const api = {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
                     if (!response.ok) {
-                        let errorMessage = `HTTP ${response.status}`
-                        let errorData: any = null
-                        try {
-                            const errorText = await response.text()
-                            if (errorText) {
-                                errorMessage = `HTTP ${response.status}: ${errorText}`
-                                try {
-                                    errorData = JSON.parse(errorText)
-                                    const serverMessage = errorData?.detail || errorData?.error || errorData?.message
-                                    if (typeof serverMessage === 'string') {
-                                        errorMessage = `HTTP ${response.status}: ${serverMessage}`
-                                    }
-                                } catch {
-                                    errorData = null
-                                }
-                            }
-                        } catch {
-                            errorMessage = `HTTP ${response.status}`
-                        }
-
-                        const error = new ApiError(errorMessage, response.status, response.headers, errorData)
+                        const { message, data } = await parseErrorResponse(response)
+                        const error = new ApiError(message, response.status, response.headers, data)
                         onError(error)
                         abortController.abort()
                         return
