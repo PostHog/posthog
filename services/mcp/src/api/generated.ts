@@ -40359,9 +40359,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface LogsRetentionRuleNameSuggestion {
+      /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+      name: string;
+    }
+
     export interface LogsRetentionRuleReorder {
       /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
       ordered_ids: string[];
+    }
+
+    export interface LogsRetentionRuleSuggestName {
+      /** Retention tier the rule would assign, in days. */
+      retention_days: number;
+      /** PropertyGroupFilter tree the rule would match on. */
+      filter_group: unknown;
     }
 
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
