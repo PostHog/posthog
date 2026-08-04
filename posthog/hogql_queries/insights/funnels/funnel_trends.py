@@ -476,10 +476,18 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         fill_select: list[ast.Expr] = [
             ast.Alias(
                 alias="entrance_period_start",
-                expr=ast.ArithmeticOperation(
-                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
-                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
-                    op=ast.ArithmeticOperationOp.Add,
+                # toDateTime() keeps this DateTime regardless of interval: toStartOfQuarter/toStartOfYear
+                # return Date, which would otherwise mismatch the DateTime entrance_period_start joined
+                # against it from the inner aggregation query.
+                expr=ast.Call(
+                    name="toDateTime",
+                    args=[
+                        ast.ArithmeticOperation(
+                            left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
+                            right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
+                            op=ast.ArithmeticOperationOp.Add,
+                        )
+                    ],
                 ),
             ),
         ]
@@ -516,14 +524,19 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 name="assumeNotNull",
                 args=[ast.Call(name="toDateTime", args=[ast.Constant(value=cutoff.strftime("%Y-%m-%d %H:%M:%S"))])],
             )
-            period_end = ast.ArithmeticOperation(
-                left=ast.ArithmeticOperation(
-                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
-                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-                right=ast.Call(name=interval_func, args=[ast.Constant(value=1)]),
-                op=ast.ArithmeticOperationOp.Add,
+            period_end = ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.ArithmeticOperation(
+                        left=ast.ArithmeticOperation(
+                            left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
+                            right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
+                            op=ast.ArithmeticOperationOp.Add,
+                        ),
+                        right=ast.Call(name=interval_func, args=[ast.Constant(value=1)]),
+                        op=ast.ArithmeticOperationOp.Add,
+                    )
+                ],
             )
             fill_query.where = ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
@@ -552,7 +565,12 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
         select: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
-            ast.Alias(alias="entrance_period_start", expr=get_start_of_interval_hogql(interval.value, team=team)),
+            ast.Alias(
+                alias="entrance_period_start",
+                # toDateTime() keeps this DateTime regardless of interval, matching the DateTime
+                # entrance_period_start used elsewhere in funnel trends (see _get_fill_query).
+                expr=ast.Call(name="toDateTime", args=[get_start_of_interval_hogql(interval.value, team=team)]),
+            ),
             parse_expr("max(steps) AS steps_completed"),
             *event_select_clause,
             *breakdown_clause,

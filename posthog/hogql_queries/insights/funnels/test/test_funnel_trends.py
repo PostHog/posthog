@@ -420,6 +420,53 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, len(results))
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
+    @parameterized.expand(["quarter", "year"])
+    def test_quarter_and_year_interval(self, interval):
+        # toStartOfQuarter/toStartOfYear return a ClickHouse Date rather than DateTime, which used to
+        # leave entrance_period_start with mismatched types across the trends and actors queries.
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-01-01 00:00:00",
+                date_to="2021-12-31 00:00:00",
+            ),
+            interval=interval,
+            series=[
+                EventsNode(
+                    event="step one",
+                ),
+                EventsNode(
+                    event="step two",
+                ),
+                EventsNode(
+                    event="step three",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 2)},
+                ]
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        self.assertEqual(4 if interval == "quarter" else 1, len(results))
+
+        entrance_period_start = "2021-04-01 00:00:00" if interval == "quarter" else "2021-01-01 00:00:00"
+        persons = self._get_actors_at_step(query, entrance_period_start, False)
+
+        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_month_interval(self, timezone):
         self.team.timezone = timezone

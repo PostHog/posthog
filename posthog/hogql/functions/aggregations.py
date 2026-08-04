@@ -359,6 +359,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsIf": HogQLFunctionMeta("maxIntersectionsIf", 3, 3, aggregate=True),
     "maxIntersectionsPosition": HogQLFunctionMeta("maxIntersectionsPosition", 2, 2, aggregate=True),
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
-    "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 99, aggregate=True),
+    "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 99, aggregate=True, downcast_first_arg_to_datetime=True),
     "md5": HogQLFunctionMeta("hex(MD5({}))", 1, 1, aggregate=True, using_placeholder_arguments=True),
 }

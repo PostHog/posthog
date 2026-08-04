@@ -8,7 +8,7 @@ from uuid import UUID
 from django.conf import settings as django_settings
 
 from posthog.hogql import ast
-from posthog.hogql.ast import StringType
+from posthog.hogql.ast import DateTimeType, StringType
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
     HogQLDialect,
@@ -1056,7 +1056,13 @@ class BasePrinter(Visitor[str]):
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
 
-            arg_strings = [self.visit(arg) for arg in node.args]
+            args_to_print = node.args
+            if func_meta.downcast_first_arg_to_datetime and args_to_print:
+                first_arg = args_to_print[0]
+                resolved_type = first_arg.type.resolve_constant_type(self.context) if first_arg.type else None
+                if isinstance(resolved_type, DateTimeType):
+                    args_to_print = [ast.Call(name="toDateTime", args=[first_arg]), *args_to_print[1:]]
+            arg_strings = [self.visit(arg) for arg in args_to_print]
             params = [self.visit(param) for param in node.params] if node.params is not None else None
             within_group = (
                 f" WITHIN GROUP (ORDER BY {', '.join(self.visit(expr) for expr in node.within_group)})"

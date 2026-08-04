@@ -4427,6 +4427,17 @@ class TestPrinter(BaseTest):
         printed, _ = prepare_and_print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
         assert printed == "avgArray([1, 2, 3])"
 
+    def test_window_funnel_downcasts_datetime64_timestamp_to_datetime(self):
+        # events.timestamp is DateTime64 in ClickHouse, but windowFunnel only accepts
+        # an unsigned number, Date, or DateTime as its first argument.
+        printed = self._print("SELECT windowFunnel(3600)(timestamp, event = 'a', event = 'b') FROM events")
+        assert "windowFunnel(3600)(toDateTime(events.timestamp)," in printed
+
+    def test_window_funnel_does_not_double_cast_date_argument(self):
+        printed = self._print("SELECT windowFunnel(3600)(toDate(timestamp), event = 'a') FROM events")
+        assert "windowFunnel(3600)(toDate(" in printed
+        assert "toDateTime(toDate(" not in printed
+
     def test_print_percentage_call_alias(self):
         printed = self._print("SELECT concat('%', 'word', '%') LIMIT 1")
 

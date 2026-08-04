@@ -76,6 +76,9 @@ class HogQLFunctionMeta:
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
     tz_aware: bool = False
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
+    downcast_first_arg_to_datetime: bool = False
+    """ClickHouse rejects a DateTime64 first arg for this function, so HogQL wraps it in toDateTime()
+    when its resolved type is DateTimeType (our DateTime64(6, 'UTC') columns, e.g. events.timestamp)."""
     case_sensitive: bool = True
     """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
     signatures: Optional[list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]] = None
