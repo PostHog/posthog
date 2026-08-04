@@ -113,6 +113,9 @@ export function StepRandomCohortBranchConfiguration({
         }
         const normalized = normalizeCohortPercentages(cohorts.length)
         setCohorts(cohorts.map((cohort, i) => ({ ...cohort, percentage: normalized[i] })))
+        // Every share is replaced, so any draft still open is stale text sitting over a new value. The
+        // button cannot be relied on to blur the field first: Safari leaves focus where it was.
+        setPercentageDrafts({})
     }
 
     const percentages = cohorts.map((cohort) => cohort.percentage)
