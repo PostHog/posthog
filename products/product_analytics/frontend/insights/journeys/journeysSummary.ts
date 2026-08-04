@@ -1,24 +1,28 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import { PathsV2AnchorType, PathsV2Filter } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { journeyItemLabel } from './journeyGridModel'
-import { STEP_SOURCE_PRESETS, presetForStepSources } from './stepSourcePresets'
+import { presetForStepSources } from './stepSourcePresets'
 
-export interface JourneysSummaryParts {
-    /** Step sources as a phrase: the preset label ("page views"), or the picked event names. */
+function eventLabel(event: string): string {
+    return getCoreFilterDefinition(event, TaxonomicFilterGroupType.Events)?.label ?? event
+}
+
+export function journeysSummaryParts(filter: PathsV2Filter | null | undefined): {
+    /** Step sources as a phrase: the preset label ("page views"), or the picked events' labels. */
     sources: string
     /** Anchored-mode phrase pieces; null in open mode. */
     anchor: { verb: 'starting' | 'ending'; label: string } | null
-}
-
-export function journeysSummaryParts(filter: PathsV2Filter | null | undefined): JourneysSummaryParts {
-    const stepSources = filter?.stepSources
-    const preset = presetForStepSources(stepSources ?? undefined)
+} {
+    // An empty source list is rejected server-side; treating it like the absent default keeps the
+    // pageviews fallback encoded in one place (presetForStepSources).
+    const stepSources = filter?.stepSources?.length ? filter.stepSources : undefined
+    const preset = presetForStepSources(stepSources)
     const sources = preset
         ? preset.label.toLowerCase()
-        : stepSources && stepSources.length > 0
-          ? stepSources.map((source) => source.event).join(' and ')
-          : // An empty list is rejected server-side; showing the runner's default beats an empty phrase.
-            STEP_SOURCE_PRESETS.pageViews.label.toLowerCase()
+        : (stepSources ?? []).map((source) => eventLabel(source.event)).join(' and ')
     const anchor = filter?.anchor
     return {
         sources,

@@ -58,7 +58,7 @@ class TestNormalizeNotebookQueryNodes:
             ("paths_v2", {"kind": "InsightVizNode", "source": {"kind": "PathsV2Query", "pathsV2Filter": {}}}),
         ]
     )
-    def test_passes_through_valid_insight_viz_node(self, _name: str, query: dict) -> None:
+    def test_passes_through_valid_insight_viz_node(self, _name: str, query: dict[str, Any]) -> None:
         doc = _wrap(query)
         assert _extract_query(normalize_notebook_query_nodes(doc)) == query
 

@@ -74,7 +74,7 @@ class TestInsightResourceLabel:
         )
         assert _insight_resource_label(insight) == "Trends insight"
 
-    def test_insight_viz_journeys(self):
+    def test_insight_viz_journeys(self) -> None:
         # Guards the user-facing name: without the map entry this would leak "PathsV2 insight".
         insight = Insight(
             team_id=1,
