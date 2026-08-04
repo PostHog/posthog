@@ -300,6 +300,7 @@ the row lists both.
 | gridly                           | HTTP                        | requests                                                        | ✅                          |
 | groq                             | HTTP                        | requests                                                        | ✅                          |
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
+| gumroad                          | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
 | gusto                            | HTTP                        | requests                                                        | ✅                          |
 | harvest                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1025,7 +1026,6 @@ doesn't conflict with concurrent PRs.
 - growthbook
 - guesty
 - gumloop
-- gumroad
 - harness
 - harness_ccm
 - harness_sei
