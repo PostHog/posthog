@@ -195,10 +195,29 @@ export function SpacesSidebarNav() {
       <Separator className="my-1 shrink-0" />
 
       {/* The section label, with search and one filter over every space's
-          task list. */}
-      <div className="flex shrink-0 items-center justify-between px-2 pr-3">
-        <MenuLabel>Spaces</MenuLabel>
-        <div className="flex items-center gap-1.5">
+          task list. Searching swaps the label for the input on the same row —
+          the header holds its line either way; the Mine switch steps aside
+          for the input's width and returns on close. */}
+      <div className="flex min-h-8 shrink-0 items-center justify-between gap-1.5 px-2 pr-3">
+        {searchOpen ? (
+          <Input
+            autoFocus
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearchOpen(false);
+                setSearchText("");
+              }
+            }}
+            placeholder="Search all spaces…"
+            aria-label="Search tasks in all spaces"
+            className="h-6 min-w-0 flex-1 text-[12px]"
+          />
+        ) : (
+          <MenuLabel>Spaces</MenuLabel>
+        )}
+        <div className="flex shrink-0 items-center gap-1.5">
           <Button
             variant="default"
             size="icon-xs"
@@ -215,39 +234,30 @@ export function SpacesSidebarNav() {
           >
             <MagnifyingGlass size={12} />
           </Button>
-          <span className="text-[12px] text-muted-foreground">Mine</span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Switch
-                  size="sm"
-                  aria-label="Only show my tasks"
-                  checked={onlyMyTasks}
-                  onCheckedChange={toggleOnlyMyTasks}
+          {!searchOpen && (
+            <>
+              <span className="text-[12px] text-muted-foreground">Mine</span>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Switch
+                      size="sm"
+                      aria-label="Only show my tasks"
+                      checked={onlyMyTasks}
+                      onCheckedChange={toggleOnlyMyTasks}
+                    />
+                  }
                 />
-              }
-            />
-            <TooltipContent side="bottom">
-              {onlyMyTasks
-                ? "Showing only your tasks — switch off to see everyone's"
-                : "Only show tasks you created, in every space"}
-            </TooltipContent>
-          </Tooltip>
+                <TooltipContent side="bottom">
+                  {onlyMyTasks
+                    ? "Showing only your tasks — switch off to see everyone's"
+                    : "Only show tasks you created, in every space"}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
-
-      {searchOpen && (
-        <div className="shrink-0 px-2 pb-1">
-          <Input
-            autoFocus
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="Search all spaces…"
-            aria-label="Search tasks in all spaces"
-            className="h-6 text-[12px]"
-          />
-        </div>
-      )}
 
       {/* Pinned (starred) spaces; #me first and fixed, the rest reorderable.
           This region is the sidebar's one scroll container — spaces unfold
