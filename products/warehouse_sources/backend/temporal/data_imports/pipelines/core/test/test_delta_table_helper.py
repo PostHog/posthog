@@ -92,6 +92,33 @@ class TestStorageOptionsCommitSafety:
         assert options["conditional_put"] == "etag"
         assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
 
+    # The proxy bypass and the commit-safety options are assembled in the same dict; dropping either
+    # while editing the other is silent (S3 traffic quietly returns to the egress proxy, or commits
+    # lose conflict detection).
+    def test_proxy_bypass_options_merge_with_commit_safety(self) -> None:
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+        # Patch the facade seam get_storage_options calls, so this stays a merge-point test and does
+        # not reach into another product's internals. What the bypass dict itself contains is covered
+        # by products/data_warehouse/backend/tests/test_s3_proxy.py.
+        proxy_options = {
+            "proxy_url": "http://egress-proxy.test:4750",
+            "proxy_excludes": "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com",
+            "AWS_S3_ADDRESSING_STYLE": "virtual",
+            "virtual_hosted_style_request": "true",
+        }
+        with (
+            override_settings(USE_LOCAL_SETUP=False),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper.delta_proxy_storage_options",
+                return_value=proxy_options,
+            ),
+        ):
+            options = helper.get_storage_options()
+
+        assert options["conditional_put"] == "etag"
+        assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
+
 
 class TestGetDeltaTableUnrecoverableErrors:
     # (case_name, error_message, expect_heal) — heal = wipe the table and fall back to first-sync mode
