@@ -1248,7 +1248,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             return False
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
-        return self.context.mode != "interactive" and not is_resume
+        is_spawned_child = bool(state.get("parent_run_id"))
+        return self.context.mode != "interactive" and not is_resume and not is_spawned_child
 
     async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
         await workflow.execute_activity(

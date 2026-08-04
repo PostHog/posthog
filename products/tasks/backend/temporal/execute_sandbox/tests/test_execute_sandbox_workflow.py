@@ -124,6 +124,7 @@ class TestShouldForwardPendingUserMessage:
             ({"mode": "interactive", "pending_user_message": "hi"}, False),
             # Background mode is the normal "queue and forward" path.
             ({"mode": "background", "pending_user_message": "hi"}, True),
+            ({"mode": "background", "pending_user_message": "hi", "parent_run_id": "parent"}, False),
             # Resume runs already replay the original prompt — forwarding would
             # double up. Both resume markers must short-circuit.
             ({"mode": "background", "resume_from_run_id": "prev"}, False),
