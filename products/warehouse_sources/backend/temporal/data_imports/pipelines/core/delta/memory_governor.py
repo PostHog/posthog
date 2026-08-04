@@ -93,12 +93,7 @@ class UpsertPlan:
 def _predict_marginal_mb(source_mb: float, mpp: int, buffered_mb: float) -> float:
     """Marginal peak RSS one upsert adds: floor + resident source + workers + output buffer."""
     worker_mb = _TARGET_FILE_SIZE_MB + _PER_WORKER_OVERHEAD_MB
-    return (
-        _PER_UPSERT_FLOOR_MB
-        + _SOURCE_RESIDENT_MULTIPLIER * source_mb
-        + mpp * worker_mb
-        + buffered_mb
-    )
+    return _PER_UPSERT_FLOOR_MB + _SOURCE_RESIDENT_MULTIPLIER * source_mb + mpp * worker_mb + buffered_mb
 
 
 def size_upsert(available_mb: float, source_mb: float, n_partitions: int | None = None) -> UpsertPlan:
