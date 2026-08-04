@@ -80,6 +80,7 @@ export const DatabaseTree = memo(function DatabaseTree({
                     <QueryDatabase
                         virtualizationScrollContainerRef={scrollContainerRef}
                         extraTreeSections={extraTreeSections}
+                        tabId={tabId}
                     />
                 </div>
                 <SyncMoreNotice />
