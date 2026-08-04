@@ -4,8 +4,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.data_freshness import DataSource, Freshness, derive_freshness
+from posthog.data_freshness import Freshness, derive_freshness
 from posthog.models.team.team import Team
+from posthog.schema_enums import ProductKey
 
 NOW = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
 QUIET_BEFORE = NOW - timedelta(days=7)
@@ -21,19 +22,19 @@ class TestDeriveFreshness(SimpleTestCase):
             (
                 "everything still arriving",
                 True,
-                {DataSource.PRODUCT_ANALYTICS: _ago(0.1), DataSource.SESSION_REPLAY: _ago(2)},
+                {ProductKey.PRODUCT_ANALYTICS: _ago(0.1), ProductKey.SESSION_REPLAY: _ago(2)},
                 Freshness.LIVE,
             ),
             (
                 "one source silent while another keeps arriving is still in use",
                 True,
-                {DataSource.PRODUCT_ANALYTICS: _ago(0.1), DataSource.SESSION_REPLAY: _ago(11)},
+                {ProductKey.PRODUCT_ANALYTICS: _ago(0.1), ProductKey.SESSION_REPLAY: _ago(11)},
                 Freshness.LIVE,
             ),
             (
                 "every source silent",
                 True,
-                {DataSource.PRODUCT_ANALYTICS: _ago(9), DataSource.LOGS: _ago(20)},
+                {ProductKey.PRODUCT_ANALYTICS: _ago(9), ProductKey.LOGS: _ago(20)},
                 Freshness.STALE,
             ),
             (
@@ -54,7 +55,7 @@ class TestDeriveFreshness(SimpleTestCase):
         self,
         _name: str,
         ingested_event: bool,
-        found: dict[DataSource, datetime],
+        found: dict[ProductKey, datetime],
         expected: Freshness,
     ) -> None:
         team = Team(id=1, ingested_event=ingested_event)
@@ -68,12 +69,12 @@ class TestDeriveFreshness(SimpleTestCase):
 
         result = derive_freshness(
             team,
-            {DataSource.LOGS: _ago(5), DataSource.SESSION_REPLAY: _ago(1), DataSource.PRODUCT_ANALYTICS: _ago(3)},
+            {ProductKey.LOGS: _ago(5), ProductKey.SESSION_REPLAY: _ago(1), ProductKey.PRODUCT_ANALYTICS: _ago(3)},
             QUIET_BEFORE,
         )
 
         self.assertEqual(
             [source.data_source for source in result.sources],
-            [DataSource.SESSION_REPLAY, DataSource.PRODUCT_ANALYTICS, DataSource.LOGS],
+            [ProductKey.SESSION_REPLAY, ProductKey.PRODUCT_ANALYTICS, ProductKey.LOGS],
         )
         self.assertEqual(result.last_data_at, _ago(1))

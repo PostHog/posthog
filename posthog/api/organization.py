@@ -24,13 +24,7 @@ from posthog.caching.organization_serializer_cache import (
 )
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.data_freshness import (
-    LOOKBACK_DAYS,
-    QUIET_AFTER_DAYS,
-    DataSource,
-    Freshness,
-    get_organization_data_freshness,
-)
+from posthog.data_freshness import LOOKBACK_DAYS, QUIET_AFTER_DAYS, Freshness, get_organization_data_freshness
 from posthog.event_usage import (
     groups,
     report_organization_action,
@@ -377,9 +371,11 @@ class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
 
 
 class DataFreshnessSourceSerializer(serializers.Serializer):
-    data_source = serializers.ChoiceField(
-        choices=[(source.value, source.value) for source in DataSource],
-        help_text="The kind of data this timestamp is about, e.g. `session_replay` or `logs`.",
+    data_source = serializers.CharField(
+        help_text=(
+            "The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). "
+            "Not an enum: products declare their own data sources, so the set grows without an API change."
+        )
     )
     last_data_at = serializers.DateTimeField(
         help_text="When data of this kind last reached the project. Only sources with data inside the lookback window are listed."

@@ -254,50 +254,9 @@ export const FreshnessEnumApi = {
     Stale: 'stale',
 } as const
 
-/**
- * * `product_analytics` - product_analytics
- * * `session_replay` - session_replay
- * * `error_tracking` - error_tracking
- * * `llm_analytics` - llm_analytics
- * * `surveys` - surveys
- * * `feature_flags` - feature_flags
- * * `logs` - logs
- * * `tracing` - tracing
- * * `pipeline_destinations` - pipeline_destinations
- * * `workflows` - workflows
- * * `data_warehouse` - data_warehouse
- */
-export type DataSourceEnumApi = (typeof DataSourceEnumApi)[keyof typeof DataSourceEnumApi]
-
-export const DataSourceEnumApi = {
-    ProductAnalytics: 'product_analytics',
-    SessionReplay: 'session_replay',
-    ErrorTracking: 'error_tracking',
-    LlmAnalytics: 'llm_analytics',
-    Surveys: 'surveys',
-    FeatureFlags: 'feature_flags',
-    Logs: 'logs',
-    Tracing: 'tracing',
-    PipelineDestinations: 'pipeline_destinations',
-    Workflows: 'workflows',
-    DataWarehouse: 'data_warehouse',
-} as const
-
 export interface DataFreshnessSourceApi {
-    /** The kind of data this timestamp is about, e.g. `session_replay` or `logs`.
-     *
-     * * `product_analytics` - product_analytics
-     * * `session_replay` - session_replay
-     * * `error_tracking` - error_tracking
-     * * `llm_analytics` - llm_analytics
-     * * `surveys` - surveys
-     * * `feature_flags` - feature_flags
-     * * `logs` - logs
-     * * `tracing` - tracing
-     * * `pipeline_destinations` - pipeline_destinations
-     * * `workflows` - workflows
-     * * `data_warehouse` - data_warehouse */
-    data_source: DataSourceEnumApi
+    /** The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). Not an enum: products declare their own data sources, so the set grows without an API change. */
+    data_source: string
     /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
     last_data_at: string
 }

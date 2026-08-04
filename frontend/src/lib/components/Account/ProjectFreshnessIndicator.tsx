@@ -5,23 +5,20 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import type {
-    DataFreshnessSourceApi,
-    DataSourceEnumApi,
-} from 'products/platform_features/frontend/generated/api.schemas'
+import type { DataFreshnessSourceApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { projectDataFreshnessLogic } from './projectDataFreshnessLogic'
 
 /**
- * `DataSourceEnumApi` values are `ProductKey`s, and a product key humanizes into its own
- * product name, so a source added on the backend renders correctly with no frontend change.
- * Only keys that humanize wrongly need listing here.
+ * `data_source` is a `ProductKey`, and a product key humanizes into its own product name, so a
+ * product that starts declaring a data source renders correctly with no frontend change. Only
+ * keys that humanize wrongly need listing here.
  */
-const DATA_SOURCE_LABEL_OVERRIDES: Partial<Record<DataSourceEnumApi, string>> = {
+const DATA_SOURCE_LABEL_OVERRIDES: Record<string, string> = {
     llm_analytics: 'LLM analytics',
 }
 
-function dataSourceLabel(source: DataSourceEnumApi): string {
+function dataSourceLabel(source: string): string {
     return DATA_SOURCE_LABEL_OVERRIDES[source] ?? capitalizeFirstLetter(source.replace(/_/g, ' '))
 }
 
