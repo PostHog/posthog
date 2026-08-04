@@ -34,12 +34,15 @@ type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     /** When set, the toggle is disabled with an explanatory reason unless the team has at least one
      * test account filter of one of these types. Omit to accept every filter type (events etc.). */
     applicableFilterTypes?: string[]
+    /** Open the settings gear in a new tab. Use where same-tab navigation would discard unsaved work. */
+    openSettingsInNewTab?: boolean
 }
 
 export function TestAccountFilterSwitch({
     checked,
     onChange,
     applicableFilterTypes,
+    openSettingsInNewTab,
     ...props
 }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
@@ -61,15 +64,13 @@ export function TestAccountFilterSwitch({
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
-                    {/* New tab: this switch renders inside editors (insights, scanner wizard) where
-                        same-tab navigation would discard unsaved work. */}
                     <LemonButton
                         icon={<IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"
                         to={urls.settings('environment-customization', 'internal-user-filtering')}
-                        targetBlank
+                        targetBlank={openSettingsInNewTab}
                     />
                 </div>
             }
