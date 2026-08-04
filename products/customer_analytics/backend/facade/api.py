@@ -35,6 +35,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -46,7 +47,6 @@ from products.conversations.backend.facade.api import (
     list_account_tickets,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
-from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
@@ -93,7 +93,10 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     TargetType,
 )
-from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
+from products.customer_analytics.backend.models.account import (
+    RETIRED_ROLE_KEYS,
+    AccountProperties as _ModelAccountProperties,
+)
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -122,19 +125,11 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
     from products.customer_analytics.backend.models import CustomPropertyValue
-
-
-def _to_assignment(assignment) -> contracts.AccountAssignment | None:
-    if assignment is None:
-        return None
-    return contracts.AccountAssignment(id=assignment.id, email=assignment.email)
+    from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
     return contracts.AccountProperties(
-        csm=_to_assignment(properties.csm),
-        account_executive=_to_assignment(properties.account_executive),
-        account_owner=_to_assignment(properties.account_owner),
         stripe_customer_id=properties.stripe_customer_id,
         hubspot_deal_id=properties.hubspot_deal_id,
         billing_id=properties.billing_id,
@@ -402,6 +397,36 @@ def _account_name_from_group(team: Team, external_id: str) -> str:
         return external_id
     name = (group.group_properties or {}).get("name") if group is not None else None
     return str(name) if name else external_id
+
+
+def get_account_group_type_name(team: Team) -> str | None:
+    """The group type name accounts are keyed on, or None when customer analytics is unconfigured."""
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return None
+    group_types = get_group_types_for_project(team.project_id, caller_tag="customer_analytics/account_audience")
+    for mapping in group_types:
+        if mapping["group_type_index"] == group_type_index:
+            return mapping["group_type"]
+    return None
+
+
+def count_accounts_for_audience(team: Team, filters: "AccountAudienceFilters") -> int:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.count_accounts_for_audience(team, filters)
+
+
+def list_account_external_ids_for_audience(
+    team: Team, filters: "AccountAudienceFilters", *, cursor: str | None, limit: int
+) -> list[str]:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.list_account_external_ids_for_audience(team, filters, cursor=cursor, limit=limit)
 
 
 def create_external_account(
@@ -1971,8 +1996,10 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         name=account.name,
         external_id=account.external_id,
         # Raw stored JSON (already ``exclude_unset`` from the manager), so an account with
-        # no assignments serializes ``properties`` as ``{}`` exactly as before.
-        properties=account._properties or {},
+        # no assignments serializes ``properties`` as ``{}`` exactly as before. Retired role
+        # keys are dropped: rows not yet backfilled must not leak them into responses, or the
+        # frontend's read-modify-write of ``properties`` sends them back and gets a 400.
+        properties={k: v for k, v in (account._properties or {}).items() if k not in RETIRED_ROLE_KEYS},
         # Unsorted, matching the old ``TaggedItemSerializerMixin.to_representation`` output.
         tags=_account_view_tags(account),
         notebooks=_account_view_notebooks(account),
@@ -1991,14 +2018,11 @@ def list_accounts_for_view(
     limit: int,
     search: str | None = None,
     tags: list[str] | None = None,
-    csm: str | None = None,
-    account_executive: str | None = None,
-    account_owner: str | None = None,
     all_roles_unassigned: bool = False,
     ordering: str | None = None,
 ) -> tuple[list[contracts.AccountView], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
-    the search / tags / role / ordering query filters, notebook + tag prefetching, and
+    the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
     the view; an empty ``tags`` list is treated as "no tag filter" (matches old behavior)."""
     queryset = _accounts_queryset(team_id, user_access_control).prefetch_related(
@@ -2012,40 +2036,14 @@ def list_accounts_for_view(
     if tags:
         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
-    # An unset role serializes as JSON null, which ``_properties__role__isnull`` does not
-    # match; probing the nested ``id`` matches every unassigned shape (missing key, null
-    # value, or empty object).
+    # "Unassigned" means nobody actively holds any relationship on the account, matching the
+    # accounts list HogQL runner's allRolesUnassigned.
     if all_roles_unassigned:
-        queryset = queryset.filter(
-            _properties__csm__id__isnull=True,
-            _properties__account_executive__id__isnull=True,
-            _properties__account_owner__id__isnull=True,
+        queryset = queryset.exclude(
+            id__in=AccountRelationship.objects.for_team(team_id)
+            .filter(ended_at__isnull=True, user__isnull=False)
+            .values("account_id")
         )
-
-    if csm == "unassigned":
-        queryset = queryset.filter(_properties__csm__id__isnull=True)
-    elif csm:
-        try:
-            queryset = queryset.filter(_properties__csm__id=int(csm))
-        except ValueError:
-            # Malformed user id is a no-op (return all), not "match nothing" — old behavior.
-            pass
-
-    if account_executive == "unassigned":
-        queryset = queryset.filter(_properties__account_executive__id__isnull=True)
-    elif account_executive:
-        try:
-            queryset = queryset.filter(_properties__account_executive__id=int(account_executive))
-        except ValueError:
-            pass
-
-    if account_owner == "unassigned":
-        queryset = queryset.filter(_properties__account_owner__id__isnull=True)
-    elif account_owner:
-        try:
-            queryset = queryset.filter(_properties__account_owner__id=int(account_owner))
-        except ValueError:
-            pass
 
     queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
 
@@ -2117,9 +2115,9 @@ def create_account(
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
-    """The single account-creation write path: validates properties, sets tags, shadows role
-    assignments into the relationships table, and logs activity. Product-internal — it returns
-    the model, so it must not be called across the product boundary.
+    """The single account-creation write path: validates properties, sets tags, and logs
+    activity. Product-internal — it returns the model, so it must not be called across the
+    product boundary.
     Raises ``AccountPropertiesValidationError`` / ``AccountConflictError``."""
     try:
         with transaction.atomic():
@@ -2133,8 +2131,6 @@ def create_account(
                 slack_summary_cadence=slack_summary_cadence,
             )
             _set_tags(tags, account, actor=created_by)
-            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
-                _relationships_logic.sync_from_account_properties(account, created_by=created_by)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -2202,8 +2198,6 @@ def update_account_for_view(
         with transaction.atomic():
             account = update_account(account, **update_kwargs)
             _set_tags(input.tags, account, actor=user)
-            if input.properties_provided:
-                _relationships_logic.sync_from_account_properties(account, created_by=user)
             if input.external_id_provided and account.external_id != previous.external_id:
                 # The external_id is the account's group key — every stream filtering on
                 # the old key must be rebuilt or it keeps streaming the stale key's events.
@@ -2546,14 +2540,16 @@ def list_account_notes_for_view(
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
-    notes authored by the given users, ``assigned_to_ids`` to notes on accounts whose CSM or
-    account executive is one of the given users. Returns ``(page, total_count)``."""
+    notes authored by the given users, ``assigned_to_ids`` to notes on accounts where one of the
+    given users actively holds a relationship. Returns ``(page, total_count)``."""
     accounts = _accounts_queryset(team_id, user_access_control)
     if assigned_to_ids:
-        # "Assigned to" means CSM or AE (account_owner excluded), matching the accounts list
-        # HogQL runner's ASSIGNED_ROLE_KEYS.
+        # "Assigned to" means any active relationship, matching the accounts list HogQL
+        # runner's assignedToUserIds.
         accounts = accounts.filter(
-            Q(_properties__csm__id__in=assigned_to_ids) | Q(_properties__account_executive__id__in=assigned_to_ids)
+            id__in=AccountRelationship.objects.for_team(team_id)
+            .filter(ended_at__isnull=True, user_id__in=assigned_to_ids)
+            .values("account_id")
         )
     accessible_account_ids = accounts.values_list("id", flat=True)
     notes, count = notebooks.list_team_account_notes(

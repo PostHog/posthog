@@ -9,8 +9,10 @@ import boto3
 import botocore
 import botocore.exceptions
 
+from products.data_warehouse.backend.s3_proxy import boto_proxy_config_kwargs
 
-def get_s3_client():
+
+def get_s3_client(*, endpoint_url: Optional[str] = None):
     # Defaults for localhost dev and test suites
     if settings.USE_LOCAL_SETUP:
         return s3fs.S3FileSystem(
@@ -23,11 +25,16 @@ def get_s3_client():
             skip_instance_cache=True,
         )
 
-    return s3fs.S3FileSystem()
+    # config_kwargs reaches botocore's Config; see s3_proxy for why these clients skip the proxy, and
+    # why a caller-supplied endpoint_url keeps its traffic on it. endpoint_url is only forwarded when
+    # set: fsspec's instance cache keys on the literal kwargs, so passing endpoint_url=None explicitly
+    # would split the shared cached client into a second instance.
+    extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
+    return s3fs.S3FileSystem(config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url), **extra)
 
 
 @contextlib.asynccontextmanager
-async def aget_s3_client(*, fresh_instance: bool = False):
+async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional[str] = None):
     # fresh_instance=True bypasses the fsspec instance cache: a new S3FileSystem bound to the current
     # event loop, closed on context exit. The cached default hands every caller the same instance
     # regardless of loop, so async_to_sync-driven code (each call runs on a fresh, short-lived loop)
@@ -48,7 +55,15 @@ async def aget_s3_client(*, fresh_instance: bool = False):
             asynchronous=True,
         )
     else:
-        s3 = s3fs.S3FileSystem(asynchronous=True, skip_instance_cache=fresh_instance)
+        # endpoint_url only forwarded when set, so the shared cached client isn't split; see
+        # get_s3_client and s3_proxy for the proxy-bypass reasoning.
+        extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
+        s3 = s3fs.S3FileSystem(
+            asynchronous=True,
+            skip_instance_cache=fresh_instance,
+            config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
+            **extra,
+        )
 
     await s3.set_session()
 
