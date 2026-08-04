@@ -38,11 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.he
     _get_headers,
     _get_property_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.metadata import METADATA_FETCHERS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     ASSOCIATIONS_BATCH_SIZE,
     DEFAULT_PROPS,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
+    HUBSPOT_METADATA_ENDPOINTS,
     OBJECT_TYPE_SINGULAR,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
@@ -73,6 +75,12 @@ class HubspotResumeConfig:
     last_cursor_ms: Optional[int] = None
 
 
+def _object_type_for(endpoint: str) -> str:
+    """The object type used to look up an endpoint's property definitions. Only the original eight
+    endpoints have a distinct singular form; later ones are named by their own plural."""
+    return OBJECT_TYPE_SINGULAR.get(endpoint, endpoint)
+
+
 def _get_properties_str(
     props: Sequence[str],
     api_key: str,
@@ -82,6 +90,7 @@ def _get_properties_str(
     include_custom_props: bool = True,
     source_id: str | None = None,
     api_version: str = HUBSPOT_API_VERSION_V3,
+    discover_all_properties: bool = False,
 ) -> str:
     """Builds a comma-separated string of properties to request from the HubSpot API (GET path)."""
     props = list(props)
@@ -89,7 +98,7 @@ def _get_properties_str(
         all_props = _get_property_names(
             api_key, refresh_token, object_type, source_id=source_id, api_version=api_version
         )
-        custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
+        custom_props = [prop for prop in all_props if discover_all_properties or not prop.startswith("hs_")]
         props = props + [c for c in custom_props if c not in props]
 
     props_str = ""
@@ -120,6 +129,7 @@ def _resolve_search_properties(
     logger: FilteringBoundLogger,
     source_id: str | None,
     api_version: str = HUBSPOT_API_VERSION_V3,
+    discover_all_properties: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Resolve the properties list for the search body.
 
@@ -156,7 +166,7 @@ def _resolve_search_properties(
             all_props = _get_property_names(
                 api_key, refresh_token, object_type, source_id=source_id, api_version=api_version
             )
-            custom = [p for p in all_props if not p.startswith("hs_") and p not in props]
+            custom = [p for p in all_props if (discover_all_properties or not p.startswith("hs_")) and p not in props]
             props.extend(custom)
 
     # Force-include required properties (cursor + id).
@@ -264,7 +274,7 @@ def get_rows(
 ) -> Iterator[Any]:
     """Full-refresh (and seed-incremental) fetch via the paginated GET endpoint."""
     config = HUBSPOT_ENDPOINTS[endpoint]
-    object_type = OBJECT_TYPE_SINGULAR[endpoint]
+    object_type = _object_type_for(endpoint)
 
     # Build properties string (called once before sync loop)
     # Keep track of the expected properties so we can backfill missing ones with None.
@@ -312,6 +322,7 @@ def get_rows(
             logger=logger,
             source_id=source_id,
             api_version=api_version,
+            discover_all_properties=config.discover_all_properties,
         )
         expected_properties = props_str.split(",") if props_str else []
 
@@ -565,7 +576,7 @@ def get_rows_via_search(
     - Checkpoint (sync_start_ms, sync_end_ms, last_cursor_ms) to Redis on each batch flush.
     """
     config = HUBSPOT_ENDPOINTS[endpoint]
-    object_type = OBJECT_TYPE_SINGULAR[endpoint]
+    object_type = _object_type_for(endpoint)
     cursor_prop = config.cursor_filter_property_field
     if not cursor_prop:
         raise ValueError(f"Endpoint {endpoint} does not support search-based incremental sync")
@@ -581,6 +592,7 @@ def get_rows_via_search(
         logger=logger,
         source_id=source_id,
         api_version=api_version,
+        discover_all_properties=config.discover_all_properties,
     )
 
     headers = _get_headers(api_key)
@@ -785,7 +797,27 @@ def hubspot_source(
       upstream so the watermark is meaningful and associations backfill is the cheaper option).
     - `use_search_path=False` → GET path (full refresh, seed incremental, or endpoints without
       search support).
+
+    Lookup tables (pipelines, pipeline stages, property definitions, owners) take neither path:
+    they aren't CRM objects, so they go straight to their own fetcher and are always full refresh.
     """
+    metadata_config = HUBSPOT_METADATA_ENDPOINTS.get(endpoint)
+    if metadata_config is not None:
+        fetcher = METADATA_FETCHERS[endpoint]
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: fetcher(
+                api_key=api_key,
+                refresh_token=refresh_token,
+                logger=logger,
+                source_id=source_id,
+                api_version=api_version,
+            ),
+            primary_keys=metadata_config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+        )
+
     endpoint_config = HUBSPOT_ENDPOINTS[endpoint]
 
     if use_search_path and not endpoint_config.cursor_filter_property_field:
