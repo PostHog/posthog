@@ -7,18 +7,26 @@
 </p>
 {% if high_impact %}
 <p>
-    At this level, email sending for your project can be <b>paused automatically</b> to protect deliverability. Act now to avoid an interruption.
+    At this level, email sending for your project can be <b>paused automatically</b> to protect deliverability. Fix the findings below to avoid an interruption.
 </p>
 {% else %}
 <p>
     Sending still works, but if these findings are not fixed they can escalate and email sending for your project can be paused.
 </p>
 {% endif %}
+{% if findings %}
+<p><b>What the provider flagged</b></p>
+<ul>
+    {% for finding in findings %}
+    <li>{{ finding.description }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
 <p>
-    Open the Reputation tab to see each finding with the provider's recommended fix, and which workflows have the highest bounce or spam complaint rates. Typical fixes: remove old or purchased addresses from your lists, and stop sending to recipients who never engage.
+    Common fixes: remove old or purchased addresses from your lists, and stop sending to recipients who never engage. The Reputation tab shows which workflows have the highest bounce and spam complaint rates.
 </p>
 <div class="mb mt text-center">
-    <a class="button" href="{% absolute_uri reputation_path %}">View findings</a>
+    <a class="button" href="{% absolute_uri reputation_path %}">View sending health</a>
 </div>
 <div class="mt">
     <p>

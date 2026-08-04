@@ -86,7 +86,7 @@ class TestSesTenantEventsWebhook(TestCase):
     def test_is_inert_when_no_topic_is_allowlisted(self):
         response = self._post(_sns_notification(_eventbridge_event()))
 
-        assert response.status_code == 500
+        assert response.status_code == 404
         assert not self.sync_mock.delay.called
 
     def test_confirms_subscriptions_by_fetching_the_subscribe_url(self):

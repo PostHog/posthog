@@ -53,8 +53,11 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
 
     allowed_topics = {arn for arn in settings.WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS if arn}
     if not allowed_topics:
-        logger.error("ses_tenant_events_webhook_not_configured")
-        return HttpResponse("Webhook not configured", status=500)
+        # Unconfigured means the endpoint doesn't exist yet as far as callers are concerned. 404
+        # rather than 500 so that probes of a public URL can't flood error logs, and warning
+        # rather than error for the same reason.
+        logger.warning("ses_tenant_events_webhook_not_configured")
+        return HttpResponse("Not found", status=404)
 
     try:
         # RecursionError: deeply nested JSON from an unauthenticated caller must 400, not 500.
