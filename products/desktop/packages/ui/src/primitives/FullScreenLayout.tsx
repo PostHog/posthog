@@ -1,5 +1,5 @@
 import { Lifebuoy } from "@phosphor-icons/react";
-import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
+import { AsciiBackground } from "@posthog/ui/primitives/AsciiBackground";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { Button, Flex, Theme } from "@radix-ui/themes";
 import type { ReactNode } from "react";
@@ -38,7 +38,7 @@ export function FullScreenLayout({
         <DraggableTitleBar />
 
         <div className="absolute inset-0 bg-(--color-background)" />
-        <DotPatternBackground />
+        <AsciiBackground />
 
         <Flex
           direction="column"

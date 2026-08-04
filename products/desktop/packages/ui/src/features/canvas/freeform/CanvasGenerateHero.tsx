@@ -3,7 +3,7 @@ import { CANVAS_GENERATE_SUGGESTIONS } from "@posthog/ui/features/canvas/freefor
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
-import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
+import { AsciiBackground } from "@posthog/ui/primitives/AsciiBackground";
 import { Flex, Text } from "@radix-ui/themes";
 import { useRef } from "react";
 
@@ -36,7 +36,7 @@ export function CanvasGenerateHero({
       justify="center"
       className="relative h-full w-full overflow-y-auto px-4 py-10"
     >
-      <DotPatternBackground className="h-full" />
+      <AsciiBackground className="h-full" />
       <Flex direction="column" gap="5" className="z-[1] w-full max-w-[620px]">
         <Flex direction="column" align="center" gap="2" className="text-center">
           <Flex

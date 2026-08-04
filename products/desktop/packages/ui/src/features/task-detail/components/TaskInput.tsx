@@ -26,7 +26,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
-import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
+import { AsciiBackground } from "../../../primitives/AsciiBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
@@ -1189,7 +1189,7 @@ export function TaskInput({
         )}
         <Box className="relative h-full min-w-0 flex-1">
           <Flex height="100%" className="relative px-4">
-            <DotPatternBackground className="h-[100.333%]" />
+            <AsciiBackground className="h-[100.333%]" />
             <div
               style={{
                 // Raise the input when the suggestion cards are shown so the longer
