@@ -31,9 +31,11 @@ async function runQuery(page: Page, query: string): Promise<void> {
 }
 
 // The insight builder is a cross-stack flow: wells compile to SQL on the frontend, the backend
-// runs both the base and the compiled query, and what's saved must survive a reopen — with the
-// feature flag governing which editing surface hydrates. Each of these journeys broke during
-// development in ways no logic-level test could see (mount wiring, flag-off degradation).
+// runs both the base and the compiled query, and what's saved must survive a reopen. The feature
+// flag gates only *creating* builder insights (fresh tabs) — editing a saved one is content-gated:
+// a builder config that still describes its SQL opens in the builder for everyone, and hand-edited
+// ("stale") SQL wins and opens classic. Each of these journeys broke during development in ways no
+// logic-level test could see (mount wiring, hosting decisions, save round trips).
 test.describe('SQL editor insight builder', () => {
     test.describe.configure({ mode: 'serial' })
     test.setTimeout(120000)
@@ -131,46 +133,64 @@ test.describe('SQL editor insight builder', () => {
         })
     })
 
-    test('a builder insight degrades to a plain SQL tab with the flag off, and recovers with it on', async ({
-        page,
-        playwrightSetup,
-    }) => {
+    test('editing a builder insight is content-gated, not flag-gated', async ({ page, playwrightSetup }) => {
         await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
 
-        await test.step('flag off: the insight opens as editable compiled SQL', async () => {
+        await test.step('flag off: the insight still opens in the builder, base SQL in the buffer', async () => {
             await goToSqlEditor(page, `/sql?open_insight=${insightShortId}`)
-            await expect(page.getByTestId('sql-builder-scene-tabs')).toHaveCount(0)
-            await expect(page.getByTestId('hogql-query-editor')).toContainText('sum(result)', { timeout: 60000 })
+            await expect(page.getByTestId('sql-builder-scene-tabs')).toBeVisible({ timeout: 60000 })
+            await page.getByTestId('sql-builder-scene-tabs').getByText('Source').click()
+            await expect(page.getByTestId('hogql-query-editor')).toContainText('SELECT 1 AS result', {
+                timeout: 60000,
+            })
         })
 
-        await test.step('flag off: editing the SQL changes the results', async () => {
+        await test.step('flag off: a whole-buffer run adopts the edited base', async () => {
             await runQuery(page, 'SELECT 2 AS result')
             await expect(page.getByRole('gridcell', { name: '2' })).toBeVisible({ timeout: 60000 })
         })
 
-        await test.step('flag off: the edit can be saved to the insight', async () => {
+        await test.step('flag off: updating keeps the builder config, in lockstep with the SQL', async () => {
             await dismissQuickStart(page)
             await page.getByRole('button', { name: 'Update insight', exact: true }).click()
             await expect(page.getByText('Insight updated')).toBeVisible({ timeout: 60000 })
-        })
 
-        await test.step('flag off: the save strips the stale builder config from the persisted insight', async () => {
-            // Not just a UI concern — the persisted query must lose `builder`, or the insight
-            // reopens in the builder with a visual setup that no longer matches its SQL
+            // The persisted config must describe the new SQL exactly — a drifted compiledQuery
+            // snapshot would demote the insight to the classic editor on its next open
             const response = await page.request.get(`/api/environments/@current/insights/?short_id=${insightShortId}`)
             expect(response.ok()).toBeTruthy()
             const { results } = await response.json()
             expect(results).toHaveLength(1)
-            expect(results[0].query.builder).toBeUndefined()
+            expect(results[0].query.builder?.baseQuery).toEqual('SELECT 2 AS result')
+            expect(results[0].query.builder?.compiledQuery).toEqual(results[0].query.source.query)
         })
 
-        await test.step('flag back on: the edited insight opens the classic way, SQL first', async () => {
-            // The visual setup no longer matches the edited SQL, so it is dropped and the
-            // insight behaves like a classic SQL insight: no builder scene tabs, edited SQL in
-            // the buffer
+        await test.step('flag back on: the insight reopens in the builder with the adopted base', async () => {
             await mockFeatureFlags(page, { [BUILDER_FLAG]: true })
             await goToSqlEditor(page, `/sql?open_insight=${insightShortId}`)
+            await expect(page.getByTestId('sql-builder-scene-tabs')).toBeVisible({ timeout: 60000 })
+            await page.getByTestId('sql-builder-scene-tabs').getByText('Source').click()
             await expect(page.getByTestId('hogql-query-editor')).toContainText('SELECT 2 AS result', {
+                timeout: 60000,
+            })
+        })
+
+        await test.step('SQL hand-edited outside the builder wins: the insight opens classic', async () => {
+            // Simulate an API edit that desyncs the SQL from the builder config
+            const listResponse = await page.request.get(
+                `/api/environments/@current/insights/?short_id=${insightShortId}`
+            )
+            const { results } = await listResponse.json()
+            const insight = results[0]
+            const patchResponse = await page.request.patch(`/api/environments/@current/insights/${insight.id}/`, {
+                data: {
+                    query: { ...insight.query, source: { ...insight.query.source, query: 'SELECT 3 AS result' } },
+                },
+            })
+            expect(patchResponse.ok()).toBeTruthy()
+
+            await goToSqlEditor(page, `/sql?open_insight=${insightShortId}`)
+            await expect(page.getByTestId('hogql-query-editor')).toContainText('SELECT 3 AS result', {
                 timeout: 60000,
             })
             await expect(page.getByTestId('sql-builder-scene-tabs')).toHaveCount(0)

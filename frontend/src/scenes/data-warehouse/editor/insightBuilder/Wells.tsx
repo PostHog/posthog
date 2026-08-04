@@ -2,7 +2,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useState } from 'react'
+import { forwardRef, useRef, useState } from 'react'
 
 import { IconChevronDown, IconGear, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTabs, Popover } from '@posthog/lemon-ui'
@@ -199,6 +199,7 @@ function FieldSettingsButton({ index }: { index: number }): JSX.Element | null {
     const { yData, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const [open, setOpen] = useState(false)
     const [tab, setTab] = useState<'formatting' | 'display'>('formatting')
+    const buttonRef = useRef<HTMLButtonElement>(null)
 
     const series = yData[index]
     if (!series) {
@@ -209,7 +210,23 @@ function FieldSettingsButton({ index }: { index: number }): JSX.Element | null {
     return (
         <Popover
             visible={open}
-            onClickOutside={() => setOpen(false)}
+            // Presses on the gear must be the button's business alone. Popover's dismiss treats
+            // them as "outside" (it only registers the child as a position reference, so
+            // floating-ui has no DOM reference to recognize as inside) — without this guard a
+            // click meant to close the popover dismisses it here and the button's toggle instantly
+            // reopens it: the popover appears twice instead of closing. Guard pointer presses
+            // only: Escape also arrives here (as a keydown targeting the focused gear) and must
+            // still dismiss.
+            onClickOutside={(event) => {
+                if (
+                    event instanceof MouseEvent &&
+                    event.target instanceof Node &&
+                    buttonRef.current?.contains(event.target)
+                ) {
+                    return
+                }
+                setOpen(false)
+            }}
             placement="right-start"
             overlay={
                 <div className="w-72 p-2">
@@ -234,6 +251,7 @@ function FieldSettingsButton({ index }: { index: number }): JSX.Element | null {
             }
         >
             <button
+                ref={buttonRef}
                 type="button"
                 className="inline-flex shrink-0 cursor-pointer items-center rounded p-0.5 text-secondary hover:bg-surface-secondary"
                 aria-label="Format this value"

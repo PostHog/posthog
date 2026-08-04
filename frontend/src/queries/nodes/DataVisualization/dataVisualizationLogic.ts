@@ -1222,11 +1222,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         isBuilderOwnedQuery: [
             (s) => [s.query, (_, props: DataVisualizationLogicProps) => props.insightBuilderHosted],
             (_query: DataVisualizationNode, insightBuilderHosted: boolean | undefined): boolean =>
-                // Surfaces that don't pass the prop (insight scene, dashboards, flag-off editors)
-                // keep the classic Series tab and axis behavior even when the saved node carries a
-                // builder config: a compiled builder insight's chartSettings and columns are
-                // self-consistent, so the classic path renders it correctly — and behavior for
-                // users outside the feature flag stays identical to before the builder existed.
+                // Surfaces that don't pass the prop (insight scene, dashboards, classic-hosted
+                // editor tabs) keep the classic Series tab and axis behavior even when the saved
+                // node carries a builder config: a compiled builder insight's chartSettings and
+                // columns are self-consistent, so the classic path renders it correctly.
                 !!insightBuilderHosted,
         ],
         showEditingUI: [

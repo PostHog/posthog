@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { nodeOpensInBuilder } from '~/queries/nodes/DataVisualization/insightBuilder/builderNodeConsistency'
 import * as queryRunner from '~/queries/query'
 import {
     DataTableNode,
@@ -120,12 +121,16 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
 
 const MOCK_BUILDER_INSIGHT_SHORT_ID = 'bldr01' as InsightShortId
 
-// Mirrors a real builder insight: compiled SQL in source.query, self-consistent builder config
+// Mirrors a real builder insight: compiled SQL in source.query, self-consistent builder config,
+// and the compiledQuery snapshot the builder always saves (applyWells writes it on every edit) —
+// the open-time consistency check trusts the snapshot, so fixtures must carry it too
+const MOCK_BUILDER_INSIGHT_SQL =
+    'SELECT\n    event AS event,\n    count(properties) AS count_properties\nFROM events_copied\nGROUP BY event\nORDER BY event ASC'
 const MOCK_BUILDER_INSIGHT_QUERY: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
-        query: 'SELECT\n    event AS event,\n    count(properties) AS count_properties\nFROM events_copied\nGROUP BY event\nORDER BY event ASC',
+        query: MOCK_BUILDER_INSIGHT_SQL,
     },
     display: ChartDisplayType.ActionsBar,
     builder: {
@@ -135,6 +140,7 @@ const MOCK_BUILDER_INSIGHT_QUERY: DataVisualizationNode = {
         rows: [],
         columns: [{ column: 'event' }],
         values: [{ column: 'properties', aggregation: 'count' }],
+        compiledQuery: MOCK_BUILDER_INSIGHT_SQL,
     },
 }
 
@@ -1615,6 +1621,10 @@ describe('sqlEditorLogic', () => {
             const updatedQuery = updatePayload.query as DataVisualizationNode
             expect(updatedQuery.builder?.enabled).toEqual(true)
             expect(updatedQuery.builder?.baseQuery).toEqual(editedBase)
+            // The saved node must reopen in the builder — the whole flag ON→OFF→ON round trip
+            // hinges on the persisted compiledQuery snapshot tracking the adopted base's recompile
+            expect(updatedQuery.builder?.compiledQuery).toEqual(updatedQuery.source.query)
+            expect(nodeOpensInBuilder(updatedQuery)).toEqual(true)
             updateSpy.mockRestore()
         })
 

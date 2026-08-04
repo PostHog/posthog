@@ -2130,7 +2130,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             const compiled = compileNodeBuilder(newBuilder, values.sourceQuery.display)
                             actions.setSourceQuery({
                                 ...values.sourceQuery,
-                                builder: newBuilder,
+                                // The compiledQuery snapshot must track the recompile: it is what
+                                // decides whether the insight reopens in the builder, so leaving
+                                // the old one behind would demote the insight to classic on the
+                                // next open (and strip the config on the save after that).
+                                builder: { ...newBuilder, compiledQuery: compiled.sql },
                                 source: { ...values.sourceQuery.source, query: compiled.sql },
                             })
                             adoptedCompiledSql = compiled.sql
@@ -2544,7 +2548,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Builder insights: display comes from the builder's chart picker, and the save
                 // candidates (derived from the Monaco base SQL) must not replace the compiled SQL.
-                // With the builder flag off the tab is a plain SQL tab and saves like one.
+                // When the builder doesn't host the tab it is a plain SQL tab and saves like one.
                 const isBuilderInsight = values.insightBuilderHosted && !!currentVisualizationQuery.builder?.enabled
 
                 const defaultDisplay = isBuilderInsight
@@ -2957,6 +2961,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 actions.updateTab(nextActiveTab)
+                // A stale insight opened classic keeps its builder config on the node for the
+                // whole session (nothing strips mid-session). Once the tab stops editing that
+                // insight it becomes a fresh, possibly builder-hosted tab — a leftover enabled
+                // config would make the next Run adopt the stale wells and rewrite the SQL.
+                if (values.sourceQuery.builder) {
+                    actions.setSourceQuery({ ...values.sourceQuery, builder: undefined })
+                }
 
                 if (!values.isEmbeddedMode) {
                     const nextHash = encodeURIComponent(
@@ -3352,8 +3363,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 insightBuilderHosted: boolean
             ) => {
                 // Builder-hosted tabs: queryInput holds the base SQL while source.query holds the
-                // compiled SQL, so compare the compiled texts instead of the Monaco buffer. With
-                // the builder flag off the buffer is the source of truth like any plain SQL tab.
+                // compiled SQL, so compare the compiled texts instead of the Monaco buffer. When
+                // the builder doesn't host the tab the buffer is the source of truth like any
+                // plain SQL tab.
                 if (insightBuilderHosted && sourceQuery.builder?.enabled) {
                     return (lastRunQuery?.source.query ?? '').trim() === (sourceQuery.source.query ?? '').trim()
                 }
@@ -3624,14 +3636,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             insightShortId: insightShortIdFromUrl,
                         }))
                 ) {
-                    // reset current tab
-                    if (values.activeTab) {
-                        actions.updateTab({
-                            ...values.activeTab,
-                            insight: undefined,
-                            builderHosted: undefined,
-                        })
-                    }
+                    // The tab is NOT reset before the fetch: hosting derives from the tab, so
+                    // clearing the insight here would flip the layout to the flag default for the
+                    // whole network wait — and strand the tab half-reset if the fetch fails. On
+                    // success createTab rebuilds the tab from the fetched insight anyway.
                     actions._setSuggestionPayload(null)
 
                     const shortId = insightShortIdFromUrl
