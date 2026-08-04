@@ -29,57 +29,47 @@ const FRESHNESS_TEAMS = [
     { ...MOCK_DEFAULT_TEAM, id: 1006, project_id: 1006, name: 'MockHog old app' },
 ]
 
+const LOOKBACK_DAYS = 30
+
 // Relative to now so the rendered durations stay stable as real time passes.
 const daysAgo = (days: number): string => dayjs().subtract(days, 'day').toISOString()
 
+/**
+ * `days` is capped at the lookback window on purpose: every probe is bounded to it, so the API
+ * cannot report a `last_data_at` older than that. Anything further back arrives as null, which
+ * is what `null` means here.
+ */
+const project = (
+    teamId: number,
+    freshness: string,
+    days: number | null,
+    sources: [string, number][] = []
+): Record<string, unknown> => ({
+    team_id: teamId,
+    freshness,
+    last_data_at: days === null ? null : daysAgo(days),
+    sources: sources.map(([data_source, sourceDays]) => ({ data_source, last_data_at: daysAgo(sourceDays) })),
+})
+
 const DATA_FRESHNESS = {
-    lookback_days: 30,
+    lookback_days: LOOKBACK_DAYS,
     quiet_after_days: 7,
     results: [
-        {
-            team_id: MOCK_DEFAULT_TEAM.id,
-            freshness: 'live',
-            last_data_at: daysAgo(0),
-            sources: [
-                { data_source: 'product_analytics', last_data_at: daysAgo(0) },
-                { data_source: 'session_replay', last_data_at: daysAgo(0) },
-            ],
-        },
-        {
-            team_id: 1001,
-            freshness: 'stale',
-            last_data_at: daysAgo(12),
-            sources: [{ data_source: 'product_analytics', last_data_at: daysAgo(12) }],
-        },
-        {
-            team_id: 1002,
-            freshness: 'stale',
-            last_data_at: daysAgo(96),
-            sources: [{ data_source: 'product_analytics', last_data_at: daysAgo(96) }],
-        },
-        { team_id: 1003, freshness: 'never', last_data_at: null, sources: [] },
-        {
-            team_id: 1004,
-            freshness: 'stale',
-            last_data_at: daysAgo(410),
-            sources: [{ data_source: 'error_tracking', last_data_at: daysAgo(410) }],
-        },
-        {
-            // Still in use, just not the project you're currently in.
-            team_id: 1005,
-            freshness: 'live',
-            last_data_at: daysAgo(0),
-            sources: [
-                { data_source: 'product_analytics', last_data_at: daysAgo(0) },
-                { data_source: 'logs', last_data_at: daysAgo(1) },
-            ],
-        },
-        {
-            team_id: 1006,
-            freshness: 'stale',
-            last_data_at: daysAgo(200),
-            sources: [{ data_source: 'session_replay', last_data_at: daysAgo(200) }],
-        },
+        project(MOCK_DEFAULT_TEAM.id, 'live', 0, [
+            ['product_analytics', 0],
+            ['session_replay', 0],
+        ]),
+        project(1001, 'stale', 12, [['product_analytics', 12]]),
+        // Last saw data before the lookback window, so all we can say is "over 30 days".
+        project(1002, 'stale', null),
+        project(1003, 'never', null),
+        project(1004, 'stale', null),
+        // Still in use, just not the project you're currently in.
+        project(1005, 'live', 0, [
+            ['product_analytics', 0],
+            ['logs', 1],
+        ]),
+        project(1006, 'stale', 26, [['session_replay', 26]]),
     ],
 }
 
@@ -107,10 +97,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/organizations/@current/': () => [200, organization],
                 '/api/environments/@current/': () => [200, MOCK_DEFAULT_TEAM],
                 '/api/projects/@current/': () => [200, MOCK_DEFAULT_TEAM],
-                [`/api/organizations/${MOCK_DEFAULT_ORGANIZATION.id}/data_freshness/`]: () => [
-                    200,
-                    hasDataFreshness ? DATA_FRESHNESS : { ...DATA_FRESHNESS, results: [] },
-                ],
+                [`/api/organizations/${MOCK_DEFAULT_ORGANIZATION.id}/data_freshness/`]: () => [200, DATA_FRESHNESS],
             },
         })
 

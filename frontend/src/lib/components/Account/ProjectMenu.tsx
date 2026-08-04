@@ -17,11 +17,9 @@ import { TeamBasicType } from '~/types'
 import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectCombobox } from './ProjectCombobox'
 
-export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
+export function ProjectName({ team, className }: { team: TeamBasicType; className?: string }): JSX.Element {
     return (
-        // flex-1 + min-w-0 keeps a trailing sibling (the freshness label) pinned right and lets the
-        // name truncate into it, matching how the pending-invite row is laid out
-        <div className="flex items-center max-w-full min-w-0 flex-1">
+        <div className={cn('flex items-center max-w-full', className)}>
             <span className="truncate">{team.name}</span>
             {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
         </div>

@@ -1,12 +1,15 @@
+import { useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
 import type {
-    DataFreshnessProjectApi,
     DataFreshnessSourceApi,
     DataSourceEnumApi,
 } from 'products/platform_features/frontend/generated/api.schemas'
+
+import { projectDataFreshnessLogic } from './projectDataFreshnessLogic'
 
 const DATA_SOURCE_LABELS: Record<DataSourceEnumApi, string> = {
     product_analytics: 'Product analytics',
@@ -16,28 +19,10 @@ const DATA_SOURCE_LABELS: Record<DataSourceEnumApi, string> = {
     surveys: 'Surveys',
     feature_flags: 'Feature flags',
     logs: 'Logs',
-    apm: 'Tracing',
-    destinations: 'Destinations',
-    messaging: 'Messaging',
+    tracing: 'Tracing',
+    pipeline_destinations: 'Destinations',
+    workflows: 'Workflows',
     data_warehouse: 'Data warehouse',
-}
-
-/**
- * Compact enough to sit in a menu row without crowding the project name. Only ever called for a
- * gap of at least `quiet_after_days`, so it starts at days. `mo` rather than `m`, which would
- * read as minutes.
- */
-function compactAge(timestamp: string): string {
-    const then = dayjs(timestamp)
-    const days = dayjs().diff(then, 'day')
-    if (days < 30) {
-        return `${days}d`
-    }
-    const months = dayjs().diff(then, 'month')
-    if (months < 12) {
-        return `${months}mo`
-    }
-    return `${dayjs().diff(then, 'year')}y`
 }
 
 function SourceBreakdown({
@@ -56,7 +41,7 @@ function SourceBreakdown({
                 const isStale = dayjs().diff(dayjs(source.last_data_at), 'day') >= quietAfterDays
                 return (
                     <div key={source.data_source} className="flex items-center justify-between gap-4">
-                        <span>{DATA_SOURCE_LABELS[source.data_source] ?? source.data_source}</span>
+                        <span>{DATA_SOURCE_LABELS[source.data_source]}</span>
                         <span className={cn('shrink-0', isStale && 'text-tertiary')}>
                             {dayjs(source.last_data_at).fromNow()}
                         </span>
@@ -75,16 +60,11 @@ function SourceBreakdown({
  * A project that has never received anything is stated plainly rather than warned about: a
  * project created a minute ago legitimately has no data, and amber on it would be wrong.
  */
-export function ProjectFreshnessIndicator({
-    freshness,
-    quietAfterDays,
-    lookbackDays,
-}: {
-    freshness: DataFreshnessProjectApi | undefined
-    quietAfterDays: number
-    lookbackDays: number
-}): JSX.Element | null {
-    if (!freshness || freshness.freshness === 'live') {
+export function ProjectFreshnessIndicator({ teamId }: { teamId: number }): JSX.Element | null {
+    const { dataFreshness, freshnessByTeamId } = useValues(projectDataFreshnessLogic)
+
+    const freshness = freshnessByTeamId[teamId]
+    if (!dataFreshness || !freshness || freshness.freshness === 'live') {
         return null
     }
 
@@ -95,10 +75,11 @@ export function ProjectFreshnessIndicator({
         label = 'No data yet'
         headline = 'This project has never received any data.'
     } else if (!freshness.last_data_at) {
-        label = `No data for ${lookbackDays}d+`
-        headline = `No data of any kind has reached this project in over ${lookbackDays} days.`
+        // Every probe is bounded to the lookback window, so this is as far back as we can see.
+        label = `No data for ${dataFreshness.lookback_days}d+`
+        headline = `No data of any kind has reached this project in over ${dataFreshness.lookback_days} days.`
     } else {
-        label = `No data for ${compactAge(freshness.last_data_at)}`
+        label = `No data for ${dayjs().diff(dayjs(freshness.last_data_at), 'day')}d`
         headline = `No data of any kind has reached this project since ${dayjs(freshness.last_data_at).fromNow()}.`
     }
 
@@ -108,7 +89,7 @@ export function ProjectFreshnessIndicator({
             title={
                 <div className="max-w-xs">
                     <span>{headline}</span>
-                    <SourceBreakdown sources={freshness.sources} quietAfterDays={quietAfterDays} />
+                    <SourceBreakdown sources={freshness.sources} quietAfterDays={dataFreshness.quiet_after_days} />
                 </div>
             }
         >

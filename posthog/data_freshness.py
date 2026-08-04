@@ -9,25 +9,30 @@ separately and the project-level verdict is derived from the union.
 Two cost constraints shape the implementation, because this runs on an
 interactive path (opening the project switcher):
 
-  1. Every probe either hits Postgres, or hits a ClickHouse table whose sort key
-     starts with `team_id` (`app_metrics2`) or is a small per-session rollup
-     (`session_replay_events`). Nothing scans the raw events table.
-  2. All ClickHouse probes are bounded to `LOOKBACK_DAYS`, so a project with no
-     data anywhere costs partition pruning rather than a full history scan.
+  1. Probes are grouped by datastore rather than by product, so eleven sources
+     cost four queries. Each one reads a small per-team table or an index that
+     leads with the team: `app_metrics2` sorts on `team_id` first, the event
+     catalog has a `(coalesce(project_id, team_id), name)` unique index, and
+     `external_data_schema` holds one row per schema. Nothing scans raw events.
+     `session_replay_events` is the exception, sorting on
+     `(toDate(min_first_timestamp), team_id, session_id)`, so its cost scales
+     with the window as well as the team count.
+  2. Every probe is bounded to `LOOKBACK_DAYS`, so a project with no data
+     anywhere costs partition pruning rather than a full history scan.
 
-The bound is why `last_data_at` is nullable per source: `None` means "nothing
+The bound is why `last_data_at` is nullable per project: `None` means "nothing
 within the lookback window", not "never". `Freshness.NEVER` is the only claim
 this module makes about all of time, and it leans on `Team.ingested_event`.
 """
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Optional
 
-from django.core.cache import cache
-from django.db.models import BigIntegerField, Max
+from django.db.models import BigIntegerField, Case, CharField, Max, Value, When
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -36,24 +41,32 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.surveys.backend.util import SurveyEventName
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 
 # How far back the bounded probes look. Anything older reads as "nothing in the window".
 LOOKBACK_DAYS = 30
-# A source silent for at least this long is quiet. Deliberately shorter than the lookback,
-# so there is room between "quiet" and "invisible to us" for the partial verdict to live in.
+# A project silent for at least this long is stale. Shorter than the lookback, so a stale
+# project can still report roughly how long it has been quiet rather than only that it is.
 QUIET_AFTER_DAYS = 7
 
 CACHE_TTL_SECONDS = 10 * 60
 DEGRADED_CACHE_TTL_SECONDS = 60
+# Cached values are pickled dataclass instances, so a shape change has to miss rather than
+# unpickle into the new class missing a field. Bump when ProjectFreshness/SourceFreshness change.
+_CACHE_SCHEMA_VERSION = 1
 
 
 class DataSource(StrEnum):
-    """A distinct kind of data a project can receive. Values are part of the API contract."""
+    """A distinct kind of data a project can receive. Values are part of the API contract.
+
+    Spelled to match `ProductKey` so this doesn't become a second product vocabulary.
+    """
 
     PRODUCT_ANALYTICS = "product_analytics"
     SESSION_REPLAY = "session_replay"
@@ -62,9 +75,9 @@ class DataSource(StrEnum):
     SURVEYS = "surveys"
     FEATURE_FLAGS = "feature_flags"
     LOGS = "logs"
-    APM = "apm"
-    DESTINATIONS = "destinations"
-    MESSAGING = "messaging"
+    TRACING = "tracing"
+    PIPELINE_DESTINATIONS = "pipeline_destinations"
+    WORKFLOWS = "workflows"
     DATA_WAREHOUSE = "data_warehouse"
 
 
@@ -99,14 +112,19 @@ class ProjectFreshness:
     sources: list[SourceFreshness]
 
 
+# One (team_id, source, timestamp) row per thing a probe found. Probes never emit a null
+# timestamp or a team they weren't given, so `_compute` can trust both.
+ProbeResult = list[tuple[int, DataSource, datetime]]
+Probe = Callable[[list[Team], datetime, datetime], ProbeResult]
+
 # Events that belong to a product other than product analytics. Everything else
 # a project sends rolls up into product analytics.
 _EVENT_NAME_SOURCES: dict[str, DataSource] = {
     "$exception": DataSource.ERROR_TRACKING,
     "$feature_flag_called": DataSource.FEATURE_FLAGS,
-    "survey sent": DataSource.SURVEYS,
-    "survey shown": DataSource.SURVEYS,
-    "survey dismissed": DataSource.SURVEYS,
+    SurveyEventName.SENT: DataSource.SURVEYS,
+    SurveyEventName.SHOWN: DataSource.SURVEYS,
+    SurveyEventName.DISMISSED: DataSource.SURVEYS,
 }
 _LLM_EVENT_PREFIX = "$ai_"
 
@@ -114,9 +132,9 @@ _LLM_EVENT_PREFIX = "$ai_"
 # small query covers four products that would otherwise need their own tables.
 _APP_METRICS_SOURCES: dict[str, DataSource] = {
     "logs": DataSource.LOGS,
-    "traces": DataSource.APM,
-    "hog_function": DataSource.DESTINATIONS,
-    "hog_flow": DataSource.MESSAGING,
+    "traces": DataSource.TRACING,
+    "hog_function": DataSource.PIPELINE_DESTINATIONS,
+    "hog_flow": DataSource.WORKFLOWS,
 }
 
 
@@ -124,19 +142,20 @@ def get_organization_data_freshness(organization_id: str, teams: list[Team]) -> 
     """Freshness for every passed team, cached per organization.
 
     Keyed on the team set too, since access control means two members of the same organization
-    can see different projects.
+    can see different projects. A visibility change moves a team in or out of that set, so the
+    key changes with it rather than serving a stale verdict for the old set.
     """
     team_ids = sorted(team.id for team in teams)
     fingerprint = hashlib.sha256(",".join(str(team_id) for team_id in team_ids).encode()).hexdigest()[:16]
-    cache_key = f"org_data_freshness:{organization_id}:{fingerprint}"
-    cached = cache.get(cache_key)
+    cache_key = f"org_data_freshness:v{_CACHE_SCHEMA_VERSION}:{organization_id}:{fingerprint}"
+    cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
 
     result, degraded = _compute(teams)
     # A store being briefly unreachable reads as "no data", which is exactly the wrong answer to
     # pin for a full TTL. Cache it just long enough to absorb a burst of requests.
-    cache.set(cache_key, result, DEGRADED_CACHE_TTL_SECONDS if degraded else CACHE_TTL_SECONDS)
+    safe_cache_set(cache_key, result, DEGRADED_CACHE_TTL_SECONDS if degraded else CACHE_TTL_SECONDS)
     return result
 
 
@@ -153,11 +172,9 @@ def _compute(teams: list[Team]) -> tuple[list[ProjectFreshness], bool]:
 
     degraded = False
     by_team: dict[int, dict[DataSource, datetime]] = {team.id: {} for team in teams}
-    for probe in (_probe_events, _probe_session_replay, _probe_app_metrics, _probe_data_warehouse):
+    for probe in _PROBES:
         try:
             for team_id, source, last_data_at in probe(teams, cutoff, horizon):
-                if team_id not in by_team or last_data_at is None:
-                    continue
                 previous = by_team[team_id].get(source)
                 if previous is None or last_data_at > previous:
                     by_team[team_id][source] = last_data_at
@@ -196,46 +213,45 @@ def derive_freshness(team: Team, found: dict[DataSource, datetime], quiet_before
     )
 
 
-ProbeResult = list[tuple[int, DataSource, Optional[datetime]]]
-
-
 def _probe_events(teams: list[Team], cutoff: datetime, horizon: datetime) -> ProbeResult:
     """Event-backed products, read from the event definition catalog rather than ClickHouse.
 
-    `posthog_eventdefinition.last_seen_at` is maintained by ingestion and is unbounded in time,
-    which makes it both free and more precise than a windowed query. The tradeoff is that it is
-    project-scoped, so environments of the same project share a verdict here.
+    `posthog_eventdefinition.last_seen_at` is maintained by ingestion, which makes it far cheaper
+    than a windowed events query. The tradeoff is that it is project-scoped, so environments of
+    the same project share a verdict here.
+
+    Classification happens in SQL rather than as one query per source: splitting it would make
+    the `$ai_` prefix and the product-analytics residual (`NOT IN` + `NOT LIKE`) full scans of
+    every definition in scope, where the grouped form reads them once.
     """
     scopes: dict[int, list[Team]] = {}
     for team in teams:
         scopes.setdefault(team.project_id or team.id, []).append(team)
 
-    definitions = EventDefinition.objects.annotate(
-        # Mirrors the table's own `(coalesce(project_id, team_id), name)` uniqueness: one row per
-        # project, with `project_id` null on rows that predate projects.
-        scope_id=Coalesce("project_id", "team_id", output_field=BigIntegerField())
-    ).filter(scope_id__in=scopes.keys(), last_seen_at__isnull=False)
-    named = definitions.filter(name__in=_EVENT_NAME_SOURCES.keys())
-    prefixed = definitions.filter(name__startswith=_LLM_EVENT_PREFIX)
+    source_of_name = Case(
+        *[When(name=name, then=Value(source.value)) for name, source in _EVENT_NAME_SOURCES.items()],
+        When(name__startswith=_LLM_EVENT_PREFIX, then=Value(DataSource.LLM_ANALYTICS.value)),
+        # Product analytics is the residual: everything that is not one of the events above.
+        default=Value(DataSource.PRODUCT_ANALYTICS.value),
+        output_field=CharField(),
+    )
+    rows = (
+        EventDefinition.objects.annotate(
+            # Mirrors the table's own `(coalesce(project_id, team_id), name)` uniqueness: one row
+            # per project, with `project_id` null on rows that predate projects.
+            scope_id=Coalesce("project_id", "team_id", output_field=BigIntegerField()),
+            source=source_of_name,
+        )
+        .filter(scope_id__in=scopes.keys(), last_seen_at__gte=cutoff, last_seen_at__lte=horizon)
+        .values("scope_id", "source")
+        .annotate(last_seen=Max("last_seen_at"))
+    )
 
-    results: ProbeResult = []
-
-    def emit(scope_id: int, source: DataSource, last_seen_at: Optional[datetime]) -> None:
-        if last_seen_at is None or not (cutoff <= last_seen_at <= horizon):
-            return
-        for team in scopes.get(scope_id, []):
-            results.append((team.id, source, last_seen_at))
-
-    for row in named.values("scope_id", "name").annotate(last_seen=Max("last_seen_at")):
-        emit(row["scope_id"], _EVENT_NAME_SOURCES[row["name"]], row["last_seen"])
-    for row in prefixed.values("scope_id").annotate(last_seen=Max("last_seen_at")):
-        emit(row["scope_id"], DataSource.LLM_ANALYTICS, row["last_seen"])
-    # Product analytics is the residual: everything that is not one of the events above.
-    residual = definitions.exclude(name__in=_EVENT_NAME_SOURCES.keys()).exclude(name__startswith=_LLM_EVENT_PREFIX)
-    for row in residual.values("scope_id").annotate(last_seen=Max("last_seen_at")):
-        emit(row["scope_id"], DataSource.PRODUCT_ANALYTICS, row["last_seen"])
-
-    return results
+    return [
+        (team.id, DataSource(row["source"]), row["last_seen"])
+        for row in rows
+        for team in scopes.get(row["scope_id"], [])
+    ]
 
 
 def _probe_session_replay(teams: list[Team], cutoff: datetime, horizon: datetime) -> ProbeResult:
@@ -274,28 +290,33 @@ def _probe_app_metrics(teams: list[Team], cutoff: datetime, horizon: datetime) -
             },
         )
     return [
-        (team_id, _APP_METRICS_SOURCES[app_source], _as_utc(last_data_at))
-        for team_id, app_source, last_data_at in rows
-        if app_source in _APP_METRICS_SOURCES
+        (team_id, _APP_METRICS_SOURCES[app_source], _as_utc(last_data_at)) for team_id, app_source, last_data_at in rows
     ]
 
 
 def _probe_data_warehouse(teams: list[Team], cutoff: datetime, horizon: datetime) -> ProbeResult:
+    """Read the per-schema sync stamp rather than aggregating job history.
+
+    `ExternalDataJob` is one row per schema per run and has no index serving a `finished_at`
+    range, so a windowed max over it reads a team's whole history. `ExternalDataSchema` holds
+    one row per schema off the team FK, and is what the rest of the codebase treats as "last
+    successful sync".
+    """
     rows = (
-        ExternalDataJob.objects.filter(
+        ExternalDataSchema.objects.filter(
             team_id__in=[team.id for team in teams],
-            status=ExternalDataJob.Status.COMPLETED,
-            finished_at__gte=cutoff,
-            finished_at__lte=horizon,
+            last_synced_at__gte=cutoff,
+            last_synced_at__lte=horizon,
         )
         .values("team_id")
-        .annotate(last_synced=Max("finished_at"))
+        .annotate(last_synced=Max("last_synced_at"))
     )
     return [(row["team_id"], DataSource.DATA_WAREHOUSE, row["last_synced"]) for row in rows]
 
 
-def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+_PROBES: tuple[Probe, ...] = (_probe_events, _probe_session_replay, _probe_app_metrics, _probe_data_warehouse)
+
+
+def _as_utc(value: datetime) -> datetime:
     """ClickHouse hands back naive datetimes; they are always UTC."""
-    if value is None:
-        return None
     return value if value.tzinfo else value.replace(tzinfo=UTC)

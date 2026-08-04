@@ -654,12 +654,19 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.organization
-        visible_teams = list(
-            organization.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).only(
-                "id", "project_id", "ingested_event"
+        # Both access control systems, in the same order as OrganizationSerializer._fetch_visible_teams.
+        # Filtering on only the legacy one would report activity for projects RBAC hides.
+        visible_teams = (
+            self.user_access_control.filter_queryset_by_access_level(
+                organization.teams.all(), include_all_if_admin=True
             )
+            if self.user_access_control
+            else organization.teams.none()
         )
-        results = get_organization_data_freshness(str(organization.id), visible_teams)
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).only(
+            "id", "project_id", "ingested_event"
+        )
+        results = get_organization_data_freshness(str(organization.id), list(visible_teams))
         return Response(
             OrganizationDataFreshnessSerializer(
                 {

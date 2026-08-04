@@ -257,9 +257,9 @@ export const FreshnessEnumApi = {
  * * `surveys` - surveys
  * * `feature_flags` - feature_flags
  * * `logs` - logs
- * * `apm` - apm
- * * `destinations` - destinations
- * * `messaging` - messaging
+ * * `tracing` - tracing
+ * * `pipeline_destinations` - pipeline_destinations
+ * * `workflows` - workflows
  * * `data_warehouse` - data_warehouse
  */
 export type DataSourceEnumApi = (typeof DataSourceEnumApi)[keyof typeof DataSourceEnumApi]
@@ -272,9 +272,9 @@ export const DataSourceEnumApi = {
     Surveys: 'surveys',
     FeatureFlags: 'feature_flags',
     Logs: 'logs',
-    Apm: 'apm',
-    Destinations: 'destinations',
-    Messaging: 'messaging',
+    Tracing: 'tracing',
+    PipelineDestinations: 'pipeline_destinations',
+    Workflows: 'workflows',
     DataWarehouse: 'data_warehouse',
 } as const
 
@@ -288,9 +288,9 @@ export interface DataFreshnessSourceApi {
      * * `surveys` - surveys
      * * `feature_flags` - feature_flags
      * * `logs` - logs
-     * * `apm` - apm
-     * * `destinations` - destinations
-     * * `messaging` - messaging
+     * * `tracing` - tracing
+     * * `pipeline_destinations` - pipeline_destinations
+     * * `workflows` - workflows
      * * `data_warehouse` - data_warehouse */
     data_source: DataSourceEnumApi
     /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
