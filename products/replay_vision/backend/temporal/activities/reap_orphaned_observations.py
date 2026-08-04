@@ -18,12 +18,10 @@ from temporalio.client import Client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.replay_vision.backend.evaluation_credits import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-from products.replay_vision.backend.prompt_evaluation import (
-    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
-    summarize_results,
-)
+from products.replay_vision.backend.prompt_evaluation import summarize_results
 from products.replay_vision.backend.temporal.activities.observation_state import mark_observation_terminal
 from products.replay_vision.backend.temporal.activities.reaping import classify_stale_rows
 from products.replay_vision.backend.temporal.constants import (

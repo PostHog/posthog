@@ -27,6 +27,10 @@ from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
 from products.replay_vision.backend.api.scanners import _scanner_config_error_message
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.evaluation_credits import (
+    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
+    evaluation_in_flight,
+)
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -35,11 +39,9 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
-    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
     EVALUATION_SESSION_DEFAULT,
     build_running_evaluation,
-    evaluation_in_flight,
     evaluation_supported,
 )
 from products.replay_vision.backend.prompt_suggestions import (

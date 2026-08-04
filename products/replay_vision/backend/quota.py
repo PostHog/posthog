@@ -14,6 +14,7 @@ from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
 from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
+from products.replay_vision.backend.evaluation_credits import in_flight_evaluation_credits
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -166,10 +167,6 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
 
 
 def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
-    # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
-    # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
-    from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_credits  # noqa: PLC0415
-
     # Single `now` so the usage window and any caller comparisons are computed from one instant.
     now = datetime.now(UTC)
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()

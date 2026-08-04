@@ -7,6 +7,10 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.evaluation_credits import (
+    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
+    in_flight_evaluation_credits,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -20,13 +24,11 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
-    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
     EVALUATION_SESSION_DEFAULT,
     build_running_evaluation,
     classify_outcome,
     evaluation_supported,
-    in_flight_evaluation_credits,
     is_preview_evaluation,
     primary_outcome,
     select_evaluation_observations,

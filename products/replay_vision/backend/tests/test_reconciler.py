@@ -20,6 +20,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Organization, Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
+from products.replay_vision.backend.evaluation_credits import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -31,7 +32,6 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     SuggestionStatus,
 )
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
-from products.replay_vision.backend.prompt_evaluation import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
