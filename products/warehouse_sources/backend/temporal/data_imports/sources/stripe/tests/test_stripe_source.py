@@ -253,6 +253,11 @@ class TestStripeSource:
                 "Request req_abc123: Sorry, something went wrong. We've already been notified of the "
                 "problem, but if you need any help, you can reach us at https://support.stripe.com/contact.",
             ),
+            (
+                # `specific_v1_api_error`'s fallback branch surfaces the terser "An unknown error
+                # occurred" for an unclassified 5xx — same self-recovering condition.
+                "Request req_5tDyXdytkkCIox: An unknown error occurred",
+            ),
         ]
     )
     def test_retryable_errors_match_self_recovering_errors(self, observed_error):
