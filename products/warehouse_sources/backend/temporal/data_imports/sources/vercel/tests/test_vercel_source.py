@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
@@ -52,7 +52,7 @@ class TestVercelSource:
         config = self.source.get_source_config
         assert config.label == "Vercel"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}

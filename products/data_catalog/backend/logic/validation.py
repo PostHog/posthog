@@ -45,14 +45,42 @@ _HOGQL_ALLOWED_KEYS = {"kind", "query", "values"}
 
 
 class _TableReferenceCollector(TraversingVisitor):
-    """Collects the identifiers used directly as FROM/JOIN targets in a parsed HogQL query."""
+    """Collects the real tables a query reads, excluding CTE aliases.
+
+    Global CTE-name subtraction (``get_table_names``) is not enough here: a CTE named after a
+    real table would erase that table even when the CTE body reads it (a non-recursive CTE body
+    does not see its own name), silently defeating the catalog's denied-table filter. So CTE
+    names are tracked per scope: each CTE body is visited under the scope of the CTEs defined
+    before it, and only single-part FROM/JOIN targets naming an in-scope CTE are skipped.
+    """
 
     def __init__(self) -> None:
         self.tables: set[str] = set()
+        self._cte_scopes: list[set[str]] = [set()]
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        scope = set(self._cte_scopes[-1])
+        for cte_name, cte in (node.ctes or {}).items():
+            self._cte_scopes.append(set(scope))
+            self.visit(cte.expr)
+            self._cte_scopes.pop()
+            scope.add(cte_name)
+        self._cte_scopes.append(scope)
+        # CTEs were just visited with the right scopes; blank them out so the generic traversal
+        # of the remaining children doesn't re-visit them under this (wider) scope.
+        ctes, node.ctes = node.ctes, None
+        try:
+            super().visit_select_query(node)
+        finally:
+            node.ctes = ctes
+            self._cte_scopes.pop()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         if isinstance(node.table, ast.Field):
-            self.tables.add(".".join(str(part) for part in node.table.chain))
+            chain = [str(part) for part in node.table.chain]
+            if len(chain) != 1 or chain[0] not in self._cte_scopes[-1]:
+                self.tables.add(".".join(chain))
+        # The generic traversal also covers subqueries in the join target and in ON constraints.
         super().visit_join_expr(node)
 
 

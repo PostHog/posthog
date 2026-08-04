@@ -43,6 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
@@ -333,6 +334,12 @@ class DataWarehouseSavedQueryMinimalSerializer(
         read_only_fields = fields
 
 
+class SavedQuerySuspensionSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When materialization was suspended.")
+    reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
+    job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
+
+
 class DataWarehouseSavedQuerySerializer(
     DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
@@ -369,6 +376,7 @@ class DataWarehouseSavedQuerySerializer(
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    suspended = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
         source="folder",
         queryset=DataWarehouseSavedQueryFolder.objects.all(),
@@ -429,6 +437,7 @@ class DataWarehouseSavedQuerySerializer(
             "is_test",
             "expires_at",
             "user_access_level",
+            "suspended",
         ]
         read_only_fields = [
             "id",
@@ -446,6 +455,7 @@ class DataWarehouseSavedQuerySerializer(
             "is_materialized",
             "origin",
             "expires_at",
+            "suspended",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -485,6 +495,21 @@ class DataWarehouseSavedQuerySerializer(
             return view.latest_activity_id
 
         return None
+
+    @extend_schema_field(
+        serializers.DictField(
+            child=SavedQuerySuspensionSerializer(),
+            help_text="Engines this query's materialization is suspended for after repeated failures. "
+            "Suspended engines are skipped by scheduled runs until the query is resumed.",
+        )
+    )
+    def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
+        from products.data_modeling.backend.facade.api import suspension_state_for_saved_query
+
+        return {
+            engine: SavedQuerySuspensionSerializer(entry).data
+            for engine, entry in suspension_state_for_saved_query(view).items()
+        }
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -592,6 +617,15 @@ class DataWarehouseSavedQuerySerializer(
             before_update = None
 
         sync_frequency = validated_data.pop("sync_frequency", None)
+
+        if sync_frequency and sync_frequency != "never":
+            # Scheduling a view is the same grant as materializing it directly.
+            assert_user_can_read_query(
+                instance.query,
+                self.context["team_id"],
+                cast(User, self.context["request"].user),
+                database=self.context.get("database"),
+            )
 
         dag_managed_frequency = False
         if sync_frequency and posthoganalytics.feature_enabled(
@@ -1205,10 +1239,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if saved_query.managed_viewset is not None:
             raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
 
+        assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
+
         sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
 
         should_unpause = saved_query.sync_frequency_interval is None
         previous_interval = saved_query.sync_frequency_interval
+        previously_materialized = saved_query.is_materialized
 
         saved_query.sync_frequency_interval = sync_frequency_interval
         saved_query.is_materialized = True
@@ -1225,7 +1262,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
             # The requested cadence can't be honored (e.g. finer than an upstream source
-            # delivers) — a request problem, not a server one.
+            # delivers) — a request problem, not a server one. `schedule_materialization`
+            # deliberately re-raises these without applying its disable-on-failure contract, and
+            # this action is not inside an atomic block, so undo the enable by hand: otherwise the
+            # 400 leaves is_materialized=True behind and the UI reads the rejection as a success.
+            saved_query.sync_frequency_interval = previous_interval
+            saved_query.is_materialized = previously_materialized
+            saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
             raise serializers.ValidationError(str(e))
 
         # Refresh from DB to check if schedule_materialization set is_materialized = False on failure

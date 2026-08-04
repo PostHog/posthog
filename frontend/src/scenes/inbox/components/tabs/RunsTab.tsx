@@ -2,7 +2,7 @@ import { IconBrain } from '@posthog/icons'
 
 import { SignalRun } from '../../types'
 import { CardSkeleton } from '../cards/CardSkeleton'
-import { isRunLive } from '../cards/runStatusVariant'
+import { isRunLive, RunStatusIndicator } from '../cards/runStatusVariant'
 import { SignalRunCard } from '../cards/SignalRunCard'
 
 /**
@@ -24,15 +24,11 @@ export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean
                 <CardSkeleton count={4} variant="cards" />
             ) : runs.length === 0 ? (
                 <div className="mx-auto max-w-md flex flex-col items-center text-center py-16 gap-2">
-                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
+                    <div className="flex size-10 items-center justify-center rounded-full bg-fill-primary text-secondary mb-1">
                         <IconBrain className="text-2xl" />
                     </div>
                     <h3 className="text-base font-semibold m-0">No runs yet</h3>
-                    <p className="text-sm text-tertiary m-0">
-                        Self-driving agent runs.
-                        <br />
-                        Scouts exploring your data and per-signal agents show up here.
-                    </p>
+                    <p className="text-sm text-tertiary m-0">Scout and agent runs will appear here.</p>
                 </div>
             ) : (
                 <>
@@ -42,8 +38,8 @@ export function RunsTab({ runs, loading }: { runs: SignalRun[]; loading: boolean
                         isLive
                         runs={liveRuns}
                         empty={{
-                            title: 'Nothing in motion right now',
-                            description: 'Active runs show up here as soon as self-driving kicks one off.',
+                            title: 'No active runs',
+                            description: 'New runs appear here when scouts or agents start working.',
                         }}
                     />
                     {pastRuns.length > 0 && <RunsSection title="Past" count={pastRuns.length} runs={pastRuns} />}
@@ -65,19 +61,17 @@ function RunsSection({ title, count, isLive, runs, empty }: RunsSectionProps): J
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 cursor-default select-none">
-                <span className="font-semibold text-[13px] text-default">{title}</span>
+                <span className="font-semibold text-sm text-default">{title}</span>
                 <span className="text-xs text-tertiary tabular-nums">{count}</span>
-                {isLive && count > 0 && (
-                    <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
-                )}
+                {isLive && count > 0 ? <RunStatusIndicator variant="live" showLabel={false} /> : null}
             </div>
             {runs.length === 0 && empty ? (
                 <div className="flex items-center gap-3 cursor-default select-none rounded border border-dashed border-primary bg-surface-secondary px-4 py-3.5">
-                    <div className="flex items-center justify-center h-8 w-8 shrink-0 rounded-full bg-fill-primary ring-1 ring-inset ring-primary">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-fill-primary ring-1 ring-inset ring-primary">
                         <IconBrain className="text-tertiary" />
                     </div>
                     <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                        <span className="font-medium text-[13px] text-default">{empty.title}</span>
+                        <span className="font-medium text-sm text-default">{empty.title}</span>
                         <span className="text-xs text-tertiary leading-snug">{empty.description}</span>
                     </div>
                 </div>

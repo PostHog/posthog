@@ -177,6 +177,58 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
 
+    /// Enable the person-property seed path: discovery widens to `person_property` runs and the
+    /// planning/scan/emission pipeline arms. Default off — the processor's decode arm and
+    /// `COHORT_SEED_PERSON_APPLY_ENABLED` must be deployed everywhere first, or an old processor
+    /// skip-and-commits the seeds.
+    #[envconfig(default = "false")]
+    pub seeder_person_seeds_enabled: bool,
+
+    /// Enable the person-property *reconcile* path: completion discovery widens to `person_property`
+    /// runs, so a fully-seeded one transitions `seeding -> reconciling` and produces
+    /// `reconcile_person` tiles. The orchestrator also needs `SEEDER_PERSON_SEEDS_ENABLED` before
+    /// this does anything, since there is no person seed path to reconcile without it; the CLI
+    /// reads this flag on its own and will dispatch a person run's tiles with seeds off.
+    ///
+    /// Deploy order, in this order, no overlap:
+    ///   1. Roll the processor fleet-wide with a build that decodes `reconcile_person` tiles and
+    ///      loads the person shape-hash map. An older processor routes the person kind to
+    ///      `UnknownKind` and skip-commits it without a marker, stranding the run as a shortfall.
+    ///   2. Flip `SEEDER_PERSON_SEEDS_ENABLED` and let person runs seed.
+    ///   3. Flip this once step 1 is confirmed everywhere.
+    ///   4. Flip Django's `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` once the remaining
+    ///      precondition in its `posthog/settings/cohorts.py` docstring holds: the flags service no
+    ///      longer reads `last_backfill_person_properties_at` as proof `cohort_membership` is
+    ///      populated. Until then the finalizer skips person runs, so they stay `reconciling` after
+    ///      step 3 and `seeder_runs_reconciling{kind="person_property"}` climbs. That is expected,
+    ///      not a stalled dispatch.
+    ///
+    /// Flipping this back off does not undo a bad rollout: a run already in `reconciling` stops
+    /// being discovered, so it never reaches `reconcile_observed_at` and never finalizes. Recovery
+    /// is an operator re-dispatch through the CLI after the fleet is upgraded.
+    #[envconfig(default = "false")]
+    pub seeder_person_reconcile_dispatch_enabled: bool,
+
+    /// Person-seed produce rate, shared across concurrent person chunks and separate from
+    /// `seeder_tiles_per_sec` so the two throughputs tune independently.
+    #[envconfig(default = "2000")]
+    pub seeder_person_seeds_per_sec: u32,
+
+    /// Target persons per planned UUID-range chunk; the planning scan keeps every Nth id as a
+    /// range boundary. Sized so one chunk's paced emission completes in single-digit minutes —
+    /// settings validation refuses a value the ClickHouse execution-time budget cannot cover.
+    #[envconfig(default = "1000000")]
+    pub seeder_persons_per_chunk: u64,
+
+    /// The person path's own chunk-slot budget, so a person scan never occupies a behavioral slot.
+    #[envconfig(default = "1")]
+    pub seeder_person_max_concurrent_chunks: usize,
+
+    /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
+    /// only a point-read on absent records (the consumer's no-create rule).
+    #[envconfig(default = "true")]
+    pub seeder_person_emit_nonmatchers: bool,
+
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
 
@@ -185,6 +237,13 @@ pub struct Config {
 
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_before_external_sort: u64,
+
+    /// Runaway guard on sets built from `IN (SELECT …)` subqueries, which nothing else bounds — the
+    /// person boundary scan's horizon prefilter builds one id set covering a whole team, unchunked.
+    /// Exceeding it throws a set-size error naming the limit rather than pushing the server toward
+    /// an OOM that takes unrelated queries down with it.
+    #[envconfig(default = "20000000000")]
+    pub seeder_ch_max_bytes_in_set: u64,
 
     #[envconfig(default = "grace_hash")]
     pub seeder_ch_join_algorithm: String,
@@ -209,10 +268,13 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub seeder_reconcile_max_concurrent_dispatches: usize,
 
-    /// The membership-change topic whose high watermarks anchor the marker watcher's start
-    /// positions, captured at dispatch time. The observer reads markers from the same topic.
-    #[envconfig(default = "cohort_membership_changed_shadow")]
-    pub cohort_membership_changed_topic: String,
+    /// The reconcile-marker topic whose high watermarks anchor the marker watcher's start positions,
+    /// captured at dispatch time. The observer reads markers from the same topic. Its partition count
+    /// must not change while runs are in flight: a run's watch covers the partitions that existed at
+    /// its dispatch, so one added later is never read — holding the run open if it appeared before
+    /// the observation ends were captured, and settling the run short if it appeared after them.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
 
     /// Enable the dark-by-default reconcile observer: the marker-watch task and the driver's
     /// observation pass. A separate gate from auto-dispatch — observation can run against
@@ -225,7 +287,7 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-seeds")]
     pub kafka_seed_consumer_group: String,
 
-    /// Timeout for the seed-group OffsetFetch and membership-topic watermark metadata calls the
+    /// Timeout for the seed-group OffsetFetch and marker-topic watermark metadata calls the
     /// observer makes.
     #[envconfig(default = "10000")]
     pub seeder_reconcile_offsets_timeout_ms: u64,

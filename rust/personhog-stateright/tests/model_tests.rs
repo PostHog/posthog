@@ -25,6 +25,15 @@ use std::time::Instant;
 use personhog_stateright::model::{HandoffModel, Variant};
 use stateright::{Checker, Model};
 
+/// Every checker explores in parallel: stateright defaults to a single
+/// thread, which left the largest models (the two-partition
+/// double-zombie pair) as multi-minute single-core BFS runs. The
+/// nextest `stateright-heavy` group gives those tests the machine to
+/// themselves so this parallelism gets real cores.
+fn parallelism() -> usize {
+    std::thread::available_parallelism().map_or(1, Into::into)
+}
+
 /// Baseline configuration; tests override fields with struct-update
 /// syntax. Reads default on so every scenario also exercises the read
 /// path under the shipped (stashed) design.
@@ -41,6 +50,7 @@ fn base() -> HandoffModel {
         rejoins: 0,
         router_joins: 0,
         zombie_window: 0,
+        cancels: 0,
         probes: false,
     }
 }
@@ -61,6 +71,7 @@ fn model(variant: Variant, crashes: u8, zombie_window: u8) -> HandoffModel {
 fn current_protocol_without_failures_is_safe_and_live() {
     model(Variant::Current, 0, 0)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join()
         .assert_properties();
@@ -73,6 +84,7 @@ fn current_protocol_without_failures_is_safe_and_live() {
 fn current_protocol_with_crashes_is_safe_and_live() {
     model(Variant::Current, 1, 0)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join()
         .assert_properties();
@@ -88,6 +100,7 @@ fn current_protocol_with_crashes_is_safe_and_live() {
 fn current_protocol_single_zombie_pod_is_safe() {
     model(Variant::Current, 1, 1)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join()
         .assert_properties();
@@ -100,7 +113,11 @@ fn current_protocol_single_zombie_pod_is_safe() {
 /// but sits beyond the warm HWM, invisible to the new owner forever.
 #[test]
 fn current_protocol_double_zombie_loses_acked_writes() {
-    let checker = model(Variant::Current, 2, 1).checker().spawn_bfs().join();
+    let checker = model(Variant::Current, 2, 1)
+        .checker()
+        .threads(parallelism())
+        .spawn_bfs()
+        .join();
     assert!(
         checker.discovery("no_lost_acked_write").is_some(),
         "the double zombie must produce an acked-write-loss counterexample"
@@ -118,6 +135,7 @@ fn current_protocol_double_zombie_loses_acked_writes() {
 fn epoch_fenced_double_zombie_is_safe() {
     let checker = model(Variant::EpochFenced, 2, 1)
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join();
     assert!(
@@ -148,6 +166,7 @@ fn current_two_partitions_single_zombie_is_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -172,6 +191,7 @@ fn current_with_rejoin_is_safe_and_live() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -192,6 +212,7 @@ fn strong_reads_are_complete_across_cutover() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -210,6 +231,7 @@ fn two_partitions_double_zombie_loses_acked_writes() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(checker.discovery("no_lost_acked_write").is_some());
@@ -228,6 +250,7 @@ fn epoch_fenced_two_partitions_double_zombie_is_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(checker.discovery("no_lost_acked_write").is_none());
@@ -259,6 +282,7 @@ fn late_router_join_is_safe_and_live() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join()
     .assert_properties();
@@ -283,6 +307,7 @@ fn probe_silent_late_joiner_advance_is_reachable_and_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -320,6 +345,7 @@ fn zero_router_creation_with_late_joiner_is_safe_and_live() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -367,6 +393,7 @@ fn probe_divergent_quorums_are_reachable_and_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -408,6 +435,7 @@ fn epoch_fenced_double_zombie_with_late_joiner_is_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -440,6 +468,7 @@ fn probe_concurrent_handoffs_are_reachable() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -469,6 +498,7 @@ fn probe_dual_role_pod_is_reachable_and_safe() {
         ..base()
     }
     .checker()
+    .threads(parallelism())
     .spawn_bfs()
     .join();
     assert!(
@@ -550,6 +580,7 @@ fn state_space_report() {
             ..base()
         }
         .checker()
+        .threads(parallelism())
         .spawn_bfs()
         .join();
         println!(
@@ -558,4 +589,93 @@ fn state_space_report() {
             start.elapsed()
         );
     }
+}
+
+/// Deadline cancellation as atomic replacement, with no failures in the
+/// mix: any in-flight handoff may be cancelled at any moment (the model
+/// has no clock, so this covers every production deadline policy). The
+/// budget of two lets the checker cancel a successor produced by an
+/// earlier cancellation. Every safety property must hold across the
+/// replacement interleavings — including a cancellation racing parked
+/// stash requests — and every full run must still converge with empty
+/// stashes.
+#[test]
+fn deadline_cancellation_by_replacement_is_safe_and_live() {
+    HandoffModel {
+        cancels: 2,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// The reaffirm arm: cancelling a move handoff whose old owner is alive
+/// must resolve as a Complete toward that owner — the pod re-derives
+/// Serving and unfences, routers drain home. Manufacturing a move whose
+/// old owner survives takes a crash and a rejoin (a fresh handoff has no
+/// old owner, and a crashed owner is dead): the pod dies, its partition
+/// moves, it rejoins, and the rebalance that moves a partition back is
+/// the reaffirmable handoff. Two partitions so the sticky strategy has a
+/// move to make at rejoin.
+#[test]
+fn cancellation_with_live_owner_reaffirms_and_resumes() {
+    HandoffModel {
+        partitions: 2,
+        crashes: 1,
+        rejoins: 1,
+        cancels: 1,
+        // One write keeps the workload probes reachable while holding
+        // the state space down — this test's subject is the control
+        // plane's reaffirm resolution, not the data path.
+        writes: 1,
+        reads: 0,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// The successor arm under failure: the owner dies while its handoff is
+/// in flight, and the cancellation replaces the record with the
+/// successor in one transaction — the stash never observes a gap between
+/// attempts. The dead-new-owner arm is exercised in the same space (a
+/// cancellation's successor can itself target a pod that then dies).
+#[test]
+fn cancellation_with_dead_owner_replaces_atomically() {
+    HandoffModel {
+        crashes: 1,
+        cancels: 1,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
+}
+
+/// Isolation probe for the stale-warm counterexample: the same
+/// crash+rejoin+two-partition space with cancellation disabled. If this
+/// fails too, the loss mechanism predates cancellation-by-replacement.
+#[test]
+fn rejoin_two_partitions_without_cancellation() {
+    HandoffModel {
+        partitions: 2,
+        crashes: 1,
+        rejoins: 1,
+        writes: 1,
+        reads: 0,
+        ..base()
+    }
+    .checker()
+    .threads(parallelism())
+    .spawn_bfs()
+    .join()
+    .assert_properties();
 }

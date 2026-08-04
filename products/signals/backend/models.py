@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.contrib.postgres.fields import ArrayField
@@ -303,6 +303,14 @@ class SignalReport(UUIDModel):
                 self.signals_at_run = self.signal_count + signals_at_run_increment
                 self.run_count += 1
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
+
+            # A summary run paused mid-workflow by the self-driving credits quota gate returns to
+            # CANDIDATE, so the report re-promotes on the next matching signal instead of sticking
+            # in IN_PROGRESS (which no promotion rule ever picks up). No side effects: promoted_at
+            # is still accurate, and run_count / signals_at_run keep the values the aborted run
+            # advanced them to (run_count feeds Temporal workflow IDs and must never roll back).
+            case (S.IN_PROGRESS, S.CANDIDATE):
+                pass
 
             case (S.IN_PROGRESS, S.READY):
                 if title is None or summary is None:
@@ -1096,6 +1104,63 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # ModelActivityMixin only logs deletes when this is set.
     activity_logging_on_delete = True
 
+    class Status(models.TextChoices):
+        """Lifecycle states a writer deliberately moves a scout between.
+
+        Deliberately small: only states that change what the scheduler does belong here.
+        Windowed assessments (engagement, cold-start newness, a failing-but-not-tripped
+        streak) are derived at read time, never persisted as a status.
+        """
+
+        ACTIVE = "active", "Active"
+        # Warned by a system writer. Still scheduled; whether the warning later advances to a
+        # pause depends on its reason (an `ignored` warning pauses after a grace period, a
+        # `no_output` one only ever warns). A state rather than a notification so the sweep
+        # that sets it is idempotent and any human touch has something concrete to clear.
+        PENDING_PAUSE = "pending_pause", "Pending pause"
+        PAUSED_BY_SYSTEM = "paused_by_system", "Paused by system"
+        # A human switched the scout off. No system writer may resume or re-pause it.
+        PAUSED_BY_USER = "paused_by_user", "Paused by user"
+
+    class PauseReason(models.TextChoices):
+        """Why a system writer paused (or warned) a scout.
+
+        Each value also identifies the writer that owns the pause: a system writer may only
+        clear or overwrite a pause carrying its own reason (`transition_status_by_system`),
+        which is what keeps independent pause mechanisms from undoing each other.
+        """
+
+        NO_OUTPUT = "no_output", "No output"
+        IGNORED = "ignored", "Ignored"
+        REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+
+    class NetworkAccess(models.TextChoices):
+        """What the scout's sandbox can reach over the network during a run.
+
+        `trusted` maps to the Tasks sandbox `TRUSTED` level (the platform's default
+        trusted-domain allowlist); `full` maps to `FULL` (unrestricted egress). Room is
+        deliberately left for a `custom` choice carrying a user-supplied domain allowlist
+        later — mirror the Tasks `SandboxEnvironment.NetworkAccessLevel` vocabulary when
+        adding it so the mapping in the runner stays one-to-one.
+        """
+
+        TRUSTED = "trusted", "Trusted domains only"
+        FULL = "full", "Full"
+
+    # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
+    # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
+    RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
+
+    # The pause reasons the inactivity sweep owns (`scout_harness/inactivity.py`): `no_output`
+    # for a scout that surfaced nothing, `ignored` for one whose output nobody picked up. On the
+    # model rather than the sweep because the update serializer also reads them — a human
+    # re-enable of a pause carrying one of these marks the scout `auto_pause_exempt`.
+    INACTIVITY_PAUSE_REASONS = (PauseReason.NO_OUTPUT, PauseReason.IGNORED)
+
+    # How long a scout is treated as provisional after creation or a human re-enable, during
+    # which system writers should leave it alone (`in_cold_start_grace`).
+    COLD_START_GRACE = timedelta(days=14)
+
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
     # (admin changelist queryset, related-object access, prefetch_related) that must not
@@ -1114,7 +1179,58 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # row when it discovers a scout skill on a participating team, so a user authoring
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
     skill_name = models.CharField(max_length=200)
+    # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
+    # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
+    # `save` reconciles the pair for writers that only set one side; a DB constraint backstop
+    # is deferred to a follow-up migration (see Meta.constraints) so rolling deploys with
+    # enabled-only writers still in flight don't break.
     enabled = models.BooleanField(default=True, db_default=True)
+    # Source of truth for the scout's lifecycle. Two of the four states pause scheduling; who
+    # set the pause is the state itself (`paused_by_user` vs `paused_by_system`), not a
+    # side-channel field, because the two must behave differently: the system may resume its
+    # own pauses but must never touch a human's.
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        db_default=Status.ACTIVE,
+    )
+    # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
+    pause_reason = models.CharField(
+        max_length=20,
+        choices=PauseReason.choices,
+        null=True,
+        blank=True,
+    )
+    # When `status` last changed. Bookkeeping that rides along with the logged status change
+    # itself, so it is excluded from activity logging. Null until the first transition;
+    # `created_at` anchors the cold-start grace window for rows that never transitioned.
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+    # Who last moved `status`, when a human did (through the config API). Null for system
+    # transitions, unattributed writes, and rows whose status never changed. The enum already
+    # says whether a pause is human or system; this adds WHO for human actions and tells a
+    # human re-enable apart from a system resume. Who last edited anything else on the row
+    # stays the activity log's job. `db_constraint=False` because posthog_user is a hot table
+    # and adding the FK constraint would lock it; integrity is app-level only, like the
+    # constraint-free path recommended for hot-table FKs. `db_index=False` because nothing
+    # queries by attribution (it is read per-row) and the FK's default index would otherwise
+    # be built non-concurrently inside the migration.
+    status_changed_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    # Opt-out from the inactivity sweep (`scout_harness/inactivity.py`) — a watchdog whose whole
+    # value is staying quiet (health checks, inbox validation) is *supposed* to surface nothing
+    # most weeks, so silence must never read as waste. Also set by the update serializer when a
+    # human re-enables a scout the sweep paused: that re-enable is a human overruling the rule,
+    # and the sweep must not undo it one window later. `db_default` alongside `default` keeps the
+    # AddField non-blocking and the column populated for writers that don't know about it yet.
+    auto_pause_exempt = models.BooleanField(default=False, db_default=False)
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
@@ -1134,6 +1250,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=1440,
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
+    )
+    # What the scout's sandbox can reach over the network. The runner maps this to the Tasks
+    # sandbox environment the run is provisioned into: `trusted` (default) keeps runs on the
+    # platform's trusted-domain allowlist, `full` lifts the restriction for scouts whose skill
+    # needs arbitrary external reads (docs, papers, status pages). Deliberately NOT excluded
+    # from activity logging — flipping a scout to full network is a security-relevant change.
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column
+    # populated for writers that don't know about it yet.
+    network_access = models.CharField(
+        max_length=20,
+        choices=NetworkAccess.choices,
+        default=NetworkAccess.TRUSTED,
+        db_default=NetworkAccess.TRUSTED,
     )
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
@@ -1156,6 +1285,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # Failure-streak circuit breaker over this lane's run outcomes, maintained by the runner:
+    # bumped on a failed run, zeroed on a successful one. At `FAILURE_STREAK_PAUSE_THRESHOLD`
+    # the runner pauses the lane (`transition_status_by_system`, `repeated_failures`) and the
+    # coordinator holds it to one probe per `AUTO_PAUSE_PROBE_INTERVAL_S`. Without it a lane
+    # that can never succeed re-dispatches forever, taking a full-length sandbox lease per
+    # interval to produce nothing. Written on every run, so it is excluded from activity
+    # logging like `last_run_at`; the pause itself logs through `status` like any other.
+    consecutive_failure_count = models.PositiveIntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -1180,7 +1317,177 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
+            # Backstop for the dual-write in `save`: added NOT VALID + validated (0080–0082)
+            # only after the 0077 deploy fully rolled, because enforcing it in the same deploy
+            # that introduced the dual-write would break not-yet-replaced instances that still
+            # write `enabled` alone.
+            models.CheckConstraint(
+                name="scout_config_enabled_matches_status",
+                condition=models.Q(enabled=True, status__in=["active", "pending_pause"])
+                | models.Q(enabled=False, status__in=["paused_by_system", "paused_by_user"]),
+            ),
+            models.CheckConstraint(
+                name="scout_config_pause_reason_matches_status",
+                condition=models.Q(status__in=["pending_pause", "paused_by_system"], pause_reason__isnull=False)
+                | models.Q(status__in=["active", "paused_by_user"], pause_reason__isnull=True),
+            ),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Keep the `enabled` / `status` pair consistent for writers that only set one side.
+
+        `status` is the source of truth, but callers that predate it (fixtures, ad-hoc
+        scripts, the config API's `enabled` field) still write `enabled` alone. When the pair
+        disagrees at save time, resolve toward whichever side the caller touched: `status`
+        wins when `update_fields` names it without `enabled`, or on a create where a
+        non-default status was passed explicitly; otherwise the `enabled` value is taken as
+        the intent (True resumes any pause, False records a user pause).
+        """
+        update_fields = kwargs.get("update_fields")
+        if self.enabled != (self.status in self.RUNNABLE_STATUSES):
+            fields = set(update_fields) if update_fields is not None else None
+            status_is_intent = (
+                ("status" in fields and "enabled" not in fields)
+                if fields is not None
+                else (self._state.adding and self.status != self.Status.ACTIVE)
+            )
+            if status_is_intent:
+                self.enabled = self.status in self.RUNNABLE_STATUSES
+                touched = {"enabled"}
+            else:
+                self.status = self.Status.ACTIVE if self.enabled else self.Status.PAUSED_BY_USER
+                self.pause_reason = None
+                # An enabled-only write carries no actor, so the attribution stamp is cleared
+                # rather than left pointing at whoever made the previous transition.
+                self.status_changed_by = None
+                touched = {"status", "pause_reason", "status_changed_by"}
+                if not self._state.adding:
+                    self.status_changed_at = timezone.now()
+                    touched.add("status_changed_at")
+            if fields is not None:
+                kwargs["update_fields"] = fields | touched
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
+        """The ownership rule compares writers, not exact reasons: the inactivity sweep owns
+        both `no_output` and `ignored`, and must be able to reclassify its own warning from
+        one to the other without being refused as a foreign writer."""
+        if current == incoming:
+            return True
+        inactivity: set[str] = set(cls.INACTIVITY_PAUSE_REASONS)
+        return current in inactivity and incoming in inactivity
+
+    def transition_status_by_system(
+        self,
+        new_status: "SignalScoutConfig.Status",
+        *,
+        pause_reason: "SignalScoutConfig.PauseReason",
+        evaluated_at: datetime | None = None,
+    ) -> bool:
+        """Apply a system-driven status transition under the reason-scoped ownership rule.
+
+        `pause_reason` names the calling writer (an inactivity sweep passes `no_output` or
+        `ignored`, a failure breaker `repeated_failures`) as well as the reason recorded on a
+        pause. The rule: a system writer may never touch `paused_by_user`, and may only move a
+        scout whose current pause carries a reason it owns (`_pause_reasons_share_writer`), so
+        independent pause mechanisms cannot clear or overwrite each other's state. The checks run against a freshly locked row,
+        not the caller's instance, so a human pause or another writer's claim that landed
+        after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
+        caller read the state its decision is based on) to also refuse the transition if the
+        status moved after that moment, e.g. a human re-enable racing a sweep's pause.
+        Saves and returns True when the transition applies; returns False without writing
+        when it is refused or a no-op.
+        """
+        if new_status == self.Status.PAUSED_BY_USER:
+            raise ValueError("Only a user write may set paused_by_user.")
+        with transaction.atomic():
+            # One ordered query locks the whole team's rows, not just ours: the cap check below
+            # counts sibling rows, so two concurrent resumes locking only their own rows would
+            # each read the other as still paused and both slip under the cap. A single ordered
+            # lock set also keeps concurrent transitions on one team deadlock-free. Team config
+            # counts are small (capped) and transitions rare, so the wider lock is cheap.
+            team_rows = {
+                row.pk: row
+                for row in type(self).all_teams.select_for_update().filter(team_id=self.team_id).order_by("pk")
+            }
+            locked = team_rows.get(self.pk)
+            if locked is None:
+                return False
+            if locked.status == self.Status.PAUSED_BY_USER:
+                return False
+            if locked.status != self.Status.ACTIVE and not self._pause_reasons_share_writer(
+                locked.pause_reason, pause_reason
+            ):
+                return False
+            # A warning is weaker than a pause: a delayed or retried warn must not reopen a
+            # scout its own writer already paused (pending_pause is runnable).
+            if new_status == self.Status.PENDING_PAUSE and locked.status == self.Status.PAUSED_BY_SYSTEM:
+                return False
+            if (
+                evaluated_at is not None
+                and locked.status_changed_at is not None
+                and locked.status_changed_at > evaluated_at
+            ):
+                return False
+            # A resume must not carry the team past the enabled-scout cap: the pause freed a
+            # slot the config API may have legitimately given to another scout since.
+            from products.signals.backend.scout_harness.limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                MAX_ENABLED_SCOUTS_PER_TEAM,
+            )
+
+            if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
+                peers = sum(1 for row in team_rows.values() if row.enabled and row.pk != locked.pk)
+                if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
+                    return False
+            recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
+            if new_status == locked.status and recorded_reason == locked.pause_reason:
+                return False
+            locked.status = new_status
+            locked.pause_reason = recorded_reason
+            locked.status_changed_at = timezone.now()
+            locked.status_changed_by = None
+            locked.enabled = new_status in self.RUNNABLE_STATUSES
+            update_fields = [
+                "status",
+                "pause_reason",
+                "status_changed_at",
+                "status_changed_by",
+                "enabled",
+                "updated_at",
+            ]
+            if new_status == self.Status.ACTIVE:
+                # A resume always starts with a clean failure streak — otherwise the very next
+                # failed run would re-trip the breaker off stale evidence.
+                locked.consecutive_failure_count = 0
+                update_fields.append("consecutive_failure_count")
+            locked.save(update_fields=update_fields)
+        for field in (
+            "status",
+            "pause_reason",
+            "status_changed_at",
+            "status_changed_by",
+            "enabled",
+            "consecutive_failure_count",
+        ):
+            setattr(self, field, getattr(locked, field))
+        return True
+
+    def in_cold_start_grace(self) -> bool:
+        """True while the scout is provisional and system writers should not evaluate it.
+
+        Anchored on `created_at`, re-anchored by any move back to `active`: a re-enable or a
+        system resume grants a fresh window before the next evaluation. Deliberately not
+        keyed on `status_changed_by` so the window survives the actor's account being
+        deleted (`SET_NULL`). A `pending_pause` warning never re-anchors (status is not
+        `active`), so a sweep cannot put its own candidates back into grace. Time-based
+        only; a consumer that also wants a minimum-runs floor applies that on top, since the
+        floor differs per writer.
+        """
+        anchor = self.created_at
+        if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
+            anchor = max(anchor, self.status_changed_at)
+        return timezone.now() < anchor + self.COLD_START_GRACE
 
     def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
@@ -1267,12 +1574,21 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
-    # Scout-owned per-run context stamped once at run creation — the native home for run
-    # dimensions that matter operationally but don't each warrant a dedicated column. Known keys
-    # today: `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on
-    # when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default;
-    # empty for default-model runs. Write-once at creation, not a mutable grab-bag — new keys
-    # (e.g. a future config-level model) should also be stamped by the runner at run start.
+    # Scout-owned per-run context — the native home for run dimensions that matter operationally
+    # but don't each warrant a dedicated column. Two regions, distinguished by who writes them.
+    # Top-level keys are stamped write-once by the runner at run creation, and split by whether
+    # they are always present. `harness_prompt_version` / `report_channel` / `skill_origin` always
+    # are: they pin down which instructions the run was given, and each is unrecoverable later
+    # (the prompt has no version history, `allowed_tools` can be edited, and a seeded row flips to
+    # `custom` the moment a team edits it), which is what makes them worth stamping rather than
+    # resolving at read time. `model` / `runtime_adapter` / `reasoning_effort` appear only when the
+    # `scouts-model-selection` gate or a runtime pin overrode the agent-server default, so their
+    # absence is meaningful. New runner-known dimensions belong there, stamped by `_create_run_row`.
+    # The nested `derived` object is written once at finalize by
+    # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
+    # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
+    # Both regions are server-written: nothing here is scout-authored, which is what makes the
+    # column safe to query directly.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1424,20 +1740,32 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
 
-    A second writer derives rows from elsewhere: judging an inbox report with a note also leaves
-    it here as a `REPORT_DISMISSAL` row (dismiss, snooze, or restore; not resolve, see
-    `dismissal_notes.py`). Dismissing needs only `task:write`, so that path re-checks the RBAC leg of this gate itself before
-    writing, against the canonical project whose scouts read the row. It does not re-check the
-    `llm_skill:write` key scope, because a dismissal's text already reaches run context
-    verbatim through the `dismissal_note` field on the inbox reports API that every scout is
-    told to read before emitting, so demanding the scope would drop feedback without closing a
-    path. `origin` keeps the two kinds apart so the run prompt can frame a derived row as one
-    reviewer's verdict on one report rather than as fleet-level steering.
+    Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
+    themselves (the actions behind them need only `task:write`) against the canonical project whose
+    scouts read the row. They differ on the key-scope leg, because they differ on whether this note is
+    the only way the text reaches a scout:
+    - `REPORT_DISMISSAL` — judging a report with a note (dismiss, snooze, or restore; not resolve),
+      see `dismissal_notes.py`. Its text also lands on the `dismissal_note` field of the reports API,
+      which every scout is told to read, so the note opens no channel a `task:write` caller lacks and
+      the key scopes aren't required on top.
+    - `REPORT_DISCUSSION` — opening a discussion on a report with a question, see
+      `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
+      is in no scout's run context, so this note is its sole carrier and the full gate applies —
+      `llm_skill:write` and `signal_scout:write` included.
+    - `REPORT_FEEDBACK` — rating a report useful/not useful with a note, see `feedback_notes.py`. Like
+      a discussion the note is the only path the text takes to a scout (the rating otherwise lands only
+      on a product-analytics event), so the full gate applies too. Forwarded only for a report with a
+      resolvable authoring scout, since the feedback is a verdict on that scout's own report.
+    `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
+    on one report, a discussion as a question to weigh, and feedback as a reader's rating — rather than
+    fleet-level steering.
     """
 
     class Origin(models.TextChoices):
         HUMAN = "human", "Left directly"
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
+        REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
+        REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

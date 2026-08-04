@@ -36,7 +36,7 @@ pub enum Command {
     /// traffic anywhere the router does not serve the database this harness
     /// seeds, and every database operation is confined to the configured
     /// validation table.
-    Traffic(TrafficArgs),
+    Traffic(Box<TrafficArgs>),
 }
 
 #[derive(Args, Clone)]
@@ -423,4 +423,12 @@ pub struct TrafficArgs {
     /// etcd key prefix, matching the routers' ETCD_PREFIX.
     #[arg(long, env = "CHAOS_ETCD_PREFIX", default_value = "/personhog/")]
     pub chaos_etcd_prefix: String,
+
+    /// Namespace of the etcd cluster's own pods. Enables the
+    /// `etcd_bounce` scenario (abruptly kill one member of a healthy
+    /// three-member cluster); absent, that scenario is excluded. The
+    /// harness ServiceAccount additionally needs pod list/delete RBAC in
+    /// this namespace.
+    #[arg(long, env = "CHAOS_ETCD_NAMESPACE")]
+    pub chaos_etcd_namespace: Option<String>,
 }
