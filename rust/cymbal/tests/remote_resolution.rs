@@ -76,7 +76,7 @@ fn remote_stage_with_resolver(
     ctx: cymbal::stages::resolution::remote::resolver::RemoteResolutionContext,
     _resolver: Arc<CountingResolver>,
 ) -> ResolutionStage {
-    ResolutionStage { remote: ctx }
+    remote_stage(ctx)
 }
 
 fn parsed_event(uuid: Uuid, properties: serde_json::Value) -> ExceptionEvent<Parsed> {
