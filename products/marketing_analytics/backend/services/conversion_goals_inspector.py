@@ -310,6 +310,12 @@ async def _summarize_goal(
     user: User | None = None,
 ) -> ConversionGoalSummary:
     goal_id = str(goal.get("conversion_goal_id") or goal.get("id") or "")
+    # `conversion_goal_id` identifies the goal within the team's config; `id` is what
+    # the goal points AT — an action's primary key for ActionsNode. Conflating them
+    # made every ActionsNode goal with a `conversion_goal_id` (which the schema
+    # requires, so: all of them) resolve its action against the wrong value and report
+    # itself misconfigured.
+    target_id = str(goal.get("id") or "")
     name = goal.get("conversion_goal_name") or goal.get("name") or goal_id
     # `kind_raw: str` keeps the "unknown kind" fallback reachable — a GoalKind
     # would let mypy treat the branches below as exhaustive.
@@ -344,7 +350,7 @@ async def _summarize_goal(
         )
 
     if kind_raw == "ActionsNode":
-        action, action_error = await _resolve_action(team, goal_id)
+        action, action_error = await _resolve_action(team, target_id)
         if action is None:
             return ConversionGoalSummary(
                 id=goal_id,
@@ -358,7 +364,7 @@ async def _summarize_goal(
                 non_integrated_count=None,
                 integrated_pct=None,
                 is_misconfigured=True,
-                misconfig_reason=action_error or f"Action {goal_id} no longer exists",
+                misconfig_reason=action_error or f"Action {target_id} no longer exists",
             )
         target_label = f"Action: {action.name}"
         total, integrated, without_utm, unmatched_with_utm = await _count_action_goal(

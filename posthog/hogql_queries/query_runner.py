@@ -151,6 +151,8 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
+
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
@@ -1162,6 +1164,20 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
+            MarketingAnalyticsAttributionQueryRunner,
+        )
+
+        return MarketingAnalyticsAttributionQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
             NonIntegratedConversionsTableQueryRunner,
@@ -1410,6 +1426,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
+        self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
+            query, team, self.modifiers.webAnalyticsFirstPageviewFilters
+        )
         self.__post_init__()
 
     def __post_init__(self):

@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("failed to install rustls ring CryptoProvider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
+    preregister_metrics();
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
@@ -71,8 +72,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting personhog-leader service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!(
-        "Cache memory capacity: {} entries",
-        config.cache_memory_capacity
+        "Cache capacity: {} bytes per partition",
+        config.cache_memory_capacity_bytes
     );
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
@@ -145,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Initialize partitioned cache and Kafka producer
-    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity));
+    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
     let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
         Ok(producer) => producer,
@@ -309,6 +310,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lease_ttl: config.lease_ttl,
         heartbeat_interval: config.heartbeat_interval(),
         advertise_address: Some(advertise_address),
+        // Zero would park every warm on an unobtainable permit and wedge
+        // handoffs; treat it as fully sequential instead.
+        warm_concurrency: config.warm_concurrency.max(1),
         ..Default::default()
     };
 
@@ -323,7 +327,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let pools = Arc::clone(&warm_pools);
         let warm_slots = pod_config.warm_concurrency;
         tokio::spawn(async move {
-            pools.offsets.warm_up(2).await;
+            // Committed-offset queries run one per concurrent warm, so
+            // the offsets pool needs the same depth as the warm slots.
+            pools.offsets.warm_up(warm_slots).await;
             pools.warming.warm_up(warm_slots).await;
         });
     }
@@ -351,6 +357,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(run_dirty_index_prune_loop(
         Arc::clone(&dirty_index),
+        Arc::clone(&cache),
         Arc::clone(&warm_pools),
         config.kafka_person_state_topic.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
@@ -444,6 +451,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// client — each tick reuses the connection instead of rebuilding one.
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
+    cache: Arc<PartitionedCache>,
     pools: Arc<WarmClientPools>,
     topic: String,
     offsets_timeout: Duration,
@@ -459,6 +467,7 @@ async fn run_dirty_index_prune_loop(
         let partitions = dirty_index.partitions_with_marks();
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
         gauge!("personhog_leader_dirty_index_max_entries").set(dirty_index.max_entries() as f64);
+        gauge!("personhog_leader_cache_weight_bytes").set(cache.usage_bytes() as f64);
         if partitions.is_empty() {
             continue;
         }
@@ -525,4 +534,20 @@ async fn discover_own_controller(
         .await
         .map_err(|e| format!("controller discovery failed: {e}"))?;
     Ok((awareness, info))
+}
+
+/// Touch the leader's deploy-burst counters so their series exist with
+/// zero samples before any burst. metrics registration is lazy: a counter
+/// that first fires between two scrapes materializes with the burst
+/// already inside it, and no rate function can recover a delta that
+/// precedes a series' first sample.
+fn preregister_metrics() {
+    counter!("personhog_leader_warmed_messages_total").increment(0);
+    counter!("personhog_leader_warm_retries_exhausted_total", "stage" => "committed_offset")
+        .increment(0);
+    counter!("personhog_leader_warm_retries_exhausted_total", "stage" => "fetch_watermarks")
+        .increment(0);
+    for stage in ["committed_offset", "fetch_watermarks"] {
+        counter!("personhog_leader_warm_retries_total", "stage" => stage).increment(0);
+    }
 }

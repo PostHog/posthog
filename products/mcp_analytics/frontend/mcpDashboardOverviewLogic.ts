@@ -406,6 +406,7 @@ export interface mcpDashboardOverviewLogicValues {
     harnessRowsLoading: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
+    kpiIncompleteTail: boolean
     kpis: KPIData
     kpisLoading: boolean
     notableSessions: NotableSession[]
@@ -602,6 +603,7 @@ export interface mcpDashboardOverviewLogicMeta {
         interval: (dateFilter: DateFilter) => IntervalType
         bucketKeys: (dateFilter: DateFilter, timezone: string, interval: IntervalType) => string[]
         activityIncompleteTail: (bucketKeys: string[], timezone: string, interval: IntervalType) => boolean
+        kpiIncompleteTail: (kpis: KPIData, timezone: string, interval: IntervalType) => boolean
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
@@ -851,6 +853,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.bucketKeys, s.timezone, s.interval],
             (bucketKeys: string[], timezone: string, interval: IntervalType): boolean =>
                 lastBucketIsInProgress(bucketKeys, timezone, interval),
+        ],
+        // Read off the KPI sparkline's own labels, not `bucketKeys`: the sparkline is not zero-filled,
+        // so on a day with no calls yet its last point is yesterday, which is settled.
+        kpiIncompleteTail: [
+            (s) => [s.kpis, s.timezone, s.interval],
+            (kpis: KPIData, timezone: string, interval: IntervalType): boolean =>
+                lastBucketIsInProgress(kpis.sessions.sparklineLabels, timezone, interval),
         ],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],
