@@ -74,7 +74,7 @@ def _page_paginator() -> PageNumberPaginator:
 
 
 def _resolve_cursor_field(config: PostscriptEndpointConfig, requested: str | None) -> str:
-    """Pick the incremental cursor, honouring the user's choice when we advertise it.
+    """Pick the incremental cursor, honoring the user's choice when we advertise it.
 
     A field we never advertised has no matching `__gte` filter or `sort` value, so the API
     would 400 on it; fall back to the endpoint's default rather than failing the sync.
