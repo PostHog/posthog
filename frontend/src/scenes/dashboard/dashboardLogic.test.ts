@@ -11,6 +11,7 @@ import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboar
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -881,6 +882,34 @@ describe('dashboardLogic', () => {
                     ])
                     .toFinishAllListeners()
                     .toNotHaveDispatchedActions(['refreshDashboardItems'])
+            })
+
+            it('discarding an unapplied filter edit above the auto-preview limit does not reload tiles', async () => {
+                // The skip-reload check relies on unpreviewed edits never reaching the URL:
+                // when the dashboard is over the auto-preview limit, filter edits stay
+                // intermittent (no URL write, no refresh) until "Apply filters" is clicked.
+                const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.canAutoPreview).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+
+                payloadSpy.mockRestore()
             })
 
             it('filter edit source clears layout edit mode', async () => {
