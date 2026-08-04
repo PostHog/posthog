@@ -758,7 +758,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 {"agent_ids": "One or more selected PostHog agents are no longer available. Refresh and try again."}
             )
 
-        server = link_installation_to_gateway(installation, created_by=cast(User, self.request.user))
+        user = cast(User, self.request.user)
+        server = link_installation_to_gateway(installation, created_by=user)
 
         if self._wants_team_gateway_options(data):
             team_enabled = data.get("team_enabled", True)
@@ -766,14 +767,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 server.is_team_enabled = team_enabled
                 server.save(update_fields=["is_team_enabled", "updated_at"])
 
+        if accounts_by_id and installation.user_id != user.id:
+            raise serializers.ValidationError(
+                {"agent_ids": "You can only share a connection you set up yourself with an agent."}
+            )
+
         for account in accounts_by_id.values():
             MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
                 service_account=account,
                 gateway_server=server,
+                user=user,
                 defaults={
                     "team_id": self.team_id,
                     "installation": installation,
-                    "granted_by": cast(User, self.request.user),
+                    "granted_by": user,
                 },
             )
 

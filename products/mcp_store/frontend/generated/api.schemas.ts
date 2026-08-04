@@ -434,11 +434,13 @@ export const MCPServiceAccountStatusEnumApi = {
 } as const
 
 /**
- * One agent's access to a gateway server.
+ * One agent's access to a gateway server, on behalf of one member.
  */
 export interface GatewayAgentAccessApi {
     /** Service account granted access. */
     service_account_id: string
+    /** The member whose connection the agent uses. */
+    user: UserBasicApi
     /** Agent display name. */
     name: string
     /** Agent identity handle, e.g. posthog-support. */
@@ -453,7 +455,7 @@ export interface GatewayAgentAccessApi {
      * @nullable
      */
     last_active_at: string | null
-    /** Admin who shared this server with the agent. */
+    /** Member who shared this server with the agent. */
     granted_by: UserBasicApi | null
 }
 
@@ -714,6 +716,8 @@ export const ConnectionStateEnumApi = {
 export interface MCPServiceAccountServerApi {
     /** Gateway server granted to the agent. */
     id: string
+    /** The member whose connection the agent uses. */
+    shared_by: UserBasicApi
     /** Server display name. */
     name: string
     /** Server description. */

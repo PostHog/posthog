@@ -1113,11 +1113,18 @@ class TestMCPServiceAccountAPI(APIBaseTest):
     def _active_scout_account(self) -> MCPServiceAccount:
         return next(agent for agent in sync_built_in_agents(self.team) if agent.handle == "posthog-scout")
 
-    @staticmethod
-    def _agent_client(account: MCPServiceAccount, token: str | None = None) -> APIClient:
+    def _agent_client(self, account: MCPServiceAccount, token: str | None = None) -> APIClient:
         client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token or create_gateway_agent_token(account)}")
+        client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token or self._agent_token(account)}",
+        )
         return client
+
+    def _agent_token(self, account: MCPServiceAccount, *, credential_owner_id: int | None = None) -> str:
+        return create_gateway_agent_token(
+            account,
+            credential_owner_id=credential_owner_id if credential_owner_id is not None else self.user.id,
+        )
 
     def _oauth_client(self, *, built_in_agent: bool) -> APIClient:
         application = OAuthApplication.objects.create(
@@ -1330,6 +1337,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         member_response = self.client.get(self._api_url())
         scout = next(row for row in member_response.json()["results"] if row["agent_key"] == "scout")
+        assert [server.pop("shared_by")["id"] for server in scout["servers"]] == [self.user.id]
         assert scout["servers"] == [
             {
                 "id": str(server.id),
@@ -1366,6 +1374,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=installation,
@@ -1455,6 +1464,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             granted_by=self.user,
@@ -1465,6 +1475,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         scout = next(row for row in response.json()["results"] if row["agent_key"] == "scout")
+        assert [server.pop("shared_by")["id"] for server in scout["servers"]] == [self.user.id]
         assert scout["servers"] == [
             {
                 "id": str(server.id),
@@ -1505,6 +1516,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=personal_installation,
@@ -1522,7 +1534,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
     def test_agent_endpoint_rejects_tampered_signed_token(self) -> None:
         account = self._active_scout_account()
-        token = create_gateway_agent_token(account)
+        token = self._agent_token(account)
         tampered_token = f"{token[:-1]}{'a' if token[-1] != 'a' else 'b'}"
 
         response = self._agent_client(account, tampered_token).get("/api/mcp_store/gateway/servers/")
@@ -1566,7 +1578,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
     def test_agent_endpoint_rechecks_pause_after_mint(self) -> None:
         account = self._active_scout_account()
-        token = create_gateway_agent_token(account)
+        token = self._agent_token(account)
         client = self._agent_client(account, token)
 
         account.status = "paused"
@@ -1642,6 +1654,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         if scenario == "revoked":
             access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
                 team=self.team,
+                user=self.user,
                 service_account=account,
                 gateway_server=server,
                 granted_by=self.user,
@@ -1655,6 +1668,47 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_proxy.assert_not_called()
+
+    @patch("products.mcp_store.backend.presentation.agent_views.proxy_mcp_request")
+    def test_agent_cannot_use_a_grant_belonging_to_another_member(self, mock_proxy) -> None:
+        account = self._active_scout_account()
+        other_user = User.objects.create_and_join(self.organization, "other-grant@posthog.com", "password")
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Personal grant",
+            url="https://mcp.personal-grant.example.com/mcp",
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Personal",
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=installation,
+            granted_by=self.user,
+        )
+        client = self._agent_client(account, self._agent_token(account, credential_owner_id=other_user.id))
+
+        catalog_response = client.get("/api/mcp_store/gateway/servers/")
+        proxy_response = client.post(
+            f"/api/mcp_store/gateway/servers/{server.id}/proxy/",
+            data={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+            format="json",
+        )
+
+        assert catalog_response.status_code == status.HTTP_200_OK
+        assert catalog_response.json()["results"] == []
+        assert proxy_response.status_code == status.HTTP_404_NOT_FOUND
         mock_proxy.assert_not_called()
 
     @patch("products.mcp_store.backend.presentation.agent_views.proxy_mcp_request")
@@ -1678,6 +1732,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=installation,
@@ -1719,6 +1774,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=installation,
@@ -1803,7 +1859,9 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             gateway_server=granted_server,
         )
         assert access.installation == personal_installation
-        assert grant_response.json()["servers"] == [
+        granted_servers = grant_response.json()["servers"]
+        assert [server.pop("shared_by")["id"] for server in granted_servers] == [self.user.id]
+        assert granted_servers == [
             {
                 "id": str(granted_server.id),
                 "name": "Agent only",
@@ -1816,7 +1874,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         account = MCPServiceAccount.objects.for_team(self.team.id).get(id=scout["id"])
         agent_client = APIClient()
-        agent_client.credentials(HTTP_AUTHORIZATION=f"Bearer {create_gateway_agent_token(account)}")
+        agent_client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._agent_token(account)}")
         dormant_response = agent_client.get("/api/mcp_store/gateway/servers/")
 
         assert dormant_response.status_code == status.HTTP_200_OK
@@ -1870,6 +1928,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             )
             MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
                 team=self.team,
+                user=self.user,
                 service_account=account,
                 gateway_server=server,
                 installation=installation,

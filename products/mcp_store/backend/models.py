@@ -382,11 +382,16 @@ class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
 
 
 class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
-    """Grant row: this agent may call this gateway server using one credential."""
+    """Grant row: this agent may call this gateway server using one person's
+    credential, and only while acting on behalf of that person."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     service_account = models.ForeignKey(MCPServiceAccount, on_delete=models.CASCADE, related_name="server_access")
     gateway_server = models.ForeignKey(MCPGatewayServer, on_delete=models.CASCADE, related_name="agent_access")
+    # The person the grant belongs to. An agent run mounts a grant only when
+    # this user is the run's credential owner, so one member's connection never
+    # backs another member's agent run.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     # Null preserves the grant when its exact credential is deleted, so the UI
     # can surface that the agent needs a new connection.
     installation = models.ForeignKey(
@@ -411,7 +416,10 @@ class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "mcp_store_mcpserviceaccountserveraccess"
         constraints = [
-            models.UniqueConstraint(fields=["service_account", "gateway_server"], name="uniq_agent_server_access"),
+            models.UniqueConstraint(
+                fields=["service_account", "gateway_server", "user"],
+                name="uniq_agent_server_access_per_user",
+            ),
         ]
 
 

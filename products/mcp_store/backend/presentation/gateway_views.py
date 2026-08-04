@@ -196,16 +196,17 @@ class GatewayYourConnectionSerializer(serializers.Serializer):
 
 
 class GatewayAgentAccessSerializer(serializers.Serializer):
-    """One agent's access to a gateway server."""
+    """One agent's access to a gateway server, on behalf of one member."""
 
     service_account_id = serializers.UUIDField(help_text="Service account granted access.")
+    user = UserBasicSerializer(help_text="The member whose connection the agent uses.")
     name = serializers.CharField(help_text="Agent display name.")
     handle = serializers.CharField(help_text="Agent identity handle, e.g. posthog-support.")
     status = serializers.ChoiceField(
         choices=SERVICE_ACCOUNT_STATUS_CHOICES, help_text="active, or paused (all access off)."
     )
     last_active_at = serializers.DateTimeField(allow_null=True, help_text="When the agent last made a call.")
-    granted_by = UserBasicSerializer(allow_null=True, help_text="Admin who shared this server with the agent.")
+    granted_by = UserBasicSerializer(allow_null=True, help_text="Member who shared this server with the agent.")
 
 
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
@@ -354,6 +355,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
         return [
             {
                 "service_account_id": access.service_account_id,
+                "user": UserBasicSerializer(access.user).data,
                 "name": access.service_account.name,
                 "handle": access.service_account.handle,
                 "status": access.service_account.status,
@@ -549,6 +551,7 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
     """A credential-safe summary of a server configured for an agent."""
 
     id = serializers.UUIDField(help_text="Gateway server granted to the agent.")
+    shared_by = UserBasicSerializer(help_text="The member whose connection the agent uses.")
     name = serializers.CharField(help_text="Server display name.")
     description = serializers.CharField(help_text="Server description.")
     icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
@@ -626,6 +629,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             servers.append(
                 {
                     "id": server.id,
+                    "shared_by": UserBasicSerializer(access.user).data,
                     "name": server.name,
                     "description": server.description,
                     "icon_key": server.template.icon_key if server.template else "",
@@ -808,7 +812,7 @@ class MCPGatewayServerViewSet(
                 Prefetch(
                     "agent_access",
                     queryset=MCPServiceAccountServerAccess.objects.unscoped().select_related(
-                        "service_account", "granted_by"
+                        "service_account", "granted_by", "user"
                     ),
                 ),
                 "member_revocations",
@@ -1118,7 +1122,7 @@ class MCPServiceAccountViewSet(
         return Prefetch(
             "server_access",
             queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
-            .select_related("gateway_server__template", "installation")
+            .select_related("gateway_server__template", "installation", "user")
             .order_by("gateway_server__name"),
         )
 
@@ -1158,7 +1162,13 @@ class MCPServiceAccountViewSet(
     )
     @action(detail=True, methods=["post"], url_path="access")
     def access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Grant or revoke this agent's access to one gateway server."""
+        """Grant or revoke this agent's access to one gateway server.
+
+        Granting is personal: it delegates the caller's own connection, and the
+        agent may use it only when acting for the caller. Revoking clears every
+        member's grant for this agent and server, so a team admin can shut off
+        an agent's access to a server in one call.
+        """
         self._require_agent_access_manager()
         account = self.get_object()
         data = request.validated_data
@@ -1177,7 +1187,8 @@ class MCPServiceAccountViewSet(
                     entries=policies,
                 )
             )
-            installation = installation_for_agent_grant(self.team_id, server, cast(User, request.user).id)
+            user = cast(User, request.user)
+            installation = installation_for_agent_grant(self.team_id, server, user.id)
             if installation is None:
                 raise serializers.ValidationError(
                     {"gateway_server_id": "Connect this server before sharing access with an agent."}
@@ -1186,10 +1197,11 @@ class MCPServiceAccountViewSet(
                 MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
                     service_account=account,
                     gateway_server=server,
+                    user=user,
                     defaults={
                         "team_id": self.team_id,
                         "installation": installation,
-                        "granted_by": cast(User, request.user),
+                        "granted_by": user,
                     },
                 )
                 for entry in policies:

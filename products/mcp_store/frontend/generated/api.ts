@@ -720,6 +720,11 @@ export const getMcpGatewayServiceAccountsAccessCreateUrl = (projectId: string, i
 
 /**
  * Grant or revoke this agent's access to one gateway server.
+ *
+ * Granting is personal: it delegates the caller's own connection, and the
+ * agent may use it only when acting for the caller. Revoking clears every
+ * member's grant for this agent and server, so a team admin can shut off
+ * an agent's access to a server in one call.
  */
 export const mcpGatewayServiceAccountsAccessCreate = async (
     projectId: string,

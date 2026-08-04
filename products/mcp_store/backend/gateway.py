@@ -90,11 +90,16 @@ def installation_for_agent_grant(
 
 
 def installation_for_agent_access(access: MCPServiceAccountServerAccess) -> MCPServerInstallation | None:
-    """Resolve the exact credential bound to an access row."""
+    """Resolve the exact credential bound to an access row, which must still be
+    the granting person's own connection to that server."""
     installation = access.installation
     if installation is None:
         return None
-    if installation.team_id != access.team_id or installation.gateway_server_id != access.gateway_server_id:
+    if (
+        installation.team_id != access.team_id
+        or installation.gateway_server_id != access.gateway_server_id
+        or installation.user_id != access.user_id
+    ):
         logger.warning(
             "Refusing mismatched agent MCP credential",
             access_id=str(access.id),

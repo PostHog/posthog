@@ -177,15 +177,18 @@ def get_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
 ) -> list[ActiveInstallationInfo]:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
     server-stamped built-in agent task gets only the credentials explicitly
-    delegated through its service-account grants, and only while the gateway
-    server stays enabled for the team. Origin alone is not trusted:
-    the persisted task agent key must match the origin mapping. A mapped origin
-    without that marker gets no MCP Store installations. Built-in agent
+    delegated through its service-account grants by ``credential_owner_id``,
+    the person the run acts for, and only while the gateway server stays
+    enabled for the team. Grants are personal, so an agent task without a
+    credential owner gets no Store installations at all. Origin alone is not
+    trusted: the persisted task agent key must match the origin mapping. A
+    mapped origin without that marker gets no MCP Store installations. Built-in agent
     handling is gated per team on the `mcp-gateway` rollout flag; teams
     without it resolve mapped origins like unmapped tasks. Unmapped origins
     retain the legacy member behavior and optionally include the user's
@@ -218,12 +221,12 @@ def get_installations_for_sandbox(
             return []
 
         if agent_key is not None:
-            if agent_account is None:
+            if agent_account is None or credential_owner_id is None:
                 installations = []
             else:
                 access_rows = list(
                     MCPServiceAccountServerAccess.objects.for_team(team_id)
-                    .filter(service_account=agent_account)
+                    .filter(service_account=agent_account, user_id=credential_owner_id)
                     .values_list("installation_id", "gateway_server_id")
                 )
                 bound_servers = {
@@ -268,7 +271,11 @@ def get_installations_for_sandbox(
             if installation.scope == "personal" or installation.url not in personal_urls
         ]
 
-    agent_proxy_token = create_gateway_agent_token(agent_account) if agent_account is not None and ready else None
+    agent_proxy_token = (
+        create_gateway_agent_token(agent_account, credential_owner_id=credential_owner_id)
+        if agent_account is not None and credential_owner_id is not None and ready
+        else None
+    )
     results = [
         _to_info(
             installation,

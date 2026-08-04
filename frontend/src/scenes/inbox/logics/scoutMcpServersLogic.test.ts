@@ -8,13 +8,22 @@ import type {
     ConnectionStateEnumApi,
     MCPServiceAccountApi,
     MCPServiceAccountServerApi,
+    UserBasicApi,
 } from 'products/mcp_store/frontend/generated/api.schemas'
 
 import { scoutMcpServersLogic } from './scoutMcpServersLogic'
 
+const SHARED_BY: UserBasicApi = {
+    id: 1,
+    uuid: 'user-uuid',
+    email: 'member@posthog.com',
+    hedgehog_config: null,
+}
+
 function server(id: string, name: string, connectionState: ConnectionStateEnumApi): MCPServiceAccountServerApi {
     return {
         id,
+        shared_by: SHARED_BY,
         name,
         description: `${name} workspace`,
         icon_key: name.toLowerCase(),
