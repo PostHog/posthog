@@ -92,7 +92,15 @@ jobs:
             GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
 
     migrations-separation:
-        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        # Same reason the desktop coupling check skips trunk-merge/**: the queue's
+        # batch PR is the union of several PRs that each passed separately, so a
+        # migration PR batched with a nodejs or rust PR trips a coupling nobody wrote.
+        # Same-repo scoping too, so a fork can't skip the check by branch name.
+        if: |
+            contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action) && !(
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         uses: ./.github/workflows/ci-migrations-service-separation-check.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
