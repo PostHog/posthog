@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -86,5 +86,24 @@ describe('<ProjectMove />', () => {
         const { container } = render(<ProjectMove />)
         await userEvent.selectOptions(screen.getByLabelText('target organization'), 'org-admin')
         expect(container.querySelector('[data-attr="move-project-button"]')).toHaveAttribute('aria-disabled', 'false')
+    })
+
+    it('does not carry a confirmed state over from a previous open of the confirmation modal', async () => {
+        const { container } = render(<ProjectMove />)
+        await userEvent.selectOptions(screen.getByLabelText('target organization'), 'org-admin')
+
+        await userEvent.click(container.querySelector('[data-attr="move-project-button"]') as HTMLElement)
+        await userEvent.type(screen.getByTestId('move-project-confirmation-input'), 'Source Project')
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="move-project-ok"]')).toHaveAttribute('aria-disabled', 'false')
+        )
+
+        // Cancel without moving, then reopen: the modal must require the name to be typed again.
+        await userEvent.click(screen.getByText('Cancel'))
+        await userEvent.click(container.querySelector('[data-attr="move-project-button"]') as HTMLElement)
+
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="move-project-ok"]')).toHaveAttribute('aria-disabled', 'true')
+        )
     })
 })

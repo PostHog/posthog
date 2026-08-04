@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Dispatch, SetStateAction, useState } from 'react'
+import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
@@ -23,7 +23,15 @@ export function MoveProjectModal({
     const { currentProject, projectBeingMovedLoading } = useValues(projectLogic)
     const { moveProject } = useActions(projectLogic)
 
-    const [isConfirmed, setConfirmed] = useState(false)
+    const [confirmationText, setConfirmationText] = useState('')
+    const isConfirmed = !!currentProject && confirmationText.toLowerCase() === currentProject.name.toLowerCase()
+
+    // Reset stale confirmation state left over from a previous open of this modal.
+    useEffect(() => {
+        if (isOpen) {
+            setConfirmationText('')
+        }
+    }, [isOpen])
 
     return (
         <LemonModal
@@ -42,7 +50,7 @@ export function MoveProjectModal({
                     </LemonButton>
                     <LemonButton
                         type="secondary"
-                        disabled={!isConfirmed}
+                        disabledReason={!isConfirmed ? 'Type the project name to confirm' : undefined}
                         loading={projectBeingMovedLoading}
                         data-attr="move-project-ok"
                         status="danger"
@@ -61,11 +69,9 @@ export function MoveProjectModal({
             </p>
             <LemonInput
                 type="text"
-                onChange={(value) => {
-                    if (currentProject) {
-                        setConfirmed(value.toLowerCase() === currentProject.name.toLowerCase())
-                    }
-                }}
+                value={confirmationText}
+                onChange={setConfirmationText}
+                data-attr="move-project-confirmation-input"
             />
         </LemonModal>
     )

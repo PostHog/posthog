@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Dispatch, SetStateAction, useState } from 'react'
+import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
@@ -20,8 +20,16 @@ export function DeleteProjectModal({
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteProject } = useActions(projectLogic)
 
-    const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
+    const [confirmationText, setConfirmationText] = useState('')
     const isDeletionInProgress = !!currentProject && projectBeingDeleted?.id === currentProject.id
+    const isDeletionConfirmed = !!currentProject && confirmationText.toLowerCase() === currentProject.name.toLowerCase()
+
+    // Reset stale confirmation state left over from a previous open of this modal.
+    useEffect(() => {
+        if (isOpen) {
+            setConfirmationText('')
+        }
+    }, [isOpen])
 
     const allTeamsOfProject =
         currentProject && currentOrganization
@@ -43,7 +51,7 @@ export function DeleteProjectModal({
                     </LemonButton>
                     <LemonButton
                         type="secondary"
-                        disabled={!isDeletionConfirmed}
+                        disabledReason={!isDeletionConfirmed ? 'Type the project name to confirm' : undefined}
                         loading={isDeletionInProgress}
                         data-attr="delete-project-ok"
                         status="danger"
@@ -69,14 +77,7 @@ export function DeleteProjectModal({
             <p>
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>
-            <LemonInput
-                type="text"
-                onChange={(value) => {
-                    if (currentProject) {
-                        setIsDeletionConfirmed(value.toLowerCase() === currentProject.name.toLowerCase())
-                    }
-                }}
-            />
+            <LemonInput type="text" value={confirmationText} onChange={setConfirmationText} />
         </LemonModal>
     )
 }

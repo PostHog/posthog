@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Dispatch, SetStateAction, useState } from 'react'
+import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
@@ -25,8 +25,16 @@ export function DeleteOrganizationModal({
     const { organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
 
-    const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
+    const [confirmationText, setConfirmationText] = useState('')
     const isDeletionInProgress = !!organization && organizationBeingDeleted === organization.id
+    const isDeletionConfirmed = !!organization && confirmationText.toLowerCase() === organization.name.toLowerCase()
+
+    // Reset stale confirmation state left over from a previous open of this modal.
+    useEffect(() => {
+        if (isOpen) {
+            setConfirmationText('')
+        }
+    }, [isOpen])
 
     return (
         <LemonModal
@@ -34,13 +42,17 @@ export function DeleteOrganizationModal({
             onClose={!isDeletionInProgress ? () => setIsOpen(false) : undefined}
             footer={
                 <>
-                    <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>
+                    <LemonButton
+                        disabledReason={isDeletionInProgress && 'Deleting...'}
+                        type="secondary"
+                        onClick={() => setIsOpen(false)}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton
                         type="secondary"
                         status="danger"
-                        disabled={!isDeletionConfirmed}
+                        disabledReason={!isDeletionConfirmed ? 'Type the organization name to confirm' : undefined}
                         loading={isDeletionInProgress}
                         data-attr="delete-organization-ok"
                         onClick={
@@ -62,11 +74,8 @@ export function DeleteOrganizationModal({
             </p>
             <LemonInput
                 type="text"
-                onChange={(value) => {
-                    if (organization) {
-                        setIsDeletionConfirmed(value.toLowerCase() === organization.name.toLowerCase())
-                    }
-                }}
+                value={confirmationText}
+                onChange={setConfirmationText}
                 data-attr="delete-organization-confirmation-input"
             />
         </LemonModal>
