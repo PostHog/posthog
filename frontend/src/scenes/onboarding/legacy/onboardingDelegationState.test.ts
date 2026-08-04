@@ -147,4 +147,14 @@ describe('isOnboardingRequiredForTeam', () => {
     it('is not required when there is no current team', () => {
         expect(isOnboardingRequiredForTeam(gatedUser, null, false)).toEqual(false)
     })
+
+    // Regression guard: a caller (e.g. a Storybook mock) can supply a `user.organization`
+    // without a `teams` array. This must not throw — it previously crashed every sidebar
+    // render wired to `getStaticTreeItems` with "Cannot read properties of undefined (reading
+    // 'length')".
+    it('does not throw when organization has no teams array', () => {
+        const user = { organization: { id: 'org-1' } } as any
+        expect(() => isOnboardingRequiredForTeam(user, gatedTeam, false)).not.toThrow()
+        expect(isOnboardingRequiredForTeam(user, gatedTeam, false)).toEqual(false)
+    })
 })

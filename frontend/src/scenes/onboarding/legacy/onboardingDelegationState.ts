@@ -46,7 +46,7 @@ export function isOnboardingRequiredForTeam(
     return Boolean(
         team &&
         !team.is_demo &&
-        user?.organization?.teams.length === 1 &&
+        user?.organization?.teams?.length === 1 &&
         !hasOnboardedAnyProduct &&
         !team.ingested_event &&
         !isOnboardingRedirectSuppressed(user)
