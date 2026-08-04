@@ -27,7 +27,10 @@ export function ChannelContextChip({
     <Chip
       onClick={onView}
       size="sm"
-      className={cn("shrink-0 pr-1 text-[11px]", !onView && "cursor-default")}
+      className={cn(
+        "mt-px shrink-0 pr-1 text-[11px]",
+        !onView && "cursor-default",
+      )}
     >
       CONTEXT.md
       {/* Always rendered, not revealed on hover: the chip sets the editor's
