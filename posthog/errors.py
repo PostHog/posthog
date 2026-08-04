@@ -90,6 +90,18 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "re-upload the file if you manage it yourself), and contact support if it keeps happening."
 )
 
+DEPRECATED_FUNCTION_PATTERN = re.compile(r"Function (\w+) is deprecated")
+
+
+def _wrap_deprecated_function_error(err: ServerException) -> "CHQueryErrorDeprecatedFunction":
+    match = DEPRECATED_FUNCTION_PATTERN.search(err.message)
+    function_name = match.group(1) if match else "This function"
+    return CHQueryErrorDeprecatedFunction(
+        f"{function_name} is deprecated and disabled. Use lagInFrame or leadInFrame instead.",
+        code=err.code,
+        code_name="deprecated_function",
+    )
+
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
@@ -157,6 +169,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
+    elif name == "DEPRECATED_FUNCTION":
+        # ClickHouse's own message tells the user to set 'allow_deprecated_error_prone_window_functions',
+        # which nobody querying PostHog can actually do - point them at the replacement instead.
+        return _wrap_deprecated_function_error(err)
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -248,6 +264,12 @@ class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
 
 class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
     """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
+
+    pass
+
+
+class CHQueryErrorDeprecatedFunction(ExposedCHQueryError):
+    """The query used a ClickHouse function (e.g. neighbor, runningDifference) that's deprecated and disabled."""
 
     pass
 
@@ -973,7 +995,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),  # SQL parser exceeded max backtracking limit
     719: ErrorCodeMeta("QUERY_CACHE_USED_WITH_SYSTEM_TABLE"),
     720: ErrorCodeMeta("USER_EXPIRED"),
-    721: ErrorCodeMeta("DEPRECATED_FUNCTION"),
+    721: ErrorCodeMeta("DEPRECATED_FUNCTION", user_safe=True),
     722: ErrorCodeMeta("ASYNC_LOAD_WAIT_FAILED"),
     723: ErrorCodeMeta("PARQUET_EXCEPTION"),
     724: ErrorCodeMeta("TOO_MANY_TABLES"),

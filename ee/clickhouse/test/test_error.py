@@ -206,6 +206,19 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 721. DB::Exception: Function neighbor is deprecated since its usage is error-prone "
+                "(see comment above). Use lagInFrame/leadInFrame instead. If you know what you are doing, "
+                "then set 'allow_deprecated_error_prone_window_functions' setting to enable it. "
+                "Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=721,
+            ),
+            "CHQueryErrorDeprecatedFunction",
+            "neighbor is deprecated and disabled. Use lagInFrame or leadInFrame instead.",
+            721,
+            "CHQueryErrorDeprecatedFunction",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
