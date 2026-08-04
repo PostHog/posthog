@@ -177,6 +177,7 @@ the row lists both.
 | clockodo                         | HTTP                        | requests                                                        | ✅                          |
 | close                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudbeds                        | HTTP                        | requests                                                        | ✅                          |
+| cloudsmith                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit                       | HTTP                        | requests                                                        | ✅                          |
 | convex                           | HTTP                        | requests                                                        | ✅                          |
 | copper                           | HTTP                        | requests                                                        | ✅                          |
@@ -867,7 +868,6 @@ doesn't conflict with concurrent PRs.
 - clip
 - cloudability
 - cloudbeds
-- cloudsmith
 - clover
 - coassemble
 - cockroachdb
