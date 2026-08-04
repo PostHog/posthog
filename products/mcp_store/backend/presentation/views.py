@@ -1,4 +1,5 @@
 import time
+import uuid
 import hashlib
 import secrets
 from collections.abc import Mapping
@@ -31,6 +32,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.permissions import DenyMCPBuiltInAgentOAuth
 from posthog.rate_limit import (
@@ -642,6 +644,49 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             .order_by("-created_at")
         )
 
+    @validated_request(
+        responses={200: OpenApiResponse(response=MCPServerInstallationSerializer(many=True))},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Installations, with the user's Composio hub expanded into one entry per connected app.
+
+        Every Composio app shares a single installation, so listing rows verbatim would surface one
+        opaque "Connected apps" server and leave each app's card looking unconnected. Clients key
+        connected state on the entry's `url`, so each connection is presented under its own
+        toolkit URL and the hub itself is withheld.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        installations = list(queryset)
+        hub = next((i for i in installations if i.url == COMPOSIO_HUB_URL), None)
+        data = [dict(row) for row in self.get_serializer([i for i in installations if i is not hub], many=True).data]
+
+        if hub is not None:
+            hub_data = self.get_serializer(hub).data
+            connections = (
+                MCPComposioConnection.objects.for_team(self.team_id)
+                .filter(installation=hub, status="active")
+                .select_related("template")
+                .order_by("toolkit_slug")
+            )
+            for connection in connections:
+                template = connection.template
+                data.append(
+                    {
+                        **hub_data,
+                        # The connection's own id, so disconnecting one app targets that app.
+                        "id": str(connection.id),
+                        "template_id": str(template.id) if template else None,
+                        "url": template.url if template else f"{COMPOSIO_HUB_URL}toolkits/{connection.toolkit_slug}",
+                        "name": template.name if template else connection.toolkit_slug,
+                        "display_name": template.name if template else connection.toolkit_slug,
+                        "description": template.description if template else "",
+                        "icon_domain": template.icon_domain if template else "",
+                        "created_at": connection.created_at,
+                        "updated_at": connection.updated_at,
+                    }
+                )
+        return Response({"results": data})
+
     def _tool_serializer_context(self, installation: MCPServerInstallation) -> dict[str, Any]:
         if not installation.gateway_server_id:
             return {}
@@ -830,6 +875,40 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # `list` presents each Composio app under its connection id, so a disconnect arrives here
+        # naming the connection rather than an installation. Removing one app must leave the hub
+        # and the user's other connected apps intact.
+        # The router looks up on `id`, not `pk`; reading the wrong kwarg silently disables this
+        # whole branch and every disconnect falls through to a 404.
+        try:
+            pk = uuid.UUID(str(kwargs.get(self.lookup_field, kwargs.get("pk"))))
+        except (ValueError, TypeError):
+            pk = None
+        connection = (
+            MCPComposioConnection.objects.for_team(self.team_id)
+            .filter(id=pk, connected_by=cast(User, request.user))
+            .select_related("installation", "template")
+            .first()
+            if pk is not None
+            else None
+        )
+        if connection is not None:
+            installation = connection.installation
+            report_user_action(
+                request.user,
+                "mcp_store app disconnected",
+                properties={
+                    "server_name": connection.template.name if connection.template else connection.toolkit_slug,
+                    "provider": "composio",
+                },
+                team=self.team,
+            )
+            connection.delete()
+            # The session is pinned to a toolkit list, so it has to be rebuilt without this app —
+            # otherwise the agent keeps its tools after the user disconnected it.
+            _invalidate_composio_session(installation)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
         installation = self.get_object()
         report_user_action(
             request.user,
@@ -2005,8 +2084,16 @@ class MCPComposioRedirectViewSet(viewsets.ViewSet):
         if not connection_id:
             return Response({"detail": "Missing connection parameter"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Team-agnostic callback: the tenant is only knowable *from* the row, so the primary-key
+        # read is unscoped by necessity. It's safe because the id is an unguessable UUID we minted
+        # and the ownership check below is what actually authorizes the caller; everything after
+        # this point runs inside the connection's own team scope.
         try:
-            connection = MCPComposioConnection.objects.select_related("installation", "template").get(id=connection_id)
+            connection = (
+                MCPComposioConnection.objects.unscoped()
+                .select_related("installation", "template")
+                .get(id=connection_id)
+            )
         except (MCPComposioConnection.DoesNotExist, DjangoValidationError, ValueError):
             return Response({"detail": "Unknown connection"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2021,13 +2108,15 @@ class MCPComposioRedirectViewSet(viewsets.ViewSet):
         connection.status = "failed" if failed else "active"
         if account_id := request.query_params.get("connected_account_id"):
             connection.connected_account_id = account_id
-        connection.save(update_fields=["status", "connected_account_id", "updated_at"])
 
-        if not failed:
-            # The router session is configured for a fixed toolkit list, so a newly connected app
-            # only becomes reachable once the session is rebuilt. Clearing the fingerprint is what
-            # makes the next agent run pick it up.
-            _invalidate_composio_session(installation)
+        with team_scope(connection.team_id):
+            connection.save(update_fields=["status", "connected_account_id", "updated_at"])
+
+            if not failed:
+                # The router session is configured for a fixed toolkit list, so a newly connected
+                # app only becomes reachable once the session is rebuilt. Clearing the fingerprint
+                # is what makes the next agent run pick it up.
+                _invalidate_composio_session(installation)
 
         report_user_action(
             cast(User, request.user),

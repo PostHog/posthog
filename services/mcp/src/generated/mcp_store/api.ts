@@ -8,6 +8,14 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Installations, with the user's Composio hub expanded into one entry per connected app.
+ *
+ * Every Composio app shares a single installation, so listing rows verbatim would surface one
+ * opaque "Connected apps" server and leave each app's card looking unconnected. Clients key
+ * connected state on the entry's `url`, so each connection is presented under its own
+ * toolkit URL and the hub itself is withheld.
+ */
 export const McpServerInstallationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
