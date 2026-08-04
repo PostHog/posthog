@@ -195,7 +195,8 @@ export interface onboardingLogicMeta {
             shouldShowBillingStep: boolean,
             isCloudOrDev: boolean | undefined,
             subscribedDuringOnboarding: boolean,
-            canInviteTeammates: boolean
+            canInviteTeammates: boolean,
+            featureFlags: FeatureFlagsSet
         ) => OnboardingStepDescriptor[]
         onboardingStepKeys: (flow: OnboardingStepDescriptor[]) => OnboardingStepKey[]
         currentFlowStep: (flow: OnboardingStepDescriptor[], stepId: string) => OnboardingStepDescriptor | null
