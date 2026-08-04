@@ -165,7 +165,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 </Label>
                                 <DropdownMenuSeparator />
 
-                                {currentTeam && (
+                                {isAuthenticatedTeam(currentTeam) && (
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
                                             openOnHover={false}
