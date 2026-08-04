@@ -150,6 +150,7 @@ export enum NodeKind {
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
+    MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -227,6 +228,7 @@ export type AnyDataNode =
     | HogQLAutocomplete
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsAttributionQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -331,6 +333,7 @@ export type QuerySchema =
     // Marketing analytics
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsAttributionQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -6387,6 +6390,110 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
     drillDownLevel?: MarketingAnalyticsDrillDownLevel
 }
 
+/**
+ * Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the
+ * levels they share, so both surfaces speak the same vocabulary. It's a separate enum because
+ * `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while
+ * `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.
+ */
+export enum MarketingAnalyticsAttributionBreakdown {
+    Channel = 'channel',
+    Source = 'source',
+    Campaign = 'campaign',
+    Medium = 'medium',
+    Content = 'content',
+    Term = 'term',
+    ReferringDomain = 'referring_domain',
+    LandingPage = 'landing_page',
+}
+
+export interface MarketingAnalyticsAttributionQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAttributionQueryResponse>,
+    'orderBy' | 'compareFilter'
+> {
+    kind: NodeKind.MarketingAnalyticsAttributionQuery
+    /** Row dimension. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** conversion_goal_id of the goal to attribute. The table is meaningless without one. */
+    conversionGoalId: string
+    /**
+     * Drop direct sessions from the touchpoint set before weights are computed, so the remaining
+     * touchpoints renormalize to full credit rather than losing direct's share.
+     */
+    excludeDirectTraffic?: boolean
+    /**
+     * How many days before each conversion a touchpoint can earn credit, overriding the team's
+     * configured attribution window for this query only.
+     */
+    lookbackWindowDays?: integer
+    /**
+     * Whether one person converting repeatedly counts once or every time. Null follows the goal's own
+     * math: unique-users goals count each person once, count-based goals count every conversion. Set
+     * explicitly to override. Counting every conversion makes the rate columns exceed 100%, since a
+     * person can convert more times than they visited.
+     */
+    allowMultipleConversionsPerVisitor?: boolean
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+}
+
+/** One attribution model's credit for one breakdown row. */
+export interface MarketingAnalyticsAttributionModelCell {
+    model: AttributionMode
+    /** Fractional for multi-touch models: each conversion's credit is split across its touchpoints. */
+    conversions: number
+    /** conversions / visitors. Null when the row has no visitors. */
+    conversionRate: number | null
+    /** Null unless the goal is revenue-bearing. */
+    conversionValue: number | null
+}
+
+export interface MarketingAnalyticsAttributionRow {
+    breakdownValue: string
+    /** Unique persons who arrived via this dimension in the date range, converters or not. */
+    visitors: integer
+    /**
+     * Conversions with at least one touchpoint on this dimension. Counted once per conversion, so a
+     * conversion influenced by several dimensions is counted in each of their rows. These
+     * deliberately sum to more than the total, unlike the per-model columns.
+     */
+    influencedConversions: integer
+    influencedValue: number | null
+    /** One cell per model, always in the order given by the response's `models`. */
+    models: MarketingAnalyticsAttributionModelCell[]
+}
+
+export interface MarketingAnalyticsAttributionQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsAttributionRow[]
+    /** Model order for the column groups. */
+    models: AttributionMode[]
+    /** Whether the goal is revenue-bearing, which gates the value columns. */
+    hasValue: boolean
+    /** The team's configured attribution window, for the tooltips. */
+    attributionWindowDays: integer
+    /**
+     * Whether this result counted a repeat converter's every conversion, after resolving the query's
+     * null against the goal's math. The rate columns are a true share only when this is false, so the
+     * table reads it to label them.
+     */
+    allowsMultipleConversionsPerVisitor: boolean
+    /** Conversions with no touchpoint in the window. Reported in the footer, not in any row. */
+    unattributedConversions: integer
+    /** Total conversions in range, so the footer can say "N of M". */
+    totalConversions: integer
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsAttributionQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAttributionQueryResponse>
+
 /** Columns for non-integrated conversions table */
 export enum NonIntegratedConversionsColumnsSchemaNames {
     Source = 'Source',
@@ -7826,6 +7933,7 @@ export const externalDataSources = [
     'Campfire',
     'Crisp',
     'Kommo',
+    'GoogleMerchantCenter',
     'Axiom',
     'Plivo',
     'DataForSEO',

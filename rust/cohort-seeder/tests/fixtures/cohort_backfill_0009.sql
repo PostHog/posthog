@@ -1,4 +1,6 @@
--- Snapshot pinned to products/cohorts/backend/migrations/0009_cohort_backfill_per_kind_uniqueness.py.
+-- Snapshot pinned to products/cohorts/backend/migrations/0009_cohort_backfill_per_kind_uniqueness.py,
+-- the last migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits
+-- no SQL.
 -- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
 
 CREATE TABLE cohort_backfill_runs (

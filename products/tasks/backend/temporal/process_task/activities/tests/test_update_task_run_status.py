@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
@@ -201,13 +202,17 @@ class TestUpdateTaskRunStatusActivity:
         assert loop.last_run_at is not None
 
     @pytest.mark.django_db(transaction=True)
-    def test_handles_non_existent_task_run(self, activity_environment):
+    def test_missing_task_run_raises_non_retryable(self, activity_environment):
+        # Rows hard-deleted mid-run (team deletion cascade) must fail the workflow fast,
+        # not be swallowed as a successful status write.
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
         input_data = UpdateTaskRunStatusInput(
             run_id=non_existent_run_id,
             status=TaskRun.Status.IN_PROGRESS,
         )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        with pytest.raises(ApplicationError) as exc_info:
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        assert exc_info.value.non_retryable is True
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(

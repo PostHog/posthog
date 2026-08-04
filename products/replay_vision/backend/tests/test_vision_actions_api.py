@@ -261,6 +261,38 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         # The promotion rolled back: the restricted digest is untouched and the summary wasn't flagged.
         self.assertEqual(self._flagged_digest_ids(), [str(current.id)])
 
+    def test_creating_a_digest_dedupes_a_taken_name(self) -> None:
+        # The "Turn on daily digest" button derives a fixed name from the scanner. If another action
+        # already holds it, the create must succeed with a suffixed name, not 400 on (team, name).
+        taken = f"Daily digest: {self.scanner.name}"
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name=taken,
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name=taken, is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertTrue(resp.json()["is_scanner_digest"])
+        self.assertEqual(resp.json()["name"], f"{taken} (2)")
+
+    def test_creating_a_digest_with_a_user_typed_duplicate_name_still_400s(self) -> None:
+        # Dedupe applies only to the auto-derived name; a user-typed name that collides must keep
+        # the explicit duplicate error rather than being silently renamed.
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="my-digest",
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name="my-digest", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(resp.json()["attr"], "name")
+
     def test_alert_cannot_be_featured_digest(self) -> None:
         payload = self._create_payload(
             name="an-alert",

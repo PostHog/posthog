@@ -701,18 +701,24 @@ def _is_ip_literal(host: str) -> bool:
         return False
 
 
-def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str | None:
-    """Resolve `host` to an IP under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
+def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
+    """Resolve `host` to its addresses under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
 
     psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
-    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved address
-    to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so a stalled
-    or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as long as the
-    OS resolver takes. It never trips `connect_timeout`; the activity instead runs until Temporal's
-    `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a misleading
-    `CancelledError` and burning the whole activity's retry budget. Resolving here and passing the
-    address via `hostaddr` (which makes psycopg skip its own lookup) turns a stalled resolver into a
-    fast, retryable error instead.
+    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved
+    address(es) to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so
+    a stalled or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as
+    long as the OS resolver takes. It never trips `connect_timeout`; the activity instead runs until
+    Temporal's `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a
+    misleading `CancelledError` and burning the whole activity's retry budget. Resolving here turns a
+    stalled resolver into a fast, retryable error instead.
+
+    Returns every resolved address, not just one: when a host resolves to more than one address (most
+    commonly a dual-stack host with both an AAAA and an A record), `Connection.connect` tries each
+    `hostaddr` attempt in turn and only fails once all of them do (see `conninfo_attempts` /
+    `Connection.connect`'s attempt loop) — a network that can't route one address family (e.g. no IPv6
+    egress) still connects via the other. Handing psycopg a single pre-resolved `hostaddr` would
+    collapse that to one attempt and turn an unreachable-address-family blip into a hard failure.
 
     Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
     already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
@@ -749,8 +755,17 @@ def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str 
     if not addrinfo:
         return None
     # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
-    # tuple variants, so coerce to satisfy the str return type).
-    return str(addrinfo[0][4][0])
+    # tuple variants, so coerce to satisfy the str return type). Dedupe while preserving order —
+    # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
+    # names), and a duplicate `hostaddr` attempt would just fail the same way twice.
+    seen: set[str] = set()
+    addresses: list[str] = []
+    for info in addrinfo:
+        address = str(info[4][0])
+        if address not in seen:
+            seen.add(address)
+            addresses.append(address)
+    return addresses
 
 
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
@@ -793,9 +808,14 @@ def _connect_to_postgres(
     # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
     # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
     if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
-        hostaddr = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
-        if hostaddr is not None:
-            kwargs["hostaddr"] = hostaddr
+        addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
+        if addresses:
+            # A comma-separated `host`/`hostaddr` pair of matching length is how psycopg/libpq
+            # represent multiple attempts (see `split_attempts` in psycopg/_conninfo_utils.py) — this
+            # keeps its per-address failover intact for a dual-stack host instead of pinning the
+            # connection to whichever single address `getaddrinfo` happened to return first.
+            host = ",".join([host] * len(addresses))
+            kwargs["hostaddr"] = ",".join(addresses)
     try:
         return _connect_with_options_fallback(
             host=host,

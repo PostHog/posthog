@@ -37,7 +37,14 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskInput", () => ({
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
-    channels: [{ id: "chan-1", name: "project-bluebird" }],
+    channels: [
+      {
+        id: "chan-1",
+        name: "project-bluebird",
+        channelType: "public",
+        starred: false,
+      },
+    ],
   }),
 }));
 
@@ -46,11 +53,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
   useChannelTaskMutations: () => ({ fileTask: vi.fn() }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
-  useBackendChannel: () => ({
-    channel: { id: "backend-channel-1", name: "project-bluebird" },
-  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useFolderInstructions", () => ({
   useFolderInstructions,
@@ -93,13 +95,13 @@ describe("WebsiteNewTask context panel", () => {
     taskInputProps.mockReset();
   });
 
-  it("creates the task in the channel's backend feed", () => {
+  it("creates the task in the channel's feed", () => {
     useFolderInstructions.mockReturnValue({ data: undefined });
     renderNewTask();
 
     expect(taskInputProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        channelId: "backend-channel-1",
+        channelId: "chan-1",
         channelContextId: "chan-1",
       }),
     );

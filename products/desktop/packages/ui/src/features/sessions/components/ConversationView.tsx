@@ -35,7 +35,6 @@ import type {
   ThreadGrouping,
   ThreadRow,
 } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import type { CollapseMode } from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
 import { createIncrementalThreadGrouper } from "@posthog/ui/features/sessions/components/new-thread/incrementalThreadGrouping";
 import { ToolCallGroupChip } from "@posthog/ui/features/sessions/components/new-thread/ToolCallGroupChip";
 import { SessionFooter } from "@posthog/ui/features/sessions/components/SessionFooter";
@@ -51,7 +50,6 @@ import {
 } from "@posthog/ui/features/sessions/components/VirtualizedList";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
-import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import { useConversationSearch } from "@posthog/ui/features/sessions/hooks/useConversationSearch";
 import {
@@ -94,12 +92,6 @@ export interface ConversationViewProps {
   slackThreadUrl?: string;
   compact?: boolean;
   /**
-   * Override the global collapse setting for this view. Used by surfaces like
-   * the live-agent chat preview, where folding the agent's prose into a tool
-   * chip hides the response — they pass `"none"` to render everything inline.
-   */
-  collapseMode?: CollapseMode;
-  /**
    * Allow horizontal scrolling of the transcript viewport. Defaults to true.
    * Narrow surfaces (the Agent Builder dock) pass false to avoid a horizontal
    * scrollbar from off-edge content; nested code blocks keep their own scroll.
@@ -121,7 +113,6 @@ export function ConversationView({
   task,
   slackThreadUrl,
   compact = false,
-  collapseMode: collapseModeProp,
   scrollX = true,
   promptRecallRef,
 }: ConversationViewProps) {
@@ -144,14 +135,8 @@ export function ConversationView({
   const debugLogsCloudRuns = useSettingsStore((s) => s.debugLogsCloudRuns);
   const showDebugLogs = debugLogsCloudRuns;
 
-  const collapseModeSetting = useSettingsStore(
-    (s) => s.conversationCollapseMode,
-  );
-  const collapseMode = collapseModeProp ?? collapseModeSetting;
   const groupOverrides = useGroupOverrides();
   const sessionViewActions = useSessionViewActions();
-
-  const contextUsage = useContextUsage(events);
 
   // Streaming appends one event per token. The parse is incremental — each
   // event is handled once and completed turns are reused by reference — so per
@@ -212,8 +197,8 @@ export function ConversationView({
   threadGrouperRef.current ??= createIncrementalThreadGrouper();
   const threadGrouper = threadGrouperRef.current;
   const grouping = useMemo<ThreadGrouping>(
-    () => threadGrouper.update(items, collapseMode, groupOverrides),
-    [items, collapseMode, groupOverrides, threadGrouper],
+    () => threadGrouper.update(items, groupOverrides),
+    [items, groupOverrides, threadGrouper],
   );
   const threadRows = grouping.rows;
   const rowKeepMounted = grouping.keepMounted;
@@ -236,12 +221,6 @@ export function ConversationView({
     }
     return result;
   }, [grouping.idToRowIndex, rowToTurnIndex]);
-
-  // Changing the global mode wipes ephemeral per-chip overrides.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on collapseMode only
-  useEffect(() => {
-    sessionViewActions.clearGroupOverrides();
-  }, [collapseMode]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -512,7 +491,6 @@ export function ConversationView({
         hasPendingPermission={pendingPermissionsCount > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
-        usage={contextUsage}
         completedToolCallCount={completedToolCallCount}
       />
     </div>

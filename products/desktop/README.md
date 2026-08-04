@@ -3,11 +3,14 @@
 
 **[Download the latest version](https://github.com/PostHog/code/releases/latest)**
 
-Found a bug or have feedback? [Open an issue](https://github.com/PostHog/code/issues/new) on GitHub.
+Found a bug or want to share feedback? [Open an issue](https://github.com/PostHog/code/issues/new) on GitHub.
 
 # PostHog
 
-This is the monorepo for the PostHog desktop and mobile apps and the agent framework that powers them.
+This is the source for the PostHog desktop and mobile apps and the agent framework that powers them.
+
+> [!NOTE]
+> This directory lives at `products/desktop` inside [posthog/posthog](https://github.com/PostHog/posthog). If you already have that repo checked out, there is no separate clone: `cd products/desktop` and follow the setup below. It is a standalone pnpm workspace with its own lockfile and Node version.
 
 ## Development
 

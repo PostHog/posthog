@@ -659,6 +659,7 @@ export interface sourceCatalogLogicMeta {
                       | 'GoogleDirectory'
                       | 'GoogleDrive'
                       | 'GoogleForms'
+                      | 'GoogleMerchantCenter'
                       | 'GooglePageSpeedInsights'
                       | 'GooglePlayConsole'
                       | 'GoogleSearchConsole'

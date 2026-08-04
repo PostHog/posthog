@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
@@ -7,6 +8,7 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
+import { isMultiSeriesFormula } from 'lib/utils/strings'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,6 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
+import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -38,11 +41,16 @@ import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChar
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    embedded?: boolean
 }
 
 const handleChartError = makeChartErrorHandler('trends-line-chart')
 
-export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
+export function TrendsLineChart({
+    context,
+    inSharedMode = false,
+    embedded = false,
+}: TrendsLineChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -128,6 +136,26 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    // The persons modal is intentionally unavailable for multi-series formulas (there's no
+    // single series of actors behind a computed ratio), so surface that instead of leaving
+    // the chart looking interactive with no explanation. On dashboard/card tiles a click
+    // instead opens the underlying insight, since there's nowhere else for the click to go.
+    const isFormulaDrillDownDisabled = !canHandleClick && isMultiSeriesFormula(formula)
+    const canNavigateToInsight = embedded && !inSharedMode && isFormulaDrillDownDisabled && !!insight.short_id
+    const canHandlePointInteraction = canHandleClick || canNavigateToInsight
+
+    const navigateToInsight = useCallback(() => {
+        if (!insight.short_id) {
+            return
+        }
+        router.actions.push(urls.insightView(insight.short_id, insightProps.dashboardId))
+    }, [insight.short_id, insightProps.dashboardId])
+
+    const noDrillDownFooter = isFormulaDrillDownDisabled
+        ? canNavigateToInsight
+            ? "Drill-down isn't available for formula insights. Click to view the insight."
+            : "Drill-down isn't available for formula insights"
+        : undefined
 
     const clickDeps = useMemo(
         () => ({
@@ -155,19 +183,27 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
-            handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            } else if (canNavigateToInsight) {
+                navigateToInsight()
+            }
         },
-        [clickDeps]
+        [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
 
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            const onRowClick = canHandleClick
+            const onRowClick = canHandlePointInteraction
                 ? (datum: SeriesDatum) => {
-                      const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
-                      handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      if (canHandleClick) {
+                          const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
+                          handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      } else {
+                          navigateToInsight()
+                      }
                   }
                 : undefined
             const tooltipProps = {
@@ -184,6 +220,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 groupTypeLabel: resolvedGroupTypeLabel,
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
+                footerOverride: noDrillDownFooter,
             }
             return <InsightSeriesTooltip {...tooltipProps} />
         },
@@ -199,7 +236,10 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
+            canHandlePointInteraction,
             canHandleClick,
+            navigateToInsight,
+            noDrillDownFooter,
             clickDeps,
         ]
     )
@@ -304,7 +344,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             theme={theme}
             config={config}
             tooltip={renderTooltip}
-            onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointClick={canHandlePointInteraction ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
