@@ -3,7 +3,7 @@ import { range } from 'lodash'
 import http from 'node:http'
 import { AddressInfo } from 'node:net'
 
-import { DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS } from '~/common/config'
+import { DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS, getExternalRequestConfig } from '~/common/config'
 
 import { parseJSON } from './json-parse'
 import {
@@ -128,14 +128,13 @@ describe('fetch', () => {
             }
         })
 
-        // A CDP destination calls whatever API the customer configured, so it needs the
-        // third-party budget rather than the tighter one sized for our own services. Routing it
-        // back through the internal budget fails silently, because the only symptom is slower
-        // cross-region APIs being cut off on every retry until the event is dropped.
+        // Each entry point has to resolve to its own budget. Sending third-party traffic through
+        // the internal one fails silently: the only symptom is slower cross-region APIs getting
+        // cut off on every retry until the invocation is dropped.
         it.each([
-            ['fetch', fetch, DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS],
-            ['internalFetch', internalFetch, 3000],
-        ])('%s defaults the request timeout to %sms', async (_name, doFetch, expectedTimeoutMs) => {
+            ['fetch', DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS, fetch],
+            ['internalFetch', getExternalRequestConfig().EXTERNAL_REQUEST_TIMEOUT_MS, internalFetch],
+        ])('%s defaults the request timeout to %sms', async (_name, expectedTimeoutMs, doFetch) => {
             const originalNodeEnv = process.env.NODE_ENV
             process.env.NODE_ENV = 'test'
             try {
