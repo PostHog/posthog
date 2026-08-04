@@ -28703,6 +28703,8 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      readonly resolved_exposure_event: string;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -29614,6 +29616,8 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      readonly resolved_exposure_event: string;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -32682,7 +32686,7 @@ export namespace Schemas {
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
       /**
-         * Table name prefix in HogQL.
+         * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
          * @maxLength 100
          * @nullable
          */
@@ -34991,7 +34995,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -35050,7 +35054,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -35792,6 +35796,17 @@ export namespace Schemas {
       readonly batch_export_id: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**
@@ -35805,8 +35820,10 @@ export namespace Schemas {
     export type HogFunctionInvocationClickhouseEvent = { [key: string]: unknown };
 
     export interface HogFunctionInvocation {
-      /** Full function configuration to test. */
-      configuration: HogFunction;
+      /** Full function configuration to test. Omit when use_draft is true. */
+      configuration?: HogFunction;
+      /** Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged. */
+      use_draft?: boolean;
       /** Mock global variables available during test invocation. */
       globals?: HogFunctionInvocationGlobals;
       /** Mock ClickHouse event data to test the function with. */
@@ -35845,6 +35862,61 @@ export namespace Schemas {
       readonly execution_order: number | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+    }
+
+    export interface HogFunctionPublishRequest {
+      /** False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function. */
+      confirm?: boolean;
+      /** From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed. */
+      confirm_token?: string;
+    }
+
+    export interface HogFunctionPublishResponse {
+      /** Whether the draft was applied to the live function. */
+      published: boolean;
+      /**
+         * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
+         * @nullable
+         */
+      draft_updated_at: string | null;
+      /**
+         * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+         * @nullable
+         */
+      confirm_token: string | null;
+      /**
+         * Config fields publishing would change (hog, inputs_schema, inputs, filters, mappings, masking). Only set on previews.
+         * @nullable
+         */
+      changed_fields: string[] | null;
+      /** The function after publishing (only set when published=true). */
+      function?: HogFunction | null;
+    }
+
+    export interface HogFunctionRevision {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFunctionRevisionBasic {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFunctionRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
     }
 
     /**
@@ -40355,9 +40427,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface LogsRetentionRuleNameSuggestion {
+      /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+      name: string;
+    }
+
     export interface LogsRetentionRuleReorder {
       /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
       ordered_ids: string[];
+    }
+
+    export interface LogsRetentionRuleSuggestName {
+      /** Retention tier the rule would assign, in days. */
+      retention_days: number;
+      /** PropertyGroupFilter tree the rule would match on. */
+      filter_group: unknown;
     }
 
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
@@ -42007,10 +42091,10 @@ export namespace Schemas {
       detail: string;
       /** Number of this source's schemas visible to the warehouse. */
       total_schemas: number;
-      /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-      backfilled_schemas: number;
+      /** Number of schemas applied by a completed copy or register workflow. */
+      applied_schemas: number;
       /**
-         * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
+         * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
          * @nullable
          */
       last_applied_at: string | null;
@@ -42033,7 +42117,7 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of imported source readiness. */
       detail: string;
-      /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+      /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
       sources: ManagedWarehouseSourceSummary[];
     }
 
@@ -42057,6 +42141,36 @@ export namespace Schemas {
       generated_at: string;
     }
 
+    /**
+     * * `copy` - copy
+     * * `register` - register
+     */
+    export type WorkflowTypeEnum = typeof WorkflowTypeEnum[keyof typeof WorkflowTypeEnum];
+
+
+    export const WorkflowTypeEnum = {
+      Copy: 'copy',
+      Register: 'register',
+    } as const;
+
+    /**
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale
+     */
+    export type WorkflowStatusEnum = typeof WorkflowStatusEnum[keyof typeof WorkflowStatusEnum];
+
+
+    export const WorkflowStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Stale: 'stale',
+    } as const;
+
     export interface ManagedWarehouseSourceTableStatus {
       /** Imported source schema identifier. */
       schema_id: string;
@@ -42079,17 +42193,28 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
       detail: string;
-      /** Whether the one-time historical copy into the warehouse has completed for this table. */
-      backfilled: boolean;
-      /** Backfill chunks already copied into the warehouse. */
-      completed_chunks: number;
+      /** Workflow applying the latest source import, or null if no workflow has run.
+       *
+       * * `copy` - copy
+       * * `register` - register */
+      workflow_type: WorkflowTypeEnum | null;
+      /** State of the latest copy or register workflow, or null if no workflow has run.
+       *
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `skipped` - skipped
+       * * `stale` - stale */
+      workflow_status: WorkflowStatusEnum | null;
       /**
-         * Total backfill chunks, or null before the copy plan is ready.
+         * When the latest copy or register workflow started, or null if no workflow has run.
          * @nullable
          */
-      total_chunks: number | null;
+      workflow_started_at: string | null;
+      /** Whether a copy or register workflow has applied this table to the warehouse. */
+      applied: boolean;
       /**
-         * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
+         * When a copy or register workflow most recently applied this table, or null if no workflow completed.
          * @nullable
          */
       last_applied_at: string | null;
@@ -42101,7 +42226,7 @@ export namespace Schemas {
     }
 
     export interface ManagedWarehouseSourceSchemasResponse {
-      /** Per-schema backfill and live import application status for the requested source. */
+      /** Per-schema copy or register workflow status for the requested source. */
       schemas: ManagedWarehouseSourceTableStatus[];
     }
 
@@ -45026,6 +45151,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFunctionMinimal[];
+    }
+
+    export interface PaginatedHogFunctionRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFunctionRevisionBasic[];
     }
 
     export interface PaginatedHogFunctionTemplateList {
@@ -48333,6 +48467,30 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `off` - off
+     * * `minimal` - minimal
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode
+     */
+    export type TaskRunReasoningEffortEnum = typeof TaskRunReasoningEffortEnum[keyof typeof TaskRunReasoningEffortEnum];
+
+
+    export const TaskRunReasoningEffortEnum = {
+      Off: 'off',
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
     export interface TaskRunArtifactMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -48427,13 +48585,15 @@ export namespace Schemas {
       model?: string | null;
       /** Configured reasoning effort for this run when the selected model supports it.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: TaskRunReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
          * @nullable
@@ -52099,6 +52259,8 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      readonly resolved_exposure_event?: string;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -52870,6 +53032,17 @@ export namespace Schemas {
       readonly batch_export_id?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version?: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft?: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**
@@ -63224,6 +63397,16 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd_prev: number | null;
+      /**
+         * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes: number | null;
+      /**
+         * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes_prev: number | null;
       /** Whether the job-level source is synced (cost and queue figures exist). */
       jobs_available: boolean;
       /** 'master' or 'main', picked by observed run volume in the window. */
@@ -70183,7 +70366,7 @@ export namespace Schemas {
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
-         * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
+         * Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. Does not filter which tables are imported. Defaults to the source type.
          * @maxLength 100
          * @nullable
          */
@@ -72069,13 +72252,15 @@ export namespace Schemas {
       model?: string;
       /** Reasoning effort to request for models that expose an effort control.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: TaskRunReasoningEffortEnum;
       /** Context window size for models that support the 1M window.
        *
        * * `200k` - 200k
@@ -81163,6 +81348,17 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type HogFunctionsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type IdentityMatchingLinksListParams = {
     /**
