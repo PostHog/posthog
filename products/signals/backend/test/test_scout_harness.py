@@ -305,10 +305,14 @@ class TestPromptCrossReferences(SimpleTestCase):
         [
             ("signal_canonical", [], "canonical", False),
             ("signal_custom", [], "custom", False),
+            ("report_both", ["emit_report", "edit_report"], "custom", False),
             ("report_both_github", ["emit_report", "edit_report"], "canonical", True),
-            ("report_both_custom", ["emit_report", "edit_report"], "custom", False),
             ("report_emit_only", ["emit_report"], "custom", False),
+            ("report_emit_only_github", ["emit_report"], "custom", True),
             ("report_edit_only", ["edit_report"], "custom", False),
+            # The `gh` section is the one that references an author-time section, so the edit-only
+            # persona (which renders no author-time sections) only dangles with the token granted.
+            ("report_edit_only_github", ["edit_report"], "custom", True),
         ]
     )
     def test_every_referenced_section_renders_in_the_same_prompt(
