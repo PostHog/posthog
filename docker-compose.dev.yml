@@ -401,7 +401,11 @@ services:
                 valkey-cli cluster addslots $$(seq 0 16383)
                 wait $$pid
         healthcheck:
-            test: ['CMD-SHELL', 'valkey-cli cluster info | grep -q cluster_state:ok && test "$$(valkey-cli cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384']
+            test:
+                [
+                    'CMD-SHELL',
+                    'valkey-cli cluster info | grep -q cluster_state:ok && test "$$(valkey-cli cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
+                ]
             interval: 2s
             timeout: 3s
             retries: 15
