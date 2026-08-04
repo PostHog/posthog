@@ -16,6 +16,17 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
+def close_stale_db_connections() -> None:
+    """Close expired or errored Postgres connections accumulated by long-lived worker threads.
+
+    Unlike django.db.close_old_connections, skips connections inside an atomic block, so it is
+    safe to call from activities running under test transactions.
+    """
+    for conn in django.db.connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
+
+
 def make_sync_retryable_with_exponential_backoff(
     func: Callable[P, T],
     max_attempts: int = 5,
