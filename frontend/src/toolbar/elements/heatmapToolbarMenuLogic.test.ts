@@ -234,7 +234,7 @@ describe('heatmapToolbarMenuLogic', () => {
         function addElement(
             tag: string,
             rect: { top: number; left: number; width: number; height: number },
-            parent: HTMLElement = document.body
+            parent: ParentNode = document.body
         ): HTMLElement {
             const el = document.createElement(tag)
             el.getBoundingClientRect = () =>
@@ -265,11 +265,7 @@ describe('heatmapToolbarMenuLogic', () => {
             toolbarRoot.id = TOOLBAR_ID
             document.body.appendChild(toolbarRoot)
             const shadowRoot = toolbarRoot.attachShadow({ mode: 'open' })
-            const overlay = addElement(
-                'div',
-                { top: 0, left: 0, width: 800, height: 600 },
-                shadowRoot as unknown as HTMLElement
-            )
+            const overlay = addElement('div', { top: 0, left: 0, width: 800, height: 600 }, shadowRoot)
 
             expect(computeAreaCandidates()).not.toContain(overlay)
         })
