@@ -15,3 +15,5 @@ export type { SupportMarkdownProps } from './SupportMarkdown'
 
 export { SupportRichContentPreview } from './SupportRichContentPreview'
 export type { SupportRichContentPreviewProps } from './SupportRichContentPreview'
+
+export { canEditMessageBody, messageBodyToRichContent } from './messageMarkdown'

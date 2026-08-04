@@ -489,11 +489,24 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
 
 function makeNote(
     id: string,
-    { isPrivate = true, authorUuid, version = 0 }: { isPrivate?: boolean; authorUuid?: string; version?: number } = {}
+    {
+        isPrivate = true,
+        authorUuid,
+        version = 0,
+        content,
+        richContent = { type: 'doc', content: [] },
+    }: {
+        isPrivate?: boolean
+        authorUuid?: string
+        version?: number
+        content?: string
+        richContent?: Record<string, unknown> | null
+    } = {}
 ): CommentType {
     return {
         id,
-        content: `${id} body`,
+        content: content ?? `${id} body`,
+        rich_content: richContent,
         scope: 'conversations_ticket',
         item_id: 'ticket-1',
         item_context: { author_type: 'support', is_private: isPrivate },
@@ -546,6 +559,18 @@ describe('supportTicketSceneLogic private note editing', () => {
         ],
         ['an AI note with no author', [makeNote('n1')], null],
         ['no private notes at all', [makeNote('n1', { isPrivate: false, authorUuid: MINE })], null],
+        // A markdown-only body using a construct the editor can't hold would come back short on
+        // save, so the affordance has to stay off it.
+        [
+            'my note whose markdown the editor cannot represent',
+            [makeNote('n1', { authorUuid: MINE, content: '# Escalation notes', richContent: null })],
+            null,
+        ],
+        [
+            'my markdown-only note the editor can represent',
+            [makeNote('n1', { authorUuid: MINE, content: '- refund issued', richContent: null })],
+            'n1',
+        ],
     ])('editableMessageId with %s', (_name, messages, expected) => {
         logic.actions.setMessages(messages)
         expect(logic.values.editableMessageId).toBe(expected)

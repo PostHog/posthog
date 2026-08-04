@@ -21,6 +21,10 @@ jest.mock('../Editor', () => {
             return React.createElement('div', { 'data-attr': 'support-editor' })
         },
         serializeToMarkdown: (): string => 'edited markdown',
+        messageBodyToRichContent: (content: string) => ({
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: content }] }],
+        }),
         SupportMarkdown: ({ children }: { children: string }) =>
             React.createElement('div', { 'data-attr': 'message-body' }, children),
         SupportRichContentPreview: () => React.createElement('div', { 'data-attr': 'message-body' }),

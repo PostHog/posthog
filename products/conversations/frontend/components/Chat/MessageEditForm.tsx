@@ -7,7 +7,7 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
 import type { ChatMessage } from '../../types'
-import { SupportEditor, serializeToMarkdown } from '../Editor'
+import { SupportEditor, messageBodyToRichContent, serializeToMarkdown } from '../Editor'
 
 export interface MessageEditFormProps {
     message: ChatMessage
@@ -16,22 +16,8 @@ export interface MessageEditFormProps {
     onSave: (content: string, richContent: JSONContent) => void
 }
 
-/** Notes written through the ticket reply API, and ones carried in by an import, have no rich
- * content, so seed the editor from the plain text rather than opening it empty over a note that
- * clearly has a body. */
-function initialContentFor(message: ChatMessage): JSONContent {
-    if (message.richContent) {
-        return message.richContent as JSONContent
-    }
-    return {
-        type: 'doc',
-        content: [
-            {
-                type: 'paragraph',
-                content: message.content ? [{ type: 'text', text: message.content }] : [],
-            },
-        ],
-    }
+export function initialEditorContent(message: ChatMessage): JSONContent {
+    return message.richContent ? (message.richContent as JSONContent) : messageBodyToRichContent(message.content)
 }
 
 export function MessageEditForm({ message, saving, onCancel, onSave }: MessageEditFormProps): JSX.Element {
@@ -53,23 +39,40 @@ export function MessageEditForm({ message, saving, onCancel, onSave }: MessageEd
             return
         }
         const richContent = editorRef.current.getJSON()
-        onSave(serializeToMarkdown(richContent), richContent)
+        const content = serializeToMarkdown(richContent)
+        // Whitespace survives the editor's own isEmpty check, and the backend accepts it, so a note
+        // could be blanked by saving a space.
+        if (!content.trim()) {
+            return
+        }
+        // Saving an unchanged note would still round-trip its content and cost a request, so treat
+        // it as a cancel instead.
+        if (content === message.content) {
+            onCancel()
+            return
+        }
+        onSave(content, richContent)
     }
 
     return (
         <div
             className="space-y-2"
             onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                    // The editor is nested inside the thread, so stop the key here rather than
-                    // letting it reach whatever else treats Escape as dismiss.
-                    e.stopPropagation()
-                    onCancel()
+                if (e.key !== 'Escape' || saving) {
+                    return
                 }
+                // The editor's own popups (mentions, emoji, link) consume Escape to close
+                // themselves, and a CJK IME consumes it to abort a composition. Cancelling on those
+                // would throw away the whole rewrite when the user only meant to dismiss a popup.
+                if (e.defaultPrevented || e.nativeEvent.isComposing) {
+                    return
+                }
+                e.stopPropagation()
+                onCancel()
             }}
         >
             <SupportEditor
-                initialContent={initialContentFor(message)}
+                initialContent={initialEditorContent(message)}
                 placeholder="Edit your private note..."
                 onCreate={(editor) => {
                     editorRef.current = editor
@@ -80,6 +83,9 @@ export function MessageEditForm({ message, saving, onCancel, onSave }: MessageEd
                 onUploadingChange={setIsUploading}
                 disabled={saving}
                 minRows={3}
+                // The editor carries a top margin for the composer, which sits below the thread.
+                // Inside a note it reads as a stray gap.
+                className="mt-0"
             />
             <div className="flex justify-end items-center gap-2">
                 <LemonButton

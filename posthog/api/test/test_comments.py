@@ -577,6 +577,18 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
 
+def _mention_doc(user_ids: list[int]) -> dict:
+    return {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [{"type": "ph-mention", "attrs": {"id": user_id}} for user_id in user_ids],
+            }
+        ],
+    }
+
+
 class TestCommentsTicketAccessControl(APIBaseTest):
     """conversations_ticket comments are ticket messages read/written through this generic
     endpoint by the Support UI (not TicketViewSet) — object-level ticket RBAC must be
@@ -707,6 +719,41 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         assert note.content == "my corrected note"
         assert note.rich_content == {"type": "doc"}
         assert note.item_context == {"author_type": "support", "is_private": True}
+
+    def test_saving_an_unchanged_note_does_not_mark_it_edited(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        note = self._private_note(self.member)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{note.id}?scope=conversations_ticket",
+            {"content": note.content},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 0
+
+    @mock.patch("posthog.models.comment.utils.send_mention_notifications")
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_editing_a_note_only_notifies_newly_added_mentions(
+        self, mock_send_email: mock.MagicMock, _mock_notify: mock.MagicMock
+    ) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        already_mentioned = User.objects.create_and_join(self.organization, "already@posthog.com", None)
+        newly_mentioned = User.objects.create_and_join(self.organization, "newly@posthog.com", None)
+        note = self._private_note(self.member)
+        note.rich_content = _mention_doc([already_mentioned.id])
+        note.save()
+
+        url = f"/api/projects/{self.team.id}/comments/{note.id}?scope=conversations_ticket"
+        self.client.patch(url, {"content": "reworded", "rich_content": _mention_doc([already_mentioned.id])})
+        assert mock_send_email.call_count == 0
+
+        self.client.patch(
+            url,
+            {"content": "reworded again", "rich_content": _mention_doc([already_mentioned.id, newly_mentioned.id])},
+        )
+        assert mock_send_email.call_count == 1
+        assert mock_send_email.call_args[0][1] == [newly_mentioned.id]
 
     def test_member_cannot_edit_another_agents_private_note(self) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")

@@ -48,6 +48,7 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import { canEditMessageBody } from '../../components/Editor'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -1025,7 +1026,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 for (let i = messages.length - 1; i >= 0; i--) {
                     const message = messages[i]
                     if (message.item_context?.is_private === true) {
-                        return message.created_by?.uuid && message.created_by.uuid === user?.uuid ? message.id : null
+                        const isMine = message.created_by?.uuid && message.created_by.uuid === user?.uuid
+                        return isMine && canEditMessageBody(message.content, message.rich_content) ? message.id : null
                     }
                 }
                 return null
@@ -1246,9 +1248,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         editMessage: async ({ messageId, content, richContent }) => {
             // Guards the Cmd+Enter path, and a poll that moved the editable note out from under an
-            // open editor between render and save.
+            // open editor between render and save. Saying so beats a Save button that does nothing.
             if (props.id === 'new' || !values.ticket?.id || messageId !== values.editableMessageId) {
                 actions.setMessageEditSaving(false)
+                lemonToast.error('This note can no longer be edited. Copy your text before leaving.')
                 return
             }
             try {
@@ -1263,9 +1266,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 lemonToast.success('Private note updated')
                 actions.setEditingMessage(null)
                 actions.loadMessages()
-            } catch {
-                // The editor stays open so the rewritten text isn't lost on a failed save.
-                lemonToast.error('Failed to update private note')
+            } catch (error: any) {
+                // The editor stays open so the rewritten text isn't lost on a failed save. The API
+                // says something useful here (lost ticket access, note no longer resolvable), so
+                // pass it through rather than replacing it with a generic failure.
+                lemonToast.error(error?.detail || error?.data?.detail || 'Failed to update private note')
                 actions.setMessageEditSaving(false)
             }
         },

@@ -96,7 +96,11 @@ export function Message({
                         />
                         <div className="flex items-center gap-1.5">
                             {isPrivate && <TeamOnlyBadge label="Private note" />}
-                            {message.isEdited && <span className="text-xs text-muted-alt italic">(edited)</span>}
+                            {message.isEdited && (
+                                <Tooltip title="The author changed this after posting it">
+                                    <span className="text-xs text-muted-alt italic">(edited)</span>
+                                </Tooltip>
+                            )}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                             </span>
@@ -115,16 +119,19 @@ export function Message({
                             {isPrivate && !isEditing && (
                                 <div className="flex items-center justify-end gap-0.5">
                                     {canEdit && (
-                                        <Tooltip title="Edit note">
-                                            <LemonButton
-                                                size="xsmall"
-                                                icon={<IconPencil />}
-                                                noPadding
-                                                disabledReason={editDisabledReason}
-                                                onClick={onStartEdit}
-                                                data-attr="edit-private-note"
-                                            />
-                                        </Tooltip>
+                                        // tooltip rather than a Tooltip wrapper: LemonButton merges
+                                        // it with disabledReason into one tooltip and derives the
+                                        // button's accessible name from it, so a viewer sees why
+                                        // editing is blocked instead of just the label.
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconPencil />}
+                                            noPadding
+                                            tooltip="Edit note"
+                                            disabledReason={editDisabledReason}
+                                            onClick={onStartEdit}
+                                            data-attr="edit-private-note"
+                                        />
                                     )}
                                     <Tooltip title="Copy message">
                                         <LemonButton

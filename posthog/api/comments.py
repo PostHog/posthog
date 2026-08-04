@@ -215,8 +215,16 @@ class CommentSerializer(serializers.ModelSerializer):
             if locked_instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
 
+            # An edit resubmits the whole document, mentions included, so notifying everything it
+            # mentions would re-email the same people on every save. Only mentions absent from the
+            # pre-edit content are new.
+            already_mentioned = set(self._extract_mentions_from_rich_content(locked_instance.rich_content))
+            mentions = [user_id for user_id in mentions if user_id not in already_mentioned]
+
             if validated_data.keys():
-                if validated_data.get("content"):
+                # version is what clients render an "edited" marker from, so it may only move when
+                # the body actually differs. Saving an unchanged note must not mark it edited.
+                if validated_data.get("content") and validated_data["content"] != locked_instance.content:
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_instance = super().update(locked_instance, validated_data)
