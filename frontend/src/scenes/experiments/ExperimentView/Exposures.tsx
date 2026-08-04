@@ -286,12 +286,14 @@ export function Exposures(): JSX.Element {
                 </span>
 
                 {!isExperimentDraft && (
-                    // Transitioning visibility delays the hidden flip until the fade-out finishes
+                    // Transitioning visibility delays the hidden flip until the fade-out finishes.
+                    // The fade-out is shorter so it ends before the 200ms panel slide does; at equal
+                    // durations the exit reads as sluggish.
                     <div
-                        className={`flex items-center gap-3 transition-[opacity,visibility] duration-300 ease-in-out ${
+                        className={`flex items-center gap-3 transition-[opacity,visibility] ease-in-out ${
                             isCollapsed
-                                ? 'visible opacity-100 pointer-events-auto'
-                                : 'invisible opacity-0 pointer-events-none'
+                                ? 'visible opacity-100 pointer-events-auto duration-300'
+                                : 'invisible opacity-0 pointer-events-none duration-150'
                         }`}
                     >
                         {exposuresLoading ? (
