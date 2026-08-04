@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -21,6 +22,13 @@ TOTAL_VALUE_DISPLAYS = {"BoldNumber", "ActionsPie", "ActionsBarValue", "ActionsT
 # first_matching_event_for_user's conditional aggregation), so filtering events with
 # daysOfWeek would change the numbers
 RESULT_CHANGING_MATHS = {"weekly_active", "monthly_active", "first_matching_event_for_user"}
+
+
+def source_of(query: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The query body, unwrapping the InsightVizNode envelope when there is one."""
+    query = query or {}
+    source = query.get("source") if query.get("kind") == "InsightVizNode" else query
+    return source if isinstance(source, dict) else None
 
 
 def plan_migration(source: dict[str, Any]) -> tuple[str, str]:
@@ -95,12 +103,11 @@ class Command(BaseCommand):
             queryset = queryset.filter(team_id=team_id)
 
         counts = {"migrate": 0, "strip": 0, "skip": 0}
-        batch: list[Insight] = []
+        batch: list[int] = []
 
         for insight in queryset.iterator(chunk_size=batch_size):
-            query = insight.query or {}
-            source = query.get("source") if query.get("kind") == "InsightVizNode" else query
-            if not isinstance(source, dict):
+            source = source_of(insight.query)
+            if source is None:
                 counts["skip"] += 1
                 continue
 
@@ -110,8 +117,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"Skipping insight {insight.id} (team {insight.team_id}): {reason}")
                 continue
 
-            apply_migration(source, action)
-            batch.append(insight)
+            batch.append(insight.id)
             if len(batch) >= batch_size:
                 self._flush(batch, dry_run)
 
@@ -123,7 +129,19 @@ class Command(BaseCommand):
             )
         )
 
-    def _flush(self, batch: list[Insight], dry_run: bool) -> None:
-        if batch and not dry_run:
-            Insight.objects_including_soft_deleted.bulk_update(batch, ["query"])
-        batch.clear()
+    def _flush(self, insight_ids: list[int], dry_run: bool) -> None:
+        # `query` is written as a whole column, so re-read and re-plan each row under a lock
+        # rather than writing back the snapshot taken during the scan — otherwise an edit the
+        # user made to the same insight in between is silently overwritten.
+        if insight_ids and not dry_run:
+            with transaction.atomic():
+                for insight in Insight.objects.select_for_update().filter(id__in=insight_ids):
+                    source = source_of(insight.query)
+                    if source is None:
+                        continue
+                    action, _ = plan_migration(source)
+                    if action == "skip":
+                        continue
+                    apply_migration(source, action)
+                    insight.save(update_fields=["query"])
+        insight_ids.clear()
