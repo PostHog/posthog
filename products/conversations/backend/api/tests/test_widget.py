@@ -3,11 +3,15 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.api.serializers import WidgetMessageSerializer
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
@@ -542,6 +546,22 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_long_current_url_is_truncated_not_rejected(self):
+        long_url = "https://app.example.com/insights?q=" + "x" * 3000
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hello",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "session_context": {"current_url": long_url},
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.session_context["current_url"], long_url[:2000])
+
 
 class TestWidgetCacheInvalidation(BaseTest):
     """Test that widget message creation invalidates unread count cache."""
@@ -914,3 +934,81 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestWidgetContextSanitization(SimpleTestCase):
+    def _serializer(self, **overrides):
+        return WidgetMessageSerializer(
+            data={
+                "widget_session_id": str(uuid.uuid4()),
+                "distinct_id": "user-123",
+                "message": "Hello",
+                **overrides,
+            }
+        )
+
+    def _validated(self, **overrides):
+        serializer = self._serializer(**overrides)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        return serializer.validated_data
+
+    @parameterized.expand(
+        [
+            ("session_context", "current_url", 2000),
+            ("traits", "name", 500),
+        ]
+    )
+    def test_oversized_value_is_truncated(self, field, key, max_length):
+        value = "x" * (max_length + 500)
+
+        validated = self._validated(**{field: {key: value}})
+
+        self.assertEqual(validated[field][key], value[:max_length])
+
+    @parameterized.expand(
+        [
+            ("session_context", 20, 100),
+            ("traits", 50, 200),
+        ]
+    )
+    def test_long_keys_and_excess_entries_are_dropped(self, field, max_entries, max_key_length):
+        long_key = "k" * (max_key_length + 1)
+        payload = {long_key: "value", **{f"key_{i}": "value" for i in range(max_entries + 5)}}
+
+        validated = self._validated(**{field: payload})
+
+        self.assertNotIn(long_key, validated[field])
+        self.assertEqual(len(validated[field]), max_entries)
+
+    @parameterized.expand(
+        [
+            (
+                "session_context",
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+            ),
+            (
+                "traits",
+                {"plan_seats": 3, "is_admin": True, "email": None},
+                {"plan_seats": "3", "is_admin": "True", "email": None},
+            ),
+        ]
+    )
+    def test_non_string_values_are_coerced_per_field(self, field, payload, expected):
+        validated = self._validated(**{field: payload})
+
+        self.assertEqual(validated[field], expected)
+
+    @parameterized.expand(
+        [
+            ("session_context", "not-a-dict"),
+            ("session_context", None),
+            ("traits", "not-a-dict"),
+            ("traits", None),
+        ]
+    )
+    def test_structurally_malformed_context_is_still_rejected(self, field, value):
+        serializer = self._serializer(**{field: value})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)

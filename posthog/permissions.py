@@ -28,7 +28,8 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
+from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
@@ -241,6 +242,85 @@ class TeamMemberAccessPermission(BasePermission):
         # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
+
+
+class VerifiedDomainEnforcementPermission(BasePermission):
+    """
+    Deny members whose email is outside the target organization's verified domains, when that
+    organization has `enforce_verified_domains` on.
+
+    Checked against the URL-resolved organization, never `user.current_organization`, because the
+    current organization is a UI preference the API doesn't validate: a member of several
+    organizations could otherwise reach an enforcing one by leaving another current. Appended to
+    every `TeamAndOrgViewSetMixin` view in `get_permissions`, so it holds for every user-bound
+    authenticator regardless of a view's own `authentication_classes`.
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not isinstance(request.user, User):
+            return True
+
+        # Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and the
+        # mixin's `organization` falls back to the user's current organization there, which is not
+        # the request's target. Gate on the fetched object below instead. Views deriving their
+        # target from the current team (`param_derived_from_user_current_team`) are the exception:
+        # for those the current team is the target by construction.
+        if not view.parent_query_kwargs and not view.param_derived_from_user_current_team:
+            return True
+
+        organization = self._target_organization(view)
+        if organization is None:
+            return True
+        return self._admits(request, organization)
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if isinstance(object, Organization):
+            return self._admits(request, object)
+        if isinstance(object, Team | Project):
+            return self._admits(request, object.organization)
+        return True
+
+    def _admits(self, request: Request, organization: Organization) -> bool:
+        user = request.user
+        # Non-user principals (sharing links, project secret keys, internal API) aren't members
+        # and can't be domain-gated.
+        if not isinstance(user, User):
+            return True
+
+        # Escape hatch: a blocked admin must always be able to turn the setting off.
+        if is_enforcement_disable_request(request):
+            return True
+
+        # Impersonating staff are exempt like every other enforcement gate; checked before the
+        # domains query so impersonated requests don't pay for it.
+        if is_impersonated_session(request):
+            return True
+
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
+            raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+
+        return True
+
+    def _target_organization(self, view) -> Optional[Organization]:
+        # Same resolution as `get_organization_from_view`, but the team's FK first: routing loads
+        # the team with `select_related("organization")` and `TeamMemberAccessPermission` has
+        # already resolved it, whereas `view.organization` would issue its own PK query on
+        # team-scoped views.
+        try:
+            organization = view.team.organization
+            if isinstance(organization, Organization):
+                return organization
+        except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
+            pass
+
+        try:
+            organization = view.organization
+            if isinstance(organization, Organization):
+                return organization
+        except (KeyError, AttributeError, AssertionError):
+            pass
+
+        return None
 
 
 def is_authenticated_via_team_secret_token(request: Request) -> bool:

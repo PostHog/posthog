@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -11,8 +11,9 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -45,14 +46,21 @@ const SPEND_CHART_SERIES = SPEND_CHART_MODEL_PRICES.map(([model]) => ({
         },
     ],
 }))
-const SPEND_CHART_FORMULA = `(${SPEND_CHART_MODEL_PRICES.map(
+const SPEND_CHART_CREDITS_FORMULA = SPEND_CHART_MODEL_PRICES.map(
     ([, credits], index) => `${String.fromCharCode(65 + index)}*${credits}`
-).join(' + ')}) / 100`
+).join(' + ')
 
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
     const { setSpendChartInterval } = useActions(visionUsageLogic)
-    const { quota } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        quotaLoading,
+        showUsd,
+        billedCredits,
+        billedLimitCredits,
+        showStartupCap,
+    } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -60,9 +68,20 @@ export function VisionUsageTab(): JSX.Element {
         ? exhaustionForecast(quota.credits_used, quota.credit_limit, quota.period_start, quota.period_end)
         : null
 
+    const spendTooltip =
+        quota && showUsd
+            ? `≈ ${creditsToUsd(billedCredits)} billed${hasCap ? ` of ${creditsToUsd(billedLimitCredits)}` : ''}.${
+                  showStartupCap ? ` ${STARTUP_CAP_EXPLANATION}` : ''
+              }`
+            : undefined
+
     const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
     const zeroSpendCount = usageScanners.length - spenders.length
     const totalCredits = spenders.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
+
+    // The period window comes from the quota, so dispatching before it lands would abort the in-flight query
+    // and refetch. A failed load still resolves (the loader keeps the last snapshot) so this can't hang.
+    const quotaResolved = quota !== null || !quotaLoading
 
     // Memoized so re-renders can't churn the query; `tags.productKey` is required or the runner aborts.
     const spendChartQuery = useMemo<InsightVizNode>(
@@ -73,9 +92,9 @@ export function VisionUsageTab(): JSX.Element {
                 series: SPEND_CHART_SERIES,
                 trendsFilter: {
                     display: ChartDisplayType.ActionsLineGraph,
-                    // The /100 charts dollars (1 credit = $0.01).
-                    formulaNodes: [{ formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }],
-                    aggregationAxisPrefix: '$',
+                    // Credits, not dollars: the free tier applies cumulatively per period, so no per-bucket
+                    // conversion can chart billed dollars; those live in the tooltip beside the chart.
+                    formulaNodes: [{ formula: SPEND_CHART_CREDITS_FORMULA, custom_name: 'Credits' }],
                 },
                 dateRange: {
                     date_from:
@@ -151,7 +170,7 @@ export function VisionUsageTab(): JSX.Element {
                 return (
                     <div className="flex flex-col gap-1">
                         <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
-                            {formatCredits(scanner.credits_this_month)}
+                            {formatCreditsMaybeUsd(scanner.credits_this_month, showUsd)}
                             <span className="text-muted">{sharePct}%</span>
                         </span>
                         <LemonProgress percent={sharePct} />
@@ -168,11 +187,7 @@ export function VisionUsageTab(): JSX.Element {
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
                     <div className="flex items-center gap-3">
                         {quota && (
-                            <Tooltip
-                                title={`≈ ${creditsToUsd(quota.credits_used)}${
-                                    hasCap ? ` of ${creditsToUsd(quota.credit_limit ?? 0)}` : ''
-                                }`}
-                            >
+                            <Tooltip title={spendTooltip}>
                                 <span className="text-xs text-muted tabular-nums">
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
@@ -191,11 +206,17 @@ export function VisionUsageTab(): JSX.Element {
                     </div>
                 </div>
                 <p className="text-muted text-xs mb-3">Across all scanners</p>
-                <VisionInsightChart
-                    query={spendChartQuery}
-                    insightProps={spendChartInsightProps}
-                    className="flex-1 flex flex-col min-h-0"
-                />
+                {quotaResolved ? (
+                    <VisionInsightChart
+                        query={spendChartQuery}
+                        insightProps={spendChartInsightProps}
+                        className="flex-1 flex flex-col min-h-0"
+                    />
+                ) : (
+                    <div className="flex-1 flex items-center justify-center">
+                        <Spinner />
+                    </div>
+                )}
             </div>
             {forecastDate && (
                 <div className="text-xs text-warning">

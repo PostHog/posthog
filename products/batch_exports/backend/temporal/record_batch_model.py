@@ -24,8 +24,9 @@ from products.batch_exports.backend.hogql_source import (
     parse_hogql_select_for_batch_export,
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal import sql
 from products.batch_exports.backend.temporal.metrics import log_query_duration
+from products.batch_exports.backend.temporal.sql.common import HogQLQueryBatchExportSettings, get_s3_function_call
+from products.batch_exports.backend.temporal.sql.sessions import SELECT_FROM_SESSIONS_HOGQL
 
 LOGGER = get_write_only_logger()
 
@@ -139,7 +140,7 @@ class RecordBatchModel(abc.ABC):
     ) -> tuple[Query, QueryParameters]:
         """Produce an `INSERT INTO FUNCTION s3(...)` query and its ClickHouse parameters."""
         printed, parameters = await self._print_query(data_interval_start, data_interval_end, output_format=None)
-        s3_function = sql.get_s3_function_call(s3_folder, credentials, num_partitions)
+        s3_function = get_s3_function_call(s3_folder, credentials, num_partitions)
         insert_query = f"""
 INSERT INTO FUNCTION {s3_function}
 {printed}
@@ -154,7 +155,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
-        hogql_query = clone_expr(sql.SELECT_FROM_SESSIONS_HOGQL)
+        hogql_query = clone_expr(SELECT_FROM_SESSIONS_HOGQL)
 
         where_and = ast.And(
             exprs=[
@@ -242,7 +243,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
             where=where_and,
-            settings=sql.HogQLQueryBatchExportSettings(),
+            settings=HogQLQueryBatchExportSettings(),
         )
 
     async def get_backfill_info(
@@ -339,7 +340,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
         # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
-        return _as_clickhouse_request_settings(sql.HogQLQueryBatchExportSettings())
+        return _as_clickhouse_request_settings(HogQLQueryBatchExportSettings())
 
 
 def resolve_batch_exports_model(

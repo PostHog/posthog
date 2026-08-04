@@ -92,21 +92,21 @@ export function AgentsTab(): JSX.Element {
             <div className="mx-auto max-w-4xl w-full px-6 py-6 flex flex-col gap-8">
                 <Subsection
                     title="Connections"
-                    description="Foundational integrations responders read from and write to."
+                    description="Foundational integrations signal sources read from and write to."
                 >
                     <ConnectionsSection />
                 </Subsection>
 
                 <Subsection
                     title="Scouts"
-                    description="Scheduled agents that sweep this project on a cadence and emit findings to your inbox."
+                    description="Scheduled agents that sweep this project on a cadence and emit signals to your inbox."
                 >
                     <ScoutsFleetSection />
                 </Subsection>
 
                 <Subsection
-                    title="Responders"
-                    description="Each source: 1. watches for signals, 2. spins up a Responder when something matters, 3. hands you solutions."
+                    title="Signal sources"
+                    description="Each source watches for signals and spins up work when something matters."
                 >
                     {agentsBody}
                 </Subsection>
