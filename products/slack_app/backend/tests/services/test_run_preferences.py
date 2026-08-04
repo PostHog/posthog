@@ -1,18 +1,19 @@
 import pytest
 from unittest.mock import patch
 
-from products.slack_app.backend.services import model_override
+from products.slack_app.backend.services import run_preferences
 from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices
-from products.slack_app.backend.services.model_override import (
-    apply_model_override,
+from products.slack_app.backend.services.run_preferences import (
+    SLACK_DEFAULT_MODEL,
     describe_preferences,
     mentions_model_choice,
+    resolve_run_preferences,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
 
-# Real model ids with their real effort support: `apply_model_override` validates
-# efforts against the tasks catalogue (the authority on what a model accepts), not
-# against these tuples, so inventing ids here would make the fixture lie.
+# Real model ids: the resolver validates efforts against the tasks catalogue (the
+# authority on what a model accepts), not against these tuples, so inventing ids here
+# would make the fixture lie.
 CATALOGUE = (
     ModelChoice("claude", "claude-sonnet-4-6", "Claude Sonnet 4.6", ("low", "medium", "high")),
     ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high", "xhigh", "max")),
@@ -20,22 +21,33 @@ CATALOGUE = (
     ModelChoice("codex", "gpt-5.6-sol", "gpt-5.6-sol", ("low", "medium", "high", "xhigh", "max")),
 )
 
-DEFAULT = AIPreferences(runtime_adapter="claude", model="claude-sonnet-4-6", reasoning_effort="medium")
+SAVED = AIPreferences(runtime_adapter="claude", model="claude-sonnet-4-6", reasoning_effort="medium")
 
 
 @pytest.fixture
 def catalogue():
-    """`apply_model_override` reads the catalogue itself, so patch the name it resolves."""
-    with patch.object(model_override, "available_model_choices", return_value=CATALOGUE):
+    with patch.object(run_preferences, "available_model_choices", return_value=CATALOGUE):
         yield
 
 
-class TestApplyModelOverride:
+def _resolve(saved: AIPreferences, override_model=None, override_effort=None):
+    """Resolve with `resolve_ai_preferences` stubbed, so these stay unit tests over the
+    precedence rules rather than over the settings rows."""
+    with patch.object(run_preferences, "resolve_ai_preferences", return_value=saved):
+        return resolve_run_preferences(
+            integration=None,  # type: ignore[arg-type]
+            slack_user_id="U1",
+            override_model=override_model,
+            override_effort=override_effort,
+        )
+
+
+class TestResolveRunPreferences:
     @pytest.mark.parametrize(
-        "requested_model,requested_effort,expected",
+        "override_model,override_effort,expected",
         [
-            # A model swap drops the effort saved against the previous model rather
-            # than carrying a mismatched pair into the run.
+            # A model named in the mention replaces the pair outright — the effort saved
+            # against the previous model must not ride along onto a different one.
             ("claude-fable-5", None, AIPreferences("claude", "claude-fable-5", None)),
             # An effort on its own applies to whatever model the run was already using.
             (None, "high", AIPreferences("claude", "claude-sonnet-4-6", "high")),
@@ -43,19 +55,54 @@ class TestApplyModelOverride:
             # Crossing runtimes derives the adapter from the model, never from the request.
             ("gpt-5.6-sol", None, AIPreferences("codex", "gpt-5.6-sol", None)),
             ("CLAUDE-Fable-5", None, AIPreferences("claude", "claude-fable-5", None)),
-            # Nothing on offer matches, so the run keeps its resolved preferences.
-            ("gemini-3-pro", None, DEFAULT),
-            (None, None, DEFAULT),
+            # Nothing on offer matches, so the run keeps its saved preferences.
+            ("gemini-3-pro", None, SAVED),
+            (None, None, SAVED),
             # `xhigh` is real for Fable but not for Sonnet 4.6, so it is dropped.
             ("claude-sonnet-4-6", "xhigh", AIPreferences("claude", "claude-sonnet-4-6", None)),
             # A model that exposes no effort setting at all takes none.
             ("moonshotai/kimi-k3", "high", AIPreferences("claude", "moonshotai/kimi-k3", None)),
-            # An effort the run's current model can't do is dropped too.
-            (None, "xhigh", AIPreferences("claude", "claude-sonnet-4-6", None)),
+            # An effort this model can't do leaves the run alone — including the effort
+            # it already had, which an impossible ask must not clear.
+            (None, "xhigh", SAVED),
         ],
     )
-    def test_merges_onto_the_resolved_preferences(self, catalogue, requested_model, requested_effort, expected):
-        assert apply_model_override(DEFAULT, requested_model, requested_effort) == expected
+    def test_mention_override_precedence(self, catalogue, override_model, override_effort, expected):
+        assert _resolve(SAVED, override_model, override_effort).preferences == expected
+
+    def test_falls_back_to_the_slack_default_when_nothing_is_saved(self, catalogue):
+        """An unset workspace must still get a pinned model, not whatever the agent
+        server would otherwise choose."""
+        resolved = _resolve(AIPreferences())
+        assert resolved.preferences == AIPreferences("claude", SLACK_DEFAULT_MODEL, None)
+        assert resolved.overridden is False
+
+    def test_override_applies_on_top_of_the_default(self, catalogue):
+        resolved = _resolve(AIPreferences(), override_model="claude-fable-5")
+        assert resolved.preferences == AIPreferences("claude", "claude-fable-5", None)
+        assert resolved.overridden is True
+
+    @pytest.mark.parametrize(
+        "override_model,override_effort,overridden",
+        [
+            ("claude-fable-5", None, True),
+            (None, "high", True),
+            # Requested but not honourable: the run is unchanged, so nothing is announced.
+            ("gemini-3-pro", None, False),
+            (None, "xhigh", False),
+            (None, None, False),
+        ],
+    )
+    def test_overridden_tracks_whether_the_run_actually_changed(
+        self, catalogue, override_model, override_effort, overridden
+    ):
+        assert _resolve(SAVED, override_model, override_effort).overridden is overridden
+
+    def test_derives_the_adapter_for_a_saved_model(self, catalogue):
+        """A stored `(runtime_adapter, model)` pair that disagrees resolves to the
+        adapter the model actually runs on."""
+        saved = AIPreferences(runtime_adapter="codex", model="claude-fable-5", reasoning_effort=None)
+        assert _resolve(saved).preferences.runtime_adapter == "claude"
 
 
 class TestMentionsModelChoice:

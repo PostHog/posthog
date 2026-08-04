@@ -77,6 +77,24 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
     return tuple(choices)
 
 
+def runtime_adapter_for(model: str | None) -> str | None:
+    """Which runtime drives this model, per the tasks catalogue.
+
+    The adapter is a property of the model rather than an independent choice, so
+    deriving it is what keeps a `(runtime_adapter, model)` pair from ever disagreeing.
+    `None` for a model the tasks product has no runtime for.
+    """
+    from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
+
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for adapter in RuntimeAdapter:
+        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
+            return adapter.value
+    return None
+
+
 def supported_efforts_for(runtime_adapter: str | None, model: str | None) -> frozenset[str]:
     """Efforts the tasks product will accept for this pair.
 
@@ -133,5 +151,6 @@ __all__ = [
     "format_model_id",
     "label_for",
     "provider_for_runtime_adapter",
+    "runtime_adapter_for",
     "supported_efforts_for",
 ]

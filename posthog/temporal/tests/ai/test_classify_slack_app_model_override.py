@@ -18,27 +18,27 @@ class TestClassifySlackAppModelOverride:
         [
             (
                 "model_and_effort",
-                '{"override": true, "model": "claude-fable-5", "reasoning_effort": "high"}',
+                '{"model": "claude-fable-5", "reasoning_effort": "high"}',
                 "claude-fable-5",
                 "high",
             ),
             (
                 "model_only",
-                '{"override": true, "model": "claude-fable-5", "reasoning_effort": null}',
+                '{"model": "claude-fable-5", "reasoning_effort": null}',
                 "claude-fable-5",
                 None,
             ),
             # An effort can be asked for without naming a model; the model the run
             # already had stays, and the merge happens at the point of use.
-            ("effort_only", '{"override": true, "model": null, "reasoning_effort": "max"}', None, "max"),
+            ("effort_only", '{"model": null, "reasoning_effort": "max"}', None, "max"),
             # Haiku replies are not reliably unfenced through the gateway.
             (
                 "fenced_json",
-                '```json\n{"override": true, "model": "claude-fable-5", "reasoning_effort": null}\n```',
+                '```json\n{"model": "claude-fable-5", "reasoning_effort": null}\n```',
                 "claude-fable-5",
                 None,
             ),
-            ("case_insensitive_id", '{"override": true, "model": "Claude-Fable-5"}', "claude-fable-5", None),
+            ("case_insensitive_id", '{"model": "Claude-Fable-5"}', "claude-fable-5", None),
         ]
     )
     def test_returns_requested_choice(self, _name, content, expected_model, expected_effort):
@@ -49,17 +49,18 @@ class TestClassifySlackAppModelOverride:
 
     @parameterized.expand(
         [
-            # The common case: a mention that merely names a model is not an instruction.
-            ("no_override", '{"override": false, "model": null, "reasoning_effort": null}'),
-            ("override_missing", "{}"),
+            # The common case: a mention that merely names a model is not an instruction,
+            # and nulls are how the classifier says so.
+            ("both_null", '{"model": null, "reasoning_effort": null}'),
+            ("fields_missing", "{}"),
             # A model we can't drive is a hallucination or an unsupported ask; either
             # way the run must fall back to the resolved preferences.
-            ("unknown_model", '{"override": true, "model": "gemini-3-pro", "reasoning_effort": null}'),
+            ("unknown_model", '{"model": "gemini-3-pro", "reasoning_effort": null}'),
             # An unknown effort with no model leaves nothing actionable behind.
-            ("unknown_effort_only", '{"override": true, "model": null, "reasoning_effort": "turbo"}'),
+            ("unknown_effort_only", '{"model": null, "reasoning_effort": "turbo"}'),
             ("empty_reply", ""),
             ("prose_reply", "I think they want fable."),
-            ("wrong_types", '{"override": true, "model": 5, "reasoning_effort": []}'),
+            ("wrong_types", '{"model": 5, "reasoning_effort": []}'),
         ]
     )
     def test_returns_none(self, _name, content):
@@ -69,7 +70,7 @@ class TestClassifySlackAppModelOverride:
         """A junk effort must not throw away a model the author really did ask for."""
         override = self._classify(
             "use fable for this",
-            '{"override": true, "model": "claude-fable-5", "reasoning_effort": "turbo"}',
+            '{"model": "claude-fable-5", "reasoning_effort": "turbo"}',
         )
         assert override is not None
         assert override.model == "claude-fable-5"
@@ -84,7 +85,7 @@ class TestClassifySlackAppModelOverride:
 
     def test_prompt_offers_only_catalogue_models(self):
         """The classifier picks from a list, so the list is what bounds it."""
-        fake_client = self._fake_client('{"override": false}')
+        fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
             "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
             return_value=fake_client,

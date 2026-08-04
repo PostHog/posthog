@@ -40,7 +40,7 @@ from products.slack_app.backend.services.model_catalogue import (
     label_for,
     provider_for_runtime_adapter,
 )
-from products.slack_app.backend.services.model_override import describe_preferences
+from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, describe_preferences
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
     OUTCOME_CANCELLED,
@@ -456,8 +456,8 @@ def _header_blocks() -> list[dict]:
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
     """Headline that shows which model is actually running, and why.
 
-    When nothing is set the Slack bot defaults to Opus 5 (pinned in the task
-    creation activity); the user can still override it here.
+    With nothing set the run falls back to the Slack default, named here from the
+    same constant the run resolves against so the card can't drift from it.
     """
     header = _section_title(
         "🤖 AI model",
@@ -472,7 +472,10 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Defaulting to Opus 5. Pick personal or workspace settings to override.",
+                    "text": (
+                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL, owned_by='')}. "
+                        "Pick personal or workspace settings to override."
+                    ),
                 },
             },
             source_blurb,

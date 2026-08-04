@@ -1,7 +1,6 @@
 import re
 import uuid
 import textwrap
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from django.db import models
@@ -35,11 +34,6 @@ _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
-# Default the Slack bot to Opus 5 when neither the user nor the workspace has
-# pinned a model, instead of letting the agent server fall back to its own
-# default. Kept together as a valid (runtime_adapter, model) pair.
-_SLACK_DEFAULT_RUNTIME_ADAPTER = "claude"
-_SLACK_DEFAULT_MODEL = "claude-opus-5"
 _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
@@ -679,24 +673,15 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.slack_settings import apply_model_override, resolve_ai_preferences
+    from products.slack_app.backend.facade.slack_settings import resolve_run_preferences
 
-    ai_prefs = resolve_ai_preferences(integration, slack_user_id)
-
-    # `resolve_ai_preferences` guarantees runtime_adapter and model are set together,
-    # so falling back on both keeps the pair consistent — a saved personal or
-    # workspace choice wins, otherwise the Slack bot defaults to Opus 5. A model
-    # named in the mention itself then overrides that for this one task.
-    base_prefs = replace(
-        ai_prefs,
-        runtime_adapter=ai_prefs.runtime_adapter or _SLACK_DEFAULT_RUNTIME_ADAPTER,
-        model=ai_prefs.model or _SLACK_DEFAULT_MODEL,
+    resolved_run = resolve_run_preferences(
+        integration,
+        slack_user_id,
+        override_model=model_override.model if model_override else None,
+        override_effort=model_override.reasoning_effort if model_override else None,
     )
-    run_prefs = (
-        apply_model_override(base_prefs, model_override.model, model_override.reasoning_effort)
-        if model_override
-        else base_prefs
-    )
+    run_prefs = resolved_run.preferences
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -757,10 +742,10 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts=thread_ts,
     )
 
-    # Only speak up when the override actually changed the run. A request we could
-    # not honour (an unavailable model, an effort this model doesn't support) falls
-    # back silently rather than explaining itself.
-    if run_prefs != base_prefs:
+    # Only speak up when the mention actually changed the run. A request we could not
+    # honour (an unavailable model, an effort this model doesn't support) falls back
+    # silently rather than explaining itself.
+    if resolved_run.overridden:
         _announce_model_override(
             slack,
             integration,

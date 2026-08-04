@@ -2,7 +2,7 @@ import re
 import json
 
 import structlog
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from temporalio import activity
 
 from posthog.llm.gateway_client import get_llm_client
@@ -307,15 +307,6 @@ def classify_untagged_followup_activity(
     return False
 
 
-class _ModelOverrideReply(BaseModel):
-    """The classifier's JSON contract. Shapes the reply only — whether the model is
-    real, and whether the effort survives, is decided against the catalogue."""
-
-    override: bool = False
-    model: str | None = None
-    reasoning_effort: str | None = None
-
-
 def _render_model_catalogue(choices: tuple[ModelChoice, ...]) -> str:
     lines = []
     for choice in choices:
@@ -346,11 +337,11 @@ def classify_slack_app_model_override(
         "effort.\n\n"
         "Only these models can be selected — copy the id exactly as written:\n"
         f"{_render_model_catalogue(choices)}\n\n"
-        "Set override=true only when the message instructs how to run this task:\n"
+        "Name a model or effort only when the message instructs how to run this task:\n"
         '  - "use fable for this one", "run this on opus 5", "do this with max effort".\n'
         "  - The instruction can sit alongside the actual request: 'use sonnet and fix "
         "the flaky checkout test'.\n\n"
-        "Set override=false when a model or effort is merely part of the subject "
+        "Answer with nulls when a model or effort is merely part of the subject "
         "matter — this is the common mistake, so check for it:\n"
         '  - "add claude-fable-5 to our model picker" (a code change that names a model).\n'
         '  - "why is gpt-5 slower than opus in our evals?" (a question about models).\n'
@@ -362,12 +353,12 @@ def classify_slack_app_model_override(
         "  - reasoning_effort: only when the author explicitly asks for an effort level, "
         "and only a value listed for that model. Otherwise null.\n"
         "  - An effort can be requested without a model, and a model without an effort.\n\n"
-        "When you are unsure, answer override=false — the author's saved default is the "
+        "When you are unsure, answer with nulls — the author's saved default is the "
         "right thing to run.\n\n"
         f"Message: {event_text}\n\n"
         "Respond with ONLY a JSON object, e.g. "
-        '{"override": true, "model": "claude-fable-5", "reasoning_effort": "high"} '
-        'or {"override": false, "model": null, "reasoning_effort": null}'
+        '{"model": "claude-fable-5", "reasoning_effort": "high"} '
+        'or {"model": null, "reasoning_effort": null}'
     )
 
     try:
@@ -382,15 +373,15 @@ def classify_slack_app_model_override(
         if parsed is None:
             logger.info("slack_app_model_override_unparseable_reply")
             return None
-        reply = _ModelOverrideReply.model_validate(parsed)
+        # The reply has the same shape as the result, so it parses straight into it —
+        # but the values are still the classifier's word, not ours, until checked
+        # against the catalogue below.
+        reply = SlackAppModelOverride.model_validate(parsed)
     except ValidationError:
         logger.info("slack_app_model_override_invalid_reply")
         return None
     except Exception:
         logger.exception("slack_app_model_override_classify_failed")
-        return None
-
-    if not reply.override:
         return None
 
     choice = find_model_choice(reply.model, choices)
@@ -400,7 +391,7 @@ def classify_slack_app_model_override(
         logger.info("slack_app_model_override_unknown_model", requested_model=reply.model)
 
     # Only a syntactic check — whether the model the run lands on supports this effort
-    # is settled by `apply_model_override`.
+    # is settled when the run's preferences are resolved.
     known_efforts = {e for c in choices for e in c.supported_efforts}
     effort = (reply.reasoning_effort or "").strip().lower() or None
     if effort and effort not in known_efforts:
