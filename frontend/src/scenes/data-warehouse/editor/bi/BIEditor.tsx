@@ -1,9 +1,18 @@
 import { useActions, useValues } from 'kea'
 import type { DragEvent, ReactNode } from 'react'
 
-import { IconCalculator, IconDatabase, IconFilter, IconGraph, IconPieChart, IconTrends } from '@posthog/icons'
+import {
+    IconCalculator,
+    IconDatabase,
+    IconFilter,
+    IconGraph,
+    IconPencil,
+    IconPieChart,
+    IconTrends,
+} from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonLabel, LemonSelect, LemonSnack } from '@posthog/lemon-ui'
 
+import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { dayjs } from 'lib/dayjs'
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -184,20 +193,23 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                     {value.field.name}
                                 </LemonSnack>
                             </div>
-                            <LemonInput
+                            <ExpressionEditorButton
                                 value={value.field.expression}
+                                field={value.field}
+                                label="Edit field expression"
                                 onChange={(expression) => setFieldExpression('values', index, expression)}
-                                placeholder="Field or SQL expression"
-                                aria-label={`${value.field.name} field or SQL expression`}
-                                size="small"
                             />
                             {value.aggregation === 'custom' ? (
-                                <LemonInput
+                                <ExpressionEditorButton
                                     value={value.customExpression ?? ''}
+                                    field={value.field}
+                                    label={
+                                        value.customExpression
+                                            ? 'Edit aggregation SQL expression'
+                                            : 'Add aggregation SQL expression'
+                                    }
+                                    emptyLabel="Add aggregation SQL expression"
                                     onChange={(customExpression) => setValueCustomExpression(index, customExpression)}
-                                    placeholder="Aggregation SQL expression"
-                                    aria-label={`${value.field.name} aggregation SQL expression`}
-                                    size="small"
                                 />
                             ) : null}
                         </div>
@@ -230,22 +242,25 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                         dropdownMatchSelectWidth={false}
                                     />
                                 </div>
-                                <LemonInput
+                                <ExpressionEditorButton
                                     value={filter.field.expression}
+                                    field={filter.field}
+                                    label="Edit field expression"
                                     onChange={(expression) => setFieldExpression('filters', index, expression)}
-                                    placeholder="Field or SQL expression"
-                                    aria-label={`${filter.field.name} field or SQL expression`}
-                                    size="small"
                                 />
                                 {filter.operator === 'custom' ? (
-                                    <LemonInput
+                                    <ExpressionEditorButton
                                         value={filter.customExpression ?? ''}
+                                        field={filter.field}
+                                        label={
+                                            filter.customExpression
+                                                ? 'Edit filter SQL condition'
+                                                : 'Add filter SQL condition'
+                                        }
+                                        emptyLabel="Add filter SQL condition"
                                         onChange={(customExpression) =>
                                             setFilterCustomExpression(index, customExpression)
                                         }
-                                        placeholder="Filter SQL condition"
-                                        aria-label={`${filter.field.name} filter SQL condition`}
-                                        size="small"
                                     />
                                 ) : filterNeedsValue ? (
                                     isDateTimeBIField(filter.field) ? (
@@ -285,14 +300,41 @@ function FieldExpressionEditor({
     return (
         <div className="flex min-w-64 flex-1 flex-col gap-2 rounded border bg-primary p-2">
             <LemonSnack onClose={onRemove}>{field.name}</LemonSnack>
-            <LemonInput
+            <ExpressionEditorButton
                 value={field.expression}
+                field={field}
+                label="Edit field expression"
                 onChange={onChange}
-                placeholder="Field or SQL expression"
-                aria-label={`${field.name} field or SQL expression`}
-                size="small"
             />
         </div>
+    )
+}
+
+function ExpressionEditorButton({
+    value,
+    field,
+    label,
+    emptyLabel,
+    onChange,
+}: {
+    value: string
+    field: BIField
+    label: string
+    emptyLabel?: string
+    onChange: (value: string) => void
+}): JSX.Element {
+    return (
+        <HogQLDropdown
+            hogQLValue={value}
+            onHogQLValueChange={onChange}
+            tableName={field.source.table}
+            connectionId={field.source.connectionId}
+            size="small"
+            buttonIcon={<IconPencil />}
+            buttonLabel={value ? <code className="truncate">{value}</code> : emptyLabel}
+            buttonTooltip={label}
+            buttonAriaLabel={`${label} for ${field.name}`}
+        />
     )
 }
 

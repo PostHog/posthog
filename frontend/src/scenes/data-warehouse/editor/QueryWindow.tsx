@@ -395,7 +395,9 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
+            {showOutputPanel ? (
+                <InternalQueryWindow tabId={tabId} biMode={showBIEditor} onShareTab={onShareTab} />
+            ) : null}
         </div>
     )
 }
@@ -560,9 +562,11 @@ function RunButton({
 
 const InternalQueryWindow = memo(function InternalQueryWindow({
     tabId,
+    biMode,
     onShareTab,
 }: {
     tabId: string
+    biMode: boolean
     onShareTab?: () => void
 }): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
@@ -571,7 +575,7 @@ const InternalQueryWindow = memo(function InternalQueryWindow({
         return null
     }
 
-    return <OutputPane tabId={tabId} onShareTab={onShareTab} />
+    return <OutputPane tabId={tabId} biMode={biMode} onShareTab={onShareTab} />
 })
 
 function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {
