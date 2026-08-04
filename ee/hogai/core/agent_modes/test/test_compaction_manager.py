@@ -332,6 +332,33 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         self.assertEqual(result, 1234)
         mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config, tools=None)
 
+    async def test_calculate_token_count_falls_back_to_estimate_when_remote_count_fails(self):
+        """Regression: an LLM gateway that proxies /v1/messages but not /v1/messages/count_tokens
+        returns a 404 as an anthropic.APIStatusError. Previously this propagated out of
+        calculate_token_count and killed the agent turn; it must now fall back to the local
+        heuristic estimate instead."""
+        from anthropic import APIStatusError
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        error = APIStatusError("Invalid URL (POST /v1/messages/count_tokens)", response=mock_response, body=None)
+
+        # 3 human messages so calculate_token_count takes the remote-counting path.
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 100),
+            LangchainAIMessage(content="B" * 100),
+            LangchainHumanMessage(content="C" * 100),
+            LangchainAIMessage(content="D" * 100),
+            LangchainHumanMessage(content="E" * 100),
+        ]
+
+        mock_model = MagicMock()
+        with patch.object(self.window_manager, "_get_token_count", new_callable=AsyncMock, side_effect=error):
+            result = await self.window_manager.calculate_token_count(mock_model, messages)
+
+        expected = sum(self.window_manager._get_estimated_langchain_message_tokens(m) for m in messages)
+        self.assertEqual(result, expected)
+
     def test_update_window_with_large_last_tool_call_message(self):
         """
         Test that update_window handles a large (128k) final AssistantToolCallMessage.

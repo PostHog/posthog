@@ -4,6 +4,8 @@ from collections.abc import Callable, Sequence
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
+import structlog
+from anthropic import APIStatusError
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -32,6 +34,8 @@ from ee.hogai.tools.todo_write import TodoWriteTool
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantMessageUnion
+
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=AssistantMessageUnion)
 
@@ -119,9 +123,21 @@ class ConversationCompactionManager(ABC):
                 if not (isinstance(tool, dict) and tool.get("type", "").startswith("web_search_"))
             ]
         if len(human_messages) <= 2:
-            tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
-            return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
-        return await self._get_token_count(model, messages, tools, **kwargs)
+            return self._get_estimated_token_count(messages, tools)
+        try:
+            return await self._get_token_count(model, messages, tools, **kwargs)
+        except APIStatusError:
+            # Some routes (e.g. some LLM gateway variants) don't proxy count_tokens; fall back
+            # to the local estimate instead of failing the whole turn.
+            logger.warning("Falling back to estimated token count after remote count_tokens call failed")
+            return self._get_estimated_token_count(messages, tools)
+
+    def _get_estimated_token_count(self, messages: list[BaseMessage], tools: LangchainTools | None = None) -> int:
+        """
+        Estimate token count for a conversation using the character/4 heuristic.
+        """
+        tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
+        return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
 
     def update_window(
         self,
