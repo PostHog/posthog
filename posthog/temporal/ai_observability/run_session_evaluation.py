@@ -54,6 +54,10 @@ _MIN_TRACE_CHARS_IN_SESSION = 2_000
 
 _SESSION_SKIP_REASONING = {
     "session_not_found": "No session events were found within the evaluation window; evaluation skipped.",
+    "session_has_no_traces": (
+        "This session's events have no trace id, so there was nothing to evaluate. Set $ai_trace_id "
+        "on the events you want graded."
+    ),
     "session_too_large": (
         f"This session has more than {MAX_SESSION_EVAL_EVENTS} events, which usually means one session id is "
         "shared across several conversations. Give each conversation its own $ai_session_id so it can be evaluated."
@@ -68,9 +72,11 @@ _SESSION_SKIP_REASONING = {
     ),
 }
 
-# Matches the ai_events table's default retention_days (posthog/clickhouse/hcl/roles/ai_events).
-# A session that started before this can never be fetched whole regardless of how the lookback is
-# computed, so it doubles as the floor on how far back a fetch is allowed to search.
+# Mirrors `ai_events.retention_days`, whose DEFAULT 30 nothing currently overrides — the column
+# exists for per-row retention that no ingestion path writes yet. Keep them in step: if retention
+# ever becomes longer than this, the fetch would stop at 30 days and grade a session on its tail
+# with no way to notice, because events past their drop_date are deleted and leave nothing to
+# count. That case is undetectable from here by construction, which is why the constant matters.
 AI_EVENTS_RETENTION_DAYS = 30
 
 # Must select exactly the rows `SessionQueryRunner` will read, or the cap it gates bounds nothing.
@@ -194,7 +200,10 @@ def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: da
     )
     response = runner.calculate()
     if not response.results:
-        return SessionFetchOutcome(traces=None, skip_reason="session_not_found", event_count=event_count)
+        # The preflight counted rows, so events exist — the runner requires a non-empty trace id and
+        # found none. Saying "no session events were found" here would send the user looking in the
+        # wrong place.
+        return SessionFetchOutcome(traces=None, skip_reason="session_has_no_traces", event_count=event_count)
     if response.hasMore:
         # A session graded on part of itself must not look like a session graded whole, so skip
         # rather than hand the judge a transcript silently missing its tail (or, combined with
@@ -310,7 +319,6 @@ class ExecuteSessionEvaluationInputs:
     team_id: int
     session_id: str
     window_start: str
-    max_age_seconds: int
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

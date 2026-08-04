@@ -26099,7 +26099,7 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'.
+     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
      */
     export type EvaluationTargetConfig = {
       /** Wait a fixed window after the first matching generation, then evaluate. */
@@ -26311,7 +26311,7 @@ export namespace Schemas {
        * * `trace` - Trace
        * * `session` - Session */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -49800,7 +49800,7 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'.
+     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
      */
     export type PatchedEvaluationTargetConfig = {
       /** Wait a fixed window after the first matching generation, then evaluate. */
@@ -49869,7 +49869,7 @@ export namespace Schemas {
        * * `trace` - Trace
        * * `session` - Session */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'. */
+      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -56063,6 +56063,18 @@ export namespace Schemas {
       /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
     }
+
+    /**
+     * * `generation` - Generation
+     * * `trace` - Trace
+     */
+    export type PreviewableEvaluationTargetEnum = typeof PreviewableEvaluationTargetEnum[keyof typeof PreviewableEvaluationTargetEnum];
+
+
+    export const PreviewableEvaluationTargetEnum = {
+      Generation: 'generation',
+      Trace: 'trace',
+    } as const;
 
     /**
      * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
@@ -70948,18 +70960,6 @@ export namespace Schemas {
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
-    /**
-     * * `generation` - Generation
-     * * `trace` - Trace
-     */
-    export type TestHogRequestTargetEnum = typeof TestHogRequestTargetEnum[keyof typeof TestHogRequestTargetEnum];
-
-
-    export const TestHogRequestTargetEnum = {
-      Generation: 'generation',
-      Trace: 'trace',
-    } as const;
-
     export interface TestHogTargetConfig {
       /**
          * Aggregation window for trace samples, in seconds.
@@ -70989,7 +70989,7 @@ export namespace Schemas {
        *
        * * `generation` - Generation
        * * `trace` - Trace */
-      target?: TestHogRequestTargetEnum;
+      target?: PreviewableEvaluationTargetEnum;
       /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
       target_config?: TestHogTargetConfig;
     }
@@ -71000,9 +71000,8 @@ export namespace Schemas {
       /** Type of sampled unit: generation or trace.
        *
        * * `generation` - Generation
-       * * `trace` - Trace
-       * * `session` - Session */
-      sample_type: EvaluationTargetEnum;
+       * * `trace` - Trace */
+      sample_type: PreviewableEvaluationTargetEnum;
       /**
          * UUID of the sampled $ai_generation event, or null for a trace sample.
          * @nullable

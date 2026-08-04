@@ -317,7 +317,6 @@ class TestExecuteSessionActivities:
                     team_id=1,
                     session_id="s-1",
                     window_start=datetime.now(UTC).isoformat(),
-                    max_age_seconds=86400,
                 )
             )
         assert result["skipped"] is True
@@ -332,7 +331,6 @@ class TestExecuteSessionActivities:
                     team_id=1,
                     session_id="s-1",
                     window_start=datetime.now(UTC).isoformat(),
-                    max_age_seconds=86400,
                 )
             )
 
@@ -355,7 +353,6 @@ class TestExecuteSessionActivities:
                     team_id=1,
                     session_id="s-1",
                     window_start=datetime.now(UTC).isoformat(),
-                    max_age_seconds=86400,
                 )
             )
         assert result["skipped"] is True
@@ -386,7 +383,6 @@ class TestExecuteSessionActivities:
                     team_id=1,
                     session_id="s-1",
                     window_start=datetime.now(UTC).isoformat(),
-                    max_age_seconds=86400,
                 )
             )
         assert result["skipped"] is True
@@ -423,6 +419,5 @@ class TestExecuteSessionActivities:
                         team_id=1,
                         session_id="s-1",
                         window_start=datetime.now(UTC).isoformat(),
-                        max_age_seconds=86400,
                     )
                 )

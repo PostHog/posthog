@@ -251,7 +251,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'."
+            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
         ),
     model_configuration: zod
         .union([
@@ -440,7 +440,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'."
+            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
         ),
     model_configuration: zod
         .union([
@@ -631,7 +631,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'."
+            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
         ),
     model_configuration: zod
         .union([

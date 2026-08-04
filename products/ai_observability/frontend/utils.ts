@@ -1162,17 +1162,24 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
 export async function queryEvaluationRuns(params: {
     evaluationId?: string
     traceId?: string
+    sessionId?: string
+    /** Bounds the scan so it can prune partitions. Omitted for the trace and generation surfaces,
+     * which read a single unit's runs and have always been unbounded. */
+    lookbackDays?: number
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, traceId, forceRefresh } = params
+    const { evaluationId, traceId, sessionId, lookbackDays, forceRefresh } = params
 
-    const propertyValue = evaluationId || traceId
+    const propertyValue = evaluationId || traceId || sessionId
 
     if (!propertyValue) {
-        throw new Error('Either evaluationId or traceId must be provided')
+        throw new Error('One of evaluationId, traceId or sessionId must be provided')
     }
 
-    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_trace_id'
+    // Session verdicts carry no $ai_trace_id, so they can only be found by $ai_session_id. Reading
+    // them through the same query as every other target keeps one row shape, one normalizer and
+    // one set of badge components across all three surfaces.
+    const propertyName = evaluationId ? '$ai_evaluation_id' : traceId ? '$ai_trace_id' : '$ai_session_id'
 
     const query = hogql`
         SELECT
@@ -1195,6 +1202,7 @@ export async function queryEvaluationRuns(params: {
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
         ORDER BY timestamp DESC
         LIMIT ${EVALUATION_SUMMARY_MAX_RUNS}
     `

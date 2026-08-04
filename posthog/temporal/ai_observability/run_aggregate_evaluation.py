@@ -173,13 +173,23 @@ WHERE event IN {liveness_events}
 """
 
 
+# Whether a session is small enough to evaluate is decided by one number in one place: the fetch
+# preflight's `MAX_SESSION_EVAL_EVENTS`, which counts exactly the rows the fetch reads, over the
+# same window and clock. This is not that number. It is a circuit breaker whose only job is to stop
+# a runaway session id (a constant "0", an id shared across every conversation) from holding a
+# workflow open for its entire max_age. It counts liveness events over the settle window, so it
+# undercounts a long session by construction — fine for a circuit breaker, and exactly why it must
+# sit far above the evaluation cap rather than pretending to be it.
+SESSION_RUNAWAY_CIRCUIT_BREAKER_EVENTS = 10 * MAX_SESSION_EVAL_EVENTS
+
+
 @dataclass
 class CheckSessionSettledInputs:
     team_id: int
     session_id: str
     quiet_period_seconds: int
     lookback_seconds: int
-    max_events: int = MAX_SESSION_EVAL_EVENTS
+    runaway_events: int = SESSION_RUNAWAY_CIRCUIT_BREAKER_EVENTS
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -211,14 +221,14 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
         )
     row = result.results[0] if result.results else (None, 0)
     last_seen, event_count = row[0], int(row[1] or 0)
-    if event_count > inputs.max_events:
-        # Bail at the first probe rather than after the full max_age budget: a shared or constant
-        # session id is the session analogue of trace id "0" and would otherwise hold a workflow
-        # open for days before the fetch-time cap noticed.
-        increment_settle_poll("too_large", target="session")
+    if event_count > inputs.runaway_events:
+        # Stop waiting immediately rather than sitting out max_age. The fetch still decides the
+        # actual outcome and reports the real reason; this only bounds how long we wait for it.
+        increment_settle_poll("runaway", target="session")
         raise ApplicationError(
-            f"session has {event_count} events, over the {inputs.max_events} cap",
-            type="session_too_large",
+            f"session has {event_count} events in the settle window, over the "
+            f"{inputs.runaway_events} runaway threshold",
+            type="session_runaway",
             non_retryable=True,
         )
     if last_seen is None:
@@ -352,9 +362,9 @@ def _is_still_not_settled(error: temporalio.exceptions.ActivityError) -> bool:
     return isinstance(cause, ApplicationError) and cause.type in _NOT_SETTLED_ERROR_TYPES
 
 
-def _is_session_too_large(error: temporalio.exceptions.ActivityError) -> bool:
+def _is_session_runaway(error: temporalio.exceptions.ActivityError) -> bool:
     cause = error.cause
-    return isinstance(cause, ApplicationError) and cause.type == "session_too_large"
+    return isinstance(cause, ApplicationError) and cause.type == "session_runaway"
 
 
 @temporalio.workflow.defn(name="run-aggregate-evaluation")
@@ -418,10 +428,9 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                             retry_policy=retry_policy,
                         )
                 except temporalio.exceptions.ActivityError as e:
-                    if _is_session_too_large(e):
-                        # Stop waiting immediately rather than sitting out max_age. The fetch's own
-                        # count preflight produces the session_too_large skip, so no skip result has
-                        # to be synthesized here.
+                    if _is_session_runaway(e):
+                        # Stop waiting; the fetch's own preflight decides the outcome and reports
+                        # the real reason, so no skip result has to be synthesized here.
                         pass
                     elif _is_schedule_to_close_timeout(e) or _is_still_not_settled(e):
                         # Temporal stops polling once the next retry would overrun schedule-to-close, so it
@@ -463,7 +472,6 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 session_id=inputs.ai_session_id,
                 window_start=window_start.isoformat(),
-                max_age_seconds=max_age_seconds,
             )
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(

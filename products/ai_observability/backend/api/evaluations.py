@@ -58,7 +58,7 @@ from ..models.evaluation_configs import (
     validate_target_config,
 )
 from ..models.evaluation_reports import EvaluationReport
-from ..models.evaluations import Evaluation, EvaluationTarget
+from ..models.evaluations import Evaluation, EvaluationTarget, PreviewableEvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -295,10 +295,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
         required=False,
         help_text=(
             "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
-            "`strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
-            "max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window "
-            "for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults "
-            "for any field omitted alongside it. Empty for 'generation'."
+            "`strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
+            "max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, "
+            "using per-target defaults, and the accepted bounds also depend on `target`. "
+            "Empty for 'generation'."
         ),
     )
     conditions = EvaluationConditionSerializer(
@@ -727,12 +727,9 @@ class TestHogRequestSerializer(serializers.Serializer):
         help_text="Optional trigger conditions to filter which events are sampled.",
     )
     target = serializers.ChoiceField(
-        choices=[
-            (EvaluationTarget.GENERATION.value, EvaluationTarget.GENERATION.label),
-            (EvaluationTarget.TRACE.value, EvaluationTarget.TRACE.label),
-        ],
+        choices=PreviewableEvaluationTarget.choices,
         required=False,
-        default=EvaluationTarget.GENERATION,
+        default=PreviewableEvaluationTarget.GENERATION,
         help_text=(
             "What the evaluation runs against: 'generation' samples individual generations, "
             "'trace' samples whole traces and runs against trace-level globals — matching how the "
@@ -752,7 +749,9 @@ class TestHogRequestSerializer(serializers.Serializer):
 class TestHogResultItemSerializer(serializers.Serializer):
     sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation or trace.")
     sample_type = serializers.ChoiceField(
-        choices=EvaluationTarget.choices,
+        # Not EvaluationTarget.choices: previewing a session is unsupported, so this response can
+        # only ever carry the two the endpoint samples.
+        choices=PreviewableEvaluationTarget.choices,
         help_text="Type of sampled unit: generation or trace.",
     )
     event_uuid = serializers.CharField(

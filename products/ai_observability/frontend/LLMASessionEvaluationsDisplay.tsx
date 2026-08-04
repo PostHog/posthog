@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { aiObservabilitySessionEvaluationsLogic } from './aiObservabilitySessionEvaluationsLogic'
-import { EvaluationResultTag } from './components/EvaluationResultTag'
+import { EvalTooltipContent, getEvalBadgeProps, getEvalSummaries } from './components/EvalResultBadges'
 
 interface LLMASessionEvaluationsDisplayProps {
     sessionId: string
@@ -12,35 +12,29 @@ interface LLMASessionEvaluationsDisplayProps {
 export function LLMASessionEvaluationsDisplay({ sessionId }: LLMASessionEvaluationsDisplayProps): JSX.Element | null {
     const { sessionEvaluations } = useValues(aiObservabilitySessionEvaluationsLogic({ sessionId }))
 
-    if (sessionEvaluations.length === 0) {
+    // A session that resumes after being evaluated can be graded again; collapse to the newest
+    // verdict per evaluation so a stale tag never sits beside a fresh one. Same helper the trace
+    // and generation surfaces use, so the tooltip and badge read identically everywhere.
+    const summaries = getEvalSummaries(sessionEvaluations)
+
+    if (summaries.length === 0) {
         return null
     }
 
     return (
         <>
-            {sessionEvaluations.map((evaluation, index) => (
-                <Tooltip
-                    key={`session-evaluation-${index}`}
-                    title={
-                        <>
-                            <div className="font-medium">{evaluation.evaluationName}</div>
-                            <div>{evaluation.reasoning}</div>
-                        </>
-                    }
-                >
-                    <span>
-                        <EvaluationResultTag
-                            run={{
-                                status: 'completed',
-                                result: evaluation.verdict,
-                                result_type: 'boolean',
-                                skipped: evaluation.skipped,
-                            }}
-                            size="medium"
-                        />
-                    </span>
-                </Tooltip>
-            ))}
+            {summaries.map((summary) => {
+                const { type, icon, label } = getEvalBadgeProps(summary.latestRun)
+                return (
+                    <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>
+                        <span>
+                            <LemonTag type={type} icon={icon} size="medium">
+                                {label}
+                            </LemonTag>
+                        </span>
+                    </Tooltip>
+                )
+            })}
         </>
     )
 }

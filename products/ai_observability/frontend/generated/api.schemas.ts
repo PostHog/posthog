@@ -535,7 +535,7 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
  */
 export type EvaluationApiTargetConfig =
     | {
@@ -606,7 +606,7 @@ export interface EvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -658,7 +658,7 @@ export type PatchedEvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
  */
 export type PatchedEvaluationApiTargetConfig =
     | {
@@ -729,7 +729,7 @@ export interface PatchedEvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -746,9 +746,10 @@ export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
  * * `generation` - Generation
  * * `trace` - Trace
  */
-export type TestHogRequestTargetEnumApi = (typeof TestHogRequestTargetEnumApi)[keyof typeof TestHogRequestTargetEnumApi]
+export type PreviewableEvaluationTargetEnumApi =
+    (typeof PreviewableEvaluationTargetEnumApi)[keyof typeof PreviewableEvaluationTargetEnumApi]
 
-export const TestHogRequestTargetEnumApi = {
+export const PreviewableEvaluationTargetEnumApi = {
     Generation: 'generation',
     Trace: 'trace',
 } as const
@@ -782,7 +783,7 @@ export interface TestHogRequestApi {
      *
      * * `generation` - Generation
      * * `trace` - Trace */
-    target?: TestHogRequestTargetEnumApi
+    target?: PreviewableEvaluationTargetEnumApi
     /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
     target_config?: TestHogTargetConfigApi
 }
@@ -793,9 +794,8 @@ export interface TestHogResultItemApi {
     /** Type of sampled unit: generation or trace.
      *
      * * `generation` - Generation
-     * * `trace` - Trace
-     * * `session` - Session */
-    sample_type: EvaluationTargetEnumApi
+     * * `trace` - Trace */
+    sample_type: PreviewableEvaluationTargetEnumApi
     /**
      * UUID of the sampled $ai_generation event, or null for a trace sample.
      * @nullable

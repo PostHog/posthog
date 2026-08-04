@@ -431,21 +431,21 @@ class TestRunAggregateEvaluationWorkflow:
         assert "execute_session" in calls
 
     @pytest.mark.asyncio
-    async def test_session_too_large_stops_polling_and_lets_the_fetch_report_it(self):
+    async def test_session_runaway_stops_polling_and_lets_the_fetch_report_it(self):
         calls: list[str] = []
         task_queue = str(uuid.uuid4())
 
         @activity.defn(name="check_session_settled_activity")
-        async def too_large(inputs: CheckSessionSettledInputs) -> str:
+        async def runaway(inputs: CheckSessionSettledInputs) -> str:
             calls.append("check_session_settled")
-            raise ApplicationError("session has 9999 events", type="session_too_large", non_retryable=True)
+            raise ApplicationError("session has 99999 events", type="session_runaway", non_retryable=True)
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
                 task_queue=task_queue,
                 workflows=[RunAggregateEvaluationWorkflow],
-                activities=[*_mock_activities(calls, exclude={"check_session_settled_activity"}), too_large],
+                activities=[*_mock_activities(calls, exclude={"check_session_settled_activity"}), runaway],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
                 handle = await env.client.start_workflow(
@@ -673,8 +673,8 @@ class TestCheckSessionSettledActivity:
                     session_id=session_id,
                     quiet_period_seconds=30,
                     lookback_seconds=86400,
-                    max_events=2,
+                    runaway_events=2,
                 )
             )
-        assert exc.value.type == "session_too_large"
+        assert exc.value.type == "session_runaway"
         assert exc.value.non_retryable is True

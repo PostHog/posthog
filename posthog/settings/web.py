@@ -567,6 +567,8 @@ SPECTACULAR_SETTINGS = {
         "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.types.ExternalDataSourceType",
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
+        # Shared by TestHogRequest.target and TestHogResultItem.sample_type (same choice set).
+        "PreviewableEvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.PreviewableEvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",

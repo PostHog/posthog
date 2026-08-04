@@ -110,6 +110,18 @@ describe('mapEvaluationRunRow', () => {
         expect(run.result).toBeNull()
     })
 
+    // A skip carries result: false when the evaluation disallows N/A, so anything reading the
+    // result alone reports a session that was never graded as one that failed.
+    it.each([
+        [true, true],
+        ['true', true],
+        [false, false],
+        [null, false],
+    ])('maps raw skipped %p to %p', (skipped, expected) => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ skipped }))
+        expect(run.skipped).toBe(expected)
+    })
+
     it.each([true, 'true', 'True', '1'])('maps explicit pass result %p', (result) => {
         expect(mapEvaluationRunRow(makeEvaluationRunRow({ result })).result).toBe(true)
     })
