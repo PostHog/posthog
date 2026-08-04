@@ -860,6 +860,7 @@ _CERTIFICATIONS_COLUMNS: list[tuple[str, str]] = [
     ("target_id", _STRING),
     ("target_kind", _STRING),
     ("status", _STRING),
+    ("proposed_status", _STRING),
     ("notes", _NULLABLE_STRING),
     ("certified_by", _NULLABLE_STRING),
     ("certified_at", _NULLABLE_STRING),
@@ -869,7 +870,8 @@ _CERTIFICATIONS_DESCRIPTION = (
     "Catalog of trust-mark proposals and decisions on warehouse tables and views; one row per "
     "certification. Unlike the certification column on information_schema.tables (which shows only "
     "settled 'certified'/'deprecated' marks), this lists the full review queue — including 'proposed' "
-    "rows and the id the certify/deprecate tools need. Filter by status to inspect the queue."
+    "rows and the id the certify/deprecate tools need. Filter by status to inspect the queue; "
+    "proposed_status shows whether a 'proposed' row asks to certify or deprecate the target."
 )
 
 _RELATIONSHIP_PROPOSALS_COLUMNS: list[tuple[str, str]] = [
@@ -1221,6 +1223,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
                     target_id,
                     target_kind,
                     cert.status,
+                    cert.proposed_status,
                     cert.notes or None,
                     cert.certified_by.email if cert.certified_by else None,
                     cert.certified_at.isoformat() if cert.certified_at else None,
@@ -1547,6 +1550,13 @@ class InformationSchemaCertificationsTable(LazyTable):
             description=(
                 "'proposed' (pending review), 'certified' (prefer this source), or 'deprecated' (avoid it). "
                 "Only 'certified'/'deprecated' are trust marks; a 'proposed' row is not yet vouched for."
+            ),
+        ),
+        "proposed_status": _string_field(
+            "proposed_status",
+            description=(
+                "The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid it). "
+                "Informational once the row is settled."
             ),
         ),
         "notes": _string_field("notes", nullable=True, description="Why the mark exists; review context."),
