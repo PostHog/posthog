@@ -609,6 +609,7 @@ the row lists both.
 | todoist                          | HTTP                        | requests                                                        | ✅                          |
 | together_ai                      | HTTP                        | requests                                                        | ✅                          |
 | torii                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| transistor                       | HTTP                        | requests                                                        | ✅                          |
 | travis_ci                        | HTTP                        | requests                                                        | ✅                          |
 | trello                           | HTTP                        | requests                                                        | ✅                          |
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
@@ -1365,7 +1366,6 @@ doesn't conflict with concurrent PRs.
 - toggl
 - track_pms
 - tradable_bits
-- transistor
 - tremendous
 - triple_whale
 - trustpilot
