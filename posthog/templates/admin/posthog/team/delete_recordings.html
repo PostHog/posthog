@@ -11,7 +11,6 @@
         --dr-btn-danger-bg: #dc2626;
         --dr-btn-danger-hover-bg: #b91c1c;
         --dr-focus-ring: rgba(59, 130, 246, 0.15);
-        --dr-select-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
         --dr-status-running-bg: #dbeafe;
         --dr-status-running-fg: #1d4ed8;
         --dr-status-completed-bg: #dcfce7;
@@ -30,7 +29,6 @@
             --dr-danger-fg: #fca5a5;
             --dr-success-border: #166534;
             --dr-focus-ring: rgba(129, 212, 250, 0.25);
-            --dr-select-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23d0d0d0' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
             --dr-status-running-bg: #1e3a5f;
             --dr-status-running-fg: #93c5fd;
             --dr-status-completed-bg: #14532d;
@@ -47,7 +45,6 @@
         --dr-danger-fg: #fca5a5;
         --dr-success-border: #166534;
         --dr-focus-ring: rgba(129, 212, 250, 0.25);
-        --dr-select-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23d0d0d0' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
         --dr-status-running-bg: #1e3a5f;
         --dr-status-running-fg: #93c5fd;
         --dr-status-completed-bg: #14532d;
@@ -162,18 +159,15 @@
         font-family: monospace;
         resize: vertical;
     }
+    /* Deliberately keeps the native dropdown caret. A custom `appearance: none` + data-URI caret
+       renders no caret at all under the admin CSP, which sets `default-src 'self'` with no `img-src`
+       (posthog/middleware.py) and so blocks `data:` background images. The native control also
+       follows the `color-scheme` that Django's dark_mode.css sets, so it themes itself. */
     .form-row select {
         max-width: 200px;
         height: 38px;
         line-height: 1.4;
         cursor: pointer;
-        -webkit-appearance: none;
-        -moz-appearance: none;
-        appearance: none;
-        background-image: var(--dr-select-caret);
-        background-repeat: no-repeat;
-        background-position: right 10px center;
-        padding-right: 28px;
     }
     .form-row input:focus,
     .form-row textarea:focus,
@@ -454,6 +448,92 @@
 </div>
 
 <script nonce="{{ request.csp_nonce }}">
+// Confirmation guards, in their own IIFE and first in the file so that nothing else on this page
+// can throw and silently leave the delete forms unguarded.
+(function() {
+    var ACTIONS = {
+        person: "delete recordings for the listed person(s)",
+        team: "delete ALL recordings",
+        filters: "delete recordings matching these filters",
+        session_ids: "delete recordings for the uploaded session IDs"
+    };
+
+    // Forms whose blast radius the operator cannot eyeball from the form itself get the stricter
+    // type-the-project-ID gate. `filters` belongs here because the server only requires ONE filter to
+    // be set, so a single mistyped date range (-3650d instead of -30d) is a delete-everything wearing
+    // a narrower-looking form.
+    var NEEDS_TYPED_ID = { team: true, filters: true };
+    var FILTER_FIELDS = ["date_from", "date_to", "duration_min", "duration_max", "person_uuid", "platform"];
+
+    var meta = document.getElementById("delete-recordings-meta");
+    var teamId = meta.dataset.teamId;
+    var teamName = meta.dataset.teamName;
+    var project = teamName ? "project " + teamName + " (" + teamId + ")" : "project " + teamId;
+
+    // Echo the filters back so a fat-fingered date range is visible in the dialog, not just implied.
+    function filterSummary(form) {
+        var parts = [];
+        FILTER_FIELDS.forEach(function(name) {
+            var field = form.querySelector('[name="' + name + '"]');
+            var value = field && field.value.trim();
+            if (value) parts.push(name + "=" + value);
+        });
+        return parts.join(", ");
+    }
+
+    function shouldSubmit(form) {
+        var typeInput = form.querySelector('[name="workflow_type"]');
+        var workflowType = typeInput ? typeInput.value : null;
+        var action = ACTIONS[workflowType];
+        if (!action) {
+            // Fail closed: an unrecognised form is a delete path nobody has written a confirmation for.
+            window.alert("This form has no confirmation configured, so nothing was submitted.");
+            return false;
+        }
+
+        var dryRunInput = form.querySelector('[name="dry_run"]');
+        var dryRun = dryRunInput ? dryRunInput.checked : false;
+        var scope = workflowType === "filters" ? filterSummary(form) : "";
+        var scopeLine = scope ? "\n\nFilters: " + scope : "";
+
+        if (dryRun) {
+            return window.confirm(
+                "Dry run \u2014 no recordings will be deleted. Preview " + action + " for " + project + "?" + scopeLine
+            );
+        }
+
+        if (!window.confirm(
+            "Are you sure you want to " + action + " from " + project + "?" + scopeLine + "\n\n" +
+            "This permanently deletes session recording data and cannot be undone."
+        )) {
+            return false;
+        }
+
+        if (NEEDS_TYPED_ID[workflowType]) {
+            var whatItDeletes = workflowType === "team"
+                ? "This deletes every recording for " + project + "."
+                : "This deletes every recording matching " + (scope || "these filters") + " for " + project + ".";
+            var typed = window.prompt(whatItDeletes + "\n\nType the project ID (" + teamId + ") to confirm:");
+            if (typed === null || typed.trim() !== teamId) {
+                window.alert("Project ID did not match \u2014 nothing was deleted.");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    var typeInputs = document.querySelectorAll('form input[name="workflow_type"]');
+    Array.prototype.forEach.call(typeInputs, function(input) {
+        var form = input.form;
+        if (!form) return;
+        form.addEventListener("submit", function(event) {
+            if (!shouldSubmit(form)) event.preventDefault();
+        });
+    });
+})();
+
+// Auto-refresh for the workflow status table.
 (function() {
     var container = document.getElementById("workflows-container");
     var pollUrl = "{% url 'admin:posthog_team_delete_recordings_workflows' team.pk %}";
@@ -488,65 +568,6 @@
         intervalId ? stop() : start();
     });
     start();
-
-    // Confirmation guards. Every form triggers an irreversible Temporal workflow when dry run is off,
-    // so require an explicit acknowledgement naming the action and the project.
-    var ACTIONS = {
-        person: "delete recordings for the listed person(s)",
-        team: "delete ALL recordings",
-        filters: "delete recordings matching these filters",
-        session_ids: "delete recordings for the uploaded session IDs"
-    };
-
-    var meta = document.getElementById("delete-recordings-meta");
-    var teamId = meta.dataset.teamId;
-    var teamName = meta.dataset.teamName;
-    var project = teamName ? "project " + teamName + " (" + teamId + ")" : "project " + teamId;
-
-    function shouldSubmit(form) {
-        var typeInput = form.querySelector('[name="workflow_type"]');
-        var workflowType = typeInput ? typeInput.value : null;
-        var action = ACTIONS[workflowType];
-        if (!action) return true;
-
-        var dryRunInput = form.querySelector('[name="dry_run"]');
-        var dryRun = dryRunInput ? dryRunInput.checked : false;
-
-        if (dryRun) {
-            return window.confirm(
-                "Dry run — no recordings will be deleted. Preview " + action + " for " + project + "?"
-            );
-        }
-
-        if (!window.confirm(
-            "Are you sure you want to " + action + " from " + project + "?\n\n" +
-            "This permanently deletes session recording data and cannot be undone."
-        )) {
-            return false;
-        }
-
-        if (workflowType === "team") {
-            var typed = window.prompt(
-                "This deletes every recording for " + project + ".\n\n" +
-                "Type the project ID (" + teamId + ") to confirm:"
-            );
-            if (typed === null || typed.trim() !== teamId) {
-                window.alert("Project ID did not match — nothing was deleted.");
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    var typeInputs = document.querySelectorAll('form input[name="workflow_type"]');
-    Array.prototype.forEach.call(typeInputs, function(input) {
-        var form = input.form;
-        if (!form) return;
-        form.addEventListener("submit", function(event) {
-            if (!shouldSubmit(form)) event.preventDefault();
-        });
-    });
 })();
 </script>
 {% endblock %}
