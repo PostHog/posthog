@@ -146,6 +146,22 @@ const MOCK_BUILDER_INSIGHT: QueryBasedInsightModel = {
     query: MOCK_BUILDER_INSIGHT_QUERY,
 }
 
+const MOCK_STALE_BUILDER_INSIGHT_SHORT_ID = 'stale1' as InsightShortId
+
+// A builder insight whose SQL was hand-edited outside the builder (e.g. via the API): the stored
+// config no longer describes source.query, so the SQL wins and it must open in the classic editor
+const MOCK_STALE_BUILDER_INSIGHT_SQL = 'SELECT event, count() FROM events_copied WHERE 1 = 1 GROUP BY event'
+const MOCK_STALE_BUILDER_INSIGHT: QueryBasedInsightModel = {
+    ...MOCK_INSIGHT,
+    id: 78,
+    short_id: MOCK_STALE_BUILDER_INSIGHT_SHORT_ID,
+    name: 'Hand-edited builder insight',
+    query: {
+        ...MOCK_BUILDER_INSIGHT_QUERY,
+        source: { kind: NodeKind.HogQLQuery, query: MOCK_STALE_BUILDER_INSIGHT_SQL },
+    } as DataVisualizationNode,
+}
+
 // An AI-created insight: no explicit name, only a derived one (the API returns name: null
 // even though the frontend type declares it as string)
 const MOCK_DERIVED_NAME_INSIGHT: QueryBasedInsightModel = {
@@ -281,6 +297,9 @@ describe('sqlEditorLogic', () => {
                     }
                     if (shortId === MOCK_BUILDER_INSIGHT_SHORT_ID) {
                         return [200, { results: [MOCK_BUILDER_INSIGHT] }]
+                    }
+                    if (shortId === MOCK_STALE_BUILDER_INSIGHT_SHORT_ID) {
+                        return [200, { results: [MOCK_STALE_BUILDER_INSIGHT] }]
                     }
                     return [200, { results: [] }]
                 },
@@ -1501,10 +1520,10 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.basePreviewSource?.query).toEqual(editedBase)
         })
 
-        it('treats a builder insight as a plain SQL tab when the builder flag is off', async () => {
-            // A builder insight edited with the flag off: the buffer holds the compiled SQL and
-            // is the source of truth — runs must execute the edited buffer and write it into the
-            // node, or edits never take effect and "Update insight" sees no changes.
+        it('treats a builder node in a fresh (non-insight) tab as plain SQL when the flag is off', async () => {
+            // Fresh tabs are the creation surface, gated by the flag: without it the classic
+            // editor hosts the tab even if a builder-carrying node lands on it — the buffer is
+            // the source of truth and runs must execute (and write back) the edited buffer.
             // Flags leak across tests through posthog-js module state, so reset explicitly.
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], {})
@@ -1541,10 +1560,30 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.isSourceQueryLastRun).toEqual(true)
         })
 
-        it('updateInsight strips the builder config when the builder does not host the tab', async () => {
-            // Editing a builder insight with the flag off and pressing "Update insight" persists
-            // the edited SQL — the stored visual setup no longer describes it and must not be
-            // saved alongside, or the insight opens in the builder again once the flag returns.
+        it('hosts the builder for a saved builder insight even with the flag off', async () => {
+            // The flag only gates creating builder insights — opening one is content-gated:
+            // anyone editing a builder-made insight gets the builder, with the base SQL in the
+            // buffer, exactly as its author does.
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_BUILDER_INSIGHT_SHORT_ID)
+            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab']).toFinishAllListeners()
+
+            expect(logic.values.insightBuilderHosted).toEqual(true)
+            expect(logic.values.activeTab?.builderHosted).toEqual(true)
+            expect(logic.values.queryInput).toEqual(MOCK_BUILDER_INSIGHT_QUERY.builder!.baseQuery)
+            expect(logic.values.sourceQuery.builder?.enabled).toEqual(true)
+        })
+
+        it('updateInsight keeps the builder config for a builder insight opened with the flag off', async () => {
+            // A flag-off user editing a builder insight edits it through the builder — saving
+            // must not demote it to a classic SQL insight
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], {})
             const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_BUILDER_INSIGHT)
@@ -1555,12 +1594,53 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            logic.actions.editInsight(MOCK_BUILDER_INSIGHT_QUERY.source.query, MOCK_BUILDER_INSIGHT)
+            logic.actions.setSourceQuery(MOCK_BUILDER_INSIGHT_QUERY)
+            logic.actions.editInsight(MOCK_BUILDER_INSIGHT_QUERY.builder!.baseQuery, MOCK_BUILDER_INSIGHT)
             await expectLogic(logic)
                 .toDispatchActions(['createTab', 'updateTab'])
                 .toMatchValues({ editingInsight: partial({ short_id: MOCK_BUILDER_INSIGHT_SHORT_ID }) })
 
-            const edited = `${MOCK_BUILDER_INSIGHT_QUERY.source.query} LIMIT 5`
+            expect(logic.values.insightBuilderHosted).toEqual(true)
+
+            // A whole-buffer run adopts the edited base into the builder config
+            const editedBase = 'select * from events_copied limit 100'
+            logic.actions.setQueryInput(editedBase)
+            logic.actions.runQuery()
+
+            logic.actions.updateInsight()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const [, updatePayload] = updateSpy.mock.calls[0]
+            const updatedQuery = updatePayload.query as DataVisualizationNode
+            expect(updatedQuery.builder?.enabled).toEqual(true)
+            expect(updatedQuery.builder?.baseQuery).toEqual(editedBase)
+            updateSpy.mockRestore()
+        })
+
+        it('opens a hand-edited (stale) builder insight in the classic editor and strips on save', async () => {
+            // The stored builder config no longer describes the SQL, so the SQL wins: classic
+            // editor, buffer = the saved SQL. The config is dropped from the persisted insight
+            // only when this classic session saves. The flag is ON to prove it plays no part.
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR], {
+                [FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]: true,
+            })
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_STALE_BUILDER_INSIGHT)
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_STALE_BUILDER_INSIGHT_SHORT_ID)
+            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab']).toFinishAllListeners()
+
+            expect(logic.values.insightBuilderHosted).toEqual(false)
+            expect(logic.values.activeTab?.builderHosted).toEqual(false)
+            expect(logic.values.queryInput).toEqual(MOCK_STALE_BUILDER_INSIGHT_SQL)
+
+            const edited = `${MOCK_STALE_BUILDER_INSIGHT_SQL} LIMIT 5`
             logic.actions.setQueryInput(edited)
             logic.actions.runQuery()
 
@@ -1572,6 +1652,64 @@ describe('sqlEditorLogic', () => {
             const updatedQuery = updatePayload.query as DataVisualizationNode
             expect(updatedQuery.builder).toBeUndefined()
             expect(updatedQuery.source.query).toEqual(edited)
+            updateSpy.mockRestore()
+        })
+
+        it('gates the builder for fresh query tabs on the feature flag', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab('')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(logic.values.insightBuilderHosted).toEqual(false)
+
+            // Fresh-tab hosting reads the flag live: flags can arrive after createTab on a cold
+            // reload, and flipping an empty tab is harmless (no builder config to strip)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR], {
+                [FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]: true,
+            })
+            expect(logic.values.insightBuilderHosted).toEqual(true)
+        })
+
+        it('keeps hosting sticky when hand-typed SQL desyncs from the builder config', async () => {
+            // Regression for the builder/classic layout oscillation: hosting is decided once at
+            // open — ad-hoc runs of divergent SQL and tab flips must never strip the builder
+            // config or flip the layout
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_BUILDER_INSIGHT_SHORT_ID)
+            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab']).toFinishAllListeners()
+
+            expect(logic.values.insightBuilderHosted).toEqual(true)
+
+            // Ad-hoc (partial selection) run of SQL that matches neither the base nor the
+            // compiled query
+            logic.actions.runQuery('SELECT 1 FROM events_copied')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.insightBuilderHosted).toEqual(true)
+            expect(logic.values.sourceQuery.builder?.enabled).toEqual(true)
+
+            logic.actions.setActiveTab(OutputTab.Visualization)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setActiveTab(OutputTab.Results)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.insightBuilderHosted).toEqual(true)
+            expect(logic.values.sourceQuery.builder?.enabled).toEqual(true)
+            expect(logic.values.queryInput).toEqual(MOCK_BUILDER_INSIGHT_QUERY.builder!.baseQuery)
         })
     })
 

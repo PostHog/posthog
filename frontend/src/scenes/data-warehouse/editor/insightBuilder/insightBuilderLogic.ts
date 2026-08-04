@@ -129,9 +129,6 @@ export interface insightBuilderLogicActions {
         refreshMode: 'async' | 'force_async' | undefined
         switchTab: boolean | undefined
     } // sqlEditorLogic
-    setQueryInput: (queryInput: string | null) => {
-        queryInput: string | null
-    } // sqlEditorLogic
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
         sourceQuery: DataVisualizationNode
     } // sqlEditorLogic
@@ -304,8 +301,9 @@ export type insightBuilderLogicType = MakeLogicType<
 
 /**
  * The single place that decides whether a node's builder config can hydrate the wells.
- * 'hydrated': wells now reflect the node. 'stale': the SQL was edited outside the builder,
- * so the config must not be trusted (callers decide whether to strip it — the SQL wins).
+ * 'hydrated': wells now reflect the node. 'stale': the SQL was edited outside the builder, so the
+ * config must not be trusted — do not hydrate and do not mutate the node (open-time hosting in
+ * sqlEditorLogic already routed stale insights to the classic editor; the SQL wins).
  * 'no-op': nothing to do (no builder config, or the wells already match).
  */
 function hydrateIfNeeded(
@@ -359,7 +357,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         ],
         actions: [
             sqlEditorLogic({ tabId: props.tabId }),
-            ['setSourceQuery', 'runQuery', 'setQueryInput', 'createTab'],
+            ['setSourceQuery', 'runQuery', 'createTab'],
             outputPaneLogic({ tabId: props.tabId }),
             ['setActiveTab'],
         ],
@@ -836,7 +834,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             const node = values.sourceQuery
             const outcome = hydrateIfNeeded(node, values, actions)
             if (outcome === 'stale') {
-                // The sourceQuery subscription drops the stale visual setup — nothing to hydrate
+                // A stale config never hydrates the wells — nothing to build on here
                 return
             }
             if (!node.builder?.enabled) {
@@ -866,14 +864,13 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             if (!sourceQuery) {
                 return
             }
-            const outcome = hydrateIfNeeded(sourceQuery, values, actions)
-            if (outcome === 'stale') {
-                // The SQL was edited outside the builder (e.g. in the classic editor with the
-                // flag off), so the SQL wins: drop the stale visual setup and let the insight
-                // behave like a classic SQL insight. Persists only when the user saves.
-                actions.setSourceQuery({ ...sourceQuery, builder: undefined })
-                actions.setQueryInput(sourceQuery.source.query)
-            }
+            // 'stale' is decided one-shot when an insight opens into a tab (nodeOpensInBuilder in
+            // sqlEditorLogic — a stale insight opens classic and this canvas never hosts it). A
+            // stale node seen here is transitional: a stale or classic object landing while the
+            // previous object's canvas is still mounted. Never strip the config or rewrite the
+            // buffer from here — hosting is sticky per tab, and mutating the node mid-session is
+            // exactly what used to make the layout oscillate between builder and classic.
+            hydrateIfNeeded(sourceQuery, values, actions)
         },
     })),
     afterMount(({ actions, values }) => {

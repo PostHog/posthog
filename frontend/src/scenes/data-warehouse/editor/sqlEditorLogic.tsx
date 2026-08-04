@@ -18,7 +18,6 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { waitForAction } from 'kea-waitfor'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { Suspense } from 'react'
@@ -42,7 +41,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { delay } from 'lib/utils/async'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -59,7 +57,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { compileNodeBuilder } from '~/queries/nodes/DataVisualization/insightBuilder/builderNodeConsistency'
+import {
+    compileNodeBuilder,
+    nodeOpensInBuilder,
+} from '~/queries/nodes/DataVisualization/insightBuilder/builderNodeConsistency'
 import { detectSelectAllTarget } from '~/queries/nodes/DataVisualization/insightBuilder/compileBuilderQuery'
 import { performQuery, queryExportContext } from '~/queries/query'
 import {
@@ -257,6 +258,14 @@ export interface QueryTab {
     description?: string
     sourceQuery?: DataVisualizationNode
     insight?: QueryBasedInsightModel
+    /**
+     * One-shot hosting decision made when an insight opens into the tab: does the insight builder
+     * host it? Decided from the saved node's content alone (builder config present and still
+     * describing the SQL — never the feature flag) and fixed for the tab's life, so mid-session
+     * SQL edits can never flip the layout between builder and classic. Only meaningful while
+     * `insight` is set; non-insight tabs derive hosting from the creation flag instead.
+     */
+    builderHosted?: boolean
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
     metricName?: string
@@ -1121,8 +1130,7 @@ export interface sqlEditorLogicMeta {
         insightBuilderHosted: (
             featureFlags: FeatureFlagsSet,
             isEmbeddedMode: boolean,
-            editingInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
-            sourceQuery: DataVisualizationNode
+            activeTab: QueryTab | null
         ) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
@@ -1808,10 +1816,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
                     : undefined
 
-                // What the buffer should hold for the object being opened. Mirror of the
-                // open_insight gate: the buffer holds the base SQL only while the builder flag is
-                // on — with it off the compiled SQL is what the user edits. A bare createTab()
-                // resets the buffer to a blank query.
+                // One-shot hosting decision for insight opens, mirrored by the open_insight gate:
+                // a builder config that still describes the SQL opens in the builder for everyone
+                // (the flag only gates creating new builder insights). A stale config — SQL edited
+                // outside the builder — opens classic: the SQL wins.
+                const opensInBuilder = nodeOpensInBuilder(insightVisualizationQuery)
+
+                // What the buffer should hold for the object being opened. Builder-hosted insights
+                // put the base SQL in the buffer (runs go through the compiled text); classic ones
+                // edit the compiled SQL directly. A bare createTab() resets the buffer to a blank
+                // query.
                 const nextBufferText: string = query
                     ? query
                     : draft
@@ -1819,9 +1833,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                       : view
                         ? (view.query?.query ?? '')
                         : insightVisualizationQuery
-                          ? values.featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR] &&
-                            insightVisualizationQuery.builder?.enabled
-                              ? insightVisualizationQuery.builder.baseQuery
+                          ? opensInBuilder
+                              ? insightVisualizationQuery.builder!.baseQuery
                               : insightVisualizationQuery.source.query || ''
                           : query
 
@@ -1859,6 +1872,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     uri,
                     view,
                     insight,
+                    builderHosted: insight ? opensInBuilder : undefined,
                     name: tabName,
                     description: tabDescription,
                     sourceQuery: insightVisualizationQuery,
@@ -2085,8 +2099,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             runQuery: ({ queryOverride, switchTab, refreshMode }) => {
-                // A tab is builder-owned only while the builder actually hosts it. A saved builder
-                // insight opened with the feature flag off is a plain SQL tab: the buffer holds the
+                // A tab is builder-owned only while the builder actually hosts it. A builder
+                // insight whose config went stale opens as a plain SQL tab: the buffer holds the
                 // compiled SQL and runs must execute (and save) the buffer, not the stored text.
                 const builderOwned = values.insightBuilderHosted && !!values.sourceQuery.builder?.enabled
 
@@ -2623,7 +2637,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const sourceQueryToSave: DataVisualizationNode = {
                     ...currentVisualizationQuery,
                     // A new insight saved from the plain SQL editor must not inherit a visual
-                    // setup that doesn't describe its query (flag-off save of a builder tab)
+                    // setup that doesn't describe its query (a stale builder insight opened classic)
                     ...(isBuilderInsight ? {} : { builder: undefined }),
                     source: {
                         ...currentVisualizationQuery.source,
@@ -2846,7 +2860,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 const insightRequest: Partial<QueryBasedInsightModel> = {
                     description: insightDescription ?? values.editingInsight.description ?? '',
-                    // Updating from the plain SQL editor (builder flag off, or a degraded tab)
+                    // Updating from the plain SQL editor (a stale builder insight opened classic)
                     // must not persist a visual setup that no longer describes the edited query —
                     // mirrors the same strip in saveAsInsightSubmit
                     query: isBuilderInsight
@@ -2938,6 +2952,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     description: '',
                     view: undefined,
                     insight: undefined,
+                    builderHosted: undefined,
                     draft: undefined,
                 }
 
@@ -3362,19 +3377,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode: SQLEditorMode | undefined) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
         ],
-        // Whether the insight builder canvas hosts this tab's visualization. Legacy saved SQL
-        // insights (no builder config) keep the classic visualization panel.
+        // Whether the insight builder canvas hosts this tab's visualization. Insight tabs use the
+        // one-shot decision made when the insight opened (builder config present and describing
+        // the SQL — never the flag, and never re-read from the live node, so mid-session SQL edits
+        // can't flip the layout). Non-insight tabs are the creation surface, gated by the flag.
+        // Fresh-tab hosting deliberately reads the flag live rather than snapshotting it: flags
+        // can arrive after createTab on a cold reload, and a late flip on an empty tab is harmless
+        // (no builder config exists to strip or re-attach).
         insightBuilderHosted: [
-            (s) => [s.featureFlags, s.isEmbeddedMode, s.editingInsight, s.sourceQuery],
-            (
-                featureFlags: FeatureFlagsSet,
-                isEmbeddedMode: boolean,
-                editingInsight: QueryBasedInsightModel | null,
-                sourceQuery: DataVisualizationNode
-            ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR] &&
-                !isEmbeddedMode &&
-                !(editingInsight && !sourceQuery.builder?.enabled),
+            (s) => [s.featureFlags, s.isEmbeddedMode, s.activeTab],
+            (featureFlags: FeatureFlagsSet, isEmbeddedMode: boolean, activeTab: QueryTab | null): boolean => {
+                if (isEmbeddedMode) {
+                    return false
+                }
+                if (activeTab?.insight) {
+                    return !!activeTab.builderHosted
+                }
+                return !!featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]
+            },
         ],
         dataLogicKey: [(_, p) => [p.tabId], (tabId: string) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab: QueryTab | null) => (activeTab ? !!activeTab.draft?.id : false)],
@@ -3609,6 +3629,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.updateTab({
                             ...values.activeTab,
                             insight: undefined,
+                            builderHosted: undefined,
                         })
                     }
                     actions._setSuggestionPayload(null)
@@ -3644,24 +3665,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // incoming insight's query — this is the text the current response answers
                     const previousRunText = values.lastRunQuery?.source.query?.trim()
 
-                    // The builder-vs-classic decision below is one-shot, but on a cold reload
-                    // posthog-js may not have delivered flags yet (console overrides only arrive
-                    // with its callback) — deciding early would open a builder insight the classic
-                    // way and flip the layout mid-hydration once the flag lands. Bounded wait so a
-                    // broken flags request can never hang insight opens.
-                    if (insightVisualizationQuery?.builder?.enabled && !featureFlagLogic.values.receivedFeatureFlags) {
-                        await Promise.race([waitForAction(featureFlagLogic.actionTypes.setFeatureFlags), delay(2000)])
-                    }
-
                     // Builder insights hold compiled SQL in source.query — the Monaco buffer gets
-                    // the base query, and runs go through the compiled text explicitly
-                    const isBuilderInsight =
-                        !!insightVisualizationQuery?.builder?.enabled &&
-                        !!values.featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]
+                    // the base query, and runs go through the compiled text explicitly. Decided
+                    // from the saved node's content alone (never the flag, which only gates
+                    // creating new builder insights); a stale config opens classic — SQL wins.
+                    const isBuilderInsight = nodeOpensInBuilder(insightVisualizationQuery)
                     const queryToOpen = searchParams.open_query
                         ? searchParams.open_query
-                        : isBuilderInsight
-                          ? insightVisualizationQuery.builder!.baseQuery
+                        : isBuilderInsight && insightVisualizationQuery?.builder
+                          ? insightVisualizationQuery.builder.baseQuery
                           : query
                     const builderRunOverride = isBuilderInsight ? query : undefined
 

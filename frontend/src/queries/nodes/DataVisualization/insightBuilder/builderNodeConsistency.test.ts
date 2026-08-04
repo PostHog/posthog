@@ -1,7 +1,7 @@
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { builderConfigMatchesQuery, compileNodeBuilder } from './builderNodeConsistency'
+import { builderConfigMatchesQuery, compileNodeBuilder, nodeOpensInBuilder } from './builderNodeConsistency'
 
 const BASE_QUERY = 'select event, uniq(distinct_id) as users from events group by event'
 
@@ -62,5 +62,34 @@ describe('builderConfigMatchesQuery', () => {
         node.source.query = `${node.source.query.replace(/\s+/g, '  ')}\n`
 
         expect(builderConfigMatchesQuery(node)).toBe(true)
+    })
+})
+
+describe('nodeOpensInBuilder', () => {
+    it('is false for a missing node', () => {
+        expect(nodeOpensInBuilder(undefined)).toBe(false)
+        expect(nodeOpensInBuilder(null)).toBe(false)
+    })
+
+    it('is false for a classic node without a builder config', () => {
+        const node = selfConsistentNode()
+        delete node.builder
+        expect(nodeOpensInBuilder(node)).toBe(false)
+    })
+
+    it('is false for a disabled builder config', () => {
+        const node = selfConsistentNode()
+        node.builder!.enabled = false
+        expect(nodeOpensInBuilder(node)).toBe(false)
+    })
+
+    it('is true for a consistent builder node and false once its SQL is edited elsewhere', () => {
+        const consistent = selfConsistentNode()
+        expect(nodeOpensInBuilder(consistent)).toBe(true)
+
+        const stale = selfConsistentNode()
+        stale.builder!.compiledQuery = stale.source.query
+        stale.source.query = 'SELECT edited_elsewhere FROM events'
+        expect(nodeOpensInBuilder(stale)).toBe(false)
     })
 })

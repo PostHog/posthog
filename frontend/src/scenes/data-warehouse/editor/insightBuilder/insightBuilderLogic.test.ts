@@ -342,22 +342,29 @@ describe('insightBuilderLogic', () => {
     })
 
     describe('externally edited SQL', () => {
-        // The SQL no longer matches what the builder config compiles to — e.g. it was edited in
-        // the plain SQL editor while the builder feature flag was off, then saved
+        // The SQL no longer matches what the builder config compiles to — e.g. it was edited
+        // outside the builder (via the API, or in the classic editor before editing became
+        // content-gated), then saved
         const EDITED_NODE: DataVisualizationNode = {
             ...BUILDER_NODE,
             source: { ...BUILDER_NODE.source, query: 'SELECT edited_elsewhere FROM payments' },
         }
 
-        it('drops the stale visual setup so the insight behaves like a classic SQL insight', async () => {
+        it('leaves a stale node untouched instead of stripping its builder config', async () => {
+            // Staleness is decided once at open time (nodeOpensInBuilder in sqlEditorLogic —
+            // a stale insight opens classic and this canvas never hosts it). Stripping the
+            // config or rewriting the buffer from here is what used to make the layout
+            // oscillate between builder and classic, so a stale node must pass through
+            // unhydrated and unmodified.
             await expectLogic(builderLogic, () => {
                 sqlLogic.actions.setSourceQuery(EDITED_NODE)
             })
                 .toNotHaveDispatchedActions(['hydrateFromNode'])
                 .toMatchValues({ rows: [] })
 
-            expect(sqlLogic.values.sourceQuery.builder).toBeUndefined()
-            expect(sqlLogic.values.queryInput).toEqual('SELECT edited_elsewhere FROM payments')
+            expect(sqlLogic.values.sourceQuery.builder).toEqual(EDITED_NODE.builder)
+            expect(sqlLogic.values.sourceQuery.source.query).toEqual('SELECT edited_elsewhere FROM payments')
+            expect(sqlLogic.values.queryInput).toBeNull()
         })
 
         it("does not attach the previous insight's wells to a legacy insight opened in the same tab", async () => {

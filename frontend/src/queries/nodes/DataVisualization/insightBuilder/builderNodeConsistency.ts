@@ -39,10 +39,11 @@ function normalizeSql(sql: string): string {
 
 /**
  * Whether a saved node's builder config still describes its SQL. The builder keeps the two in
- * lockstep, so a mismatch means the SQL was edited outside the builder (e.g. in the plain SQL
- * editor while the builder flag was off) — hydrating the wells then would silently regenerate
- * SQL from a config the query no longer matches. Callers drop the stale config instead: the SQL
- * wins, and the insight behaves like a classic SQL insight until it is rebuilt.
+ * lockstep, so a mismatch means the SQL was edited outside the builder (e.g. via the API, or in
+ * the plain SQL editor before editing became content-gated) — hydrating the wells then would
+ * silently regenerate SQL from a config the query no longer matches. Staleness is evaluated once,
+ * when the insight opens into a tab: the SQL wins, and the insight opens as a classic SQL insight
+ * (its stored config is dropped only if that classic session saves). Nothing strips mid-session.
  */
 export function builderConfigMatchesQuery(node: DataVisualizationNode): boolean {
     const builder = node.builder
@@ -62,4 +63,14 @@ export function builderConfigMatchesQuery(node: DataVisualizationNode): boolean 
     } catch {
         return false
     }
+}
+
+/**
+ * The single open-time question: does this saved node open in the insight builder? True only when
+ * it carries a builder config that still describes its SQL. The answer is decided once per tab
+ * open and stays fixed for the tab's life — the hosting layout never re-evaluates against the
+ * live node, so editing SQL mid-session can't flip the editor between builder and classic.
+ */
+export function nodeOpensInBuilder(node: DataVisualizationNode | null | undefined): boolean {
+    return !!node?.builder?.enabled && builderConfigMatchesQuery(node)
 }
