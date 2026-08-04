@@ -5,7 +5,11 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+)
 
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.models import TaskClientProvenance
@@ -15,6 +19,20 @@ class TestTaskClientProvenance:
     @parameterized.expand(
         [
             ("desktop", OAuthAccessTokenAuthentication, ARRAY_APP_CLIENT_ID_DEV, "task:write", True),
+            (
+                "mobile_us",
+                OAuthAccessTokenAuthentication,
+                POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+                "task:write",
+                True,
+            ),
+            (
+                "mobile_eu",
+                OAuthAccessTokenAuthentication,
+                POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
+                "task:write",
+                True,
+            ),
             ("other_oauth", OAuthAccessTokenAuthentication, "other-client", "task:write", False),
             (
                 "internal_desktop_app_token",
