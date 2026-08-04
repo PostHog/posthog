@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
+import { z } from 'zod'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -14,8 +15,12 @@ import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
@@ -38,7 +43,9 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
+import { DashboardGroupItem } from './items/DashboardGroupItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
+import { collapseDashboardGroupLayouts } from './tileLayouts'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
@@ -46,6 +53,7 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
+const collapsedGroupsSchema = z.array(z.string())
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
@@ -117,7 +125,50 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         setDashboardMode,
         setAddWidgetModalOpen,
         setPendingInsertion,
+        moveDashboardTileToGroup,
+        updateDashboardGroupLayout,
+        renameDashboardGroup,
+        deleteDashboardGroup,
     } = useActions(dashboardLogic)
+    const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
+
+    useEffect(() => {
+        if (!dashboard?.id || placement === DashboardPlacement.Export) {
+            setCollapsedGroupIds(new Set())
+            return
+        }
+        const stored = localStorageSlot(`dashboard-groups-collapsed-v1-${dashboard.id}`, collapsedGroupsSchema).get()
+        setCollapsedGroupIds(new Set(stored ?? []))
+    }, [dashboard?.id, placement])
+
+    const toggleGroupCollapsed = useCallback(
+        (groupId: string) => {
+            if (!dashboard?.id || placement === DashboardPlacement.Export) {
+                return
+            }
+            setCollapsedGroupIds((current) => {
+                const next = new Set(current)
+                if (next.has(groupId)) {
+                    next.delete(groupId)
+                } else {
+                    next.add(groupId)
+                }
+                localStorageSlot(`dashboard-groups-collapsed-v1-${dashboard.id}`, collapsedGroupsSchema).set([...next])
+                return next
+            })
+        },
+        [dashboard?.id, placement]
+    )
+
+    const effectiveCollapsedGroupIds = layoutEditMode ? new Set<string>() : collapsedGroupIds
+    const displayLayouts = useMemo(
+        () => collapseDashboardGroupLayouts(layouts, dashboard?.groups ?? [], effectiveCollapsedGroupIds),
+        [layouts, dashboard?.groups, effectiveCollapsedGroupIds]
+    )
+    const visibleTiles = useMemo(
+        () => tiles.filter((tile) => !tile.parent_group_id || !effectiveCollapsedGroupIds.has(tile.parent_group_id)),
+        [tiles, effectiveCollapsedGroupIds]
+    )
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
@@ -451,24 +502,68 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         []
     )
 
-    const handleDragStop = useCallback(() => {
-        if (scrollAnimationRef.current) {
-            cancelAnimationFrame(scrollAnimationRef.current)
-            scrollAnimationRef.current = null
-        }
-        scrollContainerRef.current = null
-        scrollContainerRectRef.current = null
-        if (dragEndTimeout.current) {
-            window.clearTimeout(dragEndTimeout.current)
-        }
-        dragEndTimeout.current = window.setTimeout(() => {
-            isDragging.current = false
-        }, 250)
-        flushPendingLayouts()
-        if (dashboard?.id) {
-            reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
-        }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    const handleDragStop = useCallback(
+        (
+            _layout: unknown,
+            _oldItem: unknown,
+            newItem: { i: string; x: number; y: number; w: number; h: number } | null
+        ) => {
+            if (!newItem) {
+                return
+            }
+            if (scrollAnimationRef.current) {
+                cancelAnimationFrame(scrollAnimationRef.current)
+                scrollAnimationRef.current = null
+            }
+            scrollContainerRef.current = null
+            scrollContainerRectRef.current = null
+            if (dragEndTimeout.current) {
+                window.clearTimeout(dragEndTimeout.current)
+            }
+            dragEndTimeout.current = window.setTimeout(() => {
+                isDragging.current = false
+            }, 250)
+            flushPendingLayouts()
+            const group = dashboard?.groups?.find((candidate) => String(candidate.tile_id) === newItem.i)
+            if (group) {
+                updateDashboardGroupLayout({
+                    groupId: group.id,
+                    layouts: { sm: { x: 0, y: newItem.y, w: BREAKPOINT_COLUMN_COUNTS.sm, h: 1 } },
+                })
+            } else {
+                const tile = tiles.find((candidate) => String(candidate.id) === newItem.i)
+                if (tile) {
+                    const orderedGroups = [...(dashboard?.groups ?? [])].sort(
+                        (a, b) => (a.layouts.sm?.y ?? 0) - (b.layouts.sm?.y ?? 0)
+                    )
+                    const destination = orderedGroups
+                        .filter((candidate) => (candidate.layouts.sm?.y ?? 0) < newItem.y)
+                        .at(-1)
+                    const destinationGroupId = destination?.id ?? null
+                    if ((tile.parent_group_id ?? null) !== destinationGroupId) {
+                        moveDashboardTileToGroup({
+                            tileId: tile.id,
+                            groupId: destinationGroupId,
+                            layouts: { sm: { x: newItem.x, y: newItem.y, w: newItem.w, h: newItem.h } },
+                        })
+                    }
+                }
+            }
+            if (dashboard?.id) {
+                reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
+            }
+        },
+        [
+            dashboard?.id,
+            dashboard?.groups,
+            reportDashboardTileRepositioned,
+            effectiveZoom,
+            flushPendingLayouts,
+            moveDashboardTileToGroup,
+            updateDashboardGroupLayout,
+            tiles,
+        ]
+    )
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -498,7 +593,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         className={className}
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
-                        layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
+                        layouts={displayLayouts as Partial<Record<DashboardLayoutSize, Layout>>}
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}
@@ -513,9 +608,49 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onDrag={handleDrag}
                         onDragStop={handleDragStop}
                     >
-                        {tiles?.map((tile) => {
+                        {dashboard?.groups?.map((group) => (
+                            <DashboardGroupItem
+                                key={group.tile_id}
+                                group={group}
+                                collapsed={effectiveCollapsedGroupIds.has(group.id)}
+                                onToggle={() => toggleGroupCollapsed(group.id)}
+                                editing={layoutEditMode}
+                                onRename={() =>
+                                    LemonDialog.openForm({
+                                        title: 'Rename group',
+                                        initialValues: { name: group.name },
+                                        content: (
+                                            <LemonField name="name" label="Name">
+                                                <LemonInput autoFocus />
+                                            </LemonField>
+                                        ),
+                                        errors: {
+                                            name: (name) => (!name?.trim() ? 'Enter a group name' : undefined),
+                                        },
+                                        onSubmit: ({ name }) => renameDashboardGroup(group.id, name.trim()),
+                                    })
+                                }
+                                onDelete={() =>
+                                    LemonDialog.open({
+                                        title: 'Delete group?',
+                                        description: `${group.member_tile_ids.length} tiles are in this group.`,
+                                        primaryButton: {
+                                            children: 'Delete group and tiles',
+                                            status: 'danger',
+                                            onClick: () => deleteDashboardGroup(group.id, 'delete_tiles'),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Move tiles to ungrouped',
+                                            onClick: () => deleteDashboardGroup(group.id, 'move_to_ungrouped'),
+                                        },
+                                        tertiaryButton: { children: 'Cancel' },
+                                    })
+                                }
+                            />
+                        ))}
+                        {visibleTiles.map((tile) => {
                             const { insight, text, button_tile, widget } = tile
-                            const smLayout = layouts['sm']?.find((l) => {
+                            const smLayout = displayLayouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
 
@@ -699,7 +834,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     </ReactGridLayout>
                     {isEditablePlacement && inlineTileInsertionEnabled && (
                         <InsertTileOverlay
-                            layout={layouts['sm']}
+                            layout={displayLayouts['sm']}
                             gridWidth={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={rowHeight}

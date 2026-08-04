@@ -2,12 +2,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -131,6 +133,45 @@ export function DashboardAddTileButton(): JSX.Element | null {
     )
 }
 
+export function DashboardAddGroupButton(): JSX.Element | null {
+    const { dashboard, dashboardGroupsEnabled, createDashboardGroupLoading } = useValues(dashboardLogic)
+    const { createDashboardGroup } = useActions(dashboardLogic)
+
+    if (!dashboard || !dashboardGroupsEnabled) {
+        return null
+    }
+
+    return (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Dashboard}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={dashboard.user_access_level}
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                data-attr="dashboard-add-group"
+                loading={createDashboardGroupLoading}
+                onClick={() =>
+                    LemonDialog.openForm({
+                        title: 'Add group',
+                        initialValues: { name: '' },
+                        content: (
+                            <LemonField name="name" label="Name">
+                                <LemonInput autoFocus placeholder="Group name" />
+                            </LemonField>
+                        ),
+                        errors: { name: (name) => (!name?.trim() ? 'Enter a group name' : undefined) },
+                        onSubmit: ({ name }) => createDashboardGroup(name.trim()),
+                    })
+                }
+            >
+                Group
+            </LemonButton>
+        </AccessControlAction>
+    )
+}
+
 export function DashboardEditSaveCancelButtons({
     withShortcuts = true,
     applyFiltersButton,
@@ -217,6 +258,7 @@ export function EditModeActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            <DashboardAddGroupButton />
             <DashboardAddTileButton />
         </>
     )

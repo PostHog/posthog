@@ -1,5 +1,6 @@
 import { Layout } from 'react-grid-layout'
 
+import type { DashboardGroupApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import {
     DASHBOARD_WIDGET_CATALOG,
     getDashboardWidgetCatalogEntry,
@@ -360,4 +361,82 @@ export const calculateLayouts = (
     }
 
     return allLayouts
+}
+
+export function calculateLayoutsWithGroups(
+    tiles: DashboardTile<QueryBasedInsightModel>[],
+    groups: readonly DashboardGroupApi[]
+): Partial<Record<DashboardLayoutSize, Layout>> {
+    const layouts = calculateLayouts(tiles)
+    const sm = [...(layouts.sm ?? [])]
+
+    for (const group of groups) {
+        const groupLayout = group.layouts.sm
+        sm.push({
+            i: String(group.tile_id),
+            x: 0,
+            y: groupLayout?.y ?? 0,
+            w: BREAKPOINT_COLUMN_COUNTS.sm,
+            h: 1,
+            minW: BREAKPOINT_COLUMN_COUNTS.sm,
+            maxW: BREAKPOINT_COLUMN_COUNTS.sm,
+            minH: 1,
+            maxH: 1,
+            isResizable: false,
+        })
+    }
+
+    sm.sort((a, b) => a.y - b.y || a.x - b.x)
+    const existingXs = new Map((layouts.xs ?? []).map((layout) => [layout.i, layout]))
+    let xsY = 0
+    const xs = sm.map((layout) => {
+        const existing = existingXs.get(layout.i)
+        const isGroup = groups.some((group) => String(group.tile_id) === layout.i)
+        const h = isGroup ? 1 : (existing?.h ?? layout.h)
+        const result = { ...existing, i: layout.i, x: 0, y: xsY, w: 1, h }
+        xsY += h
+        return result
+    })
+
+    return { sm, xs }
+}
+
+export function collapseDashboardGroupLayouts(
+    layouts: Partial<Record<DashboardLayoutSize, Layout>>,
+    groups: readonly DashboardGroupApi[],
+    collapsedGroupIds: ReadonlySet<string>
+): Partial<Record<DashboardLayoutSize, Layout>> {
+    const hiddenTileIds = new Set(
+        groups.filter((group) => collapsedGroupIds.has(group.id)).flatMap((group) => group.member_tile_ids.map(String))
+    )
+    const result: Partial<Record<DashboardLayoutSize, Layout>> = {}
+
+    for (const breakpoint of Object.keys(layouts) as DashboardLayoutSize[]) {
+        const source = layouts[breakpoint] ?? []
+        const collapsedBands = groups
+            .filter((group) => collapsedGroupIds.has(group.id))
+            .map((group) => {
+                const header = source.find((layout) => layout.i === String(group.tile_id))
+                const members = source.filter((layout) => group.member_tile_ids.includes(Number(layout.i)))
+                const bottom = Math.max(
+                    header ? header.y + header.h : 0,
+                    ...members.map((layout) => layout.y + layout.h)
+                )
+                return header ? { y: header.y, hiddenHeight: Math.max(0, bottom - header.y - 1) } : null
+            })
+            .filter((band): band is { y: number; hiddenHeight: number } => band !== null)
+
+        result[breakpoint] = source
+            .filter((layout) => !hiddenTileIds.has(layout.i))
+            .map((layout) => ({
+                ...layout,
+                y:
+                    layout.y -
+                    collapsedBands
+                        .filter((band) => layout.y > band.y)
+                        .reduce((shift, band) => shift + band.hiddenHeight, 0),
+            }))
+    }
+
+    return result
 }
