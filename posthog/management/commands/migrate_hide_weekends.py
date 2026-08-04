@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -14,9 +14,13 @@ logger = structlog.get_logger(__name__)
 WEEKDAYS = [1, 2, 3, 4, 5]
 # hideWeekends only ever removed day buckets, so on these intervals it was a no-op
 NOOP_INTERVALS = {"hour", "minute", "week", "month", "quarter", "year"}
-# Windowed math keeps counting weekend events inside weekday buckets, so filtering
-# events with daysOfWeek would change the numbers
-WINDOWED_MATHS = {"weekly_active", "monthly_active"}
+# These displays render aggregated_value from a query with no day_start, so hideWeekends
+# (a day-bucket filter) was always a no-op on them; matches TrendsDisplay.is_total_value()
+TOTAL_VALUE_DISPLAYS = {"BoldNumber", "ActionsPie", "ActionsBarValue", "ActionsTable", "WorldMap", "CalendarHeatmap"}
+# These maths keep counting weekend events inside weekday buckets (WAU/MAU windows, and
+# first_matching_event_for_user's conditional aggregation), so filtering events with
+# daysOfWeek would change the numbers
+RESULT_CHANGING_MATHS = {"weekly_active", "monthly_active", "first_matching_event_for_user"}
 
 
 def plan_migration(source: dict[str, Any]) -> tuple[str, str]:
@@ -30,10 +34,13 @@ def plan_migration(source: dict[str, Any]) -> tuple[str, str]:
         return "strip", f"hideWeekends is a no-op on {interval} interval"
 
     trends_filter = source.get("trendsFilter") or {}
-    if any((series or {}).get("math") in WINDOWED_MATHS for series in source.get("series") or []):
-        return "skip", "windowed aggregation (WAU/MAU) counts weekend events"
-    if trends_filter.get("display") == "ActionsLineGraphCumulative":
+    if any((series or {}).get("math") in RESULT_CHANGING_MATHS for series in source.get("series") or []):
+        return "skip", "windowed or conditional aggregation counts weekend events"
+    display = trends_filter.get("display")
+    if display == "ActionsLineGraphCumulative":
         return "skip", "cumulative totals include weekend events"
+    if display in TOTAL_VALUE_DISPLAYS:
+        return "strip", f"hideWeekends is a no-op on the {display} display"
     if (trends_filter.get("smoothingIntervals") or 1) > 1:
         return "skip", "daysOfWeek is not supported together with smoothing"
 
@@ -74,6 +81,9 @@ class Command(BaseCommand):
         batch_size: int = options["batch_size"]
         team_id: int | None = options["team_id"]
         dry_run: bool = options["dry_run"]
+
+        if batch_size <= 0:
+            raise CommandError(f"--batch-size must be a positive integer, got {batch_size}")
 
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run - no changes will be made"))
