@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type {
     DataFreshnessSourceApi,
@@ -11,18 +12,17 @@ import type {
 
 import { projectDataFreshnessLogic } from './projectDataFreshnessLogic'
 
-const DATA_SOURCE_LABELS: Record<DataSourceEnumApi, string> = {
-    product_analytics: 'Product analytics',
-    session_replay: 'Session replay',
-    error_tracking: 'Error tracking',
+/**
+ * `DataSourceEnumApi` values are `ProductKey`s, and a product key humanizes into its own
+ * product name, so a source added on the backend renders correctly with no frontend change.
+ * Only keys that humanize wrongly need listing here.
+ */
+const DATA_SOURCE_LABEL_OVERRIDES: Partial<Record<DataSourceEnumApi, string>> = {
     llm_analytics: 'LLM analytics',
-    surveys: 'Surveys',
-    feature_flags: 'Feature flags',
-    logs: 'Logs',
-    tracing: 'Tracing',
-    pipeline_destinations: 'Destinations',
-    workflows: 'Workflows',
-    data_warehouse: 'Data warehouse',
+}
+
+function dataSourceLabel(source: DataSourceEnumApi): string {
+    return DATA_SOURCE_LABEL_OVERRIDES[source] ?? capitalizeFirstLetter(source.replace(/_/g, ' '))
 }
 
 function SourceBreakdown({
@@ -41,7 +41,7 @@ function SourceBreakdown({
                 const isStale = dayjs().diff(dayjs(source.last_data_at), 'day') >= quietAfterDays
                 return (
                     <div key={source.data_source} className="flex items-center justify-between gap-4">
-                        <span>{DATA_SOURCE_LABELS[source.data_source]}</span>
+                        <span>{dataSourceLabel(source.data_source)}</span>
                         <span className={cn('shrink-0', isStale && 'text-tertiary')}>
                             {dayjs(source.last_data_at).fromNow()}
                         </span>

@@ -650,7 +650,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"success": True})
 
     @extend_schema(request=None, responses={200: OrganizationDataFreshnessSerializer})
-    @action(detail=True, methods=["GET"], url_path="data_freshness", pagination_class=None)
+    @action(detail=True, methods=["GET"], url_path="teams/data_freshness", pagination_class=None)
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.organization

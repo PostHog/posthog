@@ -236,6 +236,11 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationAIAccessRequestResponseApi {
+    /** Whether the access request was accepted and the organization admins were notified. */
+    success: boolean
+}
+
 /**
  * * `never` - never
  * * `live` - live
@@ -322,11 +327,6 @@ export interface OrganizationDataFreshnessApi {
     lookback_days: number
     /** How many days without data make a project or source count as quiet. */
     quiet_after_days: number
-}
-
-export interface OrganizationAIAccessRequestResponseApi {
-    /** Whether the access request was accepted and the organization admins were notified. */
-    success: boolean
 }
 
 /**

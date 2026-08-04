@@ -97,7 +97,10 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/organizations/@current/': () => [200, organization],
                 '/api/environments/@current/': () => [200, MOCK_DEFAULT_TEAM],
                 '/api/projects/@current/': () => [200, MOCK_DEFAULT_TEAM],
-                [`/api/organizations/${MOCK_DEFAULT_ORGANIZATION.id}/data_freshness/`]: () => [200, DATA_FRESHNESS],
+                [`/api/organizations/${MOCK_DEFAULT_ORGANIZATION.id}/teams/data_freshness/`]: () => [
+                    200,
+                    DATA_FRESHNESS,
+                ],
             },
         })
 

@@ -5,7 +5,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '~/types'
 
-import { dataFreshnessRetrieve } from 'products/platform_features/frontend/generated/api'
+import { teamsDataFreshnessRetrieve } from 'products/platform_features/frontend/generated/api'
 import type {
     DataFreshnessProjectApi,
     OrganizationDataFreshnessApi,
@@ -64,7 +64,7 @@ export const projectDataFreshnessLogic = kea<projectDataFreshnessLogicType>([
             null as OrganizationDataFreshnessApi | null,
             {
                 loadDataFreshness: async (): Promise<OrganizationDataFreshnessApi> =>
-                    await dataFreshnessRetrieve(values.currentOrganization!.id),
+                    await teamsDataFreshnessRetrieve(values.currentOrganization!.id),
             },
         ],
     })),

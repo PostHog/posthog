@@ -163,23 +163,6 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     })
 }
 
-export const getDataFreshnessRetrieveUrl = (id: string) => {
-    return `/api/organizations/${id}/data_freshness/`
-}
-
-/**
- * When each project in the organization last received data, broken down by kind of data.
- */
-export const dataFreshnessRetrieve = async (
-    id: string,
-    options?: RequestInit
-): Promise<OrganizationDataFreshnessApi> => {
-    return apiMutator<OrganizationDataFreshnessApi>(getDataFreshnessRetrieveUrl(id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getRequestAiAccessCreateUrl = (id: string) => {
     return `/api/organizations/${id}/request_ai_access/`
 }
@@ -194,6 +177,23 @@ export const requestAiAccessCreate = async (
     return apiMutator<OrganizationAIAccessRequestResponseApi>(getRequestAiAccessCreateUrl(id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getTeamsDataFreshnessRetrieveUrl = (id: string) => {
+    return `/api/organizations/${id}/teams/data_freshness/`
+}
+
+/**
+ * When each project in the organization last received data, broken down by kind of data.
+ */
+export const teamsDataFreshnessRetrieve = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationDataFreshnessApi> => {
+    return apiMutator<OrganizationDataFreshnessApi>(getTeamsDataFreshnessRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
     })
 }
 
