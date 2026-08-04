@@ -1085,6 +1085,36 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
+    @pytest.mark.ee
+    def test_switching_organization_skips_a_team_the_user_cannot_access(self):
+        # User.teams reads its ACCESS_CONTROL feature gate from an unordered `.first()` across all
+        # of self.user's organizations, so enable it on both to keep this test deterministic.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.new_org.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.new_org.save()
+        # Marks new_project private by default, with no explicit grant for self.user's membership,
+        # so User.teams excludes it for this user.
+        AccessControl.objects.create(
+            team=self.new_project,
+            resource="project",
+            resource_id=None,
+            access_level="none",
+            organization_member=None,
+        )
+        accessible_project = Team.objects.create(name="Accessible Project", organization=self.new_org)
+
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["team"]["id"], accessible_project.id)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team, accessible_project)
+
     @patch("posthoganalytics.capture")
     def test_can_update_current_project(self, mock_capture):
         team = Team.objects.create(name="Local Team", organization=self.new_org)

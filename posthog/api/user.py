@@ -721,7 +721,11 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+            validated_data["current_team"] = (
+                current_team
+                if current_team
+                else instance.teams.filter(organization=current_organization).order_by("id").first()
+            )
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
