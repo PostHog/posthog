@@ -30,7 +30,7 @@ const mixedPrChecks = {
             url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/1',
         },
         {
-            name: 'Backend CI / Django tests – Core (persons-on-events off), Python 3.13, ClickHouse 26.3',
+            name: 'Backend CI / Django tests: Core (persons-on-events off), Python 3.13, ClickHouse 26.3',
             status: 'in_progress',
             conclusion: null,
             url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/2',
