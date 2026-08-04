@@ -184,6 +184,18 @@ class TestStatsCardRendering:
         counted = sum(int(line.rsplit(" ", 1)[-1]) for line in lines)
         assert counted == sum(m.value for m in models)
 
+    def test_card_sits_below_the_welcome_and_above_the_settings(self):
+        view = _render(StatsState(tasks_started=1))
+        rendered = [str(block) for block in view["blocks"]]
+
+        welcome_at = next(i for i, b in enumerate(rendered) if "Welcome to PostHog" in b)
+        stats_at = next(i for i, b in enumerate(rendered) if "Workspace activity" in b)
+        model_at = next(i for i, b in enumerate(rendered) if "AI model" in b)
+
+        # An admin opens the tab for the activity; routing and model are set once and
+        # rarely revisited, so they must not push it below the fold.
+        assert welcome_at < stats_at < model_at
+
     def test_headline_renders_as_a_two_column_field_grid(self):
         view = _render(
             StatsState(

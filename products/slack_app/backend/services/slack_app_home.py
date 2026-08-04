@@ -403,13 +403,20 @@ def render_home_view(
 
     blocks.extend(_header_blocks())
 
-    # Section 1 — project routing. Personal pick on top; admins get an
+    # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
+    # rather than the calling user's own. Admin-only, and first because it's the reason
+    # an admin opens the tab at all — the settings below are set once and rarely revisited.
+    if stats_state is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_stats_section_blocks(stats_state))
+
+    # Section 2 — project routing. Personal pick on top; admins get an
     # editable workspace default below, others see it as read-only context.
     if project_state and project_state.has_anything_to_show:
         blocks.append({"type": "divider"})
         blocks.extend(_project_section_blocks(project_state, is_admin=is_admin))
 
-    # Section 2 — AI model settings: which model handles those mentions.
+    # Section 3 — AI model settings: which model handles those mentions.
     # Headline shows the effective triple (and its source); personal /
     # workspace controls underneath mirror the project routing layout.
     blocks.append({"type": "divider"})
@@ -417,25 +424,18 @@ def render_home_view(
     blocks.extend(_personal_section_blocks(user_row))
     blocks.extend(_workspace_section_blocks(workspace_row, is_admin=is_admin))
 
-    # Section 3 — account linking: shown before Tasks so the connect
+    # Section 4 — account linking: shown before Tasks so the connect
     # prompt is visible while the Tasks list is still empty. Flag-gated.
     if account_state and account_state.enabled:
         blocks.append({"type": "divider"})
         blocks.extend(_account_section_blocks(account_state))
 
-    # Section 4 — your tasks: a quiet list of tasks the calling user
+    # Section 5 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
     # the bot pinging the activity feed for every transition.
     if tasks_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_tasks_section_blocks(tasks_state))
-
-    # Section 5 — workspace activity: aggregates across everyone's Slack-started work,
-    # rather than the calling user's own. Last because it answers a different question
-    # than the rest of the tab, and only admins get it at all.
-    if stats_state is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_stats_section_blocks(stats_state))
 
     blocks.append({"type": "divider"})
     blocks.extend(_footer_blocks())
