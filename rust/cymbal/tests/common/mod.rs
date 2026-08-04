@@ -21,6 +21,7 @@ use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::{
+    event_release::ReleaseCache,
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
@@ -424,7 +425,15 @@ impl SymbolResolver for NoopResolver {
 }
 
 pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
-    ResolutionStage { remote: ctx }
+    ResolutionStage {
+        remote: ctx,
+        // Never connected: fixture events carry no release identifiers, so the release
+        // resolver never issues a query.
+        posthog_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused/unused")
+            .expect("lazy pool construction does not connect"),
+        release_cache: ReleaseCache::new(0, Duration::from_secs(0)),
+    }
 }
 
 pub async fn process_one(
