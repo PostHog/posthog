@@ -86,16 +86,6 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
 
 
 class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest):
-    retention_base_query_variant_comparison_excluded_tests = {
-        "test_month_interval_with_person_on_events_v2",
-        "test_week_interval",
-        "test_retention_event_action",
-        "test_retention_with_user_properties_via_action",
-        "test_timezones",
-        "test_retention_aggregation_sum",
-        "test_retention_aggregation_different_events_ignores_start_event_property_value",
-    }
-
     def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
@@ -144,6 +134,24 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             )
             return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
+
+    def run_events_query(self, interval, query, person_id=None):
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
+
+        def calculate(query_for_variant):
+            runner = RetentionQueryRunner(team=self.team, query=query_for_variant)
+            events_query = runner.to_events_query(interval=interval, person_id=person_id)
+            response = execute_hogql_query(
+                query_type="RetentionEventsQuery",
+                query=events_query,
+                team=self.team,
+            )
+            # to_events_query orders by timestamp only, so rows with equal timestamps can
+            # come back in either order; sort fully so the variant comparison doesn't flake
+            return sorted(response.results)
 
         return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
@@ -3449,10 +3457,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         """Test events query for first time ever retention"""
         self._create_first_time_ever_retention_events()
 
-        # Create RetentionQueryRunner instance
-        query = RetentionQuery(
-            dateRange={"date_from": _date(0), "date_to": _date(7)},
-            retentionFilter={
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+            "retentionFilter": {
                 "period": "Day",
                 "totalIntervals": 7,
                 "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
@@ -3463,22 +3470,14 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
                 "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
             },
-        )
-
-        runner = RetentionQueryRunner(query=query, team=self.team)
+        }
 
         # Test events query for interval 1 (day 1)
-        events_query = runner.to_events_query(interval=1)
-        events_result = execute_hogql_query(
-            query_type="RetentionEventsQuery",
-            query=events_query,
-            team=self.team,
-        )
+        events = self.run_events_query(interval=1, query=query)
 
         # Should include both start and return events for people who had their first event ever on day 1
         # and performed the target action (signup)
         # Person2: first event ever was signup on day 1, returns with pageviews on day 2,4
-        events = events_result.results
         self.assertGreater(len(events), 0)
 
         # Based on the to_events_query method, event_type should be in index 5
@@ -5070,29 +5069,16 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Set up the query
-        query = RetentionQuery(
-            dateRange={"date_to": _date(6, hour=6)},
-            retentionFilter={
+        query = {
+            "dateRange": {"date_to": _date(6, hour=6)},
+            "retentionFilter": {
                 "totalIntervals": 7,
                 "period": "Day",
             },
-        )
+        }
 
-        # Create the query runner
-        runner = RetentionQueryRunner(team=self.team, query=query)
-
-        # Get events query for interval 0 (day 0) and person1
-        events_query = runner.to_events_query(interval=0, person_id=person1.uuid)
-
-        # Execute the query
-        response = execute_hogql_query(
-            query_type="RetentionEventsQuery",
-            query=events_query,
-            team=self.team,
-        )
-
-        # Get the results
-        results = response.results
+        # Get events for interval 0 (day 0) and person1
+        results = self.run_events_query(interval=0, query=query, person_id=person1.uuid)
 
         # Verify we get both start and return events
         self.assertTrue(len(results) > 0, "Expected events to be returned")
@@ -5131,13 +5117,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             )
 
         # Test with a different interval - interval 1 should only return person2
-        events_query_day1 = runner.to_events_query(interval=1, person_id=person2.uuid)
-        response_day1 = execute_hogql_query(
-            query_type="RetentionEventsQuery",
-            query=events_query_day1,
-            team=self.team,
-        )
-        results_day1 = response_day1.results
+        results_day1 = self.run_events_query(interval=1, query=query, person_id=person2.uuid)
 
         # Verify we have events for person2 on day 1
         self.assertTrue(len(results_day1) > 0, "Expected events for day 1")
@@ -5886,6 +5866,168 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Interval 0: (50 + 30) / 2 = 40 — avg of return events after start events per user
         self.assertEqual(day0_values[0]["aggregation_value"], 40)
 
+    def test_retention_aggregation_first_ever_occurrence_different_events(self):
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
+
+        # user1's first-ever signup predates the window, so user1 joins no cohort even
+        # though it signs up again inside the window and its purchases carry revenue.
+        _create_events(self.team, [("user1", _date(-2)), ("user1", _date(0, hour=10))], event="signed_up")
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0, hour=12), {"revenue": 50}),
+                ("user1", _date(1), {"revenue": 100}),
+            ],
+            event="purchased",
+        )
+        # user2's first-ever signup is inside the window; the same-interval purchase counts
+        # because it happens after the signup, and the day-4 purchase lands in interval 3.
+        _create_events(self.team, [("user2", _date(1, hour=9))], event="signed_up")
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(1, hour=11), {"revenue": 8}),
+                ("user2", _date(4), {"revenue": 2}),
+            ],
+            event="purchased",
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "aggregation_value"),
+            pad(
+                [
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [8, 0, 0, 2, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+        self.assertEqual(pluck(result, "values", "count")[1], [1, 0, 0, 1, 0, 0, 0])
+
+    def test_retention_aggregation_with_event_value_breakdown(self):
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
+
+        # user1 starts on Chrome and returns on Firefox: the Firefox revenue must count
+        # toward the Firefox day-1 cohort, not toward user1's Chrome day-0 cohort.
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10, "$browser": "Chrome"}),
+                ("user1", _date(1), {"revenue": 20, "$browser": "Firefox"}),
+                ("user1", _date(2), {"revenue": 30, "$browser": "Chrome"}),
+                ("user2", _date(0), {"revenue": 40, "$browser": "Firefox"}),
+                ("user2", _date(1), {"revenue": 50, "$browser": "Firefox"}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+                "breakdownFilter": {"breakdowns": [{"type": "event", "property": "$browser"}]},
+            }
+        )
+
+        chrome_results = [r for r in result if r["breakdown_value"] == "Chrome"]
+        firefox_results = [r for r in result if r["breakdown_value"] == "Firefox"]
+
+        self.assertEqual(
+            pluck(chrome_results, "values", "aggregation_value"),
+            pad(
+                [
+                    [10, 0, 30, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [30, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+        self.assertEqual(
+            pluck(firefox_results, "values", "aggregation_value"),
+            pad(
+                [
+                    [40, 50, 0, 0, 0, 0, 0],
+                    [70, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_aggregation_ignores_minimum_occurrences(self):
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
+
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user2", _date(0), {"revenue": 40}),
+                ("user2", _date(2, hour=4), {"revenue": 9}),
+                ("user2", _date(2, hour=6), {"revenue": 1}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        date_range = {"date_from": _date(0, hour=0), "date_to": _date(6)}
+        aggregation_filter = {
+            "totalIntervals": 7,
+            "aggregationType": "sum",
+            "aggregationProperty": "revenue",
+        }
+
+        without_threshold = self.run_query(query={"dateRange": date_range, "retentionFilter": aggregation_filter})
+        with_threshold = self.run_query(
+            query={
+                "dateRange": date_range,
+                "retentionFilter": {**aggregation_filter, "minimumOccurrences": 3},
+            }
+        )
+
+        # Property aggregation ignores the minimum-occurrences threshold on both base-query
+        # implementations: user2's two day-2 events stay counted even though 2 < 3.
+        self.assertEqual(with_threshold, without_threshold)
+        self.assertEqual(
+            pluck(without_threshold, "values", "aggregation_value")[0],
+            [50, 20, 10, 0, 0, 0, 0],
+        )
+
     def test_retention_aggregation_person_property_sum(self):
         """Aggregating on a person property reads person.properties, not event.properties."""
         create_person(team=self.team, distinct_ids=["high_value"], properties={"account_value": 100})
@@ -6028,8 +6170,10 @@ class TestClickhouseRetentionGroupAggregation(
     retention_base_query_variant_comparison_excluded_tests = {
         "test_groups_aggregating",
         "test_groups_aggregating_person_on_events",
+        # Asserts sync_execute was called exactly once, but the comparison runs the query once per
+        # variant, so the call count can never match. The test checks the max_execution_time setting
+        # on the emitted SQL rather than query results, so it proves nothing about variant parity.
         "test_limit_is_context_aware",
-        "test_retention_24h_window_calculation",
     }
 
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):

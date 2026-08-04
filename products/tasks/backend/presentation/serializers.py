@@ -11,7 +11,8 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from croniter import croniter
-from drf_spectacular.utils import PolymorphicProxySerializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -22,9 +23,11 @@ from posthog.models.user_integration import UserIntegration
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
+    ChannelInstructionsDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     TaskActivityDTO,
@@ -375,6 +378,7 @@ class TaskSerializer(DataclassSerializer):
             "origin_product",
             "runtime",
             "repository",
+            "repositories",
             "github_integration",
             "github_user_integration",
             "signal_report",
@@ -428,6 +432,12 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         allow_null=True,
         help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+    )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories available to this task, each in `organization/repo` format.",
     )
     github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Integration.objects.filter(kind="github"),
@@ -631,6 +641,12 @@ class TaskWriteSerializer(serializers.Serializer):
 
         return value.lower()
 
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        repositories = [self.validate_repository(repository) for repository in value]
+        if len(set(repositories)) != len(repositories):
+            raise serializers.ValidationError("Repositories must be unique")
+        return repositories
+
     def validate_signal_report(self, value):
         if value and value.team_id != self.context["team"].id:
             raise serializers.ValidationError("Signal report must belong to the same team")
@@ -646,6 +662,28 @@ class TaskWriteSerializer(serializers.Serializer):
         return normalized
 
     def validate(self, attrs: dict) -> dict:
+        if "repository" in attrs and "repositories" in attrs:
+            legacy = attrs["repository"] or None
+            repositories = attrs["repositories"]
+            if legacy != (repositories[0] if repositories else None):
+                raise serializers.ValidationError({"repositories": "Conflicts with repository"})
+        repositories = attrs.get("repositories")
+        plural_repositories = repositories
+        if repositories is None and "repository" in attrs:
+            repositories = [attrs["repository"]] if attrs["repository"] else []
+        if plural_repositories and attrs.get("github_integration") is None:
+            instance_integration = getattr(self.instance, "github_integration", None)
+            if instance_integration is None:
+                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
+        integration = attrs.get("github_integration") or getattr(self.instance, "github_integration", None)
+        if repositories and integration:
+            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
+                self.context["team"].id, integration.id, repositories
+            )
+            if inaccessible:
+                raise serializers.ValidationError(
+                    {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
+                )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
@@ -957,6 +995,46 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
                     {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
                 )
         return attrs
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class InsightQueryJSONField(serializers.JSONField):
+    """Insight query JSON — freeform across query kinds, so typed as a plain object."""
+
+
+class TaskRunLivingArtifactChartRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Chart title, also used as the delivered file name.",
+    )
+    query = InsightQueryJSONField(
+        required=False,
+        help_text=(
+            "Insight query JSON to render ad hoc, e.g. "
+            '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. '
+            "SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. "
+            "Provide exactly one of query or insight_id."
+        ),
+    )
+    insight_id = serializers.IntegerField(
+        required=False,
+        help_text="Numeric id of a saved insight to render. Provide exactly one of query or insight_id.",
+    )
+
+    def validate(self, attrs):
+        if (attrs.get("query") is None) == (attrs.get("insight_id") is None):
+            raise serializers.ValidationError({"query": "Provide exactly one of query or insight_id."})
+        return attrs
+
+
+class TaskRunLivingArtifactChartResponseSerializer(serializers.Serializer):
+    artifact = TaskRunLivingArtifactResponseSerializer(help_text="The living artifact registered for delivery.")
+    export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing the chart.")
+    url = serializers.URLField(
+        allow_null=True,
+        required=False,
+        help_text="Link to explore this chart interactively in PostHog.",
+    )
 
 
 class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
@@ -1373,7 +1451,16 @@ class ChannelSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = ChannelDTO
-        fields = ["id", "name", "channel_type", "created_at", "created_by"]
+        fields = [
+            "id",
+            "name",
+            "channel_type",
+            "github_integration",
+            "repositories",
+            "created_at",
+            "created_by",
+            "starred",
+        ]
 
 
 class ChannelWriteSerializer(serializers.Serializer):
@@ -1382,6 +1469,98 @@ class ChannelWriteSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
     )
+
+
+class ChannelUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=128,
+        required=False,
+        help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
+    )
+    github_integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="Team GitHub integration used for repositories linked to this channel.",
+    )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories inherited by new tasks in this channel.",
+    )
+
+    def validate_github_integration(self, value):
+        if value is not None and value.team_id != self.context["team_id"]:
+            raise serializers.ValidationError("GitHub integration must belong to this project")
+        return value
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        repositories = [TaskWriteSerializer().validate_repository(repository) for repository in value]
+        if len(set(repositories)) != len(repositories):
+            raise serializers.ValidationError("Repositories must be unique")
+        return repositories
+
+    def validate(self, attrs: dict) -> dict:
+        repositories = attrs.get("repositories")
+        integration = attrs.get("github_integration")
+        if repositories is None:
+            if "github_integration" in attrs:
+                raise serializers.ValidationError({"repositories": "Required when changing the GitHub integration"})
+            return attrs
+        if repositories and integration is None:
+            raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
+        if repositories and integration:
+            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
+                self.context["team_id"], integration.id, repositories
+            )
+            if inaccessible:
+                raise serializers.ValidationError(
+                    {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
+                )
+        return attrs
+
+
+class ChannelInstructionsSerializer(DataclassSerializer):
+    """Response shape for a channel's CONTEXT.md instructions version."""
+
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = ChannelInstructionsDTO
+        fields = ["channel", "content", "version", "created_at", "created_by"]
+
+
+class ChannelInstructionsWriteSerializer(serializers.Serializer):
+    """Request body for publishing a new instructions version."""
+
+    content = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=CHANNEL_INSTRUCTIONS_MAX_BYTES,
+        help_text="The complete markdown instructions (CONTEXT.md) for the channel.",
+    )
+    base_version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no "
+            "instructions yet). A stale base is rejected with 409; omit to publish unguarded."
+        ),
+    )
+
+
+class ChannelContextGenerationSerializer(serializers.Serializer):
+    """The task currently generating this channel's CONTEXT.md, or null."""
+
+    task_id = serializers.UUIDField(allow_null=True)
+
+
+class ChannelStarWriteSerializer(serializers.Serializer):
+    """Request body for starring/unstarring a channel for the requesting user."""
+
+    starred = serializers.BooleanField()
 
 
 class TaskThreadMessageSerializer(DataclassSerializer):

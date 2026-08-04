@@ -36,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
-    run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     stage_chunk_for_person_property_sink,
@@ -57,7 +56,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     PersonPropertyRowSink,
@@ -97,7 +97,7 @@ class PipelineV3(Generic[ResumableData]):
     _logger: FilteringBoundLogger
     _is_incremental: bool
     _reset_pipeline: bool
-    _delta_table_helper: DeltaTableHelper
+    _delta_table_ref: DeltaTableRef
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema: HogQLSchema
     _cdp_producer: CDPProducer
@@ -141,7 +141,7 @@ class PipelineV3(Generic[ResumableData]):
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
         self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
 
-        self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
+        self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
 
         attempt = current_activity_attempt()
         attempt_scoped_run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
@@ -263,7 +263,7 @@ class PipelineV3(Generic[ResumableData]):
             sync_type=sync_type,
             is_incremental=self._is_incremental,
             is_resume=should_resume,
-            is_first_ever_sync=self._delta_table_helper.is_first_sync,
+            is_first_ever_sync=self._delta_table_ref.is_first_sync,
             reset_pipeline=self._reset_pipeline,
         )
 
@@ -296,27 +296,26 @@ class PipelineV3(Generic[ResumableData]):
             if self._attempt <= 1:
                 # Revive a corrupt-`_delta_log` table before extraction so it self-heals in this run
                 # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
-                await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
+                await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
 
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
                     should_resume,
                     self._schema,
-                    self._delta_table_helper,
+                    self._delta_table_ref,
                     self._logger,
                     webhook_only=self._resource.webhook_only,
                 )
 
-            is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
+            is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
             if is_fresh_sync:
                 self._pg_producer.is_first_ever_sync = True
 
-            # Defensive pre-write compaction. See `extract.run_pre_write_defensive_compact`
-            # for rationale; shared with the v2 pipeline so the threshold + error handling
-            # stay in lockstep.
+            # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
+            # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
             if not is_fresh_sync:
-                await run_pre_write_defensive_compact(
-                    self._delta_table_helper, self._schema, self._resource, self._logger
+                await DeltaMaintenance(self._delta_table_ref).run_scheduled(
+                    self._schema, partition_count_fallback=self._resource.partition_count
                 )
 
             async for item in async_iterate(self._resource.items()):

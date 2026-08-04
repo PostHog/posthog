@@ -312,6 +312,17 @@ def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
+    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
+    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
+    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
+    # before the request so the message names the fix.
+    repo = repository.strip()
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        return (
+            False,
+            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+        )
+
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 
@@ -736,6 +747,11 @@ def _iter_pages(
         except GithubOrgNotFoundError:
             logger.debug(f"Github: org-scoped endpoint not found, syncing zero rows: url={url}")
             return
+        except GithubEmptyRepositoryError:
+            # `commits` is a fan_out_parent (check_runs, commit_statuses), so this walk can hit the
+            # same empty-repo 409 that get_rows handles directly for the non-fan-out `commits` read.
+            logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
+            return
         data = response.json()
         if response_data_path and isinstance(data, dict):
             data = data.get(response_data_path) or []
@@ -1030,6 +1046,13 @@ def get_rows(
         # while a fresh computation runs. Nothing to sync this time; the next sync picks it up.
         if response.status_code == 202:
             logger.debug(f"Github: statistics not ready yet, syncing zero rows: url={url}")
+            break
+
+        # A 204 No Content has an empty body, which GitHub returns on the /stats/* endpoints for a
+        # repository with no commit activity. There is nothing to parse, so sync zero rows rather
+        # than crashing on response.json(), because an empty body raises a JSONDecodeError.
+        if response.status_code == 204:
+            logger.debug(f"Github: 204 no content, syncing zero rows: url={url}")
             break
 
         data = response.json()

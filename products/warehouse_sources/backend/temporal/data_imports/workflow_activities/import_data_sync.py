@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -310,7 +310,7 @@ def _get_models(
     job_id: str,
 ) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
     # `schema__source` is prefetched so `job.folder_path()` (via `schema.source.source_type`, called
-    # repeatedly through the run by `DeltaTableHelper._get_delta_table_uri`) never triggers a lazy
+    # repeatedly through the run by `DeltaTableRef._get_delta_table_uri`) never triggers a lazy
     # relation load later on a pooled connection the transaction pooler may have dropped mid-sync,
     # which raises a transient `OperationalError`/DNS failure.
     job = ExternalDataJob.objects.select_related("schema", "schema__table", "schema__source").get(id=job_id)
@@ -407,7 +407,7 @@ async def _handle_import_error(
     # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
     # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
     # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_helper.is_transient_maintenance_error.
+    # delta_table_ref.is_transient_maintenance_error.
     if isinstance(error, OperationalError | InterfaceError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
