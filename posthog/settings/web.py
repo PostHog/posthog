@@ -417,6 +417,18 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
 ]
+if DEBUG:
+    # Vite copies frontend/public into dist only on a production build, so in dev
+    # nothing serves `/static/services/*`. Those paths aren't bundler imports — they
+    # arrive as strings in API payloads (warehouse source `iconPath`, CDP destination
+    # `icon_url`), so the bundler never sees them and can't rewrite them. The request
+    # falls through to the SPA catch-all, the <img> is handed HTML, and every one of
+    # those logos silently swaps to its error placeholder.
+    #
+    # DEBUG-only on purpose: in production dist already holds these files, and adding
+    # a second source for 1300+ identical assets would make collectstatic warn about
+    # duplicate destinations for no gain.
+    STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -614,6 +626,18 @@ SPECTACULAR_SETTINGS = {
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
         "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
+        "TaskRunReasoningEffortEnum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+            None,
+        ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",

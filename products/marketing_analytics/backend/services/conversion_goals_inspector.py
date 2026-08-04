@@ -571,13 +571,19 @@ def _count_dw_goal(team: Team, goal: dict[str, Any], user: User | None = None) -
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     table_chain: list[str | int] = list(str(table_name).split("."))
     timestamp_chain: list[str | int] = [str(timestamp_field)]
+    # Cast both sides, exactly as `_get_where_conditions` does for the real query.
+    # Warehouse timestamp columns very often land as String (CSV and several DLT
+    # sources do it), and ClickHouse refuses to compare String with DateTime64 —
+    # so an uncast health check reports a goal as broken that queries perfectly
+    # well on the dashboard. The cast is a no-op when the column is already a
+    # datetime, which is why the real path applies it unconditionally too.
     query = ast.SelectQuery(
         select=[ast.Call(name="count", args=[])],
         select_from=ast.JoinExpr(table=ast.Field(chain=table_chain)),
         where=ast.CompareOperation(
-            left=ast.Field(chain=timestamp_chain),
+            left=ast.Call(name="toDateTime", args=[ast.Field(chain=timestamp_chain)]),
             op=ast.CompareOperationOp.GtEq,
-            right=ast.Constant(value=since),
+            right=ast.Call(name="toDateTime", args=[ast.Constant(value=since)]),
         ),
     )
     try:
