@@ -6,7 +6,12 @@ const mocks = vi.hoisted(() => ({
   featureFlags: new Map<string, boolean>(),
   channelsLayout: false,
   channelsEnabled: false,
-  channels: [] as { id: string; name: string; path: string }[],
+  channels: [] as {
+    id: string;
+    name: string;
+    channelType: "public" | "personal";
+    starred: boolean;
+  }[],
   channelsLoading: false,
   archivedTaskIds: new Set<string>(),
   navigateToArchived: vi.fn(),
@@ -32,9 +37,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
   useArchivedTaskIds: () => mocks.archivedTaskIds,
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
-  useChannelStars: () => ({ starredRefToShortcutId: new Map() }),
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToArchived: (...args: unknown[]) => mocks.navigateToArchived(...args),
@@ -99,7 +101,18 @@ function renderSidebar() {
   );
 }
 
-const ME = { id: "me-id", name: "me", path: "/me" };
+const ME = {
+  id: "me-id",
+  name: "me",
+  channelType: "personal" as const,
+  starred: false,
+};
+const ENG = {
+  id: "eng-id",
+  name: "eng",
+  channelType: "public" as const,
+  starred: false,
+};
 
 describe("ChannelsSidebar", () => {
   beforeEach(() => {
@@ -120,7 +133,6 @@ describe("ChannelsSidebar", () => {
   // in. Both stay mounted, so "which one is showing" is the offscreen pane
   // being inert rather than unmounted.
   describe("the channel-list slider", () => {
-    const ENG = { id: "eng-id", name: "eng", path: "/eng" };
     const listIsInteractive = () =>
       !screen.getByTestId("channels-list").parentElement?.hasAttribute("inert");
 
@@ -287,7 +299,7 @@ describe("ChannelsSidebar", () => {
   describe("auto-scoping to #me", () => {
     it("keeps a deep-linked channel instead of overwriting it with #me", () => {
       mocks.channelsLayout = true;
-      mocks.channels = [ME, { id: "eng-id", name: "eng", path: "/eng" }];
+      mocks.channels = [ME, ENG];
       mocks.routeChannelId = "eng-id";
 
       renderSidebar();
@@ -330,7 +342,7 @@ describe("ChannelsSidebar", () => {
 
     it("does not scope to a channel the project does not have", () => {
       mocks.channelsLayout = true;
-      mocks.channels = [{ id: "eng", name: "eng", path: "/eng" }];
+      mocks.channels = [ENG];
       renderSidebar();
       expect(useCurrentChannelStore.getState().currentChannelId).toBeNull();
       expect(screen.queryByTestId("channel-sidebar")).toBeNull();
@@ -359,7 +371,7 @@ describe("ChannelsSidebar", () => {
     // renders — so space adoption would have read as zero once the flag landed.
     it("fires from the shell under the channels layout", () => {
       mocks.channelsLayout = true;
-      mocks.channels = [ME, { id: "eng", name: "eng", path: "/eng" }];
+      mocks.channels = [ME, ENG];
       renderSidebar();
       expect(mocks.track).toHaveBeenCalledWith(
         ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED,
