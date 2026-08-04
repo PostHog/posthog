@@ -1,7 +1,12 @@
 import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { shouldOfferXmin } from './SyncMethodForm'
+import {
+    getIncrementalSyncSupported,
+    getSaveDisabledReason,
+    looksCreationOnly,
+    shouldOfferXmin,
+} from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -32,5 +37,49 @@ describe('SyncMethodForm', () => {
 
     it('exposes a label for the xmin sync type', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
+    })
+
+    it.each([
+        ['no incremental support at all', { incremental_available: false }, false, true],
+        ['no timestamp/numeric field to track', { incremental_fields: [] }, true, true],
+        ['no primary key candidate', {}, false, true],
+        ['a primary key candidate is available', {}, true, false],
+    ])('incremental sync supported: %s', (_, overrides, hasPrimaryKeyCandidate, expectDisabled) => {
+        const result = getIncrementalSyncSupported(
+            { ...baseSchema, incremental_available: true, incremental_fields: [{} as any], ...overrides },
+            hasPrimaryKeyCandidate
+        )
+        expect(result.disabled).toBe(expectDisabled)
+    })
+
+    it.each([
+        [undefined, null, false, 'You must select a sync method before saving'],
+        ['incremental', null, false, 'You must select an incremental field'],
+        [
+            'incremental',
+            'updated_at',
+            false,
+            'Incremental replication requires a primary key. Select one below, or use full table replication instead',
+        ],
+        ['incremental', 'updated_at', true, undefined],
+    ])(
+        'save disabled reason for sync type %s: %s',
+        (syncType, incrementalField, hasPrimaryKeyForIncremental, expected) => {
+            expect(getSaveDisabledReason(syncType as any, incrementalField, null, hasPrimaryKeyForIncremental)).toBe(
+                expected
+            )
+        }
+    )
+
+    it.each([
+        ['created_at', true],
+        ['added_at', true],
+        ['inserted_on', true],
+        ['created', true],
+        ['updated_at', false],
+        ['modified_at', false],
+        ['id', false],
+    ])('detects creation-only field names: %s', (fieldName, expected) => {
+        expect(looksCreationOnly(fieldName)).toBe(expected)
     })
 })

@@ -38,8 +38,14 @@ export const secondsToLookbackParts = (
     return { amount: Math.floor(seconds / 60), unit: 'minutes' }
 }
 
-const getIncrementalSyncSupported = (
-    schema: ExternalDataSourceSyncSchema
+// Merging an incremental sync into the warehouse table requires a primary key to match rows
+// against (see the CDC gating in getCdcSyncSupported below). Unlike CDC, incremental syncs let the
+// user pick a primary key manually when none was auto-detected, so this only hard-disables the
+// option when there's no column list to pick from either — otherwise a save-time check further
+// down (getSaveDisabledReason) is what actually blocks saving without a key.
+export const getIncrementalSyncSupported = (
+    schema: ExternalDataSourceSyncSchema,
+    hasPrimaryKeyCandidate: boolean
 ): { disabled: true; disabledReason: string } | { disabled: false } => {
     if (!schema.incremental_available) {
         return {
@@ -56,10 +62,23 @@ const getIncrementalSyncSupported = (
         }
     }
 
+    if (!hasPrimaryKeyCandidate) {
+        return {
+            disabled: true,
+            disabledReason: 'This table has no primary key, which is required for incremental replication',
+        }
+    }
+
     return {
         disabled: false,
     }
 }
+
+// A name like `added_at` or `created_at` is set once on insert and never advances on update, so an
+// incremental sync keyed on it will silently miss every update forever. `updated_at`/`modified_at`
+// style names are the ones that actually track row changes.
+const CREATION_ONLY_FIELD_NAME_PATTERN = /(?:^|_)(?:created|inserted|added)(?:_?(?:at|on|date|time))?$/i
+export const looksCreationOnly = (fieldName: string): boolean => CREATION_ONLY_FIELD_NAME_PATTERN.test(fieldName)
 
 const getAppendOnlySyncSupported = (
     schema: ExternalDataSourceSyncSchema
@@ -129,10 +148,11 @@ const getCdcSyncSupported = (
 export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema): boolean =>
     !schema.webhook_only && !!schema.xmin_available
 
-const getSaveDisabledReason = (
+export const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
-    appendField: string | null
+    appendField: string | null,
+    hasPrimaryKeyForIncremental: boolean
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -140,6 +160,10 @@ const getSaveDisabledReason = (
 
     if (syncType === 'incremental' && !incrementalField) {
         return 'You must select an incremental field'
+    }
+
+    if (syncType === 'incremental' && !hasPrimaryKeyForIncremental) {
+        return 'Incremental replication requires a primary key. Select one below, or use full table replication instead'
     }
 
     if (syncType === 'append' && !appendField) {
@@ -189,12 +213,15 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
-    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
-    const appendSyncSupported = getAppendOnlySyncSupported(schema)
-    const cdcSyncSupported = getCdcSyncSupported(schema)
-
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
+    // Whether a primary key is or could plausibly be set for an incremental sync: already
+    // detected, already locked in from a prior sync, or pickable manually from the column list.
+    const hasPrimaryKeyCandidate = !!resolvedDetectedPks?.length || !!primaryKeyLocked || columns.length > 0
+
+    const incrementalSyncSupported = getIncrementalSyncSupported(schema, hasPrimaryKeyCandidate)
+    const appendSyncSupported = getAppendOnlySyncSupported(schema)
+    const cdcSyncSupported = getCdcSyncSupported(schema)
 
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
 
@@ -419,6 +446,16 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                     )}
                                 {radioValue === 'incremental' &&
                                     incrementalFieldValue &&
+                                    looksCreationOnly(incrementalFieldValue) && (
+                                        <LemonBanner type="warning" className="mt-2">
+                                            <code>{incrementalFieldValue}</code> looks like it's set once when a row is
+                                            created and never updated again. If that's the case, updates to existing
+                                            rows won't be synced. Pick a field that changes on update, such as{' '}
+                                            <code>updated_at</code>, if this table has one.
+                                        </LemonBanner>
+                                    )}
+                                {radioValue === 'incremental' &&
+                                    incrementalFieldValue &&
                                     isLookbackEligibleType(
                                         schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
                                             ?.field_type
@@ -627,7 +664,14 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         return false
     })()
 
-    const validationDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    const hasPrimaryKeyForIncremental =
+        primaryKeyColumns.length > 0 || !!resolvedDetectedPks?.length || !!primaryKeyLocked
+    const validationDisabledReason = getSaveDisabledReason(
+        radioValue,
+        incrementalFieldValue,
+        appendFieldValue,
+        hasPrimaryKeyForIncremental
+    )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
     const handleSave = (): void => {
