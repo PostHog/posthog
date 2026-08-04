@@ -63,7 +63,7 @@ if (not inputs.bypass_signature_check) {
   // that is a property of Mailgun's protocol rather than something this template can verify away.
   // Consuming each token once would close it, but a hog template has no atomic store to consume
   // against, so the window below is the control: it is the only thing bounding how long a captured
-  // triple stays usable. Keep it tight. Downstream, the transformer keeps one row per event id
+  // triple stays usable, so keep it tight. Downstream, the transformer keeps one row per event id
   // within a batch and the table delta-merges on that id, so a straight replay of an unmodified
   // delivery is idempotent; only substituted event-data lands new rows.
   let timestampDelta := toInt(toUnixTimestamp(now())) - toInt(signature.timestamp)
