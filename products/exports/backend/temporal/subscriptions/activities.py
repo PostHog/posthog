@@ -61,7 +61,9 @@ LOGGER = get_logger(__name__)
 NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
 # Plain-English twin of NO_ASSETS_REASON for the delivery-history UI: "assets" and "export pipeline"
 # are internal jargon subscribers won't parse.
-NO_ASSETS_HUMAN_READABLE_REASON = "Nothing could be generated to send this time. We'll try again on the next scheduled run."
+NO_ASSETS_HUMAN_READABLE_REASON = (
+    "Nothing could be generated to send this time. We'll try again on the next scheduled run."
+)
 
 
 class NoExportableInsightsError(Exception):
