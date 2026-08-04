@@ -593,8 +593,80 @@
         },
       };
 
+      // ---------- section: kafka fleet ----------
+      const fleetSection = {
+        id: "fleet",
+        title: "Kafka fleet",
+        description:
+          "Producer health pushed by capture pods to the kafka-manager service: queue pressure, broker connectivity, and delivery failure rates per deployment.",
+        timers: [],
+        unmount() {
+          this.timers.forEach(clearInterval);
+          this.timers = [];
+        },
+        mount(root) {
+          const body = el("div", {}, el("div", { class: "empty" }, "Loading fleet view…"));
+          const fetchedAt = el("span", { class: "muted mono", style: "text-transform: none; letter-spacing: 0" });
+          this.ui = { body, fetchedAt };
+          root.append(
+            el("div", { class: "panel" },
+              el("h2", {}, "Reporting pods", fetchedAt,
+                el("button", { class: "small", onclick: () => this.refresh() }, "Refresh")),
+              body)
+          );
+          this.refresh();
+          this.timers.push(setInterval(() => this.refresh(), 15000));
+        },
+
+        async refresh() {
+          const { body, fetchedAt } = this.ui;
+          try {
+            const data = await fetchJSON("api/kafka-fleet");
+            fetchedAt.textContent = `fetched ${new Date().toLocaleTimeString()}`;
+            if (!data.deployments || !data.deployments.length) {
+              body.replaceChildren(el("div", { class: "empty" }, "No pods reporting. Capture pods publish here when CAPTURE_KAFKA_MANAGER_URL is set."));
+              return;
+            }
+            const fmtRatio = (r) => (r === null || r === undefined ? "–" : `${(r * 100).toFixed(2)}%`);
+            body.replaceChildren(
+              ...data.deployments.map((deployment) =>
+                el("div", {},
+                  el("h3", { class: "ns-head" },
+                    el("span", { class: "ns" }, deployment.deployment),
+                    el("span", {}, `${deployment.pods.length} pod${deployment.pods.length === 1 ? "" : "s"}`)),
+                  el("table", {},
+                    el("thead", {}, el("tr", {},
+                      el("th", {}, "pod"), el("th", {}, "last report"), el("th", {}, "queue fill"),
+                      el("th", {}, "brokers down"), el("th", {}, "failure ratio"), el("th", {}, "acks/s"),
+                      el("th", {}, "delivered"), el("th", {}, "failed"))),
+                    el("tbody", {}, deployment.pods.map((pod) => {
+                      const delivery = pod.delivery || {};
+                      const failed = (delivery.broker_error || 0) + (delivery.timed_out || 0) + (delivery.enqueue_error || 0);
+                      const failing = (pod.interval && pod.interval.failure_ratio > 0) || false;
+                      const stale = pod.seconds_since_report > 30;
+                      return el("tr", {},
+                        el("td", { class: "mono" }, pod.pod),
+                        el("td", {}, el("span", { class: `pill ${stale ? "warn" : "good"}` }, `${pod.seconds_since_report}s ago`)),
+                        el("td", { class: "mono" }, fmtRatio(pod.queue_fill_ratio)),
+                        el("td", {}, el("span", { class: `pill ${pod.brokers_down > 0 ? "warn" : "good"}` }, fmtInt(pod.brokers_down))),
+                        el("td", {}, el("span", { class: `pill ${failing ? "warn" : "good"}` }, fmtRatio(pod.interval && pod.interval.failure_ratio))),
+                        el("td", { class: "mono" }, pod.interval ? pod.interval.acks_per_second.toFixed(1) : "–"),
+                        el("td", { class: "mono" }, fmtInt(delivery.ok)),
+                        el("td", { class: "mono" }, fmtInt(failed)));
+                    }))
+                  )
+                )
+              )
+            );
+          } catch (e) {
+            fetchedAt.textContent = "";
+            body.replaceChildren(el("div", { class: "error-box" }, String(e)));
+          }
+        },
+      };
+
       // ---------- boot ----------
-      SECTIONS.push(lagSection, debugSection);
+      SECTIONS.push(lagSection, debugSection, fleetSection);
       const nav = document.getElementById("nav");
       for (const section of SECTIONS) {
         nav.append(el("span", { class: "nav-item", "data-id": section.id, onclick: () => navigate(section.id) }, section.title));

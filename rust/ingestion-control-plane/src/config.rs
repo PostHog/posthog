@@ -54,6 +54,12 @@ pub struct Config {
     #[envconfig(default = "ingestion-")]
     pub group_prefix: String,
 
+    /// Base URL of the kafka-manager service backing the "Kafka fleet" tool.
+    /// Unset (or empty) hides the tool's data behind a clear "not configured"
+    /// error instead of failing requests.
+    #[envconfig(from = "KAFKA_MANAGER_URL")]
+    pub kafka_manager_url: Option<String>,
+
     /// Topology (topics, groups, partitions) changes rarely; discovered
     /// targets are cached this long.
     #[envconfig(default = "300")]

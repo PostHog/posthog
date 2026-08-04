@@ -15,6 +15,10 @@ Discovers ingestion topics and consumer groups from the cluster by prefix (a gro
 
 Results are broken down per token (resolved to `team_id` via Postgres when `DATABASE_URL` is set), with events and distinct_ids nested under each token, plus a message-size distribution and header-flag counts. Analyses use a dedicated consumer group (`ingestion-control-plane-inspector`) and never touch the real group's offsets.
 
+### Kafka fleet
+
+Live producer-health view backed by the `kafka-manager` service (see `rust/kafka-manager`): capture pods push delivery outcome counts, producer queue pressure, and broker connectivity there; this tool reads its `/v1/fleet` snapshot through `GET /api/kafka-fleet` and renders per-deployment pod tables (staleness, queue fill, brokers down, last-interval failure ratio and throughput). Requires `KAFKA_MANAGER_URL`; unset disables the tool with a clear error.
+
 ### Consumer debug
 
 Lists live ingestion-consumer pods and serves the consumer's routing debug UI per pod at `/pods/<namespace>/<name>/` (static pods use the `static` pseudo-namespace), backed by a proxy to the pod's debug API (`/debug/state`, `/debug/load`, SSE `/debug/events`). The UI lives here; the consumer only exposes the JSON/SSE API (gated behind `DEBUG_UI_ENABLED` on the consumer side).
@@ -29,6 +33,7 @@ Lists live ingestion-consumer pods and serves the consumer's routing debug UI pe
 | `TOPIC_PREFIX` | `ingestion-` | Topics are discovered from cluster metadata by prefix |
 | `GROUP_PREFIX` | `ingestion-` | Consumer groups are discovered by prefix; a group maps to the topics it has committed offsets on |
 | `DISCOVERY_CACHE_TTL_SECS` | `300` | Discovered targets are cached; topology changes rarely |
+| `KAFKA_MANAGER_URL` | empty | Base URL of the kafka-manager service; empty disables the Kafka fleet tool |
 | `OVERVIEW_CACHE_TTL_SECS` | `15` | Overview scans are cached with single-flight refresh, bounding broker load from repeated requests |
 | `DATABASE_URL` | empty | Read replica; empty disables token → team resolution |
 | `ANALYSIS_MESSAGE_COUNT` | `10000` | Messages per analysis |

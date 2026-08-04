@@ -195,6 +195,45 @@ async fn cancel_analysis(
     }
 }
 
+/// Read-through to the kafka-manager's fleet snapshot. The body is passed
+/// along as opaque JSON so this service doesn't track the manager's schema;
+/// the UI renders whatever the manager reports.
+async fn get_kafka_fleet(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(base) = state
+        .config
+        .kafka_manager_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    else {
+        return Err(ApiError::unavailable(
+            "KAFKA_MANAGER_URL not set; the Kafka fleet tool is disabled",
+        ));
+    };
+
+    let url = format!("{}/v1/fleet", base.trim_end_matches('/'));
+    let response = state
+        .http
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| ApiError::upstream(format!("kafka-manager unreachable: {e}")))?;
+    if !response.status().is_success() {
+        return Err(ApiError::upstream(format!(
+            "kafka-manager returned {}",
+            response.status()
+        )));
+    }
+    let snapshot = response
+        .json()
+        .await
+        .map_err(|e| ApiError::upstream(format!("invalid kafka-manager response: {e}")))?;
+    Ok(Json(snapshot))
+}
+
 #[derive(Serialize)]
 struct PodsResponse {
     pods: Vec<DiscoveredPod>,
@@ -220,6 +259,7 @@ pub fn router(state: AppState) -> Router {
             get(get_analysis).delete(cancel_analysis),
         )
         .route("/api/pods", get(list_pods))
+        .route("/api/kafka-fleet", get(get_kafka_fleet))
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by
         // namespace + name so identical names across lanes cannot collide.

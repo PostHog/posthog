@@ -15,6 +15,7 @@ Losing this service loses telemetry, nothing else.
 
 - `POST /v1/health-reports` — one `HealthReport` (see `kafka-manager-types`) per pod per interval. Counters are cumulative since process start; the manager derives interval rates and detects restarts from counter resets.
 - `GET /v1/fleet` — JSON snapshot: per deployment, per pod — staleness, queue fill ratio, brokers down, last-interval failure ratio and throughput.
+  The ingestion-control-plane's "Kafka fleet" tool renders this snapshot (set `KAFKA_MANAGER_URL` there).
 - `/metrics`, `/_liveness`, `/_readiness`.
 
 ## Metrics
