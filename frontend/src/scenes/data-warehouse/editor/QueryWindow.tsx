@@ -30,7 +30,7 @@ import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/fro
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
-import { editorSizingLogic } from './editorSizingLogic'
+import { EMBEDDED_QUERY_PANE_HEIGHT_WITH_TREE, editorSizingLogic } from './editorSizingLogic'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
@@ -253,6 +253,7 @@ export function QueryWindow({
                         <ExpandDatabaseTreeButton
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
+                            mode={mode}
                         />
                         <RunButton
                             onRunQuery={onRunQuery}
@@ -375,12 +376,14 @@ export function QueryWindow({
 function ExpandDatabaseTreeButton({
     showDatabaseTree,
     onShowDatabaseTree,
+    mode,
 }: {
     showDatabaseTree: boolean
     onShowDatabaseTree: () => void
+    mode?: SQLEditorMode
 }): JSX.Element | null {
-    const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
-    const { toggleDatabaseTreeCollapsed } = useActions(editorSizingLogic)
+    const { isDatabaseTreeCollapsed, queryPaneHeight } = useValues(editorSizingLogic)
+    const { toggleDatabaseTreeCollapsed, queryPaneSetDesiredSize } = useActions(editorSizingLogic)
 
     if (showDatabaseTree && !isDatabaseTreeCollapsed) {
         return null
@@ -393,6 +396,11 @@ function ExpandDatabaseTreeButton({
             size="small"
             tooltip="Expand database schema panel"
             onClick={() => {
+                // An embedded editor is only as tall as its query pane, so the panel would open into a
+                // sliver. Give it a usable window once; the resizer still owns the height from here.
+                if (mode === SQLEditorMode.Embedded && queryPaneHeight < EMBEDDED_QUERY_PANE_HEIGHT_WITH_TREE) {
+                    queryPaneSetDesiredSize(EMBEDDED_QUERY_PANE_HEIGHT_WITH_TREE)
+                }
                 if (!showDatabaseTree) {
                     onShowDatabaseTree()
                     return
