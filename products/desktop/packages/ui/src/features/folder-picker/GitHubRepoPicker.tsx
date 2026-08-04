@@ -35,6 +35,7 @@ interface GitHubRepoPickerProps {
   onSearchQueryChange?: (value: string) => void;
   hasMore?: boolean;
   onLoadMore?: () => void;
+  triggerClassName?: string;
 }
 
 export function GitHubRepoPicker({
@@ -55,6 +56,7 @@ export function GitHubRepoPicker({
   onSearchQueryChange,
   hasMore: controlledHasMore,
   onLoadMore,
+  triggerClassName,
 }: GitHubRepoPickerProps) {
   const buttonSize = size === "2" ? "lg" : "sm";
   const buttonTextClass = size === "2" ? "text-[13px]" : "";
@@ -98,7 +100,7 @@ export function GitHubRepoPicker({
         variant="outline"
         disabled
         size={buttonSize}
-        className={buttonTextClass}
+        className={`${buttonTextClass} ${triggerClassName ?? ""}`}
       >
         <GithubLogo size={16} weight="regular" className="shrink-0" />
         Loading repos...
@@ -119,7 +121,7 @@ export function GitHubRepoPicker({
         variant="outline"
         disabled
         size={buttonSize}
-        className={buttonTextClass}
+        className={`${buttonTextClass} ${triggerClassName ?? ""}`}
       >
         <GithubLogo size={16} weight="regular" className="shrink-0" />
         No GitHub repos
@@ -137,7 +139,7 @@ export function GitHubRepoPicker({
             size={buttonSize}
             disabled
             aria-label="Repository"
-            className={`pointer-events-none min-w-0 max-w-full cursor-default justify-start disabled:opacity-100 ${buttonTextClass}`}
+            className={`pointer-events-none min-w-0 max-w-full cursor-default justify-start disabled:opacity-100 ${buttonTextClass} ${triggerClassName ?? ""}`}
           >
             <GithubLogo size={14} weight="regular" className="shrink-0" />
             <span className="min-w-0 truncate">{onlyRepo}</span>
@@ -181,7 +183,7 @@ export function GitHubRepoPicker({
             size={buttonSize}
             disabled={disabled}
             aria-label="Repository"
-            className={buttonTextClass}
+            className={`${buttonTextClass} ${triggerClassName ?? ""}`}
           >
             <GithubLogo size={14} weight="regular" className="shrink-0" />
             <span className="min-w-0 truncate">{value ?? placeholder}</span>
