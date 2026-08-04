@@ -395,16 +395,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
