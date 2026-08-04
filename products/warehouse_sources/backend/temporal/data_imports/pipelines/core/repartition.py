@@ -32,11 +32,12 @@ from structlog.types import FilteringBoundLogger
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    evolve_pyarrow_schema,
     normalize_column_name,
     realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import _purge_s3_prefix
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
@@ -47,9 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 # Coarse → fine. A datetime table that's OOMing steps one tier finer each repartition cycle.
 DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
@@ -386,6 +385,7 @@ async def _rewrite_into_temp(
     """
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
+    live_schema = await asyncio.to_thread(old_delta.schema)
 
     resolved: RepartitionTarget | None = None
     rows_written = 0
@@ -427,6 +427,14 @@ async def _rewrite_into_temp(
                 partition_keys=used_keys,
             )
 
+        # Align each batch against the live table's own declared schema before writing. Without
+        # this, whichever batch happens to build temp's schema on the first write fixes its
+        # nullability from what that one batch's data looked like. So if a column the live schema
+        # already declares non-nullable slips through with a real null (e.g. a source NOT NULL
+        # constraint later relaxed upstream), the write aborts with "declared as non-nullable but
+        # contains null values" partway through the rewrite. Every other Delta write path in this
+        # pipeline runs incoming data through this same alignment first, so the rewrite must too.
+        partitioned_table = evolve_pyarrow_schema(partitioned_table, live_schema)
         partitioned_table = realign_decimal_buffers(partitioned_table)
 
         await asyncio.to_thread(
@@ -447,7 +455,7 @@ async def _rewrite_into_temp(
 
 
 async def repartition_table_in_place(
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     logger: FilteringBoundLogger,
@@ -466,8 +474,8 @@ async def repartition_table_in_place(
     writers can never share one, and the claim is re-checked before every batch write and every
     destructive step (raising `RepartitionSupersededError` when a newer attempt has taken over).
     """
-    live_uri = await helper.get_table_uri()
-    storage_options = helper.get_storage_options()
+    live_uri = await table_ref.get_table_uri()
+    storage_options = table_ref.get_storage_options()
 
     async def ensure_claim() -> None:
         await _ensure_claim(schema, claim_token)
@@ -483,7 +491,7 @@ async def repartition_table_in_place(
     await ensure_claim()
 
     try:
-        old_delta = await helper.get_delta_table()
+        old_delta = await table_ref.get_delta_table()
     except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
         # Live's `_delta_log` is unreadable (an OOM-crashed merge or interrupted swap). If a swap was
         # already staged we can still recover from temp below; otherwise skip and let the import
@@ -504,7 +512,7 @@ async def repartition_table_in_place(
         # this same early return) and let the next sync bootstrap an empty table over the lost data.
         if resuming:
             return await _resume_swap_with_missing_live(
-                helper=helper,
+                table_ref=table_ref,
                 schema=schema,
                 target=target,
                 temp_uri=temp_uri,
@@ -631,7 +639,7 @@ async def repartition_table_in_place(
     await asyncio.to_thread(schema.stamp_last_repartition_at)
 
     # The cached delta-table object points at the pre-swap files; drop it so callers re-read live.
-    helper.get_delta_table.cache_clear()
+    table_ref.get_delta_table.cache_clear()
 
     await logger.ainfo(
         f"repartition: completed schema_id={schema.id} rows={rows_written} "
@@ -665,7 +673,7 @@ async def repartition_table_in_place(
 
 async def _resume_swap_with_missing_live(
     *,
-    helper: DeltaTableHelper,
+    table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     temp_uri: str,
@@ -716,7 +724,7 @@ async def _resume_swap_with_missing_live(
     await asyncio.to_thread(schema.clear_repartition_swap)
     await asyncio.to_thread(schema.clear_repartition_pending)
     await asyncio.to_thread(schema.stamp_last_repartition_at)
-    helper.get_delta_table.cache_clear()
+    table_ref.get_delta_table.cache_clear()
 
     await logger.ainfo(
         f"repartition: recovered from interrupted swap schema_id={schema.id} rows={expected_rows}",

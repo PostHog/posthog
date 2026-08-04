@@ -16,6 +16,8 @@ use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
+use common_ingestion_warnings::test_support::CollectingEmitter;
+use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_OTEL};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::overflow::OverflowLimiter;
@@ -128,6 +130,10 @@ struct TestClientOptions {
     // configs without `OVERFLOW_ENABLED=true` and exercises the no-op branch
     // of `stamp_overflow_reason`.
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    // Opt-in warnings emitter. `None` (default) matches deploys without
+    // `CAPTURE_INGESTION_WARNINGS_ENABLED` and exercises the no-op branch of
+    // every emit site.
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 }
 
 fn make_test_client(sink: &CapturingSink) -> TestClient {
@@ -189,10 +195,25 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,             // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,            // ai_events_overflow_enabled
-        None,             // ingestion_warning_emitter
+        options.ingestion_warning_emitter, // ingestion_warning_emitter
     );
 
     TestClient::new(app)
+}
+
+/// A client whose emit sites are live, plus the emitter to assert against.
+fn make_test_client_collecting_warnings(
+    sink: &CapturingSink,
+) -> (TestClient, Arc<CollectingEmitter>) {
+    let emitter = Arc::new(CollectingEmitter::default());
+    let client = make_test_client_with_options(
+        sink,
+        TestClientOptions {
+            ingestion_warning_emitter: Some(emitter.clone()),
+            ..Default::default()
+        },
+    );
+    (client, emitter)
 }
 
 const ENDPOINT: &str = "/i/v0/ai/otel";
@@ -610,6 +631,182 @@ async fn test_mixed_requests_only_emit_relevant_ai_spans() {
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event.event, "$ai_generation");
+}
+
+// The warning is the only feedback channel for this outcome: the OTLP contract
+// has no way to say "accepted, ingested nothing", so the exporter sees a 200.
+// Also proves the emit site is wired and that SDK attribution survives the trip
+// from resource attributes into the warning, neither of which a unit test on the
+// helper can catch.
+#[tokio::test]
+async fn all_spans_filtered_warns_and_still_returns_200() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![
+                    make_kv(
+                        "telemetry.sdk.name",
+                        any_value::Value::StringValue("opentelemetry-js".to_string()),
+                    ),
+                    make_kv(
+                        "telemetry.sdk.version",
+                        any_value::Value::StringValue("2.0.0".to_string()),
+                    ),
+                ],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    make_irrelevant_http_span(vec![9; 16], vec![8; 8]),
+                    make_irrelevant_http_span(vec![9; 16], vec![7; 8]),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+    assert!(sink.get_events().await.is_empty());
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::NoAiSpansIngested);
+    assert_eq!(emitted[0].source, CAPTURE_AI_OTEL);
+    assert_eq!(emitted[0].token, TOKEN);
+    assert_eq!(emitted[0].count, 2);
+    assert_eq!(
+        emitted[0].extra_details.get("rawSpanCount"),
+        Some(&json!(2))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("lib"),
+        Some(&json!("opentelemetry-js"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("libVersion"),
+        Some(&json!("2.0.0"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("path"),
+        Some(&json!("/i/v0/ai/otel"))
+    );
+}
+
+// Mixed batches are documented-expected (a framework exporting HTTP and AI spans
+// together), so warning on them would fire on correct usage. Pins that choice
+// against a future refactor that starts warning whenever anything is filtered.
+#[tokio::test]
+async fn mixed_batch_ingests_ai_spans_without_warning() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    make_irrelevant_http_span(vec![3; 16], vec![1; 8]),
+                    make_span(
+                        vec![3; 16],
+                        vec![2; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    ),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+    assert!(emitter.emitted().is_empty());
+}
+
+#[tokio::test]
+async fn too_many_ai_spans_warns_with_the_ai_stage() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+    let over_cap = 101;
+    let spans = (0..over_cap)
+        .map(|i| {
+            make_span(
+                vec![4; 16],
+                vec![i as u8; 8],
+                vec![],
+                1_704_067_200_000_000_000,
+                vec![make_kv(
+                    "gen_ai.operation.name",
+                    any_value::Value::StringValue("chat".to_string()),
+                )],
+            )
+        })
+        .collect();
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans,
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 400);
+    assert!(sink.get_events().await.is_empty());
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
+    assert_eq!(emitted[0].count, over_cap as u64);
+    assert_eq!(emitted[0].extra_details.get("stage"), Some(&json!("ai")));
+    assert_eq!(
+        emitted[0].extra_details.get("spanCount"),
+        Some(&json!(over_cap))
+    );
+    assert_eq!(emitted[0].extra_details.get("limit"), Some(&json!(100)));
+}
+
+// Attribution has to fall back to unknown here: the SDK identity lives inside
+// the body that failed to parse.
+#[tokio::test]
+async fn unparseable_body_warns_with_unknown_attribution() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(vec![0xff, 0xff, 0xff, 0xff])
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 400);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
+    assert_eq!(emitted[0].count, 1);
+    assert_eq!(
+        emitted[0].extra_details.get("format"),
+        Some(&json!("protobuf"))
+    );
+    assert_eq!(emitted[0].extra_details.get("lib"), Some(&json!("unknown")));
 }
 
 #[tokio::test]

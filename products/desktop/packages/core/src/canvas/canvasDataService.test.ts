@@ -103,4 +103,14 @@ describe("CanvasDataService.loadInsight", () => {
       makeService().loadInsight({ shortId: "nope" }),
     ).rejects.toThrow('Insight "nope" not found');
   });
+
+  it("rejects oversized insight results", async () => {
+    fetchInsightByShortId.mockResolvedValue(
+      insight({ results: Array.from({ length: 1_001 }, () => [1]) }),
+    );
+
+    await expect(
+      makeService().loadInsight({ shortId: "too-large" }),
+    ).rejects.toThrow("result limit");
+  });
 });

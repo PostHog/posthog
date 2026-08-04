@@ -1,7 +1,10 @@
 import type { CanvasNavIntent } from "@posthog/core/canvas/freeformSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
+import {
+  useCreateAndOpenDashboard,
+  useDashboard,
+} from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useFreeformChatStore } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
@@ -9,7 +12,7 @@ import {
   navigateToChannelTask,
 } from "@posthog/ui/router/navigationBridge";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
 /**
@@ -44,11 +47,13 @@ export function useCanvasNavigation(
 }
 
 /**
- * The home-canvas "Reset to default" affordance. Only a channel's home canvas has
- * a default template to reset to, so `isHomeCanvas` gates the button. `reset`
- * rebuilds it from the template (the host appends the regenerated source as a new
- * version and keeps the prior one for undo) and adopts the fresh head into the
- * thread via syncFromRecord, so the edit stays recoverable.
+ * The home-canvas "Reset to default" affordance. Only a channel's home canvas
+ * has a default template to reset to, so `isHomeCanvas` (from the canvas
+ * record's own flag) gates the button. `reset` regenerates the source
+ * server-side — the host publishes the template as a new head version and
+ * queues its rebuild — so afterwards it drops any version browse and refetches
+ * the record, version history, source, and build lifecycle. The prior version
+ * stays in history, so undo can still browse (and revert to) it.
  */
 export function useHomeCanvasReset(args: {
   channelId: string;
@@ -61,30 +66,24 @@ export function useHomeCanvasReset(args: {
 } {
   const { channelId, dashboardId, threadId } = args;
   const trpc = useHostTRPC();
-  const { channels } = useChannels();
-  const syncFromRecord = useFreeformChatStore((s) => s.syncFromRecord);
+  const queryClient = useQueryClient();
+  const { dashboard } = useDashboard(dashboardId);
+  const setBrowseVersion = useFreeformChatStore((s) => s.setBrowseVersion);
   const resetMutation = useMutation(
     trpc.dashboards.resetHomeCanvas.mutationOptions(),
   );
   const [isResetting, setIsResetting] = useState(false);
 
-  const isHomeCanvas = channels.some(
-    (c) => c.id === channelId && c.homeCanvasId === dashboardId,
-  );
+  const isHomeCanvas = dashboard?.isHome ?? false;
 
   const reset = useCallback(async () => {
     setIsResetting(true);
     try {
-      const record = await resetMutation.mutateAsync({ channelId });
-      syncFromRecord(threadId, {
-        code: record.code,
-        versions: record.versions,
-        currentVersionId: record.currentVersionId,
-        templateId: record.templateId,
-        context: record.context,
-      });
+      await resetMutation.mutateAsync({ channelId });
+      setBrowseVersion(threadId, null);
+      await invalidateCanvasLifecycle(queryClient, trpc, dashboardId);
       toast.success("Canvas reset to default", {
-        description: "Undo to restore your previous version.",
+        description: "Undo to browse your previous version.",
       });
     } catch (error) {
       toast.error("Couldn't reset canvas", {
@@ -93,7 +92,15 @@ export function useHomeCanvasReset(args: {
     } finally {
       setIsResetting(false);
     }
-  }, [channelId, threadId, resetMutation, syncFromRecord]);
+  }, [
+    channelId,
+    dashboardId,
+    threadId,
+    resetMutation,
+    setBrowseVersion,
+    queryClient,
+    trpc,
+  ]);
 
   return { isHomeCanvas, isResetting, reset };
 }
