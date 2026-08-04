@@ -27,6 +27,12 @@ logger = structlog.get_logger(__name__)
 
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
+# The override classifier runs on a reasoning model, which draws its reasoning from the
+# same token budget as the reply. The reply itself is one short JSON object; the headroom
+# is for the thinking in front of it, and a truncated turn reads as an unusable reply and
+# falls back to saved preferences.
+MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
+MODEL_OVERRIDE_MAX_TOKENS = 2048
 
 
 def classify_task_needs_repo(
@@ -389,10 +395,9 @@ def classify_slack_app_model_override(
     try:
         client = get_llm_client("slack_app_routing")
         response = client.chat.completions.create(
-            model=CLASSIFIER_MODEL,
+            model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=128,
-            temperature=0,
+            max_tokens=MODEL_OVERRIDE_MAX_TOKENS,
             response_format=_model_override_response_format(choices),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several
