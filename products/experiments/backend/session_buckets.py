@@ -581,7 +581,9 @@ def _query_bucket_sessions(
             # flag's value on each event rather than the exposure response.
             return variant_condition
         conditions = [
-            *build_exposure_event_conditions(experiment.exposure_criteria, team, flag_key, default_exposure_event),
+            *build_exposure_event_conditions(
+                experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
+            ),
             variant_condition,
         ]
         return ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0]

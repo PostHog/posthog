@@ -44,15 +44,17 @@ class TestGetExposureEventAndProperty:
                 EXPERIMENT_EXPOSURE_EVENT,
                 (None, "$feature/my-flag"),
             ),
-            # Callers that don't resolve keep the pre-rollout default.
-            (None, None, (DEFAULT_EXPOSURE_EVENT, "$feature_flag_response")),
+            # Callers that deliberately stay on the legacy event pass it explicitly.
+            (None, DEFAULT_EXPOSURE_EVENT, (DEFAULT_EXPOSURE_EVENT, "$feature_flag_response")),
         ],
     )
     def test_resolves_default_exposure_against_the_rollout_event(
         self, exposure_criteria, default_exposure_event, expected
     ):
-        kwargs = {} if default_exposure_event is None else {"default_exposure_event": default_exposure_event}
-        assert get_exposure_event_and_property("my-flag", exposure_criteria, **kwargs) == expected
+        assert (
+            get_exposure_event_and_property("my-flag", exposure_criteria, default_exposure_event=default_exposure_event)
+            == expected
+        )
 
 
 class TestNormalizeToExposureCriteria:
