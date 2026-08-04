@@ -3619,6 +3619,10 @@ When you mention a pull request in any reply or summary, always hyperlink it to 
 (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain
 text, so readers can open it directly.`;
 
+    const cloudFileLinkInstructions = `
+## Referencing repository files
+Cloud workspace paths such as \`/tmp/workspace/repos/...\` only exist inside the task sandbox and cannot be opened by the user. Never use them as Markdown link targets. When referencing a repository file, link to its GitHub blob URL at the checked-out commit or branch, with a \`#L<line>\` fragment when useful (for example, \`https://github.com/<owner>/<repo>/blob/<ref>/<path>#L42\`). Use uploaded artifact URLs for files the user needs to download.`;
+
     const shellEfficiencyInstructions = `
 ## Shell efficiency
 Optimize for the fewest shell round trips.
@@ -3665,7 +3669,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${cloudFileLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
       }
 
@@ -3686,7 +3690,7 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${cloudFileLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
@@ -3738,7 +3742,7 @@ ${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${cloudFileLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
@@ -3758,7 +3762,7 @@ ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${cloudFileLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
@@ -3788,7 +3792,7 @@ ${prFooter}
 
 Important:
 - Always create the PR as a draft. Do not ask for confirmation.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${signedCommitInstructions}${prLinkInstructions}${cloudFileLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
   }
 
