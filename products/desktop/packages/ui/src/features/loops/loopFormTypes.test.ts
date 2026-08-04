@@ -5,6 +5,7 @@ import {
   defaultLoopBehaviors,
   emptyLoopFormValues,
   formValuesToLoopWrite,
+  githubTriggerActionOptions,
   isAutoFixEnabled,
   isLoopFormValid,
   isTriggerDraftValid,
@@ -13,6 +14,7 @@ import {
   loopToFormValues,
   normalizeLoopFormValues,
   withAutoFix,
+  withGithubTriggerEvents,
 } from "./loopFormTypes";
 
 function scheduleTrigger(
@@ -117,13 +119,6 @@ describe("isTriggerDraftValid", () => {
       expected: true,
     },
     {
-      name: "github with a payload condition holding only separators",
-      trigger: githubTrigger({
-        filters: { payload: [{ path: "requested_team.slug", equals: " , " }] },
-      }),
-      expected: false,
-    },
-    {
       name: "api trigger",
       trigger: {
         key: "k3",
@@ -135,6 +130,54 @@ describe("isTriggerDraftValid", () => {
     },
   ])("$name → $expected", ({ trigger, expected }) => {
     expect(isTriggerDraftValid(trigger)).toBe(expected);
+  });
+});
+
+describe("githubTriggerActionOptions", () => {
+  it.each<[string, LoopSchemas.LoopGithubTriggerEventEnum[], string[]]>([
+    ["no events", [], []],
+    ["push has no actions", ["push"], []],
+    ["issue comments", ["issue_comment"], ["created", "edited", "deleted"]],
+    // One `actions` list is matched against every event on the trigger, so offering an action
+    // only some of them send would stop the others firing at all.
+    [
+      "two events share only some actions",
+      ["issues", "issue_comment"],
+      ["edited", "deleted"],
+    ],
+    ["anything paired with push", ["pull_request", "push"], []],
+  ])("%s", (_label, events, expected) => {
+    expect(githubTriggerActionOptions(events)).toEqual(expected);
+  });
+});
+
+describe("withGithubTriggerEvents", () => {
+  it("drops an action the newly selected events cannot all send", () => {
+    // Ticking a second event while `review_requested` is selected would otherwise leave a
+    // filter that no issue event can ever match, silently disabling it.
+    const config: LoopSchemas.LoopGithubTriggerConfig = {
+      github_integration_id: 7,
+      repository: "posthog/posthog",
+      events: ["pull_request"],
+      filters: { actions: ["review_requested", "closed"] },
+    };
+
+    const next = withGithubTriggerEvents(config, ["pull_request", "issues"]);
+
+    expect(next.filters?.actions).toEqual(["closed"]);
+  });
+
+  it("drops the filter key entirely when nothing survives", () => {
+    const config: LoopSchemas.LoopGithubTriggerConfig = {
+      github_integration_id: 7,
+      repository: "posthog/posthog",
+      events: ["pull_request"],
+      filters: { actions: ["review_requested"] },
+    };
+
+    expect(
+      withGithubTriggerEvents(config, ["push"]).filters,
+    ).not.toHaveProperty("actions");
   });
 });
 
@@ -236,31 +279,35 @@ describe("formValuesToLoopWrite", () => {
     expect(formValuesToLoopWrite(validFormValues()).context_target).toBeNull();
   });
 
-  it("splits an edited multi-value payload condition back into a list", () => {
-    // A condition authored over the API or MCP renders in one input as "a, b". Writing that
-    // display string back as a single literal would silently stop the trigger matching either.
+  it.each([
+    // Splitting this on the comma would widen the gate: a PR titled just "approved" would
+    // match a condition the author wrote as one exact title.
+    [
+      "a comma inside one value",
+      { path: "pull_request.title", equals: "release, approved" },
+      { path: "pull_request.title", equals: ["release, approved"] },
+    ],
+    [
+      "several values",
+      {
+        path: "requested_team.slug",
+        equals: ["team-security", " team-infra "],
+      },
+      {
+        path: "requested_team.slug",
+        equals: ["team-security", "team-infra"],
+      },
+    ],
+  ])("preserves %s in a payload condition", (_label, condition, expected) => {
     const write = formValuesToLoopWrite({
       ...validFormValues(),
-      triggers: [
-        githubTrigger({
-          filters: {
-            payload: [
-              {
-                path: "requested_team.slug",
-                equals: "team-security, team-infra",
-              },
-            ],
-          },
-        }),
-      ],
+      triggers: [githubTrigger({ filters: { payload: [condition] } })],
     });
 
     expect(
       (write.triggers?.[0].config as LoopSchemas.LoopGithubTriggerConfig)
         .filters?.payload,
-    ).toEqual([
-      { path: "requested_team.slug", equals: ["team-security", "team-infra"] },
-    ]);
+    ).toEqual([expected]);
   });
 
   it("carries trigger ids through so the backend updates in place", () => {

@@ -69,6 +69,89 @@ export function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
   return {};
 }
 
+/** The `action` values GitHub sends for each webhook event we subscribe to. Push carries no
+ * action at all. */
+const GITHUB_EVENT_ACTIONS: Record<
+  LoopSchemas.LoopGithubTriggerEventEnum,
+  string[]
+> = {
+  push: [],
+  pull_request: [
+    "opened",
+    "reopened",
+    "closed",
+    "synchronize",
+    "edited",
+    "ready_for_review",
+    "converted_to_draft",
+    "review_requested",
+    "review_request_removed",
+    "labeled",
+    "unlabeled",
+    "assigned",
+    "unassigned",
+  ],
+  issues: [
+    "opened",
+    "reopened",
+    "closed",
+    "edited",
+    "deleted",
+    "labeled",
+    "unlabeled",
+    "assigned",
+    "unassigned",
+    "pinned",
+    "unpinned",
+    "transferred",
+  ],
+  issue_comment: ["created", "edited", "deleted"],
+};
+
+/** Actions offerable for a set of events, which is their intersection rather than their union:
+ * one `filters.actions` list is matched against every event on the trigger, so an action only
+ * some of them can send would stop the others firing entirely. */
+export function githubTriggerActionOptions(
+  events: LoopSchemas.LoopGithubTriggerEventEnum[],
+): string[] {
+  if (events.length === 0) {
+    return [];
+  }
+  return events
+    .map((event) => GITHUB_EVENT_ACTIONS[event] ?? [])
+    .reduce((shared, actions) =>
+      shared.filter((action) => actions.includes(action)),
+    );
+}
+
+/** Sets the trigger's events, dropping any selected action the new set can't all send. Leaving
+ * a stale action behind would silently stop the newly ticked event from ever firing. */
+export function withGithubTriggerEvents(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+  events: LoopSchemas.LoopGithubTriggerEventEnum[],
+): LoopSchemas.LoopGithubTriggerConfig {
+  const offerable = githubTriggerActionOptions(events);
+  const actions = (config.filters?.actions ?? []).filter((action) =>
+    offerable.includes(action),
+  );
+  return withGithubTriggerFilters({ ...config, events }, { actions });
+}
+
+/** Applies a filter patch, dropping keys that end up empty so an untouched trigger doesn't
+ * grow `{actions: [], payload: []}` noise in its stored config. */
+export function withGithubTriggerFilters(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+  patch: Partial<LoopSchemas.LoopGithubTriggerFilters>,
+): LoopSchemas.LoopGithubTriggerConfig {
+  const merged = { ...config.filters, ...patch };
+  const filters = Object.fromEntries(
+    Object.entries(merged).filter(
+      ([, value]) => !Array.isArray(value) || value.length > 0,
+    ),
+  ) as LoopSchemas.LoopGithubTriggerFilters;
+  return { ...config, filters };
+}
+
 export function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
   const off = { enabled: false, events: [], params: {} };
   return { push: { ...off }, email: { ...off }, slack: { ...off } };
@@ -273,22 +356,16 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
   return true;
 }
 
-/** A condition holding several accepted values shows them comma-separated in the editor's
- * single input, so a comma is how the user writes and edits a multi-value condition. Splitting
- * here rather than in the input's `onChange` keeps typing a plain string: parsing per keystroke
- * turns "a," into ["a", ""] and re-renders a separator the user can't delete.
- *
- * The cost is that the editor cannot express a value containing a literal comma. Free-text
- * paths like `pull_request.title` and `requested_team.name` can hold one, and the API accepts
- * it, so a condition authored there reads as several values once someone edits that row here.
- * Matching a comma-bearing value is an API/MCP-only capability until this becomes a real
- * multi-value input rather than one string field. */
+/** Each accepted value is its own chip in the editor, never a delimited string. An earlier
+ * version split this field on commas, which both lost a value that legitimately contains one
+ * (`pull_request.title` is a matchable path) and quietly widened the gate: an exact condition
+ * of "release, approved" became two alternatives, so a PR titled just "approved" matched. */
 function payloadConditionValues(
   condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
 ): string[] {
   const values = Array.isArray(condition.equals)
     ? condition.equals
-    : condition.equals.split(",");
+    : [condition.equals];
   return values.map((value) => value.trim()).filter(Boolean);
 }
 

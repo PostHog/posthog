@@ -11,6 +11,8 @@ import {
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   Button,
+  Chip,
+  ChipClose,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -27,6 +29,8 @@ import {
   ItemMenuItem,
   ItemTitle,
   Switch,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@posthog/quill";
 import { CopyButton } from "@posthog/ui/features/agent-applications/components/CopyButton";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
@@ -37,7 +41,7 @@ import {
   systemTimezone,
 } from "@posthog/ui/primitives/timezone";
 import { Box, Checkbox, Flex, Text } from "@radix-ui/themes";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import {
   compileCronSchedule,
   DEFAULT_SCHEDULE_TIME,
@@ -47,8 +51,11 @@ import {
 import { nextScheduleRun } from "../loopDisplay";
 import {
   defaultLoopTriggerOfType,
+  githubTriggerActionOptions,
   isTriggerDraftValid,
   type LoopTriggerDraft,
+  withGithubTriggerEvents,
+  withGithubTriggerFilters,
 } from "../loopFormTypes";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 
@@ -570,6 +577,62 @@ const GITHUB_EVENT_OPTIONS: {
   },
 ];
 
+/** Each accepted value is a discrete chip, committed with Enter. A single delimited text field
+ * cannot represent a value that contains the delimiter, and GitHub payload fields we can match
+ * on (a PR title, a team name) legitimately contain commas. */
+function PayloadConditionValues({
+  values,
+  disabled,
+  onChange,
+}: {
+  values: string[];
+  disabled?: boolean;
+  onChange: (values: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const commit = () => {
+    const value = draft.trim();
+    if (value && !values.includes(value)) {
+      onChange([...values, value]);
+    }
+    setDraft("");
+  };
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-(--radius-2) border border-border px-1.5 py-1">
+      {values.map((value) => (
+        <Chip key={value} size="sm" className="max-w-full">
+          <span className="truncate">{value}</span>
+          <ChipClose
+            disabled={disabled}
+            aria-label={`Remove ${value}`}
+            onClick={() => onChange(values.filter((v) => v !== value))}
+          />
+        </Chip>
+      ))}
+      <input
+        value={draft}
+        disabled={disabled}
+        placeholder={values.length === 0 ? "team-security" : "Add value"}
+        aria-label="Condition value"
+        className="min-w-[80px] flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-gray-9"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+          if (event.key === "Backspace" && !draft && values.length > 0) {
+            onChange(values.slice(0, -1));
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 function GithubTriggerFields({
   config,
   disabled,
@@ -586,19 +649,16 @@ function GithubTriggerFields({
     const events = checked
       ? [...config.events, event]
       : config.events.filter((e) => e !== event);
-    onChange({ ...config, events });
+    onChange(withGithubTriggerEvents(config, events));
   };
 
+  const actionOptions = githubTriggerActionOptions(config.events);
   const conditions = config.filters?.payload ?? [];
 
   const setConditions = (
     next: LoopSchemas.LoopGithubTriggerPayloadFilter[],
   ) => {
-    const { payload: _dropped, ...rest } = config.filters ?? {};
-    onChange({
-      ...config,
-      filters: next.length > 0 ? { ...rest, payload: next } : rest,
-    });
+    onChange(withGithubTriggerFilters(config, { payload: next }));
   };
 
   const updateCondition = (
@@ -662,13 +722,42 @@ function GithubTriggerFields({
         </Flex>
       </SubField>
 
+      {actionOptions.length > 0 ? (
+        <SubField label="Actions">
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] text-gray-10">
+              Optional. Leave empty to run on every action.
+            </span>
+            <ToggleGroup
+              multiple
+              className="flex flex-wrap gap-1.5"
+              value={config.filters?.actions ?? []}
+              disabled={disabled}
+              onValueChange={(actions: string[]) =>
+                onChange(withGithubTriggerFilters(config, { actions }))
+              }
+            >
+              {actionOptions.map((action) => (
+                <ToggleGroupItem
+                  key={action}
+                  value={action}
+                  size="sm"
+                  variant="outline"
+                  className="text-[12px] data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                >
+                  {action}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        </SubField>
+      ) : null}
+
       <SubField label="Payload conditions">
         <div className="flex flex-col gap-2">
           <span className="text-[12px] text-gray-10">
-            Optional. Match fields in the GitHub payload to narrow things
-            further. Use <code>action</code> to run on one pull request action
-            only, and <code>requested_team.slug</code> for the team asked to
-            review. Separate several accepted values with commas.
+            Optional. Match any other field in the GitHub payload, like{" "}
+            <code>requested_team.slug</code> for the team asked to review.
           </span>
           {conditions.map((condition, index) => (
             <div
@@ -687,20 +776,14 @@ function GithubTriggerFields({
                 }
               />
               <span className="text-[12px] text-gray-10">is</span>
-              <Input
-                // Comma-separated when the condition accepts several values. The split
-                // happens on save, not per keystroke, so typing stays a plain string.
-                value={
+              <PayloadConditionValues
+                values={
                   Array.isArray(condition.equals)
-                    ? condition.equals.join(", ")
-                    : condition.equals
+                    ? condition.equals
+                    : [condition.equals].filter(Boolean)
                 }
                 disabled={disabled}
-                placeholder="team-security"
-                className="h-7 flex-1"
-                onChange={(event) =>
-                  updateCondition(index, { equals: event.target.value })
-                }
+                onChange={(equals) => updateCondition(index, { equals })}
               />
               <Button
                 variant="outline"
