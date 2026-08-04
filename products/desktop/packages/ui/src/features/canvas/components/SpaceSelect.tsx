@@ -52,9 +52,13 @@ export function SpaceSelect({
   // without re-sorting; #me leads because it's where an unfiled task goes.
   // An empty group is dropped rather than rendered as a bare heading.
   const groups = useMemo<SpaceGroup[]>(() => {
-    const starred = channels.filter(
-      (c) => c.channelType === "personal" || c.starred,
-    );
+    // #me is hoisted rather than left to the name sort, which would drop it
+    // below any starred space alphabetically ahead of it.
+    const personal = channels.filter((c) => c.channelType === "personal");
+    const starred = [
+      ...personal,
+      ...channels.filter((c) => c.channelType !== "personal" && c.starred),
+    ];
     const rest = channels.filter(
       (c) => c.channelType !== "personal" && !c.starred,
     );
@@ -106,8 +110,14 @@ export function SpaceSelect({
         <ComboboxInput placeholder="Search spaces..." showTrigger={false} />
         <ComboboxEmpty>No spaces found.</ComboboxEmpty>
         <ComboboxList className="max-h-[min(18rem,calc(var(--available-height,18rem)-5rem))]">
+          {/* `index` counts the groups Base UI actually renders, which drops
+              any whose items all filter out, so the rule leads each group
+              after the first rather than trailing every group but the last —
+              the trailing form strands a separator when the tail group is
+              filtered away. */}
           {(group: SpaceGroup, index: number) => (
             <ComboboxGroup key={group.value} items={group.items}>
+              {index > 0 && <ComboboxSeparator />}
               <ComboboxLabel>{group.value}</ComboboxLabel>
               <ComboboxCollection>
                 {(id: string) => {
@@ -126,7 +136,6 @@ export function SpaceSelect({
                   );
                 }}
               </ComboboxCollection>
-              {index < groups.length - 1 && <ComboboxSeparator />}
             </ComboboxGroup>
           )}
         </ComboboxList>

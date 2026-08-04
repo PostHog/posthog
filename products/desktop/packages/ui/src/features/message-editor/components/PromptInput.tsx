@@ -465,7 +465,11 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               onAttachFiles={onAttachFiles}
               onInsertChip={insertChip}
               onRemoveChip={removeChipById}
-              onInsertSlashCommand={insertSlashCommand}
+              // No `/` extension registered means the item would type a bare
+              // slash and open nothing, so it hides instead.
+              onInsertSlashCommand={
+                enableCommands ? insertSlashCommand : undefined
+              }
             />
             {onModeChange && (
               <ModeSelector
@@ -533,7 +537,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               button makes that width depend on what's in it. */}
           <div className="relative w-full">
             <div
-              style={{ paddingRight: submitClusterWidth }}
+              // Gated on the cluster existing rather than trusting the last
+              // measurement: the observer's cleanup can't clear the width, so
+              // a cluster that unmounts (slot-machine mode, then the adornment
+              // removed) would otherwise leave its gutter behind for good.
+              style={{
+                paddingRight:
+                  submitButton || submitAdornment ? submitClusterWidth : 8,
+              }}
               className={clsx(
                 "cli-editor-scroll relative min-h-[37px] w-full overflow-y-auto py-2 pl-2 text-[14px]",
                 editorHeight === "large" ? "max-h-[45vh]" : "max-h-[200px]",
