@@ -20,6 +20,11 @@ RETIRED_ROLE_KEYS = ("csm", "account_executive", "account_owner")
 class AccountProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Email domains owned by this account's company, used to match inbound
+    # touchpoints (calendar attendees, email senders) that don't resolve to a
+    # known person. Personal/free domains don't belong here.
+    email_domains: list[str] = []
+
     # External connections
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
