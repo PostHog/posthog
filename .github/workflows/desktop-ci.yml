@@ -60,8 +60,11 @@ jobs:
     # existing Desktop Tests Pass required check covers it.
     backend-coupling:
         name: Desktop backend coupling
-        # merge_group has no pull_request payload; the check already ran on the PR
-        if: github.event_name == 'pull_request'
+        # merge_group has no pull_request payload; the check already ran on the PR.
+        # trunk-merge/** is the same story for Trunk's merge queue: it opens a real
+        # PR batching several already-checked PRs, so a desktop PR riding along with
+        # an unrelated backend PR would fail a coupling that no author introduced.
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
