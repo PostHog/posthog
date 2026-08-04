@@ -188,7 +188,7 @@ export interface supportTicketSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
-    draftContent: JSONContent | string | null
+    draftContent: string | JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
     editingMessageId: string | null
@@ -216,7 +216,7 @@ export interface supportTicketSceneLogicValues {
     replyRecipientDescription: string
     sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
-    stashedDraftContent: JSONContent | string | null
+    stashedDraftContent: string | JSONContent | null
     stashedDraftIsPrivate: boolean
     status: TicketStatus | null
     tags: string[]
@@ -232,6 +232,15 @@ export interface supportTicketSceneLogicActions {
         value: true
     } // supportTicketsSceneLogic
     loadTags: () => any // tagsModel
+    cancelEditingMessage: () => {
+        value: true
+    }
+    clearEditingMessage: () => {
+        value: true
+    }
+    deleteMessage: (messageId: string) => {
+        messageId: string
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -354,33 +363,14 @@ export interface supportTicketSceneLogicActions {
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
     }
-    setDraftContent: (content: JSONContent | string | null) => {
-        content: JSONContent | string | null
+    setDraftContent: (content: string | JSONContent | null) => {
+        content: string | JSONContent | null
     }
     setDraftIsPrivate: (isPrivate: boolean) => {
         isPrivate: boolean
     }
     setDraftModeEnabled: (enabled: boolean) => {
         enabled: boolean
-    }
-    startEditingMessage: (message: ChatMessage) => {
-        message: ChatMessage
-    }
-    cancelEditingMessage: () => {
-        value: true
-    }
-    clearEditingMessage: () => {
-        value: true
-    }
-    stashDraftForEdit: (
-        content: JSONContent | string | null,
-        isPrivate: boolean
-    ) => {
-        content: JSONContent | string | null
-        isPrivate: boolean
-    }
-    deleteMessage: (messageId: string) => {
-        messageId: string
     }
     setHasMoreMessages: (hasMore: boolean) => {
         hasMore: boolean
@@ -420,6 +410,16 @@ export interface supportTicketSceneLogicActions {
     }
     setTicketUpdating: (updating: boolean) => {
         updating: boolean
+    }
+    startEditingMessage: (message: ChatMessage) => {
+        message: ChatMessage
+    }
+    stashDraftForEdit: (
+        content: string | JSONContent | null,
+        isPrivate: boolean
+    ) => {
+        content: string | JSONContent | null
+        isPrivate: boolean
     }
     submitAiReplyFeedback: (
         messageId: string,
@@ -546,7 +546,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
 
         // Draft message state (persists across tab switches)
-        setDraftContent: (content: JSONContent | string | null) => ({ content }),
+        setDraftContent: (content: string | JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
         setDraftModeEnabled: (enabled: boolean) => ({ enabled }),
@@ -554,7 +554,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         startEditingMessage: (message: ChatMessage) => ({ message }),
         cancelEditingMessage: true,
         clearEditingMessage: true,
-        stashDraftForEdit: (content: JSONContent | string | null, isPrivate: boolean) => ({ content, isPrivate }),
+        stashDraftForEdit: (content: string | JSONContent | null, isPrivate: boolean) => ({ content, isPrivate }),
         deleteMessage: (messageId: string) => ({ messageId }),
 
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
@@ -779,7 +779,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             },
         ],
         draftContent: [
-            null as JSONContent | string | null,
+            null as string | JSONContent | null,
             {
                 setDraftContent: (_, { content }) => content,
             },
@@ -804,7 +804,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             },
         ],
         stashedDraftContent: [
-            null as JSONContent | string | null,
+            null as string | JSONContent | null,
             {
                 stashDraftForEdit: (_, { content }) => content,
                 clearEditingMessage: () => null,
