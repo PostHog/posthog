@@ -165,6 +165,9 @@ def _parse_event(event: dict, internal_domain: str) -> dict | None:
         email = (attendee.get("email") or "").lower()
         if not email or "@" not in email or attendee.get("resource") or email in seen_emails:
             continue
+        # Rooms and shared calendars are invitees too, but they aren't people.
+        if email.endswith("group.calendar.google.com") or email.endswith("resource.calendar.google.com"):
+            continue
         seen_emails.add(email)
         participants.append(
             {
