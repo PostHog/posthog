@@ -1,11 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import {
-  buildPiExtensionResponse,
-  PiExtensionDialog,
-} from "./PiExtensionDialog";
+import { PiExtensionDialog } from "./PiExtensionDialog";
 import { PiExtensionStatuses, PiExtensionWidgets } from "./PiExtensionSurfaces";
+import { buildPiExtensionResponse } from "./piExtensionResponse";
 
 describe("Pi extension presenters", () => {
   it("builds matching response wire shapes", () => {

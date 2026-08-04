@@ -14,24 +14,7 @@ import {
   Textarea,
 } from "@posthog/quill";
 import { type FormEvent, useId, useRef, useState } from "react";
-
-export function buildPiExtensionResponse(
-  request: PiExtensionDialogRequest,
-  value: string | boolean,
-): RpcExtensionUIResponse {
-  if (request.method === "confirm") {
-    return {
-      type: "extension_ui_response",
-      id: request.id,
-      confirmed: value === true,
-    };
-  }
-  return {
-    type: "extension_ui_response",
-    id: request.id,
-    value: typeof value === "string" ? value : "",
-  };
-}
+import { buildPiExtensionResponse } from "./piExtensionResponse";
 
 interface PiExtensionDialogProps {
   request: PiExtensionDialogRequest;
