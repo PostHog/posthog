@@ -35,8 +35,8 @@ class TestMigrateHideWeekends(BaseTest):
         insight = Insight.objects.create(team=self.team, saved=True, query=query)
         call_command("migrate_hide_weekends", **command_kwargs)
         insight.refresh_from_db()
-        query = insight.query
-        return query["source"] if query.get("kind") == "InsightVizNode" else query
+        saved_query = insight.query or {}
+        return saved_query["source"] if saved_query.get("kind") == "InsightVizNode" else saved_query
 
     @parameterized.expand([("wrapped", True), ("bare", False)])
     def test_day_interval_simple_math_migrates_to_weekday_days_of_week(self, _name: str, wrapped: bool) -> None:
