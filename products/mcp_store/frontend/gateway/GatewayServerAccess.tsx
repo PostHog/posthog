@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSwitch, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { gatewayServerLogic } from './gatewayServerLogic'
-import { RemoveAllSharesButton, sharedByLabel, toProfileUser } from './gatewayUtils'
+import { AgentGrantScopeControl, RemoveAllSharesButton, sharedByOthersLabel, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
 
 /** Access section on the server detail. Team and connection controls are
@@ -84,8 +84,9 @@ export function GatewayAccessSection(): JSX.Element | null {
                     Agents · {serviceAccounts.length}
                 </div>
                 <div className="text-sm text-secondary mb-2">
-                    Sharing is personal. Only your agents use your {server.name} connection, and each teammate shares
-                    their own.
+                    You share your own {server.name} connection, and each teammate shares theirs. Pick whether an agent
+                    uses it only for your runs or for every agent run in this project. Teammates never get access to
+                    your connection.
                 </div>
                 {serviceAccountsLoading ? (
                     <div className="border border-dashed rounded p-3 text-sm text-secondary flex items-center gap-2">
@@ -100,7 +101,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                         {serviceAccounts.map((account) => {
                             const share = agentSharesByAccountId[account.id]
                             const sharedByOthers = share?.sharedByOthers ?? []
-                            const attribution = sharedByLabel(sharedByOthers)
+                            const attribution = share ? sharedByOthersLabel(share) : null
                             const sharedByYou = Boolean(share?.sharedByYou)
                             const needsConnection = !sharedByYou && server.your_connection === null
                             return (
@@ -112,6 +113,13 @@ export function GatewayAccessSection(): JSX.Element | null {
                                             <div className="text-xs text-secondary truncate">{attribution}</div>
                                         )}
                                     </div>
+                                    {sharedByYou && (
+                                        <AgentGrantScopeControl
+                                            accountId={account.id}
+                                            serverId={server.id}
+                                            scope={share.yourScope}
+                                        />
+                                    )}
                                     <LemonTag type={account.status === 'paused' ? 'warning' : 'success'} size="small">
                                         {account.status === 'paused' ? 'MCP paused' : 'MCP enabled'}
                                     </LemonTag>

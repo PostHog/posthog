@@ -45,8 +45,8 @@ export function McpServersSection(): JSX.Element {
                             You have not shared any MCP servers with Scout
                         </div>
                         <p className="text-xs text-secondary mt-0.5 mb-0">
-                            Share one of your connections in MCP server settings. Your scouts only use connections you
-                            shared yourself.
+                            Share one of your connections in MCP server settings. Your scouts can also use connections
+                            teammates shared to the team.
                         </p>
                     </div>
                 </div>
@@ -59,7 +59,9 @@ export function McpServersSection(): JSX.Element {
             )}
             {teammateScoutServers.length > 0 && (
                 <div className="border-t">
-                    <div className="px-3 py-2 text-xs text-secondary">Shared by teammates for their own scouts.</div>
+                    <div className="px-3 py-2 text-xs text-secondary">
+                        Shared to the team by teammates. Your scouts use these too.
+                    </div>
                     <div className="divide-y border-t">
                         {teammateScoutServers.map((server) => (
                             <ScoutServerRow key={`${server.id}-${server.shared_by.id}`} server={server} attributed />
@@ -96,16 +98,14 @@ function ScoutServerRow({
             <div className="min-w-0 flex-1">
                 <div className="font-medium text-sm text-default truncate">{server.name}</div>
                 {attributed ? (
-                    <div className="text-xs text-secondary truncate">Shared by {sharedBy}</div>
+                    <div className="text-xs text-secondary truncate">Shared to the team by {sharedBy}</div>
                 ) : (
                     server.description && <div className="text-xs text-secondary truncate">{server.description}</div>
                 )}
             </div>
-            {!attributed && (
-                <LemonTag type={state.tagType} size="small">
-                    {state.label}
-                </LemonTag>
-            )}
+            <LemonTag type={state.tagType} size="small">
+                {state.label}
+            </LemonTag>
         </div>
     )
 }

@@ -65,7 +65,10 @@ export interface scoutMcpServersLogicMeta {
             scoutServers: MCPServiceAccountServerApi[],
             currentUserId: number | null
         ) => MCPServiceAccountServerApi[]
-        readyScoutServers: (yourScoutServers: MCPServiceAccountServerApi[]) => MCPServiceAccountServerApi[]
+        readyScoutServers: (
+            yourScoutServers: MCPServiceAccountServerApi[],
+            teammateScoutServers: MCPServiceAccountServerApi[]
+        ) => MCPServiceAccountServerApi[]
         availableScoutServers: (
             readyScoutServers: MCPServiceAccountServerApi[],
             isScoutMcpAccessEnabled: boolean
@@ -118,9 +121,9 @@ export const scoutMcpServersLogic = kea<scoutMcpServersLogicType>([
                 ...(scoutAccount?.servers ?? []),
             ],
         ],
-        // A grant belongs to one member and a scout run mounts only the grants of the person it
-        // runs for, so a teammate's grant never backs the viewer's scouts. Readiness and setup
-        // below therefore look at the viewer's own grants alone. While the user is still loading
+        // A grant belongs to one member. A scout run mounts the grants of the person it runs for
+        // plus every team-scoped grant in the project, so a teammate's personal grant never backs
+        // the viewer's scouts but a teammate's team share does. While the user is still loading
         // neither partition can be attributed, so both stay empty rather than reading the
         // viewer's own grants as teammates'.
         yourScoutServers: [
@@ -131,12 +134,27 @@ export const scoutMcpServersLogic = kea<scoutMcpServersLogicType>([
         teammateScoutServers: [
             (s) => [s.scoutServers, s.currentUserId],
             (scoutServers: MCPServiceAccountServerApi[], currentUserId: number | null): MCPServiceAccountServerApi[] =>
-                currentUserId === null ? [] : scoutServers.filter((server) => server.shared_by.id !== currentUserId),
+                currentUserId === null
+                    ? []
+                    : scoutServers.filter((server) => server.shared_by.id !== currentUserId && server.scope === 'team'),
         ],
         readyScoutServers: [
-            (s) => [s.yourScoutServers],
-            (yourScoutServers: MCPServiceAccountServerApi[]): MCPServiceAccountServerApi[] =>
-                yourScoutServers.filter((server) => server.connection_state === 'ready'),
+            (s) => [s.yourScoutServers, s.teammateScoutServers],
+            (
+                yourScoutServers: MCPServiceAccountServerApi[],
+                teammateScoutServers: MCPServiceAccountServerApi[]
+            ): MCPServiceAccountServerApi[] => {
+                const yoursReady = yourScoutServers.filter((server) => server.connection_state === 'ready')
+                // A run's own grant for a server wins over a teammate's team share of the same
+                // server, so a server the viewer already shares must not be counted twice.
+                const yourServerIds = new Set(yoursReady.map((server) => server.id))
+                return [
+                    ...yoursReady,
+                    ...teammateScoutServers.filter(
+                        (server) => server.connection_state === 'ready' && !yourServerIds.has(server.id)
+                    ),
+                ]
+            },
         ],
         availableScoutServers: [
             (s) => [s.readyScoutServers, s.isScoutMcpAccessEnabled],

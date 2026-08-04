@@ -14,12 +14,19 @@ import {
     mcpGatewayServersList,
     mcpGatewayServersPartialUpdate,
     mcpGatewayServersSetTemplateEnabledCreate,
+    mcpGatewayServiceAccountsAccessCreate,
     mcpGatewayServiceAccountsList,
     mcpServerInstallationsInstallCustomCreate,
     mcpServerInstallationsInstallTemplateCreate,
     mcpServersList,
 } from '../generated/api'
-import type { GatewayMemberSummaryApi, MCPGatewayServerApi, MCPServerTemplateApi } from '../generated/api.schemas'
+import type {
+    GatewayMemberSummaryApi,
+    MCPAgentGrantScopeEnumApi,
+    MCPGatewayServerApi,
+    MCPServerTemplateApi,
+    MCPServiceAccountApi,
+} from '../generated/api.schemas'
 import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 jest.mock('../generated/api', () => ({
@@ -31,6 +38,7 @@ jest.mock('../generated/api', () => ({
     mcpGatewayServersList: jest.fn(),
     mcpGatewayServersPartialUpdate: jest.fn(),
     mcpGatewayServersSetTemplateEnabledCreate: jest.fn(),
+    mcpGatewayServiceAccountsAccessCreate: jest.fn(),
     mcpGatewayServiceAccountsList: jest.fn(),
     mcpServerInstallationsInstallCustomCreate: jest.fn(),
     mcpServerInstallationsInstallTemplateCreate: jest.fn(),
@@ -52,6 +60,9 @@ const mockServersPartialUpdate = mcpGatewayServersPartialUpdate as jest.MockedFu
 >
 const mockSetTemplateEnabled = mcpGatewayServersSetTemplateEnabledCreate as jest.MockedFunction<
     typeof mcpGatewayServersSetTemplateEnabledCreate
+>
+const mockAccessCreate = mcpGatewayServiceAccountsAccessCreate as jest.MockedFunction<
+    typeof mcpGatewayServiceAccountsAccessCreate
 >
 const mockServiceAccountsList = mcpGatewayServiceAccountsList as jest.MockedFunction<
     typeof mcpGatewayServiceAccountsList
@@ -121,6 +132,38 @@ function serverTemplate(overrides: Partial<MCPServerTemplateApi>): MCPServerTemp
         icon_domain: '',
         category: 'dev',
         ...overrides,
+    }
+}
+
+function serviceAccount(scope: MCPAgentGrantScopeEnumApi): MCPServiceAccountApi {
+    return {
+        id: 'account-id',
+        name: 'Scout agent',
+        description: '',
+        handle: 'posthog-scout',
+        agent_key: 'scout',
+        status: 'active',
+        server_ids: ['server-id'],
+        servers: [
+            {
+                id: 'server-id',
+                shared_by: {
+                    id: MOCK_DEFAULT_BASIC_USER.id,
+                    uuid: MOCK_DEFAULT_BASIC_USER.uuid,
+                    email: MOCK_DEFAULT_BASIC_USER.email,
+                    hedgehog_config: null,
+                },
+                scope,
+                name: 'Test server',
+                description: '',
+                icon_key: '',
+                icon_domain: '',
+                connection_state: 'ready',
+            },
+        ],
+        last_active_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
     }
 }
 
@@ -396,5 +439,24 @@ describe('mcpGatewayLogic', () => {
         })
         expect(logic.values.memberCount).toBe(101)
         expect(logic.values.members).toEqual([secondPageMember])
+    })
+
+    // The endpoint defaults an omitted scope back to personal, so a share sent without
+    // one silently demotes a team share.
+    it.each([
+        ['team' as const, 'team'],
+        [undefined, 'personal'],
+    ])('sends scope %s as %s when sharing a server with an agent', async (requested, expected) => {
+        mockAccessCreate.mockResolvedValue(serviceAccount(expected as MCPAgentGrantScopeEnumApi))
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess('account-id', 'server-id', true, requested)
+        }).toFinishAllListeners()
+
+        expect(mockAccessCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'account-id', {
+            gateway_server_id: 'server-id',
+            enabled: true,
+            scope: expected,
+        })
     })
 })

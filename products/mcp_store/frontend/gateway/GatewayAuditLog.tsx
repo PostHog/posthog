@@ -7,7 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { AuditCountsApi } from '../generated/api.schemas'
 import { AUDIT_PAGE_SIZE, AuditQuickFilter, gatewayAuditLogic } from './gatewayAuditLogic'
-import { DecisionTag, toProfileUser } from './gatewayUtils'
+import { DecisionTag, credentialOwnerLabel, toProfileUser } from './gatewayUtils'
 
 const FILTERS: { key: AuditQuickFilter; label: string; countKey: keyof AuditCountsApi }[] = [
     { key: 'all', label: 'All activity', countKey: 'all' },
@@ -64,10 +64,17 @@ export function GatewayAuditLog(): JSX.Element {
                         key: 'caller',
                         render: (_, row) =>
                             row.actor_service_account ? (
-                                <span className="flex items-center gap-1">
-                                    <IconSparkles />
-                                    {row.actor_service_account.name}
-                                </span>
+                                <div>
+                                    <span className="flex items-center gap-1">
+                                        <IconSparkles />
+                                        {row.actor_service_account.name}
+                                    </span>
+                                    {row.credential_owner && (
+                                        <div className="text-xs text-secondary">
+                                            {credentialOwnerLabel(row.credential_owner, row.grant_scope)}
+                                        </div>
+                                    )}
+                                </div>
                             ) : row.actor_user ? (
                                 <ProfilePicture user={toProfileUser(row.actor_user)} size="sm" showName />
                             ) : (

@@ -12,7 +12,13 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { ServerIcon } from '../scene/icons'
 import { gatewayAgentLogic } from './gatewayAgentLogic'
-import { DecisionTag, RemoveAllSharesButton, sharedByLabel } from './gatewayUtils'
+import {
+    AgentGrantScopeControl,
+    DecisionTag,
+    RemoveAllSharesButton,
+    credentialOwnerLabel,
+    sharedByOthersLabel,
+} from './gatewayUtils'
 import { agentServerAccessKey } from './mcpGatewayLogic'
 
 export const scene: SceneExport<(typeof gatewayAgentLogic)['props']> = {
@@ -80,8 +86,16 @@ export function GatewayAgentScene(): JSX.Element {
                     Shared servers{!allServersLoading && ` · ${sharedServerIds.size} of ${allServers.length}`}
                 </h3>
                 <div className="text-sm text-secondary">
-                    Sharing is personal. {account.name} uses your connection only when it runs for you.
+                    You share your own connections. A personal share lets {account.name} use one when it runs for you. A
+                    team share lets it use one for every {account.name} run in this project, including runs nobody
+                    started. Either way, teammates never get access to your connection.
                 </div>
+                {account.agent_key === 'support' && (
+                    <div className="text-sm text-secondary">
+                        Support replies often run without a person behind them. A personal share goes unused on those
+                        runs. A team share covers them.
+                    </div>
+                )}
                 <div className="border rounded divide-y">
                     {allServersLoading && allServers.length === 0 ? (
                         <div className="flex items-center gap-2 p-3 text-sm text-secondary">
@@ -92,7 +106,7 @@ export function GatewayAgentScene(): JSX.Element {
                             const share = sharesByServerId[server.id]
                             const sharedByYou = Boolean(share?.sharedByYou)
                             const sharedByOthers = share?.sharedByOthers ?? []
-                            const attribution = sharedByLabel(sharedByOthers)
+                            const attribution = share ? sharedByOthersLabel(share) : null
                             const shared = sharedServerIds.has(server.id)
                             const needsConnection = !sharedByYou && server.your_connection === null
                             return (
@@ -104,6 +118,13 @@ export function GatewayAgentScene(): JSX.Element {
                                             {sharedByYou ? `${server.tool_count} tools` : (attribution ?? 'Not shared')}
                                         </div>
                                     </div>
+                                    {sharedByYou && (
+                                        <AgentGrantScopeControl
+                                            accountId={account.id}
+                                            serverId={server.id}
+                                            scope={share.yourScope}
+                                        />
+                                    )}
                                     {shared && (
                                         <LemonButton
                                             size="xsmall"
@@ -154,7 +175,20 @@ export function GatewayAgentScene(): JSX.Element {
                             dataIndex: 'created_at',
                             render: (_, row) => <TZLabel time={row.created_at} />,
                         },
-                        { title: 'MCP server', dataIndex: 'server_name' },
+                        {
+                            title: 'MCP server',
+                            key: 'server',
+                            render: (_, row) => (
+                                <div>
+                                    <div>{row.server_name}</div>
+                                    {row.credential_owner && (
+                                        <div className="text-xs text-secondary">
+                                            {credentialOwnerLabel(row.credential_owner, row.grant_scope)}
+                                        </div>
+                                    )}
+                                </div>
+                            ),
+                        },
                         {
                             title: 'Tool',
                             dataIndex: 'tool_name',
