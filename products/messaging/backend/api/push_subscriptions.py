@@ -239,8 +239,9 @@ def push_subscriptions(request: Request):
                 request,
                 generate_exception_response(
                     "push_subscriptions",
-                    "A valid identity token is required for this device. Your backend must mint one for "
-                    "the signed-in user with the project's secret API key.",
+                    "A valid identity token is required for this device. Your backend must sign a "
+                    "short-lived token for the signed-in user with the key configured for this "
+                    "channel's identity verification.",
                     type="authentication_error",
                     code="identity_verification_failed",
                     status_code=status.HTTP_401_UNAUTHORIZED,
