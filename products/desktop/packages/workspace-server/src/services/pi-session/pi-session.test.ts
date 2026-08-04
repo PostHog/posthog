@@ -429,15 +429,33 @@ describe("PiSessionService extension UI", () => {
     );
     const abortController = new AbortController();
     await service.start({ taskId: "task-1", cwd: "/tmp", prompt: "hello" });
+    extensionHandlers[0]({
+      type: "extension_ui_request",
+      id: "startup-notification",
+      method: "notify",
+      message: "Ephemeral startup notification",
+    });
+    const startupRequest: PiExtensionEvent = {
+      type: "extension_ui_request",
+      id: "startup-extension",
+      method: "confirm",
+      title: "Continue?",
+      message: "Run the startup extension?",
+    };
+    extensionHandlers[0](startupRequest);
+
     const iterator = service
       .extensionEvents("task-1", abortController.signal)
       [Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: startupRequest,
+    });
+
     const firstEvent = iterator.next();
     const request: PiExtensionEvent = {
-      type: "extension_ui_request",
+      ...startupRequest,
       id: "extension-1",
-      method: "confirm",
-      title: "Continue?",
       message: "Run the extension?",
     };
     extensionHandlers[0](request);

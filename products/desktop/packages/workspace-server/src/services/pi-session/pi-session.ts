@@ -69,11 +69,15 @@ type PiSessionEvent = Parameters<Parameters<PiRpcClient["onEvent"]>[0]>[0];
 
 interface PiSessionEvents {
   event: { taskId: string; event: AgentConversationEvent };
-  extensionEvent: {
-    taskId: string;
-    event: PiExtensionEvent;
-    session: ManagedPiSession;
-  };
+}
+
+type PiExtensionDialogRequest = Extract<
+  PiExtensionEvent,
+  { method: "select" | "confirm" | "input" | "editor" }
+>;
+
+interface PiSessionExtensionEvents {
+  event: PiExtensionEvent;
 }
 
 interface ManagedPiSession {
@@ -86,7 +90,22 @@ interface ManagedPiSession {
   activeRequestCount: number;
   stopFailed: boolean;
   extensionEventsAbort: AbortController;
+  extensionEvents: TypedEventEmitter<PiSessionExtensionEvents>;
+  startupExtensionDialogs: PiExtensionDialogRequest[];
+  hasHadExtensionSubscriber: boolean;
   pid?: number;
+}
+
+function isPiExtensionDialogRequest(
+  event: PiExtensionEvent,
+): event is PiExtensionDialogRequest {
+  return (
+    event.type === "extension_ui_request" &&
+    (event.method === "select" ||
+      event.method === "confirm" ||
+      event.method === "input" ||
+      event.method === "editor")
+  );
 }
 
 const DEFAULT_PI_HOT_POOL_SIZE = 4;
@@ -388,15 +407,38 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       ? AbortSignal.any([signal, session.extensionEventsAbort.signal])
       : session.extensionEventsAbort.signal;
 
-    for await (const payload of this.toIterable("extensionEvent", {
-      signal: streamSignal,
-    })) {
-      if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
-        return;
+    if (streamSignal.aborted) {
+      return;
+    }
+
+    const liveEvents = session.extensionEvents
+      .toIterable("event", { signal: streamSignal })
+      [Symbol.asyncIterator]();
+    let nextLiveEvent = liveEvents.next();
+    await Promise.resolve();
+    session.hasHadExtensionSubscriber = true;
+
+    try {
+      for (const event of session.startupExtensionDialogs.splice(0)) {
+        if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
+          return;
+        }
+        yield piExtensionEventSchema.parse(event);
       }
-      if (payload.taskId === taskId && payload.session === session) {
-        yield piExtensionEventSchema.parse(payload.event);
+
+      while (true) {
+        const result = await nextLiveEvent;
+        if (result.done) {
+          return;
+        }
+        if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
+          return;
+        }
+        nextLiveEvent = liveEvents.next();
+        yield piExtensionEventSchema.parse(result.value);
       }
+    } finally {
+      await liveEvents.return?.();
     }
   }
 
@@ -565,6 +607,9 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       activeRequestCount: 0,
       stopFailed: false,
       extensionEventsAbort: new AbortController(),
+      extensionEvents: new TypedEventEmitter<PiSessionExtensionEvents>(),
+      startupExtensionDialogs: [],
+      hasHadExtensionSubscriber: false,
     };
 
     this.sessions.get(taskId)?.extensionEventsAbort.abort();
@@ -576,9 +621,17 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       this.emit("event", { taskId, event }),
     );
     runtime.onExtensionEvent?.((event) => {
-      if (this.sessions.get(taskId) === session) {
-        this.emit("extensionEvent", { taskId, event, session });
+      if (this.sessions.get(taskId) !== session) {
+        return;
       }
+      if (
+        !session.hasHadExtensionSubscriber &&
+        isPiExtensionDialogRequest(event)
+      ) {
+        session.startupExtensionDialogs.push(event);
+        return;
+      }
+      session.extensionEvents.emit("event", event);
     });
 
     return session;
