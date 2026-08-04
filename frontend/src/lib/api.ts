@@ -3533,28 +3533,44 @@ const api = {
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
+            let streamFinished = false
+            const handleConnectionError = (error: any): void => {
+                if (isAbortError(error)) {
+                    return
+                }
+                apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
+                onError(error)
+            }
 
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
                 openWhenHidden: true,
                 onopen: async (response) => {
+                    apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
+
                     if (!response.ok) {
-                        // Get server error message if available
                         let errorMessage = `HTTP ${response.status}`
+                        let errorData: any = null
                         try {
                             const errorText = await response.text()
                             if (errorText) {
                                 errorMessage = `HTTP ${response.status}: ${errorText}`
+                                try {
+                                    errorData = JSON.parse(errorText)
+                                    const serverMessage = errorData?.detail || errorData?.error || errorData?.message
+                                    if (typeof serverMessage === 'string') {
+                                        errorMessage = `HTTP ${response.status}: ${serverMessage}`
+                                    }
+                                } catch {
+                                    errorData = null
+                                }
                             }
                         } catch {
-                            // If we can't read the response, just use the status
+                            errorMessage = `HTTP ${response.status}`
                         }
 
-                        // Carry the real HTTP status so callers can classify the failure by status code
-                        // rather than string-matching the message (which misfires on transient/stream errors).
-                        const error = new Error(errorMessage) as Error & { status?: number }
-                        error.status = response.status
+                        const error = new ApiError(errorMessage, response.status, response.headers, errorData)
                         onError(error)
                         abortController.abort()
                         return
@@ -3564,8 +3580,10 @@ const api = {
                     try {
                         const data = JSON.parse(event.data)
                         if (data.type === 'complete') {
+                            streamFinished = true
                             onComplete()
                         } else if (data.type === 'error') {
+                            streamFinished = true
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
@@ -3575,9 +3593,15 @@ const api = {
                     }
                 },
                 onerror: (error) => {
-                    onError(error)
+                    handleConnectionError(error)
                 },
-            }).catch(onError)
+            }).then(() => {
+                if (!abortController.signal.aborted && !streamFinished) {
+                    handleConnectionError(
+                        new Error('Dashboard stream ended before loading finished. Refresh the page.')
+                    )
+                }
+            }, handleConnectionError)
 
             return () => abortController.abort()
         },

@@ -37,7 +37,7 @@ import {
 } from '@posthog/products-dashboards/frontend/widgets/error_tracking/applyWidgetIssueMetadataChange'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -1371,12 +1371,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
+                        if (!dashboard || typeof dashboard !== 'object' || typeof dashboard.id !== 'number') {
+                            throw new Error('Dashboard response was empty or invalid')
+                        }
+
                         return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null
                         }
-                        if (error.status === 403 && error.code === 'permission_denied') {
+                        if (isAccessDeniedError(error)) {
                             actions.setAccessDeniedToDashboard()
                         }
                         throw error
@@ -1768,11 +1772,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setAccessDeniedToDashboard: () => true,
+                loadDashboard: () => false,
+                loadDashboardStreaming: () => false,
+                loadDashboardSuccess: () => false,
+                loadDashboardMetadataSuccess: () => false,
             },
         ],
         dashboardFailedToLoad: [
             false,
             {
+                loadDashboard: () => false,
                 loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
                 // The stream auto-retries after transient errors; delivered metadata means it recovered,
@@ -3164,12 +3173,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         tileStreamingFailure: ({ error }) => {
-            // Only a genuine HTTP status from the stream's initial response should flip the scene.
-            // Transient network/stream errors carry no status, so a blip no longer masquerades as a
-            // missing dashboard — it surfaces as a toast instead of a hard "Dashboard not found".
+            // Only a genuine 404 response means the dashboard is missing. Stream errors can contain
+            // "404" in their message even when the dashboard still exists.
             if (error?.status === 404) {
                 actions.dashboardNotFound()
-            } else if (error?.status === 403) {
+            } else if (isAccessDeniedError(error)) {
                 actions.setAccessDeniedToDashboard()
             } else {
                 // Show error toast for other errors (500s, network issues, etc.)
