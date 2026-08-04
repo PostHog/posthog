@@ -26,9 +26,6 @@ A queue that batched several PRs onto one gate branch would break the one-PR ass
 shape above does — batching would need a new shape here, not a new rule at each call site.
 """
 
-# Branch-name prefixes a merge queue pushes its gate branches under.
-MERGE_QUEUE_BRANCH_PREFIXES: tuple[str, ...] = ("trunk-merge/", "gh-readonly-queue/")
-
 # Both shapes carry the source PR as a ``pr-<number>`` segment; the trailing separator ('/' before
 # Trunk's uuid, '-' before GitHub's sha) is what ends the digit run. ``[0-9]`` rather than ``\d``
 # keeps the pattern backslash-free, so it survives embedding in a HogQL string literal unescaped.
@@ -42,13 +39,6 @@ _SOURCE_PR_PATTERN = "^(?:trunk-merge/|gh-readonly-queue/[^/]+/)pr-([0-9]+)[/-]"
 # the fallback, so an unstamped branch would silently delete data rather than fail a filter.
 def _branch(column: str) -> str:
     return f"ifNull({column}, '')"
-
-
-def merge_queue_branch_expr(column: str) -> str:
-    """HogQL predicate: does ``column`` hold a merge-queue gate branch?"""
-    return (
-        "(" + " OR ".join(f"startsWith({_branch(column)}, '{prefix}')" for prefix in MERGE_QUEUE_BRANCH_PREFIXES) + ")"
-    )
 
 
 def source_pr_string_expr(column: str) -> str:
@@ -67,3 +57,16 @@ def source_pr_number_expr(column: str) -> str:
     ``pr_number``, so the two compose with a plain comparison instead of a null-guard.
     """
     return f"ifNull(accurateCastOrNull({source_pr_string_expr(column)}, 'Int64'), 0)"
+
+
+def merge_queue_branch_expr(column: str) -> str:
+    """HogQL predicate: does ``column`` hold a merge-queue gate branch?
+
+    Defined as "we resolved a source PR from it" rather than a cheaper prefix test, so recognizing a
+    gate branch and attributing one can never disagree. A prefix test would classify a branch the
+    pattern cannot resolve (a queue shape we don't know yet, a base branch containing a slash), and
+    that disagreement is destructive in one direction: the PR row is dropped from the curated source
+    while its runs keep pointing at it. Failing to recognize an exotic shape only leaves us the
+    cleanup we have today; misrecognizing one loses data.
+    """
+    return f"{source_pr_number_expr(column)} > 0"

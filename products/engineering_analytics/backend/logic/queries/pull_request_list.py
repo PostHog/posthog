@@ -60,6 +60,10 @@ _SELECT = f"""
 # round red and any not-yet-completed run marks it pending. Wall time is the round's earliest run
 # start to its latest completed run end (``updated_at`` is the end time the duration column uses).
 #
+# Merge-queue gate runs are excluded for the same reason as ``runs_by_pr``: a gate branch's head SHA
+# is a rebase the queue made, not a push. They are also the newest rounds a PR has (they happen at
+# merge time), so leaving them in would push the author's real pushes out of the capped window below.
+#
 # ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the scan to the most
 # recent N pushes per PR *in ClickHouse* (rows are ordered newest-first, so the cap keeps the newest),
 # rather than fetching every push and slicing in Python — a PR with hundreds of pushes never ships more
@@ -80,7 +84,7 @@ _PUSH_HISTORY_SELECT = """
             argMax(status, run_started_at) AS s,
             argMax(conclusion, run_started_at) AS c
         FROM __RUNS_SOURCE__ AS r
-        WHERE pr_number IN {pr_numbers}
+        WHERE pr_number IN {pr_numbers} AND NOT is_merge_queue
         GROUP BY repo_owner, repo_name, pr_number, head_sha, workflow_name
     )
     GROUP BY repo_owner, repo_name, pr_number, head_sha

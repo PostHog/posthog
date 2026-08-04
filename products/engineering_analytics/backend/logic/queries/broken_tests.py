@@ -25,9 +25,9 @@ isn't synced there is no job status at all, so those fingerprints fall through t
 
 ``blocking_merge_queue`` needs neither: it reads only the failure lines' branches. A merge queue
 runs the full suite on a gate branch carrying the PR rebased onto trunk, so a failure there is on a
-commit the PR's own CI already passed. Without this verdict those land as ``pr_only`` — a single
-gate branch is a single branch — which is exactly backwards for the one failure class the queue was
-installed to surface.
+commit the PR's own CI already passed. Without this verdict a gate-only failure ranks by its branch
+spread like any other — ``pr_only`` for a single merge attempt, ``flaky`` or ``novel_burst`` across
+several — which buries the one failure class the queue was installed to surface.
 """
 
 from datetime import datetime, timedelta
@@ -90,6 +90,7 @@ _FINGERPRINTS_SELECT = """
         uniqExactIf(branch, branch != '') AS branches,
         countIf(branch IN {default_branches}) AS master_hits,
         countIf(__MERGE_QUEUE_BRANCH__) AS merge_queue_hits,
+        countIf(branch != '' AND branch NOT IN {default_branches} AND NOT __MERGE_QUEUE_BRANCH__) AS pr_branch_hits,
         -- Aliased away from `repo`: HogQL binds a WHERE identifier to a matching SELECT alias, so
         -- `any(repo) AS repo` would make the `lower(repo)` filter below resolve to this aggregate and
         -- 500 with "aggregate function found in WHERE". Keep the alias distinct from the filtered column.
@@ -146,6 +147,7 @@ def _classify(
     *,
     master_hits: int,
     merge_queue_hits: int,
+    pr_branch_hits: int,
     age_hours: int,
     span_hours: int,
     branches: int,
@@ -170,11 +172,12 @@ def _classify(
     # Breaking trunk right now: hit the default branch and that job's latest run is still red.
     if master_hits > 0 and master_red:
         return BrokenTestState.BREAKING_MASTER
-    # Stopped a merge on a commit that had already passed the PR's own CI, and trunk is still clean —
-    # the semantic conflict the queue exists to catch. Gated on never having hit trunk so a
-    # broadly-failing test (which fails on gate branches too, just by breadth) still classifies by
-    # its trunk behavior instead of every flake landing here.
-    if merge_queue_hits > 0 and master_hits == 0:
+    # Stopped a merge on a commit that had already passed the PR's own CI — the semantic conflict the
+    # queue exists to catch. Gated on failing *only* there: the queue re-runs the full suite on every
+    # merge attempt, so an ordinary flake picks up gate hits by sheer breadth. Requiring no trunk and
+    # no PR-branch failures keeps this the "passed everywhere else, died at the gate" signal instead
+    # of a second home for flakes, which stay ranked by the shape they actually have.
+    if merge_queue_hits > 0 and master_hits == 0 and pr_branch_hits == 0:
         return BrokenTestState.BLOCKING_MERGE_QUEUE
     # New today and already spreading across branches, but not on trunk yet.
     if age_hours < _NOVEL_BURST_MAX_AGE_HOURS and branches >= _NOVEL_BURST_MIN_BRANCHES and master_hits == 0:
@@ -298,6 +301,7 @@ def query_broken_tests(
         branches,
         master_hits,
         merge_queue_hits,
+        pr_branch_hits,
         repo,
         latest_run_id,
         latest_branch,
@@ -308,6 +312,7 @@ def query_broken_tests(
         state = _classify(
             master_hits=master_hits,
             merge_queue_hits=merge_queue_hits,
+            pr_branch_hits=pr_branch_hits,
             age_hours=age_hours,
             span_hours=span_hours,
             branches=branches,

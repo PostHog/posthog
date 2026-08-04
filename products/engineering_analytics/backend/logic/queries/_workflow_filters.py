@@ -112,6 +112,7 @@ def run_scope_filter_clause(
         # "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
         # Merge-queue gate runs stay in this scope on purpose: a gate run is CI the PR paid for on
         # its way to landing, and the runs builder already credits it to that PR rather than to the
-        # throwaway PR the queue opened. ``is_merge_queue`` is what separates the two populations.
+        # throwaway PR the queue opened. To split the two populations, join ``ci_job_history``, which
+        # carries ``is_merge_queue``; the cost source does not expose it, only the branch it came from.
         return f"AND {branch_column} NOT IN ('master', 'main') AND {attributed_predicate}"
     return ""
