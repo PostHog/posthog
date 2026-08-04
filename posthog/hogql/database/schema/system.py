@@ -1138,6 +1138,64 @@ hog_functions: PostgresTable = PostgresTable(
     },
 )
 
+message_categories: PostgresTable = PostgresTable(
+    name="message_categories",
+    postgres_table_name="posthog_messagecategory",
+    access_scope="hog_flow",
+    description="Message categories recipients can opt out of; one row per category. Join its id against the keys of message_recipient_preferences.preferences.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Category UUID, used as the key in recipient preferences."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "key": StringDatabaseField(name="key", description="Stable category key used in the API, e.g. 'newsletter'."),
+        "name": StringDatabaseField(name="name", description="Display name of the category."),
+        "description": StringDatabaseField(name="description", description="Internal description of the category."),
+        "public_description": StringDatabaseField(
+            name="public_description", description="Description shown to recipients on the preferences page."
+        ),
+        "category_type": StringDatabaseField(
+            name="category_type", description="'marketing' (opt-out applies) or 'transactional'."
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            isolate_scope=True,
+            description="1 if the category has been deleted, 0 otherwise.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the category was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the category was last updated."),
+    },
+)
+
+message_recipient_preferences: PostgresTable = PostgresTable(
+    name="message_recipient_preferences",
+    postgres_table_name="posthog_messagerecipientpreference",
+    access_scope="hog_flow",
+    description="Messaging preferences per recipient; one row per recipient. The preferences map records opt-outs and opt-ins per message category.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Preference row UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "identifier": StringDatabaseField(
+            name="identifier", description="Recipient identifier, usually an email address."
+        ),
+        "preferences": StringJSONDatabaseField(
+            name="preferences",
+            description="JSON map of message category ID to 'OPTED_OUT' or 'OPTED_IN'. The key '$all' covers all marketing messages; other keys are message_categories ids.",
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            isolate_scope=True,
+            description="1 if the row has been deleted, 0 otherwise.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the recipient was first recorded."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", description="When the recipient's preferences last changed."
+        ),
+    },
+)
+
 
 def _notebook_content_or_empty_object_expr() -> ast.Expr:
     return ast.Call(name="ifNull", args=[ast.Field(chain=["content"]), ast.Constant(value="{}")])
@@ -2298,6 +2356,10 @@ class SystemTables(TableNode):
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "integrations": TableNode(name="integrations", table=integrations),
+        "message_categories": TableNode(name="message_categories", table=message_categories),
+        "message_recipient_preferences": TableNode(
+            name="message_recipient_preferences", table=message_recipient_preferences
+        ),
         "integration_repository_cache": TableNode(
             name="integration_repository_cache", table=integration_repository_cache
         ),
