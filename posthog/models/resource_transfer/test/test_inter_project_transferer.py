@@ -18,7 +18,7 @@ from posthog.models.scoping import team_scope
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
@@ -94,6 +94,18 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
         assert Dashboard in model_types
         assert Text in model_types
+        assert DashboardTile in model_types
+
+    def test_dashboard_button_tiles_reachable_via_m2m(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        button_tile = ButtonTile.objects.create(team=self.team, url="https://example.com", text="Click me")
+        DashboardTile.objects.create(dashboard=dashboard, button_tile=button_tile)
+
+        graph = list(build_resource_duplication_graph(dashboard, set()))
+        model_types = {v.model for v in graph}
+
+        assert Dashboard in model_types
+        assert ButtonTile in model_types
         assert DashboardTile in model_types
 
     def test_dashboard_with_widget_tile_includes_all_related_resources(self) -> None:
