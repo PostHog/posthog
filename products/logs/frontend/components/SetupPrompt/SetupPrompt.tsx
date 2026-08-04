@@ -125,6 +125,7 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                                 type="secondary"
                                 size="small"
                                 to={docsLink}
+                                targetBlank
                                 onClick={() => onDocsLinkClick(name)}
                                 icon={
                                     image ? (
