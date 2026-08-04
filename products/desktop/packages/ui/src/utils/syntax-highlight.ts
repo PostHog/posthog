@@ -130,6 +130,14 @@ const FENCE_LANGUAGE_MAP: Record<string, ParserFactory> = {
   svg: () => xml().language.parser,
   markdown: () => markdown().language.parser,
   md: () => markdown().language.parser,
+  // Shell languages — parsed via the JavaScript grammar for basic keyword,
+  // string, number, and comment highlighting.  No dedicated shell parser is
+  // available in the @codemirror/* suite, and the JS grammar catches the
+  // constructs that matter most (strings, interpolated vars, comments, flags).
+  bash: () => javascript({ jsx: false }).language.parser,
+  sh: () => javascript({ jsx: false }).language.parser,
+  shell: () => javascript({ jsx: false }).language.parser,
+  zsh: () => javascript({ jsx: false }).language.parser,
 };
 
 const parserCache = new Map<string, Parser>();
