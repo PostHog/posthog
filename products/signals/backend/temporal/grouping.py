@@ -328,7 +328,7 @@ None of these are reasons to split:
 - The signals surface in different pages, views, or systems but share one root cause or one remedy
 - The signals describe different symptoms of the same underlying behaviour
 
-When in doubt, keep them in one PR.
+When you are unsure, name the single change that would resolve every signal in the group. If you can name it, they belong in one PR. If you cannot, they belong apart.
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
