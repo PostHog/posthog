@@ -490,7 +490,16 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
-@shared_task(ignore_result=True, max_retries=1)
+@shared_task(
+    ignore_result=True,
+    # Auto-retry transient ClickHouse capacity errors with exponential backoff, matching the
+    # dynamic-cohort sibling calculate_cohort_ch. Without this, a brief capacity blip during
+    # the person_static_cohort insert leaves the static cohort permanently half-populated.
+    autoretry_for=CH_TRANSIENT_ERRORS,
+    retry_backoff=60,
+    retry_backoff_max=1800,
+    max_retries=6,
+)
 @skip_team_scope_audit
 def calculate_cohort_from_list(
     cohort_id: int,
@@ -508,14 +517,31 @@ def calculate_cohort_from_list(
     if team_id is None:
         team_id = cohort.team_id
 
-    if id_type == "distinct_id":
-        batch_count = cohort.insert_users_by_list(items, team_id=team_id)
-    elif id_type == "person_id":
-        batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
-    elif id_type == "email":
-        batch_count = cohort.insert_users_by_email(items, team_id=team_id, email_property_key=email_property_key)
-    else:
+    if id_type not in ("distinct_id", "person_id", "email"):
         raise ValueError(f"Unsupported id_type: {id_type}")
+
+    # raise_on_error surfaces a batch insert failure instead of swallowing it, so a transient
+    # capacity blip propagates and triggers the backed-off retry above. Retries are safe: the
+    # insert path dedupes members already in the cohort (ClickHouse excludes existing UUIDs, the
+    # InsertCohortMembers RPC dedupes on person id), so re-running the whole list adds no duplicates.
+    try:
+        if id_type == "distinct_id":
+            batch_count = cohort.insert_users_by_list(items, team_id=team_id, raise_on_error=True)
+        elif id_type == "person_id":
+            batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id, raise_on_error=True)
+        else:
+            batch_count = cohort.insert_users_by_email(
+                items, team_id=team_id, email_property_key=email_property_key, raise_on_error=True
+            )
+    except Exception as err:
+        # raise_on_error also hands terminal-state finalization to us, so record the failure —
+        # but only once retries are exhausted, otherwise a cohort still being retried would look
+        # errored and no longer calculating.
+        retries = (current_task.request.retries or 0) if current_task and current_task.request else 0
+        if retries >= calculate_cohort_from_list.max_retries or not isinstance(err, CH_TRANSIENT_ERRORS):
+            cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
+        raise
+
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
