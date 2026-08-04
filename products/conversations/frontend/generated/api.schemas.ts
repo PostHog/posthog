@@ -951,7 +951,7 @@ export interface PatchedTicketNoteUpdateRequestApi {
      * @maxLength 5000
      */
     message?: string
-    /** Optional TipTap rich content JSON for formatted messages. */
+    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
     rich_content?: unknown
 }
 

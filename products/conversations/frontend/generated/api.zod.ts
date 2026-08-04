@@ -267,7 +267,12 @@ export const ConversationsTicketsNotesPartialUpdateBody = /* @__PURE__ */ zod
             .max(conversationsTicketsNotesPartialUpdateBodyMessageMax)
             .optional()
             .describe('Updated note content in markdown.'),
-        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.'
+            ),
     })
     .describe('Payload for updating a private note on a ticket.')
 
