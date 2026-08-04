@@ -129,10 +129,14 @@ const getCdcSyncSupported = (
 export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema): boolean =>
     !schema.webhook_only && !!schema.xmin_available
 
-const getSaveDisabledReason = (
+export const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
-    appendField: string | null
+    appendField: string | null,
+    primaryKeyColumns: string[],
+    // False when the source resolves keys at sync time, or when the selector isn't rendered or is
+    // read-only, in which case blocking the save would demand something the user can't supply here.
+    primaryKeyRequired: boolean
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -140,6 +144,12 @@ const getSaveDisabledReason = (
 
     if (syncType === 'incremental' && !incrementalField) {
         return 'You must select an incremental field'
+    }
+
+    // Incremental merges on the primary key from the second sync onward, so a schema saved without
+    // one imports cleanly on the initial backfill and then fails every run after it.
+    if (syncType === 'incremental' && primaryKeyRequired && primaryKeyColumns.length === 0) {
+        return 'You must select a primary key, or use full table replication instead'
     }
 
     if (syncType === 'append' && !appendField) {
@@ -195,6 +205,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
 
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
+    // A primary key can only be demanded when the source reports keys authoritatively and the user
+    // can actually pick one here: the selector below renders only when the columns are known, and
+    // it's read-only once data has been synced.
+    const primaryKeyRequired = !!schema.primary_key_required && columns.length > 0 && !primaryKeyLocked
 
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
 
@@ -490,7 +504,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         {primaryKeyColumns.length === 0 &&
                                             !resolvedDetectedPks &&
                                             !primaryKeyLocked && (
-                                                <LemonBanner type="info" className="mt-2">
+                                                <LemonBanner
+                                                    type={primaryKeyRequired ? 'warning' : 'info'}
+                                                    className="mt-2"
+                                                >
                                                     No primary key could be auto-detected from the source. Select one
                                                     manually to enable incremental sync, or use full table replication
                                                     instead.
@@ -627,7 +644,13 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         return false
     })()
 
-    const validationDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    const validationDisabledReason = getSaveDisabledReason(
+        radioValue,
+        incrementalFieldValue,
+        appendFieldValue,
+        primaryKeyColumns,
+        primaryKeyRequired
+    )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
     const handleSave = (): void => {

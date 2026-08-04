@@ -209,6 +209,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
+    # `get_schemas` resolves `detected_primary_keys` from pg_catalog key constraints, so an empty
+    # value here means the table really has no key available for an incremental merge.
+    detects_primary_keys = True
 
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()

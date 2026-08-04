@@ -119,8 +119,13 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
 
     The update path also asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
-    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults.
+
+    `detects_primary_keys` needs the same treatment: truthy would both activate the incremental
+    primary-key gate and put an unserializable MagicMock in the database_schema payload. Tests that
+    want the gate active set it to True themselves."""
     mock_get_source.return_value.default_version = "v1"
+    mock_get_source.return_value.detects_primary_keys = False
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
     mock_get_source.return_value.connection_host_fields = []
@@ -4384,8 +4389,11 @@ class TestExternalDataSource(APIBaseTest):
             ("fallback_to_detected", None, ["id"], ["id"]),
             # User explicitly overrides — caller value wins, detected is ignored.
             ("explicit_wins_over_detected", ["custom_pk"], ["id"], ["custom_pk"]),
-            # Nothing detected and nothing provided — key omitted from sync_type_config
-            # entirely (preserves pre-existing behaviour for tables without a PK).
+            # Nothing detected and nothing provided: key omitted from sync_type_config entirely,
+            # leaving the sync to resolve one. Only valid because this mocked source leaves
+            # `detects_primary_keys` False; see
+            # test_create_rejects_incremental_without_primary_key_when_source_detects_keys for a
+            # source whose discovery is authoritative.
             ("both_absent_omits_key", None, None, None),
         ]
     )
@@ -4464,6 +4472,75 @@ class TestExternalDataSource(APIBaseTest):
             assert "primary_key_columns" not in schema.sync_type_config
         else:
             assert schema.sync_type_config["primary_key_columns"] == expected_persisted
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_rejects_incremental_without_primary_key_when_source_detects_keys(self, mock_get_source):
+        # An incremental schema with no key backfills fine and then fails every later run on the
+        # delta merge, so creation is refused up front. Only for sources whose discovery reports keys
+        # authoritatively: for the rest an empty key here is normal and the sync resolves one.
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.detects_primary_keys = True
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=True,
+                supports_append=True,
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.Timestamp,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.Timestamp,
+                    }
+                ],
+                detected_primary_keys=None,
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                            "primary_key_columns": None,
+                        },
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "events" in response.json()["message"]
+        assert "primary key" in response.json()["message"].lower()
+        # The half-built source must not survive a rejected payload.
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
 
     @parameterized.expand(
         [
@@ -5108,6 +5185,7 @@ class TestExternalDataSource(APIBaseTest):
                     "append_available": True,
                     "cdc_available": None,
                     "xmin_available": False,
+                    "primary_key_required": True,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -5186,6 +5264,7 @@ class TestExternalDataSource(APIBaseTest):
                     "append_available": True,
                     "cdc_available": None,
                     "xmin_available": False,
+                    "primary_key_required": True,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,

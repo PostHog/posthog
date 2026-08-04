@@ -157,6 +157,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # `True` only for sources whose `get_schemas` populates `SourceSchema.detected_primary_keys`
+    # by introspecting real key constraints, so an empty value means the table genuinely has no
+    # key. Sources built on a static endpoint catalog leave the field unset and supply keys at sync
+    # time through `SourceResponse.primary_keys` instead, so an empty value there says nothing about
+    # whether an incremental merge will resolve a key. Config-time primary key validation branches
+    # on this flag, because enforcing it for the other sources would reject configs that sync fine.
+    detects_primary_keys: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.

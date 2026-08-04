@@ -2380,6 +2380,40 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # source type. None for non-direct-capable sources.
         direct_engine_adapter = get_direct_query_engine(new_source_model.direct_engine)
 
+        # Incremental merges on the primary key from the second sync onward, so a schema created
+        # without one backfills successfully and then fails every subsequent run. Refuse up front
+        # instead of letting the caller discover it one full table load later. Resolution mirrors
+        # `effective_primary_key_columns` below so this sees exactly what would be persisted.
+        #
+        # Gated on `detects_primary_keys`: only sources that introspect real key constraints can be
+        # trusted when they report none. Endpoint-catalog sources leave `detected_primary_keys`
+        # unset and supply keys at sync time via `SourceResponse.primary_keys`, so blocking them
+        # here would reject configurations that sync fine.
+        if source.detects_primary_keys and new_source_model.supports_scheduled_sync:
+            detected_pks_by_name = {schema.name: schema.detected_primary_keys for schema in source_schemas}
+            incremental_tables_missing_pk = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "incremental"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                    and not (schema.get("primary_key_columns") or detected_pks_by_name.get(schema["name"]))
+                }
+            )
+            if incremental_tables_missing_pk:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "Incremental replication requires a primary key on each table. The following tables "
+                            f"have no primary key: {', '.join(incremental_tables_missing_pk)}. Choose a primary key "
+                            "for them, or use full table replication instead."
+                        )
+                    },
+                )
+
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
             sync_type = schema.get("sync_type")
@@ -3145,6 +3179,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
                 "xmin_available": schema.supports_xmin if xmin_capable else None,
+                # True only where discovery reports keys authoritatively, so an empty selection
+                # really does mean the incremental merge has nothing to key on. Other sources
+                # resolve keys at sync time, so the UI must not demand one from the user up front.
+                # `bool()` guards against test mocks whose attribute access returns a Mock — orjson
+                # can't serialize one.
+                "primary_key_required": bool(source.detects_primary_keys),
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,

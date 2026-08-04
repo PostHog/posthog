@@ -1,7 +1,7 @@
 import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { shouldOfferXmin } from './SyncMethodForm'
+import { getSaveDisabledReason, shouldOfferXmin } from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -32,5 +32,19 @@ describe('SyncMethodForm', () => {
 
     it('exposes a label for the xmin sync type', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
+    })
+
+    const missingPrimaryKey = 'You must select a primary key, or use full table replication instead'
+
+    it.each([
+        ['incremental with no primary key', 'incremental', [], true, missingPrimaryKey],
+        ['incremental with a primary key', 'incremental', ['id'], true, undefined],
+        ['incremental when the source resolves keys at sync time', 'incremental', [], false, undefined],
+        ['full refresh with no primary key', 'full_refresh', [], true, undefined],
+        ['append with no primary key', 'append', [], true, undefined],
+    ] as const)('save disabled reason: %s', (_, syncType, primaryKeyColumns, primaryKeyRequired, expected) => {
+        expect(
+            getSaveDisabledReason(syncType, 'updated_at', 'updated_at', [...primaryKeyColumns], primaryKeyRequired)
+        ).toBe(expected)
     })
 })

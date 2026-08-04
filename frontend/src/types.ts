@@ -6373,6 +6373,10 @@ export type SchemaIncrementalFieldsResponse = {
     detected_primary_keys: string[] | null
     cdc_available?: boolean
     xmin_available?: boolean
+    /** True only for sources whose discovery reports primary keys authoritatively (e.g. Postgres),
+     *  where an empty selection means the incremental merge has nothing to key on. Other sources
+     *  resolve keys at sync time, so the picker must not require one. */
+    primary_key_required?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6404,6 +6408,10 @@ export interface ExternalDataSourceSyncSchema {
     append_available: boolean
     cdc_available?: boolean
     xmin_available?: boolean
+    /** True only for sources whose discovery reports primary keys authoritatively (e.g. Postgres),
+     *  where an empty selection means the incremental merge has nothing to key on. Other sources
+     *  resolve keys at sync time, so the picker must not require one. */
+    primary_key_required?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks

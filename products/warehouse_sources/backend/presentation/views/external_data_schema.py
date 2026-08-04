@@ -94,6 +94,22 @@ def source_supports_row_filters(source_type: str) -> bool:
     return bool(source.supports_row_filters)
 
 
+def source_detects_primary_keys(source_type: str) -> bool:
+    """Whether this source's discovery reports primary keys authoritatively.
+
+    Only these sources can be validated for primary key presence at config time. Sources built on a
+    static endpoint catalog resolve keys at sync time instead, so an empty `primary_key_columns`
+    does not mean their incremental sync will fail. Unknown source types return False so validation
+    stays permissive rather than blocking a save it can't reason about.
+    """
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return bool(source.detects_primary_keys)
+
+
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
     "consolidated": frozenset({"consolidated"}),
     "cdc_only": frozenset({"cdc_history"}),
@@ -806,6 +822,22 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
                 payload["primary_key_columns"] = new_pk
 
+            # Incremental merges on the primary key from the second sync onward, so a schema saved
+            # without one backfills successfully and then fails every run after it. Enforced only
+            # when the caller explicitly sets sync_type, so that schemas already stuck in this state
+            # stay editable: an unrelated PATCH (sync_frequency, enabled_columns) on one of them
+            # must not start failing with an error about a field the caller never touched.
+            if (
+                "sync_type" in data
+                and resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                and not payload.get("primary_key_columns")
+                and source_detects_primary_keys(instance.source.source_type)
+            ):
+                raise ValidationError(
+                    f"Incremental replication requires a primary key on table '{instance.name}'. "
+                    "Choose a primary key for the table, or use full table replication instead."
+                )
+
             # Detect incremental field changes before mutating payload
             incremental_field_changed = False
             incremental_field = data.get("incremental_field")
@@ -927,19 +959,22 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
 
-        # Catches a CDC schema being flipped on later when sync_type isn't changing — the
-        # sync_type branch above doesn't run, so PK presence isn't enforced there.
+        # Catches a CDC or incremental schema being flipped on later when sync_type isn't changing —
+        # the sync_type branch above doesn't run, so PK presence isn't enforced there.
         effective_sync_type = sync_type or instance.sync_type
-        if (
-            should_sync is True
-            and not instance.should_sync
-            and effective_sync_type == ExternalDataSchema.SyncType.CDC
-            and not instance.primary_key_columns
-        ):
-            raise ValidationError(
-                f"CDC requires a primary key on table '{instance.name}'. "
-                "Add a primary key on the source table and retry."
-            )
+        if should_sync is True and not instance.should_sync and not instance.primary_key_columns:
+            if effective_sync_type == ExternalDataSchema.SyncType.CDC:
+                raise ValidationError(
+                    f"CDC requires a primary key on table '{instance.name}'. "
+                    "Add a primary key on the source table and retry."
+                )
+            if effective_sync_type == ExternalDataSchema.SyncType.INCREMENTAL and source_detects_primary_keys(
+                instance.source.source_type
+            ):
+                raise ValidationError(
+                    f"Incremental replication requires a primary key on table '{instance.name}'. "
+                    "Choose a primary key for the table, or use full table replication instead."
+                )
 
         # Switching sync type across the xmin boundary changes the physical Delta schema: xmin
         # force-projects a non-nullable `_ph_xmin` control column that no other sync type writes.
@@ -1710,12 +1745,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
-        xmin_available = (
-            schema.supports_xmin
-            if SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).supports_xmin
-            else None
-        )
+        xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
 
         data = {
             "incremental_fields": schema.incremental_fields,
@@ -1731,6 +1763,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for col_name, col_type, nullable in schema.columns
             ],
             "detected_primary_keys": schema.detected_primary_keys,
+            # True only where discovery reports keys authoritatively, so an empty selection really
+            # does mean the incremental merge has nothing to key on. Other sources resolve keys at
+            # sync time, so the UI must not demand one from the user up front.
+            # `bool()` guards against test mocks whose attribute access returns a Mock — orjson
+            # can't serialize one.
+            "primary_key_required": bool(source_impl.detects_primary_keys),
         }
 
         return Response(status=status.HTTP_200_OK, data=data)

@@ -120,6 +120,7 @@ class TestExternalDataSchema(APIBaseTest):
             "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
+            "primary_key_required": False,
         }
 
     @parameterized.expand(
@@ -335,6 +336,7 @@ class TestExternalDataSchema(APIBaseTest):
                 {"field": "id", "label": "id", "type": "integer", "nullable": True},
             ],
             "detected_primary_keys": ["id"],
+            "primary_key_required": True,
         }
 
     @parameterized.expand(
@@ -453,6 +455,9 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["xmin_available"] is expected_xmin_available
+        # Same source-capability gating decides whether the UI may require a primary key before
+        # allowing an incremental sync. Only Postgres discovery reports keys authoritatively.
+        assert response.json()["primary_key_required"] is (source_type == ExternalDataSourceType.POSTGRES)
 
     def test_incremental_fields_matches_schema_by_name(self):
         source = ExternalDataSource.objects.create(
@@ -1471,6 +1476,109 @@ class TestExternalDataSchema(APIBaseTest):
         assert "primary key" in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.should_sync is False
+
+    def _incremental_schema_without_primary_key(self, source: ExternalDataSource) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "timestamp"},
+        )
+
+    @parameterized.expand(
+        [
+            ("with_primary_key", {"primary_key_columns": ["id"]}, status.HTTP_200_OK),
+            ("without_primary_key", {}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_update_schema_to_incremental_requires_primary_key(self, _name, extra_data, expected_status):
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=self._xmin_postgres_source(),
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={},
+        )
+
+        # Any PATCH carrying sync_type runs the webhook-only probe, which calls the source's
+        # get_schemas over the network.
+        with self._xmin_discovery_patch():
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "sync_type": "incremental",
+                    "incremental_field": "updated_at",
+                    "incremental_field_type": "timestamp",
+                    **extra_data,
+                },
+            )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        else:
+            assert "primary key" in str(response.json()).lower()
+            assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_to_incremental_without_primary_key_allowed_when_source_resolves_keys_at_sync_time(self):
+        # Endpoint-catalog sources leave detected_primary_keys unset and supply keys from their
+        # static endpoint config at sync time, so a missing PK here is not a broken config. Blocking
+        # them would break onboarding for the whole family of sources built that way.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={},
+        )
+
+        with mock.patch.object(StripeSource, "get_schemas", return_value=[]):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
+    def test_update_schema_enable_should_sync_rejects_incremental_without_primary_key(self):
+        schema = self._incremental_schema_without_primary_key(self._xmin_postgres_source())
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"should_sync": True},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "primary key" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+    def test_update_schema_allows_unrelated_edit_on_incremental_without_primary_key(self):
+        # Schemas already stuck without a PK stay editable, so the owner can retune them or move
+        # them to full_refresh. Enforcing PK presence on every PATCH would reject edits that have
+        # nothing to do with the primary key.
+        schema = self._incremental_schema_without_primary_key(self._xmin_postgres_source())
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_frequency": "1hour"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(hours=1)
 
     @parameterized.expand(
         [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
