@@ -18,7 +18,7 @@ export function useRepoFileContent(
       { repoPath, filePath },
       {
         enabled,
-        staleTime: Number.POSITIVE_INFINITY,
+        staleTime: 0,
         gcTime: FILE_CONTENT_GC_MS,
       },
     ),
@@ -32,7 +32,7 @@ export function useAbsoluteFileContent(filePath: string, enabled: boolean) {
       { filePath },
       {
         enabled,
-        staleTime: Number.POSITIVE_INFINITY,
+        staleTime: 0,
         gcTime: FILE_CONTENT_GC_MS,
       },
     ),
