@@ -517,7 +517,9 @@ describe('supportTicketSceneLogic message sending', () => {
         initKeaTests()
         createMock.mockReset()
         listMock.mockReset().mockResolvedValue({ results: [] })
-        logic = supportTicketSceneLogic({ id: 42 })
+        // A distinct key from the other suites: they mount id 42 and leave its 5s message poll
+        // running, and those stray polls would otherwise reset this logic's message list.
+        logic = supportTicketSceneLogic({ id: 4242 })
         logic.mount()
         logic.actions.setTicket(makeTicket())
     })
@@ -575,6 +577,22 @@ describe('supportTicketSceneLogic message sending', () => {
 
         expect(createMock).toHaveBeenCalledTimes(1)
         expect(logic.values.messageSending).toBe(false)
+    })
+
+    // Flipping a failed public reply to a private note (or back) must not be swallowed as a
+    // replay of the message the operator no longer intends to send.
+    it('mints a fresh key when the draft switches between a reply and a private note', async () => {
+        createMock.mockRejectedValue(new ApiError('Failed to fetch', undefined))
+        await expectLogic(logic, () => send()).toFinishAllListeners()
+        const abandonedKey = logic.values.sendIdempotencyKey
+
+        logic.actions.setDraftIsPrivate(true)
+        expect(logic.values.sendIdempotencyKey).toBeNull()
+
+        createMock.mockReset().mockResolvedValue(makeSupportComment('msg-1'))
+        await expectLogic(logic, () => send()).toDispatchActions(['appendMessage'])
+
+        expect(sentKey()).not.toEqual(abandonedKey)
     })
 
     it('mints a fresh key once the draft changes', async () => {

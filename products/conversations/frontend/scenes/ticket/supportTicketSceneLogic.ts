@@ -783,9 +783,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as string | null,
             {
                 setSendIdempotencyKey: (_, { key }) => key,
-                // Editing the draft makes it a different message, so it must not reuse a key
-                // the server may already have stored against the previous text.
+                // Editing the draft or flipping it between reply and private note makes it a
+                // different message, so it must not reuse a key the server may already have
+                // stored against the previous send.
                 setDraftContent: () => null,
+                setDraftIsPrivate: () => null,
             },
         ],
         draftContent: [
