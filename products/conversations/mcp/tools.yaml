@@ -157,6 +157,9 @@ tools:
     conversations-views-create:
         operation: conversations_views_create
         enabled: false
+    conversations-views-default-retrieve:
+        operation: conversations_views_default_retrieve
+        enabled: false
     conversations-views-destroy:
         operation: conversations_views_destroy
         enabled: false
