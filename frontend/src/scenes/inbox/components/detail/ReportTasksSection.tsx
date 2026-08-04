@@ -2,18 +2,19 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconChevronDown, IconChevronRight, IconExternal, IconTerminal } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
-import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
+import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
 import { DetailSection } from './DetailSection'
+import { RunLogContainer } from './RunLogContainer'
 
 /**
  * Renders the report's linked tasks inline (latest status + purpose). Each row expands in place to
@@ -28,9 +29,9 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
     if (reportTasksLoading && !reportTasks) {
         return (
             <DetailSection icon={<IconTerminal />} title="Runs" collapsible>
-                <div className="flex items-center gap-2 text-xs text-tertiary py-1">
-                    <Spinner className="size-3" />
-                    Loading runs…
+                <div className="flex flex-col gap-2 py-1">
+                    <LemonSkeleton className="h-8 w-full" />
+                    <LemonSkeleton className="h-8 w-full" />
                 </div>
             </DetailSection>
         )
@@ -86,7 +87,7 @@ function TaskRow({
                     ) : (
                         <IconChevronRight className="shrink-0 text-tertiary" />
                     )}
-                    <TaskRunStatusDot status={status} />
+                    <RunStatusIndicator variant={resolveRunVariant(status)} showLabel={false} />
                     <span className="truncate text-secondary">{purposeLabel}</span>
                 </button>
                 <Link
@@ -107,7 +108,7 @@ function TaskRow({
                         // The viewer's virtualized thread owns scroll, so this box only bounds the height and
                         // clips — an `overflow-y-auto` here would nest a second scrollbar. Content is kept off
                         // the border via `threadRowClassName`/`threadListClassName`, not padding on this box.
-                        <div className="h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
+                        <RunLogContainer>
                             <ReadonlyRunSurface
                                 taskId={task.id}
                                 runId={runId}
@@ -115,10 +116,10 @@ function TaskRow({
                                 threadRowClassName="px-3"
                                 threadListClassName="py-3"
                             />
-                        </div>
+                        </RunLogContainer>
                     ) : (
                         <div className="rounded border border-primary bg-surface-primary px-3 py-2.5 text-xs text-secondary leading-snug">
-                            This run hasn’t started yet – its agent log will appear here once it does.
+                            This run hasn't started yet. Its agent log will appear here once it does.
                         </div>
                     )}
                 </div>
