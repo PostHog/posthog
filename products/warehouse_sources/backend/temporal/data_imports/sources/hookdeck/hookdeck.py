@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -27,6 +28,64 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.s
 class HookdeckResumeConfig:
     # Opaque `pagination.next` cursor pointing at the page after the last one yielded.
     next_cursor: str
+
+
+REDACTED = "***redacted***"
+
+# Nested containers Hookdeck nests auth/verification secrets under. The whole value is masked:
+# connections embed the full source and destination objects, so matching by container name reaches
+# those embedded secrets at any depth without having to enumerate every per-type inner field.
+_SECRET_CONTAINER_KEYS = frozenset({"auth", "auth_method", "verification"})
+
+# Secret-bearing leaf keys that can sit directly in a destination/source config (e.g. an AWS or GCP
+# destination) rather than inside one of the auth containers above. Curated to unambiguously
+# credential names so non-secret fields on these rows survive.
+_SECRET_LEAF_KEYS = frozenset(
+    {
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "api_key",
+        "apikey",
+        "password",
+        "secret_access_key",
+        "access_key_id",
+        "webhook_secret_key",
+        "signing_secret",
+        "private_key",
+        "authorization",
+    }
+)
+
+
+def _redact_secrets(value: Any) -> Any:
+    """Mask credential-bearing fields in a Hookdeck row before it lands in a warehouse table.
+
+    Destination auth, source verification and transformation `env` values are all secrets a reader
+    of the resulting table would otherwise recover without holding the Hookdeck API key.
+    """
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            lowered = key.lower()
+            if item is None:
+                redacted[key] = None
+            elif lowered in _SECRET_CONTAINER_KEYS or lowered in _SECRET_LEAF_KEYS:
+                redacted[key] = REDACTED
+            elif lowered == "env" and isinstance(item, dict):
+                # Transformation env names are user-chosen and not secret; only the values are.
+                redacted[key] = dict.fromkeys(item, REDACTED)
+            else:
+                redacted[key] = _redact_secrets(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_secrets(item) for item in value]
+    return value
+
+
+def _redact_pages(pages: Iterable[Any]) -> Iterator[Any]:
+    for page in pages:
+        yield [_redact_secrets(row) for row in page] if isinstance(page, list) else _redact_secrets(page)
 
 
 def base_url(api_version: str) -> str:
@@ -178,10 +237,13 @@ def hookdeck_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    # Endpoints whose rows embed auth/verification secrets get masked before the rows are written,
+    # so a reader of the warehouse table can't recover credentials without the Hookdeck key.
+    items = _redact_pages(resource) if config.contains_credentials else resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=lambda: items,
         primary_keys=config.primary_keys,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,

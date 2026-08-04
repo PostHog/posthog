@@ -10,8 +10,10 @@ import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck import (
+    REDACTED,
     HookdeckResumeConfig,
     _format_datetime,
+    _redact_secrets,
     base_url,
     build_params,
     hookdeck_source,
@@ -298,6 +300,68 @@ class TestHookdeckPagination:
 
         with pytest.raises(requests.HTTPError):
             _rows(_source("events", _make_manager()))
+
+
+class TestHookdeckRedaction:
+    @pytest.mark.parametrize(
+        "row, expected",
+        [
+            # Destination auth_method container masked wholesale; benign fields survive.
+            (
+                {
+                    "id": "des_1",
+                    "name": "prod",
+                    "config": {"url": "https://x", "auth_method": {"type": "BEARER", "config": {"token": "sk_live"}}},
+                },
+                {"id": "des_1", "name": "prod", "config": {"url": "https://x", "auth_method": REDACTED}},
+            ),
+            # Source verification container masked.
+            (
+                {"id": "src_1", "verification": {"type": "HMAC", "configs": {"webhook_secret_key": "whsec"}}},
+                {"id": "src_1", "verification": REDACTED},
+            ),
+            # Transformation env values masked but the (non-secret) names kept.
+            (
+                {"id": "trs_1", "code": "return x", "env": {"API_KEY": "secret", "REGION": "us"}},
+                {"id": "trs_1", "code": "return x", "env": {"API_KEY": REDACTED, "REGION": REDACTED}},
+            ),
+            # Connection embeds full source and destination objects — nested secrets reached at depth.
+            (
+                {
+                    "id": "con_1",
+                    "source": {"verification": {"configs": {"api_key": "k"}}},
+                    "destination": {"auth": {"password": "p"}},
+                },
+                {"id": "con_1", "source": {"verification": REDACTED}, "destination": {"auth": REDACTED}},
+            ),
+            # Secret leaf keys sitting directly in a config are masked; None is left intact.
+            (
+                {"config": {"access_key_id": "AKIA", "secret_access_key": "abc", "region": None}},
+                {"config": {"access_key_id": REDACTED, "secret_access_key": REDACTED, "region": None}},
+            ),
+        ],
+    )
+    def test_redacts_credential_bearing_fields(self, row: dict[str, Any], expected: dict[str, Any]) -> None:
+        assert _redact_secrets(row) == expected
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_credential_endpoint_rows_are_redacted_end_to_end(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "des_1", "auth_method": {"config": {"token": "sk_live"}}}], None)])
+
+        rows = _rows(_source("destinations", _make_manager()))
+
+        assert rows == [{"id": "des_1", "auth_method": REDACTED}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_credential_endpoint_rows_pass_through_untouched(self, MockSession) -> None:
+        # `events` isn't flagged as credential-bearing, so an auth-shaped key must not be masked.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "evt_1", "auth_method": {"config": {"token": "kept"}}}], None)])
+
+        rows = _rows(_source("events", _make_manager()))
+
+        assert rows == [{"id": "evt_1", "auth_method": {"config": {"token": "kept"}}}]
 
 
 class TestHookdeckSourceResponse:

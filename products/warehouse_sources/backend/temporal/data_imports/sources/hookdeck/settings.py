@@ -42,6 +42,11 @@ class HookdeckEndpointConfig:
     partition_key: Optional[str] = "created_at"
     default_incremental_lookback_seconds: Optional[int] = None
     description: Optional[str] = None
+    # Rows from this endpoint can carry auth/verification secrets (destination auth, source
+    # verification, transformation `env`, and the source/destination objects connections embed).
+    # When set, those nested fields are masked before rows are written to the warehouse so a reader
+    # of the table can't recover credentials they don't have the Hookdeck key for.
+    contains_credentials: bool = False
 
 
 HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
@@ -81,26 +86,32 @@ HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
         name="connections",
         path="/connections",
         description="Routes that tie a source to a destination, with the rules (retry, filter, transform, delay) applied in between",
+        # Embeds the full source and destination objects, including their auth/verification config.
+        contains_credentials=True,
     ),
     "sources": HookdeckEndpointConfig(
         name="sources",
         path="/sources",
         description="Inbound endpoints that receive webhooks from a provider, with their URL, type and verification config",
+        contains_credentials=True,
     ),
     "destinations": HookdeckEndpointConfig(
         name="destinations",
         path="/destinations",
         description="Endpoints Hookdeck delivers events to, with their type and delivery config",
+        contains_credentials=True,
     ),
     "transformations": HookdeckEndpointConfig(
         name="transformations",
         path="/transformations",
         description="JavaScript transformations that rewrite an event before it is delivered",
+        contains_credentials=True,
     ),
     "issue_triggers": HookdeckEndpointConfig(
         name="issue_triggers",
         path="/issue-triggers",
         description="Rules that decide when a delivery, transformation, backpressure or request failure is raised as an issue, and where it is notified",
+        contains_credentials=True,
     ),
     "bookmarks": HookdeckEndpointConfig(
         name="bookmarks",
