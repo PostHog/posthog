@@ -469,4 +469,26 @@ describe('app onError', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1)
         fetchMock.mockRestore()
     })
+
+    it('does not treat a preview host on an unexpected explicit port as a preview', async () => {
+        // The public URL has no explicit port (prod https defaults to 443). A request to
+        // <forward>.<host>:8080 must not be accepted as a preview host, or it would bypass
+        // the host-port check. It should fall through to the catch-all 404, never to auth.
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+
+        const res = await app.request('/', {
+            headers: { Host: 'forward-123.agent-proxy.example.com:8080' },
+        })
+
+        expect(res.status).toBe(404)
+        expect(await res.json()).toEqual({ error: 'Not found' })
+    })
 })

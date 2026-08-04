@@ -255,7 +255,12 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
         const headers = filteredProxyHeaders(c.req.raw.headers)
         headers.set('Authorization', `Bearer ${resolved.connection_token}`)
 
-        const init: RequestInit = { method, headers, redirect: 'manual' }
+        // Propagate client cancellation to the upstream fetch so a closed browser tab
+        // frees the sandbox connection immediately. We deliberately do NOT impose a
+        // response timeout: previews target dev servers whose HMR/SSE streams are
+        // legitimately long-lived, and a blanket timeout would kill them. A global
+        // in-flight ceiling for genuine abuse belongs at the ingress/LB, not per-request.
+        const init: RequestInit = { method, headers, redirect: 'manual', signal: c.req.raw.signal }
         if (requestBody !== undefined) {
             init.body = requestBody
         }
@@ -446,7 +451,13 @@ function previewHostFromRequest(c: HonoCtx, config: Config): PreviewHost | null 
     if (!previewHostname.endsWith(suffix) || previewHostname === publicHostname) {
         return null
     }
-    if (publicUrl.port && requestUrl.port && publicUrl.port !== requestUrl.port) {
+    // Compare effective ports so a request to an unexpected explicit port can't slip
+    // through when the public URL relies on the scheme default (e.g. prod https with no
+    // port would otherwise skip the check and accept <id>.<host>:8080).
+    const defaultPort = publicUrl.protocol === 'https:' ? '443' : '80'
+    const publicPort = publicUrl.port || defaultPort
+    const requestPort = requestUrl.port || defaultPort
+    if (publicPort !== requestPort) {
         return null
     }
 
