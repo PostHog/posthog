@@ -74,7 +74,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.schedule import (
     DATA_MODELING_EXECUTE_DAG_WORKFLOW,
     build_schedule_spec,
@@ -290,12 +290,29 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
     )
 
 
+def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
+    """Retype nodes a table already backs but the graph still calls ephemeral views.
+
+    v1 materializes a saved query whatever its node type, so a view-typed node over a live table
+    keeps running right up until its v1 schedule is swept. From then on every tier run skips it as
+    ephemeral, reporting success and writing no job row, and it goes dark with no error anywhere.
+    Converting to tiers is the moment that flips, so repair the types as part of the conversion
+    rather than leaving a node that only this DAG's own migration could have stranded.
+    """
+    return (
+        Node.objects.filter(dag=dag, type=NodeType.VIEW, saved_query__table_id__isnull=False)
+        .exclude(saved_query__deleted=True)
+        .update(type=NodeType.MAT_VIEW)
+    )
+
+
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
     """Seed per-node targets from the DAG's current cadence, then reconcile it to per-cadence tier
     schedules. The shared conversion step both entry points (the v1 migrate command and
     reconcile_freshness_schedules) run before clearing the now-redundant saved-query intervals.
     Returns how many targets were seeded.
     """
+    promote_dag_view_nodes_to_matview(dag)
     seeded = persist_seed_targets(dag, default=default)
     reconcile_dag_schedules(dag)
     return seeded
