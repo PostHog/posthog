@@ -14,19 +14,14 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-    is_transient_object_store_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
-    PersonPropertyRowSink,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_object_store_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
@@ -35,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 if TYPE_CHECKING:
@@ -335,7 +331,7 @@ async def handle_reset_or_full_refresh(
     reset_pipeline: bool,
     should_resume: bool,
     schema: "ExternalDataSchema",
-    delta_table_helper: DeltaTableHelper,
+    delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     webhook_only: bool = False,
 ) -> None:
@@ -362,12 +358,12 @@ async def handle_reset_or_full_refresh(
             schema.sync_type_config.pop("reset_pipeline", None)
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
-        await delta_table_helper.reset_table()
+        await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
-        await delta_table_helper.reset_table()
+        await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
 
 
@@ -397,7 +393,7 @@ def _capture_delta_revived(
 async def handle_corrupted_delta_log(
     schema: "ExternalDataSchema",
     job: "ExternalDataJob",
-    delta_table_helper: DeltaTableHelper,
+    delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
@@ -424,9 +420,20 @@ async def handle_corrupted_delta_log(
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
         try:
-            if not await delta_table_helper.is_table_corrupted():
+            if not await delta_table_ref.is_table_corrupted():
                 return False
         except Exception as e:
+            if is_transient_object_store_error(e):
+                # `is_table_corrupted` opens the table via `DeltaTable.is_deltatable`, which can hit
+                # the same IMDS/STS credential-provider or connectivity blips as any other delta-rs
+                # object-store call — not evidence the table is corrupt, just a blip talking to our
+                # own S3 bucket. Skip the revive check this sync rather than reporting a defect; the
+                # next sync's check runs fresh.
+                await logger.awarning(
+                    f"handle_corrupted_delta_log: is_table_corrupted transient object-store error, "
+                    f"skipping revive check schema_id={schema.id}: {e}"
+                )
+                return False
             capture_exception(e)
             return False
 
@@ -441,7 +448,7 @@ async def handle_corrupted_delta_log(
     # and clears the markers when temp is also gone (the terminal corrupt state), so we then fall to reset.
     swap = schema.repartition_swap
     if swap and swap.get("state") == "ready" and swap.get("temp_uri") and swap.get("live_uri"):
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
             _resume_swap_with_missing_live,
         )
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
@@ -456,12 +463,12 @@ async def handle_corrupted_delta_log(
                 else _target_from_schema(schema)
             )
             result = await _resume_swap_with_missing_live(
-                helper=delta_table_helper,
+                table_ref=delta_table_ref,
                 schema=schema,
                 target=target,
                 temp_uri=swap["temp_uri"],
                 live_uri=swap["live_uri"],
-                storage_options=delta_table_helper._get_credentials(),
+                storage_options=delta_table_ref.get_storage_options(),
                 logger=logger,
             )
             if result.get("outcome") == "completed":
@@ -492,7 +499,7 @@ async def handle_corrupted_delta_log(
     )
 
     try:
-        await delta_table_helper.reset_table()
+        await delta_table_ref.reset_table()
     except Exception as e:
         if is_transient_object_store_error(e):
             # A rate-limited or connectivity blip purging the old table's S3 prefix isn't a bug —
@@ -665,73 +672,3 @@ async def advance_xmin_state(
         ceiling_xid8=resource.xmin_ceiling_xid8,
         num_wraparound=resource.xmin_num_wraparound,
     )
-
-
-async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
-    if await cdp_producer.should_produce_table():
-        await cdp_producer.clear_s3_chunks()
-
-
-async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
-    if await cdp_producer.should_produce_table():
-        await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
-
-
-async def person_property_sink_clear_chunks(sink: PersonPropertyRowSink):
-    if await sink.should_stage():
-        await sink.clear_chunks()
-
-
-async def stage_chunk_for_person_property_sink(sink: PersonPropertyRowSink, index: int, pa_table: pa.Table):
-    if await sink.should_stage():
-        await sink.stage_chunk(chunk=index, table=pa_table)
-
-
-async def run_pre_write_defensive_compact(
-    delta_table_helper: DeltaTableHelper,
-    schema: "ExternalDataSchema",
-    resource: SourceResponse,
-    logger: FilteringBoundLogger,
-) -> None:
-    """Best-effort pre-write compact + vacuum at the start of a sync run.
-
-    Delegates to `DeltaTableHelper.run_maintenance`, which compacts a fragmented Delta
-    target (a sync that arrived fragmented because earlier attempts failed before
-    reaching `_post_run_operations` — keeping the subsequent per-partition merge scans
-    cheap) and otherwise vacuums on a commit-count cadence so a table that OOMs its merge
-    every run and never reaches post-load compaction still sheds tombstones (the
-    ~99%-dead-file tables). The helper returns the single vacuum watermark to persist;
-    the CDC post-load path in `common/load.py` writes the same watermark, and both merge
-    via `update_sync_type_config_keys` under a row lock. Wrapped in try/except so a
-    maintenance failure never blocks the actual sync; the original error path is unaffected.
-    A transient object-store error (see `is_transient_object_store_error`) is logged at
-    warning instead of captured — the next sync's maintenance pass retries it from scratch,
-    so it isn't a bug in this function, just a temporary blip talking to our own S3 bucket.
-
-    Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour
-    identical across pipelines without each having to know how to look up `partition_count`
-    or how to swallow maintenance errors.
-    """
-    try:
-        from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
-            update_sync_type_config_keys,
-        )
-
-        partition_count_for_compact = schema.partition_count or resource.partition_count
-        last_vacuum_version = schema.last_vacuum_version
-        commit_threshold = settings.DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD
-        new_version = await delta_table_helper.run_maintenance(
-            partition_count=partition_count_for_compact,
-            last_vacuum_version=last_vacuum_version,
-            commit_threshold=commit_threshold,
-        )
-        if new_version is not None and new_version != last_vacuum_version:
-            await database_sync_to_async_pool(update_sync_type_config_keys)(
-                schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
-            )
-    except Exception as e:
-        if is_transient_object_store_error(e):
-            await logger.awarning(f"Pre-write maintenance skipped: transient object-store error: {e}")
-            return
-        capture_exception(e)
-        await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)

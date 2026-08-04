@@ -1571,6 +1571,9 @@ const TABLE_URL_PARAM_KEYS = [
     'date_to',
 ] as const
 
+/** Observation-filter params the scanner page reads from the URL; links into the Observations tab build from these keys. */
+export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)[number], string>>
+
 /** The three step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [

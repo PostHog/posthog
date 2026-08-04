@@ -164,6 +164,8 @@ class Settings(BaseSettings):
     fireworks_api_key: str | None = None
     cloudflare_api_key: str | None = None
     cloudflare_account_id: str | None = None
+    baseten_api_base: str | None = None
+    baseten_api_key: str | None = None
 
     # Modal-hosted GLM inference (OpenAI-compatible vLLM endpoint); auth is a proxy-token pair
     # sent as Modal-Key/Modal-Secret headers. All three must be set for Modal routing.
@@ -185,6 +187,10 @@ class Settings(BaseSettings):
     # so the EU deployment lands EU events on EU PostHog (team_id=1) for regional billing.
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
+
+    # Set false on local dev stacks whose ingestion-ai forwarder rejects AI-lane batches
+    # (401 on /batch/, events silently dropped) — capture falls back to the standard lane.
+    posthog_ai_lane_capture: bool = True
 
     metrics_enabled: bool = True
 

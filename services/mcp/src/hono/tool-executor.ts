@@ -141,6 +141,18 @@ export class ToolExecutor {
         )
     }
 
+    // execute-sql is the one tool whose advertised description is formatted per
+    // request (the schema-discovery splice varies by feature flag) instead of served
+    // from the catalog, on both the native tools/list path and exec's `info` output.
+    // trackToolCall stamps the catalog text by default, so it needs the served text
+    // for this tool or $mcp_tool_description records words the agent never saw.
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
+        if (toolName === EXECUTE_SQL_TOOL_NAME) {
+            return this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags)
+        }
+        return undefined
+    }
+
     // Pull the agent's stated intent off the injected `context` arg and strip it so
     // tool schemas/handlers never see it (validation is `.strict()` in places). The
     // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
@@ -224,7 +236,8 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -249,7 +262,8 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -325,7 +339,8 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(execToolName(), state)
             )
 
             return response
@@ -344,7 +359,8 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta
+                intentMeta,
+                this.servedToolDescription(metricTool, state)
             )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)

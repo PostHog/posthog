@@ -51,7 +51,8 @@ const getIncrementalSyncSupported = (
     if (schema.incremental_fields.length === 0) {
         return {
             disabled: true,
-            disabledReason: 'No incremental fields found on table',
+            disabledReason:
+                'Incremental replication needs a timestamp, date, or auto-incrementing numeric column to track new rows, and none was found on this table',
         }
     }
 
@@ -73,7 +74,8 @@ const getAppendOnlySyncSupported = (
     if (schema.incremental_fields.length === 0) {
         return {
             disabled: true,
-            disabledReason: 'No incremental fields found on table',
+            disabledReason:
+                'Append only replication needs a timestamp, date, or auto-incrementing numeric column to track new rows, and none was found on this table',
         }
     }
 

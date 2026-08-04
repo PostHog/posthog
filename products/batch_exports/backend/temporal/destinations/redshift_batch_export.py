@@ -15,7 +15,7 @@ import pyarrow as pa
 import botocore.exceptions
 from psycopg import sql
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team
@@ -34,10 +34,10 @@ from products.batch_exports.backend.service import (
     RedshiftBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
@@ -1581,8 +1581,10 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         batch_export_inputs = BatchExportInsertInputs(
             team_id=inputs.team_id,

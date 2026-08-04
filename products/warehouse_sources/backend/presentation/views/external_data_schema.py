@@ -20,6 +20,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
@@ -154,9 +156,12 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         instance.save(update_fields=["status"])
 
 
-# Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
-CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
-NON_CDC_FLOOR_SYNC_FREQUENCY = "5min"
+# Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
+# serializer's choices), but rows written before the floor may still carry one until the
+# migrate_sub_5min_sync_frequencies command bumps them — so the interval mappings keep parsing
+# "1min" and the update path clamps instead of erroring.
+LEGACY_SUB_FLOOR_SYNC_FREQUENCIES = {"1min"}
+FLOOR_SYNC_FREQUENCY = "5min"
 
 
 @extend_schema_field(
@@ -237,7 +242,9 @@ def _apply_primary_key_columns(
         )
 
 
-class ExternalDataSchemaSerializer(serializers.ModelSerializer):
+class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
+
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
@@ -271,7 +278,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     sync_frequency = serializers.ChoiceField(
         choices=[
             ("never", "never"),
-            ("1min", "1min"),
             ("5min", "5min"),
             ("15min", "15min"),
             ("30min", "30min"),
@@ -284,7 +290,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ],
         required=False,
         allow_null=True,
-        help_text="How often to sync.",
+        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
+        error_messages={
+            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
+        },
     )
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
@@ -382,6 +391,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "source",
             "api_version",
             "api_version_deprecation",
+            "user_access_level",
         ]
 
         read_only_fields = [
@@ -396,6 +406,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "available_columns",
             "source",
             "api_version_deprecation",
+            "user_access_level",
         ]
 
     @extend_schema_field(
@@ -481,6 +492,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
         }
+
+    def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
+        # The synced table's access, which itself falls back to the source via RESOURCE_FALLBACK_MAP.
+        # Drives the row's sync/delete gating in the UI.
+        uac = self.user_access_control
+        if uac is None:
+            return None
+        return uac.get_user_access_level(schema.table or schema.source)
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
@@ -867,27 +886,19 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         was_sync_time_of_day_updated = False
         source = instance.source
 
-        # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers (not
-        # just the UI) can't drop a non-CDC schema below the allowed floor. We validate the
-        # frequency the schema will actually end up with — the new value if one is supplied, else
-        # the existing interval — against the sync type it will end up with. This also catches
-        # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        # "1min" is rejected at the field level, but a schema whose stored interval predates the
+        # 5-minute floor keeps working until migrated. When such a schema stops being CDC (the only
+        # type that ever allowed 1min), clamp the inherited cadence to the floor so the switch
+        # doesn't dead-end. The clamp flows through the sync_frequency handling below.
         resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
-        if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
-            if sync_frequency:
-                # The caller explicitly asked for a CDC-only cadence on a non-CDC schema — a direct
-                # contradiction, so reject it.
-                raise ValidationError(
-                    "A 1-minute sync frequency is only available for CDC schemas. "
-                    "The fastest frequency for other sync types is 5 minutes."
-                )
-            # Switching a CDC schema to a non-CDC type while it still carries a CDC-only cadence:
-            # clamp to the non-CDC floor instead of dead-ending the switch. The clamp flows through
-            # the sync_frequency handling below.
-            sync_frequency = NON_CDC_FLOOR_SYNC_FREQUENCY
+        if (
+            resulting_frequency in LEGACY_SUB_FLOOR_SYNC_FREQUENCIES
+            and resulting_sync_type != ExternalDataSchema.SyncType.CDC
+        ):
+            sync_frequency = FLOOR_SYNC_FREQUENCY
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -1321,9 +1332,34 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
+class WarehouseTableAccessPermission(AccessControlPermission):
+    """Resolves a schema's access through the table it syncs.
+
+    No access control rules are written against a schema, so the base class - which looks for rules
+    keyed to the object's own id - finds none and lets everything through. Resolve through the table
+    instead (whose access falls back to the source via RESOURCE_FALLBACK_MAP), or the source directly
+    before the first sync. The required level still comes from the base class: viewer to read, editor
+    to write."""
+
+    def has_object_permission(self, request: Request, view, obj: ExternalDataSchema) -> bool:
+        # Service credentials (PSAK/TST) are synthetic users UserAccessControl can't evaluate; they're
+        # gated by API scope + project membership. Mirror AccessControlPermission.
+        if is_service_auth(request):
+            return True
+        required_level = self._get_required_access_level(request, view)
+        if not required_level:
+            return True
+        level = view.user_access_control.get_user_access_level(obj.table or obj.source)
+        if level is None or not access_level_satisfied_for_resource("warehouse_table", level, required_level):
+            self.message = f"You do not have {required_level} access to this table."
+            return False
+        return True
+
+
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
+    permission_classes = [WarehouseTableAccessPermission]
     scope_object_write_actions = [
         "update",
         "partial_update",
@@ -1374,6 +1410,26 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # retrieve additionally embeds the table credential.
             queryset = queryset.select_related("table__credential")
         return queryset.order_by(self.ordering)
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if self.action != "list" or is_service_auth(self.request):
+            return queryset
+        # A schema has no rules of its own, so the generic queryset filtering can't see its access.
+        # Resolve each row the way retrieve does and drop the ones the user can't view - otherwise
+        # the list serves names and sync metadata for tables and sources they're denied on.
+        schemas = list(queryset)
+        uac = self.user_access_control
+        uac.preload_object_access_controls([schema.table or schema.source for schema in schemas])
+        visible = [
+            schema.id
+            for schema in schemas
+            if (level := uac.get_user_access_level(schema.table or schema.source)) is not None
+            and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
+        ]
+        if len(visible) == len(schemas):
+            return queryset
+        return queryset.filter(id__in=visible)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()

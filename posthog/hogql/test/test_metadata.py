@@ -507,6 +507,50 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.errors, [])
 
+    def test_metadata_with_clickhouse_direct_connection_does_not_report_direct_only_error(self):
+        # Regression: ClickHouse direct sources print through the native ClickHouse printer, whose
+        # direct-table guard raises "can only be queried through its direct connection" unless the
+        # context is marked direct. The metadata path did not set is_direct_query, so it reported a
+        # false error for a query that actually runs. (Postgres/MySQL direct printers lack the guard,
+        # so this only regressed for ClickHouse.)
+        source = ExternalDataSource.objects.create(
+            source_id="ch-source",
+            connection_id="ch-connection",
+            destination_id="ch-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.CLICKHOUSE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ch",
+            job_inputs={"host": "localhost", "database": "posthog"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://clickhouse",
+            columns={
+                "uuid": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "team_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="events", team=self.team, source=source, table=table)
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM events LIMIT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])
+
     def test_metadata_with_direct_connection_allows_connection_metadata_function_in_expr(self):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",

@@ -303,7 +303,11 @@ async fn run_worker(
                     )
                     .await;
                 }
-                ShuffleMessage::Seed { work, offset } => {
+                ShuffleMessage::Seed {
+                    work,
+                    offset,
+                    broker_ts_ms: _,
+                } => {
                     // Worker receipt is the first point that both proves this exact seed landed and
                     // orders its ceiling before even a zero-work handler can mark it processed.
                     // The dispatcher also records the delivered batch maximum, but that post-send
@@ -1068,7 +1072,7 @@ mod tombstone_redirect_tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileTile, RunId};
+    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
@@ -1209,6 +1213,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
@@ -1239,6 +1244,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
@@ -1265,6 +1271,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
@@ -1305,7 +1312,7 @@ mod tombstone_redirect_tests {
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
         );
 
@@ -1322,6 +1329,7 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Seed {
                 work: Box::new(SeedWork::Reconcile(tile)),
                 offset: 5,
+                broker_ts_ms: None,
             }],
         )
         .await;
@@ -1342,7 +1350,7 @@ mod tombstone_redirect_tests {
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse(FILTERS_HASH).unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             RunId(Uuid::from_u128(7)),
         );
 
@@ -1358,6 +1366,7 @@ mod tombstone_redirect_tests {
                 ShuffleMessage::Seed {
                     work: Box::new(SeedWork::Reconcile(tile)),
                     offset: 5,
+                    broker_ts_ms: None,
                 },
                 ShuffleMessage::ReconcileDrain,
             ],
