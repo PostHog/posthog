@@ -3,18 +3,23 @@
 deltalite runs as Temporal activity threads inside a single worker process: every
 concurrent upsert — plus every delta-rs MERGE fallback and full-sync ``write_deltalake`` —
 shares one address space and one cgroup memory limit. This governor decides, per upsert and
-against the pod's *live* memory headroom, how large an upsert we can commit: it picks the
-per-call knobs (``max_parallel_partitions`` / ``max_parallel_files`` / ``max_buffered_bytes``)
-that fit, and applies backpressure when the pod is full instead of letting it OOM.
+how large an upsert to run: it picks the per-call knobs
+(``max_parallel_partitions`` / ``max_parallel_files`` / ``max_buffered_bytes``) sized to a fixed
+per-upsert slice of pod memory. The slice is ``(pod limit × safety − reserve) / max_concurrent``,
+so however many upserts run at once (up to the pod's ``MAX_CONCURRENT_ACTIVITIES``) their peaks sum
+to less than the pod. deltalite therefore **always writes** — it never falls back to the delta-rs
+MERGE for capacity, because the MERGE is the *more* memory-hungry path and falling back to it under
+pressure is exactly what would OOM the pod. A source too big for its slice runs at ``mpp=1`` (the
+memory floor, still far below the MERGE) and raises an ops signal, rather than falling back.
 
 Two layers, by design:
 
-* This governor (Python) is the **planner**. It reads real headroom from cgroup, reserves the
-  marginal cost of each in-flight upsert, and sizes knobs so the running total fits. It also
-  accounts for *non-deltalite* writers for free: ``memory.current`` already includes whatever
-  the MERGE fallbacks, full syncs and the interpreter are using right now, so measuring it is
-  how every other Delta write on the pod is counted — we only ever *model* the marginal cost of
-  the new upsert on top.
+* This governor (Python) is the **planner**. It divides the usable pod memory into equal
+  per-upsert slices (one per concurrent activity) and sizes each upsert's knobs to its slice, so
+  the concurrent upserts always fit. Memory for *non-deltalite* writers (full syncs, the rare
+  genuine-error MERGE fallback whose RSS tracks table size, interpreter and allocator slack) is
+  held back up front as ``reserve_mb``. It also reads live cgroup usage to log the actual memory
+  delta against the prediction, for calibration.
 * ``deltalite_core::limits`` (the ``DELTALITE_PROCESS_*`` env ceilings) is the **hard backstop**
   in Rust: process-global semaphores that cap total in-flight work regardless of what the
   governor predicted. The governor aims never to reach it; the backstop guarantees safety when a
@@ -32,7 +37,6 @@ against real load and re-fit if needed (the process-global backstop holds either
 from __future__ import annotations
 
 import os
-import time
 import asyncio
 import logging
 import contextlib
@@ -100,10 +104,10 @@ def _predict_marginal_mb(source_mb: float, mpp: int, buffered_mb: float) -> floa
 def size_upsert(available_mb: float, source_mb: float, n_partitions: int | None = None) -> UpsertPlan:
     """Pick the largest ``max_parallel_partitions`` whose marginal peak fits ``available_mb``.
 
-    ``available_mb`` is the headroom this *single* upsert may add on top of what is already
-    committed on the pod — not the whole pod. Strategy: start at the cap and step down; if even
-    one worker with a shrunk buffer does not fit, return the minimal config with ``fits=False``
-    so the caller can fall back to the MERGE (which is today's behaviour) rather than risk the pod.
+    ``available_mb`` is the per-upsert memory slice, not the whole pod. Strategy: start at the cap
+    and step down; if even one worker with a shrunk buffer does not fit, return the minimal config
+    with ``fits=False``. The caller does not fall back on ``fits=False`` — it runs deltalite at
+    ``mpp=1`` anyway (still the memory floor, far below the MERGE) and flags ``capacity_exceeded``.
     """
     partition_cap = _MAX_PARALLEL_PARTITIONS
     if n_partitions is not None and n_partitions >= 1:
@@ -212,31 +216,28 @@ def _env_int(name: str, default: int) -> int:
 class GovernorConfig:
     """Runtime configuration, read from the environment so it can be tuned without a deploy.
 
-    ``mode`` gates the rollout, matching the plan's stages:
+    ``mode`` gates the rollout:
       * ``off``      — do nothing; upserts use deltalite's own defaults (today's behaviour).
       * ``advisory`` — compute and log/emit the decision, but still use deltalite defaults for the
                        actual write. Zero behaviour change; validates the model on prod.
-      * ``enforce``  — apply the chosen knobs and admission control (reserve + backpressure).
+      * ``enforce``  — apply the sized knobs. deltalite still always writes; only the knobs change.
     """
 
     mode: Mode = "advisory"
     #: Fraction of the pod limit deltalite planning may target; the rest is slack for allocator
     #: retention, pyarrow buffers and anything unmodelled.
     safety: float = 0.8
-    #: Headroom held back for the memory-*unpredictable* delta-rs MERGE (its RSS tracks table
-    #: size, unlike deltalite) so a fallback burst can't collide with committed upsert reservations.
-    merge_reserve_mb: float = 2048.0
-    #: Longest an upsert will wait for the pod to free memory before falling back to the MERGE.
-    #: 0 disables backpressure (reject-to-MERGE immediately when full).
-    max_wait_s: float = 0.0
-    #: Poll interval while waiting for headroom.
-    poll_interval_s: float = 0.25
-    #: Reject sources larger than this to deltalite (0 disables); mirrors the Rust
-    #: ``DELTALITE_MAX_SOURCE_BYTES`` guard so we fall back *before* the crate raises.
-    max_source_bytes: int = 2 * 1024 * 1024 * 1024
-    #: Used only when the cgroup limit is unreadable (local dev). None + unreadable ⇒ conservative.
+    #: Max upserts that can run concurrently in this process (the worker's Temporal
+    #: ``MAX_CONCURRENT_ACTIVITIES``). The usable pod budget is divided by this so all
+    #: ``max_concurrent`` upserts are guaranteed to fit at once — the guarantee that lets deltalite
+    #: always write instead of falling back to the memory-hungry MERGE.
+    max_concurrent: int = 15
+    #: Headroom held back from deltalite for everything else on the pod: full-refresh writes, the
+    #: rare genuine-error MERGE fallback (its RSS tracks table size), interpreter and allocator slack.
+    reserve_mb: float = 2048.0
+    #: Used only when the cgroup limit is unreadable (local dev). None + unreadable ⇒ deltalite defaults.
     limit_override_mb: float | None = None
-    #: Shared process floor for the projected-peak estimate.
+    #: Shared process floor for the projected-peak / pressure estimate.
     baseline_mb: float = _PROCESS_BASELINE_MB
 
     @staticmethod
@@ -246,33 +247,36 @@ class GovernorConfig:
             logger.warning("invalid DELTALITE_GOVERNOR_MODE=%r; defaulting to advisory", mode)
             mode = "advisory"
         override = os.environ.get("DELTALITE_GOVERNOR_LIMIT_MB")
+        # Default the concurrency to the Temporal activity limit the worker already declares.
+        default_concurrent = _env_int("MAX_CONCURRENT_ACTIVITIES", 15)
         return GovernorConfig(
             mode=mode,  # type: ignore[arg-type]
             safety=_env_float("DELTALITE_GOVERNOR_SAFETY", 0.8),
-            merge_reserve_mb=_env_float("DELTALITE_GOVERNOR_MERGE_RESERVE_MB", 2048.0),
-            max_wait_s=_env_float("DELTALITE_GOVERNOR_MAX_WAIT_S", 0.0),
-            poll_interval_s=_env_float("DELTALITE_GOVERNOR_POLL_INTERVAL_S", 0.25),
-            max_source_bytes=_env_int("DELTALITE_MAX_SOURCE_BYTES", 2 * 1024 * 1024 * 1024),
+            max_concurrent=max(1, _env_int("DELTALITE_GOVERNOR_MAX_CONCURRENT", default_concurrent)),
+            reserve_mb=_env_float("DELTALITE_GOVERNOR_RESERVE_MB", 2048.0),
             limit_override_mb=float(override) if override else None,
         )
 
 
 @dataclass
 class Admission:
-    """The outcome of an admission request, and the knobs to write with.
+    """The knobs to write one upsert with, plus diagnostics.
 
-    ``proceed`` is True except when enforcing and the pod is genuinely full (or the source is too
-    big) — in which case the caller falls back to the delta-rs MERGE, exactly as it does on any
-    other deltalite refusal, so the sync is never affected.
+    There is no "decline": deltalite ALWAYS writes. The governor only decides how many partition
+    workers this upsert may use, sized to a fixed per-upsert slice of pod memory so all
+    ``max_concurrent`` upserts are guaranteed to fit. If a source is so big that even one worker
+    exceeds its slice, ``capacity_exceeded`` is set and we still run deltalite at ``mpp=1`` (the
+    memory floor, still far below the MERGE) rather than fall back to it.
     """
 
-    proceed: bool
     upsert_kwargs: dict[str, int]
     mode: Mode
     predicted_peak_mb: float | None
-    fits: bool
-    waited_s: float = 0.0
-    reject_reason: str | None = None
+    #: The per-upsert memory slice this upsert was sized against, in MB.
+    budget_mb: float | None
+    #: True when even mpp=1 overflows the slice: an ops signal to chunk the source, raise the pod
+    #: limit, or lower max_concurrent. Not a failure — deltalite still runs at mpp=1.
+    capacity_exceeded: bool = False
     #: Filled in on release with the observed cgroup delta, for predicted-vs-actual calibration.
     observed_delta_mb: float | None = field(default=None)
 
@@ -292,83 +296,56 @@ class MemoryGovernor:
 
     # -- accounting --------------------------------------------------------------------------
 
-    def _available_mb_locked(self, limit_mb: float, current_mb: float | None) -> float:
-        """Headroom a new upsert may consume, given what is already committed. Call under lock.
+    def _per_upsert_budget_mb(self, limit_mb: float) -> float:
+        """The fixed memory slice one upsert may size itself to.
 
-        ``committed = max(live usage, baseline + Σ reservations)`` guards both directions: if a
-        reservation's memory hasn't materialised yet, the reservation term dominates; if something
-        unmodelled grew (a MERGE), live usage dominates.
+        ``(usable pod memory) / max_concurrent`` — so however many upserts run at once (up to
+        ``max_concurrent``), the sum of their sized peaks stays under the pod. This static division
+        is the capacity guarantee that lets deltalite always write without ever falling back to the
+        memory-hungry MERGE for capacity reasons.
         """
-        projected = self.config.baseline_mb + self._reserved_mb
-        committed = max(current_mb, projected) if current_mb is not None else projected
-        return limit_mb * self.config.safety - committed - self.config.merge_reserve_mb
+        usable = limit_mb * self.config.safety - self.config.reserve_mb
+        return max(0.0, usable) / self.config.max_concurrent
 
     @contextlib.asynccontextmanager
     async def admit(self, *, source_bytes: int, n_partitions: int | None = None) -> AsyncIterator[Admission]:
-        """Reserve headroom for one upsert and yield the knobs to run it with.
+        """Size one upsert to its memory slice and yield the knobs to run it with.
 
-        Use as ``async with governor.admit(...) as adm``. The reservation is held for the whole
-        ``with`` block (i.e. across the upsert) and released on exit, even on exception.
+        Use as ``async with governor.admit(...) as adm``. deltalite always writes — the reservation
+        (for observability + oversubscription accounting) is held for the whole ``with`` block and
+        released on exit, even on exception.
         """
         source_mb = source_bytes / MB
 
         if self.config.mode == "off":
-            yield Admission(True, {}, "off", None, fits=True)
+            yield Admission({}, "off", None, None)
             return
 
         limit_mb = self.pod.limit_mb()
-        # No cgroup limit visible (local dev, or unreadable): we cannot plan a budget safely, so
-        # advise nothing and never block. Enforcement degrades to "use deltalite defaults".
+        # No cgroup limit visible (local dev / unreadable): we can't size a slice, so use deltalite's
+        # own defaults. Still always deltalite.
         if limit_mb is None:
-            unbudgeted = size_upsert(float("inf"), source_mb, n_partitions)
-            yield Admission(True, {}, self.config.mode, unbudgeted.predicted_peak_mb, fits=True)
+            yield Admission({}, self.config.mode, None, None)
             return
 
-        reject_reason: str | None = None
-        proceed = True
-        waited_s = 0.0
-        reserved_here = 0.0
+        budget_mb = self._per_upsert_budget_mb(limit_mb)
+        plan = size_upsert(budget_mb, source_mb, n_partitions)
+
         admitted = False
-        plan: UpsertPlan | None = None
         current_at_admit: float | None = None
+        async with self._lock:
+            if self.config.mode == "enforce":
+                self._reserved_mb += plan.predicted_peak_mb
+                self._inflight += 1
+                admitted = True
+                current_at_admit = self.pod.current_mb()
 
-        # Oversized source: fall back to the MERGE before the crate's own guard raises.
-        if self.config.max_source_bytes and source_bytes > self.config.max_source_bytes:
-            reject_reason = "source_too_big"
-            proceed = self.config.mode != "enforce"
-            plan = size_upsert(0.0, source_mb, n_partitions)
-        else:
-            start = time.monotonic()
-            while True:
-                async with self._lock:
-                    current_mb = self.pod.current_mb()
-                    available = self._available_mb_locked(limit_mb, current_mb)
-                    plan = size_upsert(available, source_mb, n_partitions)
-                    if plan.fits and self.config.mode == "enforce":
-                        reserved_here = plan.predicted_peak_mb
-                        self._reserved_mb += reserved_here
-                        self._inflight += 1
-                        admitted = True
-                        current_at_admit = current_mb
-                if plan.fits or self.config.mode != "enforce":
-                    break
-                remaining = self.config.max_wait_s - (time.monotonic() - start)
-                if remaining <= 0:
-                    proceed = False
-                    reject_reason = "pod_full"
-                    break
-                await asyncio.sleep(min(self.config.poll_interval_s, remaining))
-            waited_s = time.monotonic() - start
-
-        upsert_kwargs = plan.as_upsert_kwargs() if admitted else {}
         adm = Admission(
-            proceed=proceed,
-            upsert_kwargs=upsert_kwargs,
+            upsert_kwargs=plan.as_upsert_kwargs() if admitted else {},
             mode=self.config.mode,
-            predicted_peak_mb=plan.predicted_peak_mb if plan else None,
-            fits=plan.fits if plan else False,
-            waited_s=round(waited_s, 3),
-            reject_reason=reject_reason,
+            predicted_peak_mb=plan.predicted_peak_mb,
+            budget_mb=round(budget_mb, 1),
+            capacity_exceeded=not plan.fits,
         )
         self._emit_decision(adm, source_mb)
         try:
@@ -376,7 +353,7 @@ class MemoryGovernor:
         finally:
             if admitted:
                 async with self._lock:
-                    self._reserved_mb -= reserved_here
+                    self._reserved_mb -= plan.predicted_peak_mb
                     self._inflight -= 1
                 # Best-effort predicted-vs-actual: how much did cgroup usage actually rise?
                 if current_at_admit is not None:
@@ -388,21 +365,27 @@ class MemoryGovernor:
 
     def _emit_decision(self, adm: Admission, source_mb: float) -> None:
         """Log the decision and emit metrics. Never raises into the write path."""
+        if adm.capacity_exceeded:
+            logger.warning(
+                "deltalite governor: source %.0f MB exceeds its %.0f MB per-upsert slice "
+                "(max_concurrent=%d); running deltalite at mpp=1. Chunk the source, raise the pod "
+                "memory limit, or lower max_concurrent.",
+                source_mb,
+                adm.budget_mb or 0.0,
+                self.config.max_concurrent,
+            )
         try:
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
-                DELTALITE_GOVERNOR_ADMISSION_WAIT_SECONDS,
                 DELTALITE_GOVERNOR_DECISION_TOTAL,
                 DELTALITE_GOVERNOR_INFLIGHT,
                 DELTALITE_GOVERNOR_PREDICTED_PEAK_MB,
                 DELTALITE_GOVERNOR_RESERVED_MB,
             )
 
-            outcome = adm.reject_reason or ("admitted" if adm.fits else "no_fit")
+            outcome = "capacity_exceeded" if adm.capacity_exceeded else "admitted"
             DELTALITE_GOVERNOR_DECISION_TOTAL.labels(mode=adm.mode, outcome=outcome).inc()
             DELTALITE_GOVERNOR_INFLIGHT.set(self._inflight)
             DELTALITE_GOVERNOR_RESERVED_MB.set(self._reserved_mb)
-            if adm.waited_s > 0:
-                DELTALITE_GOVERNOR_ADMISSION_WAIT_SECONDS.observe(adm.waited_s)
             if adm.predicted_peak_mb is not None:
                 DELTALITE_GOVERNOR_PREDICTED_PEAK_MB.observe(adm.predicted_peak_mb)
         except Exception:  # noqa: BLE001 - metrics are best-effort; never fail a write over them

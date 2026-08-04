@@ -61,20 +61,15 @@ DELTALITE_WRITE_DURATION_SECONDS = Histogram(
     "Wall-clock time of a deltalite real write (DeltaLiteTable.upsert)",
 )
 
-# deltalite memory governor (capacity planning). Sizes each upsert's knobs to the pod's live
-# memory headroom and applies admission control across concurrent upserts on the process.
+# deltalite memory governor (capacity planning). Sizes each upsert's knobs to a fixed per-upsert
+# slice of pod memory ((limit * safety - reserve) / max_concurrent), so all concurrent upserts fit
+# and deltalite never falls back to the MERGE for capacity. deltalite always writes.
 #   mode    - off | advisory | enforce
-#   outcome - admitted | no_fit | pod_full | source_too_big
+#   outcome - admitted | capacity_exceeded (source too big for its slice; ran at mpp=1)
 DELTALITE_GOVERNOR_DECISION_TOTAL = Counter(
     "warehouse_load_deltalite_governor_decision_total",
-    "deltalite governor admission decisions, by mode and outcome",
+    "deltalite governor sizing decisions, by mode and outcome",
     labelnames=["mode", "outcome"],
-)
-
-DELTALITE_GOVERNOR_ADMISSION_WAIT_SECONDS = Histogram(
-    "warehouse_load_deltalite_governor_admission_wait_seconds",
-    "Time an upsert waited for pod memory headroom before admission or fallback",
-    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
 )
 
 DELTALITE_GOVERNOR_PREDICTED_PEAK_MB = Histogram(

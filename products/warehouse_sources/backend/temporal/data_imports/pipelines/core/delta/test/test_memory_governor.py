@@ -27,11 +27,11 @@ class _FakePod:
         return self._current() if callable(self._current) else self._current
 
 
-def _governor(mode="enforce", *, limit_mb=30_000.0, current_mb=1_000.0, **cfg) -> MemoryGovernor:
-    # Clean arithmetic defaults: no safety derate, no MERGE reserve, no baseline, so
-    # available == limit - max(current, reserved).
+def _governor(mode="enforce", *, limit_mb=30_000.0, current_mb=1_000.0, max_concurrent=15, **cfg) -> MemoryGovernor:
+    # Clean arithmetic defaults: no safety derate, no reserve, no baseline, so the per-upsert
+    # slice is exactly limit / max_concurrent.
     config = GovernorConfig(
-        mode=mode, safety=1.0, merge_reserve_mb=0.0, baseline_mb=0.0, **cfg
+        mode=mode, safety=1.0, reserve_mb=0.0, baseline_mb=0.0, max_concurrent=max_concurrent, **cfg
     )
     return MemoryGovernor(config, _FakePod(limit_mb, current_mb))
 
@@ -63,10 +63,6 @@ class TestSizeUpsert:
         assert _predict_marginal_mb(50, 1, 64) < _predict_marginal_mb(50, 4, 64)
         assert _predict_marginal_mb(50, 2, 64) < _predict_marginal_mb(500, 2, 64)
 
-    def test_infinite_budget_always_fits_at_cap(self):
-        plan = size_upsert(float("inf"), 10_000.0)
-        assert plan.fits and plan.max_parallel_partitions == 4
-
 
 class TestPodMemory:
     @parameterized.expand(
@@ -89,70 +85,69 @@ class TestPodMemory:
             assert PodMemory().current_mb() == 4_096.0
 
 
+class TestPerUpsertBudget:
+    def test_divides_usable_pod_by_max_concurrent(self):
+        # usable = 29000 * 0.8 - 2048 = 21152 ; slice = 21152 / 15
+        gov = MemoryGovernor(
+            GovernorConfig(mode="enforce", safety=0.8, reserve_mb=2048.0, max_concurrent=15),
+            _FakePod(29_000.0, 1_000.0),
+        )
+        assert round(gov._per_upsert_budget_mb(29_000.0), 1) == 1410.1
+
+
 class TestGovernorModes:
     async def test_off_yields_defaults_and_no_accounting(self):
         gov = _governor("off")
         async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed and adm.upsert_kwargs == {}
+            assert adm.upsert_kwargs == {}
             assert gov._inflight == 0  # off never reserves
 
     async def test_advisory_computes_but_uses_defaults(self):
         gov = _governor("advisory")
         async with gov.admit(source_bytes=50 * MB) as adm:
-            # Advisory plans (predicted peak set) but must not change the write or reserve memory.
-            assert adm.proceed and adm.upsert_kwargs == {}
-            assert adm.predicted_peak_mb is not None
+            # Advisory plans (predicted peak + budget set) but must not change the write or reserve.
+            assert adm.upsert_kwargs == {}
+            assert adm.predicted_peak_mb is not None and adm.budget_mb is not None
             assert gov._inflight == 0 and gov._reserved_mb == 0.0
 
-    async def test_enforce_applies_knobs_and_reserves(self):
-        gov = _governor("enforce", limit_mb=30_000.0, current_mb=1_000.0)
+    async def test_enforce_applies_sized_knobs_and_reserves(self):
+        # limit 30000 / 15 = 2000 slice -> mpp4 (1464) fits.
+        gov = _governor("enforce", limit_mb=30_000.0, max_concurrent=15)
         async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed
             assert adm.upsert_kwargs["max_parallel_partitions"] == 4
+            assert adm.capacity_exceeded is False
             assert gov._inflight == 1 and gov._reserved_mb == adm.predicted_peak_mb
-        # released on exit
-        assert gov._inflight == 0 and gov._reserved_mb == 0.0
+        assert gov._inflight == 0 and gov._reserved_mb == 0.0  # released on exit
 
     async def test_enforce_no_cgroup_limit_degrades_to_defaults(self):
         gov = _governor("enforce", limit_mb=None)
         async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed and adm.upsert_kwargs == {}
-            assert gov._inflight == 0  # can't plan a budget, so no reservation
+            assert adm.upsert_kwargs == {}  # can't size a slice, so deltalite defaults
+            assert gov._inflight == 0
 
 
-class TestGovernorAdmissionControl:
-    async def test_tight_pod_steps_mpp_down(self):
-        # available = 30000 - 29200 = 800 -> mpp 1 fits (714), mpp2 (964) does not.
-        gov = _governor("enforce", limit_mb=30_000.0, current_mb=29_200.0)
+class TestGovernorSizing:
+    async def test_tight_slice_sizes_mpp_down(self):
+        # 12000 / 15 = 800 slice -> mpp1 fits (714), mpp2 (964) does not.
+        gov = _governor("enforce", limit_mb=12_000.0, max_concurrent=15)
         async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed and adm.upsert_kwargs["max_parallel_partitions"] == 1
+            assert adm.upsert_kwargs["max_parallel_partitions"] == 1
+            assert adm.capacity_exceeded is False
 
-    async def test_full_pod_no_wait_falls_back(self):
-        # available = 30000 - 29500 = 500 -> nothing fits, max_wait 0 -> decline.
-        gov = _governor("enforce", limit_mb=30_000.0, current_mb=29_500.0, max_wait_s=0.0)
+    async def test_source_too_big_still_runs_deltalite_at_mpp1(self):
+        # 9000 / 15 = 600 slice -> even tight mpp1 (682) overshoots. Never falls back: runs mpp1.
+        gov = _governor("enforce", limit_mb=9_000.0, max_concurrent=15)
         async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed is False and adm.reject_reason == "pod_full"
-        assert gov._inflight == 0
+            assert adm.capacity_exceeded is True
+            assert adm.upsert_kwargs["max_parallel_partitions"] == 1  # still deltalite, minimal
+            assert gov._inflight == 1  # still admitted and reserved
 
-    async def test_source_too_big_falls_back(self):
-        gov = _governor("enforce", max_source_bytes=10 * MB)
+    async def test_advisory_source_too_big_flags_but_no_reserve(self):
+        gov = _governor("advisory", limit_mb=9_000.0, max_concurrent=15)
         async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed is False and adm.reject_reason == "source_too_big"
-
-    async def test_advisory_source_too_big_still_proceeds(self):
-        gov = _governor("advisory", max_source_bytes=10 * MB)
-        async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed is True and adm.reject_reason == "source_too_big"
-
-    async def test_backpressure_waits_then_admits(self):
-        # First read: full (available 400, nothing fits). Second read: freed (available 800 -> mpp1 fits).
-        reads = iter([29_600.0, 29_200.0, 29_200.0, 29_200.0])
-        gov = _governor(
-            "enforce", limit_mb=30_000.0, current_mb=lambda: next(reads), max_wait_s=1.0, poll_interval_s=0.01
-        )
-        async with gov.admit(source_bytes=50 * MB) as adm:
-            assert adm.proceed and adm.upsert_kwargs["max_parallel_partitions"] == 1
-            assert adm.waited_s > 0
+            assert adm.capacity_exceeded is True
+            assert adm.upsert_kwargs == {}  # advisory never changes the write
+            assert gov._inflight == 0
 
     async def test_reservation_released_on_exception(self):
         gov = _governor("enforce")
@@ -163,10 +158,9 @@ class TestGovernorAdmissionControl:
         assert gov._inflight == 0 and gov._reserved_mb == 0.0
 
     async def test_concurrent_reservations_accumulate(self):
-        gov = _governor("enforce", limit_mb=30_000.0, current_mb=1_000.0)
+        gov = _governor("enforce", limit_mb=30_000.0, max_concurrent=15)
         async with gov.admit(source_bytes=50 * MB) as first:
             assert gov._inflight == 1
-            # The second admission sees the first's reservation in the projected commit.
             async with gov.admit(source_bytes=50 * MB) as second:
                 assert gov._inflight == 2
                 assert gov._reserved_mb == first.predicted_peak_mb + second.predicted_peak_mb
@@ -194,13 +188,21 @@ class TestConfigFromEnv:
         with patch.dict("os.environ", {"DELTALITE_GOVERNOR_MODE": value}, clear=True):
             assert GovernorConfig.from_env().mode == expected
 
+    def test_max_concurrent_defaults_to_activity_limit(self):
+        with patch.dict("os.environ", {"MAX_CONCURRENT_ACTIVITIES": "20"}, clear=True):
+            assert GovernorConfig.from_env().max_concurrent == 20
+
+    def test_explicit_max_concurrent_overrides_activity_limit(self):
+        env = {"MAX_CONCURRENT_ACTIVITIES": "20", "DELTALITE_GOVERNOR_MAX_CONCURRENT": "8"}
+        with patch.dict("os.environ", env, clear=True):
+            assert GovernorConfig.from_env().max_concurrent == 8
+
     def test_reads_numeric_overrides(self):
         env = {
             "DELTALITE_GOVERNOR_MODE": "enforce",
             "DELTALITE_GOVERNOR_SAFETY": "0.7",
-            "DELTALITE_GOVERNOR_MERGE_RESERVE_MB": "4096",
-            "DELTALITE_GOVERNOR_MAX_WAIT_S": "5",
+            "DELTALITE_GOVERNOR_RESERVE_MB": "4096",
         }
         with patch.dict("os.environ", env, clear=True):
             cfg = GovernorConfig.from_env()
-            assert (cfg.safety, cfg.merge_reserve_mb, cfg.max_wait_s) == (0.7, 4096.0, 5.0)
+            assert (cfg.safety, cfg.reserve_mb) == (0.7, 4096.0)

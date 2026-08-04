@@ -209,18 +209,12 @@ class DeltaWriter:
                 else None
             )
 
-            # Capacity planning: size this upsert's knobs to the pod's live memory headroom, accounting
-            # for every other in-flight deltalite/delta-rs write on the process. The reservation is held
-            # for the whole upsert. When enforcing and the pod is genuinely full, the governor declines
-            # and we fall back to the MERGE — the same safe outcome as any other deltalite refusal.
+            # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
+            # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
+            # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
+            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
+            # mpp=1 (governor logs a capacity_exceeded ops signal).
             async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
-                if not adm.proceed:
-                    await self._logger.awarning(
-                        f"deltalite write: governor declined ({adm.reject_reason}); "
-                        "falling back to delta-rs MERGE (sync unaffected)"
-                    )
-                    DELTALITE_WRITE_TOTAL.labels(outcome="fallback").inc()
-                    return False
 
                 def _upsert(upsert_kwargs: dict[str, int] = adm.upsert_kwargs) -> Any:
                     table = deltalite.DeltaLiteTable.open(uri, storage_options)
@@ -263,7 +257,8 @@ class DeltaWriter:
                 governor_mode=adm.mode,
                 governor_predicted_peak_mb=adm.predicted_peak_mb,
                 governor_observed_delta_mb=adm.observed_delta_mb,
-                governor_wait_ms=round(adm.waited_s * 1000),
+                governor_budget_mb=adm.budget_mb,
+                governor_capacity_exceeded=adm.capacity_exceeded,
                 governor_mpp=adm.upsert_kwargs.get("max_parallel_partitions"),
                 **_deltalite_write_stats(stats),
             )
