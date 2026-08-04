@@ -274,16 +274,22 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             client_provenance=client_provenance,
         )
 
-    def _rate(self, **overrides) -> ComputeRateCard:
-        defaults = {
-            "version": "v1",
-            "effective_at": self.BEGIN,
-            "expires_at": None,
-            "cpu_core_second_usd": Decimal("0.001"),
-            "memory_gib_second_usd": Decimal("0.0001"),
-        }
-        defaults.update(overrides)
-        return ComputeRateCard(**defaults)
+    def _rate(
+        self,
+        *,
+        version: str = "v1",
+        effective_at: datetime | None = None,
+        expires_at: datetime | None = None,
+        cpu_core_second_usd: Decimal = Decimal("0.001"),
+        memory_gib_second_usd: Decimal = Decimal("0.0001"),
+    ) -> ComputeRateCard:
+        return ComputeRateCard(
+            version=version,
+            effective_at=effective_at or self.BEGIN,
+            expires_at=expires_at,
+            cpu_core_second_usd=cpu_core_second_usd,
+            memory_gib_second_usd=memory_gib_second_usd,
+        )
 
     def test_billable_compute_requires_trusted_desktop_user_created_snapshot(self):
         self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)

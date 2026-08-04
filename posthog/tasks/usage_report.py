@@ -1744,6 +1744,13 @@ def get_teams_with_posthog_code_token_credits_used_in_period(
     )
 
 
+def get_teams_with_posthog_code_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    return get_teams_with_posthog_code_token_credits_used_in_period(begin, end)
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_task_sandbox_usage_in_period(begin: datetime, end: datetime) -> SandboxUsageByTeam:

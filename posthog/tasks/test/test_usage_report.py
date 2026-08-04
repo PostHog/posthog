@@ -4819,9 +4819,8 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
         from posthog.tasks.usage_report import get_teams_with_billable_sandbox_compute_usage_in_period
 
         from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
-        from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCardConfigurationError
 
-        error = ComputeRateCardConfigurationError("invalid")
+        error = ValueError("invalid")
         mock_compute.side_effect = error
 
         result = get_teams_with_billable_sandbox_compute_usage_in_period(
