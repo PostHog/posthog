@@ -1151,32 +1151,20 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        is_private = data["is_private"]
         idempotency_key = data.get("idempotency_key")
 
         replayed = self._reply_for_idempotency_key(idempotency_key, ticket) if idempotency_key else None
         if replayed is not None:
             return Response(TicketMessageSerializer(self._serialize_message(replayed, ticket)).data)
 
-        create_kwargs = {
-            "team": self.team,
-            "created_by": request.user,
-            "scope": "conversations_ticket",
-            "item_id": str(ticket.id),
-            "content": data["message"],
-            "rich_content": data.get("rich_content"),
-            "item_context": {"author_type": "support", "is_private": is_private},
-            "idempotency_key": idempotency_key,
-        }
-
         if not idempotency_key:
-            comment = Comment.objects.create(**create_kwargs)
+            comment = self._create_reply_comment(ticket, request.user, data, idempotency_key=None)
         else:
             try:
                 # Atomic so a losing race savepoints its failed INSERT instead of breaking the
                 # surrounding transaction, leaving us able to query for the winner.
                 with transaction.atomic():
-                    comment = Comment.objects.create(**create_kwargs)
+                    comment = self._create_reply_comment(ticket, request.user, data, idempotency_key=idempotency_key)
             except IntegrityError:
                 replayed = self._reply_for_idempotency_key(idempotency_key, ticket)
                 if replayed is None:
@@ -1186,6 +1174,20 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED,
+        )
+
+    def _create_reply_comment(
+        self, ticket: Ticket, user: Any, data: dict[str, Any], *, idempotency_key: uuid.UUID | None
+    ) -> Comment:
+        return Comment.objects.create(
+            team=self.team,
+            created_by=user,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=data["message"],
+            rich_content=data.get("rich_content"),
+            item_context={"author_type": "support", "is_private": data["is_private"]},
+            idempotency_key=idempotency_key,
         )
 
     def _reply_for_idempotency_key(self, idempotency_key: uuid.UUID, ticket: Ticket) -> Comment | None:
