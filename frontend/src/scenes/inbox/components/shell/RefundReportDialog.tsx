@@ -46,7 +46,7 @@ export function openRefundReportDialog({ reportTitle, onConfirm }: OpenRefundRep
                         <LemonRadio value={value} onChange={onChange} options={REFUND_REASON_OPTIONS} />
                     )}
                 </LemonField>
-                <LemonField name="note" label="Note" info="Optional – helps us review refunds">
+                <LemonField name="note" label="Note" info="Optional. Helps us review refunds.">
                     <LemonTextArea placeholder="Optional: add detail" maxLength={4000} rows={3} />
                 </LemonField>
             </div>
