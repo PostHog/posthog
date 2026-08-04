@@ -150,6 +150,10 @@ Defined in `backend/temporal/summary.py`.
 
 **Flow:**
 
+0. **Quota gate** → `check_report_quota_gate_activity` (`stage=summary_entry`; see Billing limit enforcement below).
+   When it blocks, the workflow exits and the report stays `candidate`.
+   The gate re-runs before repository selection (`pre_repo_selection`) and before agentic research (`pre_research`) — a block there reverts the report `in_progress → candidate` via `revert_report_to_candidate_activity` before exiting, so a promotion rule can pick it up again.
+   All three sites are gated with `workflow.patched("signals-quota-gates")`.
 1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`
 2. **Mark in-progress** in Postgres and advance `signals_at_run` by 3 → `mark_report_in_progress_activity`
 3. **Safety judge** → `report_safety_judge_activity`
@@ -350,6 +354,7 @@ potential → candidate → in_progress → ready
                                     → pending_input
                                     → failed
                                     → potential (reset by actionability judge)
+                                    → candidate (mid-run quota pause; re-promotes on the next matching signal)
 
 # Re-promotion: READY reports are re-promoted to candidate on each new matching signal,
 # triggering a new summary run that reuses the previous repo selection and findings for
@@ -963,6 +968,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
 - `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
+- `signal_report_quota_paused` — a quota gate observed the team over its Signals credits limit (+ `stage`: `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research` | `autostart`, `enforced`, `report_id`). See Billing limit enforcement
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
@@ -1154,6 +1160,39 @@ Cleared for the team:
 | Wizard log         | `/tmp/posthog-wizard.log` → backed up to `/tmp/posthog-wizard-previous-<timestamp>.log` then removed (override `--wizard-log`, skip `--keep-log`)                                                                                                       |
 
 Preserved: canonical scouts and the `authoring-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"`. That tag is the practical marker this DEBUG reset uses; it is not a perfect canonical test on its own — `_scout_origin` also requires the name to ship on disk, since `duplicate_skill` copies the tag verbatim — but the wizard authors custom scouts via `llma-skill-create` with no tag, so tag-only suffices here. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard); `llm_analytics` sources are gated by their `SignalSourceConfig` rows like any other source.
+
+---
+
+## Billing limit enforcement
+
+Signals bills a flat credit charge per report that ships an implementation PR (see `backend/billing.py`),
+so a team over its `signals_credits` quota must stop generating new research and PRs — including flows already mid-pipeline.
+The authority for "over quota" is the Redis quota-limiter flag (`ee.billing.quota_limiting`, resource `signals_credits`),
+read through `quota.is_team_signals_quota_limited()` and bundled with the rollout flag by `quota.signals_quota_gate()`.
+
+**Enforcement is feature-flag-gated for rollout** (`signals-quota-enforcement`, org-keyed).
+Gates always run and emit telemetry when the team is limited;
+they only block when the flag is on, so the would-block volume is measurable before enablement (`enforced=false` events are dark-launch rows).
+Every check **fails open** — a Redis or flag-read error lets work through rather than stalling the fleet — and the bypass is alertable via `signals_quota_check_failed_open_total`.
+
+Gates, in pipeline order:
+
+| Stage              | Where                                                             | Behavior when limited (enforced)                                                                                              |
+| ------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| ingestion          | `check_signals_quota_limited_activity` (buffer flush)             | Batch dropped before safety filter / flush (pre-existing gate)                                                                  |
+| scout runs         | `run_signals_scout_activity` + manual-trigger API                 | Run skipped / trigger 429s (pre-existing gate)                                                                                  |
+| `promotion`        | `assign_and_emit_signal_activity`                                 | Signal still assigned, weighted, and emitted, but the report is not promoted — no summary run spawns; status left untouched     |
+| `summary_entry`    | `SignalReportSummaryWorkflow`, before any work                    | Workflow exits; report stays `candidate`                                                                                        |
+| `pre_repo_selection` / `pre_research` | `SignalReportSummaryWorkflow`, between the heavy steps | Workflow reverts the report `in_progress → candidate` and exits; an in-flight research **activity** is never interrupted |
+| `autostart`        | `maybe_autostart_implementation_task` (all callers)               | No implementation task is created — the step that would lead to the billable PR                                                 |
+
+**Resume is organic, never automatic.**
+Nothing re-spawns paused work when the limit is raised or the billing period resets:
+a `candidate` report re-promotes on its next matching signal (ingestion unmutes once the team is no longer limited),
+and a `ready` report's implementation starts only when a later research cycle re-evaluates auto-start (or a user starts it manually).
+
+**Telemetry:** every gate observation emits `signal_report_quota_paused` with `stage`, `enforced`, `report_id` (null at stages without one), `team_id`, and `organization_id`.
+Promotion-stage events are emitted only when the signal would actually have promoted the report, so the volume measures withheld summary runs.
 
 ---
 

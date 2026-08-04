@@ -30,6 +30,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.quota import capture_signal_report_quota_paused, signals_quota_gate
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -601,6 +602,23 @@ async def maybe_autostart_implementation_task(
         )
         return
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+
+    # Quota gate: the implementation task is the step that leads to the billable PR, so a team
+    # over its Signals credits quota starts none, on any path (pipeline, custom agent, scout, or
+    # a user's reviewer edit). The report stays ready; the next new-signal research cycle after
+    # the quota lifts re-evaluates auto-start.
+    team = await Team.objects.select_related("organization").aget(pk=team_id)
+    quota_gate = await database_sync_to_async(signals_quota_gate, thread_sensitive=False)(team)
+    if quota_gate.limited:
+        capture_signal_report_quota_paused(team, report_id=report_id, stage="autostart", enforced=quota_gate.enforced)
+    if quota_gate.enforced:
+        logger.info(
+            "signals auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="team over signals credits quota",
+        )
+        return
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.

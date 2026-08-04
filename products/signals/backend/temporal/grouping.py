@@ -33,6 +33,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.quota import capture_signal_report_quota_paused, signals_quota_gate
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -686,11 +687,12 @@ class AssignAndEmitSignalOutput:
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool, datetime, bool, int, bool, str, int]:
+    def do_assign_and_emit(suppress_promotion: bool) -> tuple[str, bool, datetime, bool, int, bool, str, int, bool]:
         """Returns (report_id, promoted, timestamp, matched_deleted_report, run_count,
-        reresearch_capped, report_status, report_signal_count)."""
+        reresearch_capped, report_status, report_signal_count, promotion_suppressed)."""
         with transaction.atomic():
             promoted = False
+            promotion_suppressed = False
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
@@ -729,7 +731,17 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         timestamp=ts,
                         metadata=metadata,
                     )
-                    return report_id, False, ts, True, report.run_count, False, report.status, report.signal_count
+                    return (
+                        report_id,
+                        False,
+                        ts,
+                        True,
+                        report.run_count,
+                        False,
+                        report.status,
+                        report.signal_count,
+                        False,
+                    )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
@@ -794,12 +806,20 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     and report.signal_count >= report.signals_at_run
                 )
             ):
+                if suppress_promotion:
+                    # Team over its Signals credits quota with enforcement on: the signal is still
+                    # assigned, weighted, and emitted, but no summary run spawns. The status is left
+                    # untouched, so the first matching signal after the quota lifts re-evaluates
+                    # promotion under the same rules.
+                    promotion_suppressed = True
                 # If candidate got here - it usually means CH issue down the way
                 # (e.g. CH wait raised before start_child_workflow)
-                if report.status != SignalReport.Status.CANDIDATE:
+                elif report.status != SignalReport.Status.CANDIDATE:
                     updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                     report.save(update_fields=updated_fields)
-                promoted = True
+                    promoted = True
+                else:
+                    promoted = True
 
             report_id = str(report.id)
 
@@ -837,9 +857,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 reresearch_capped,
                 report.status,
                 report.signal_count,
+                promotion_suppressed,
             )
 
     try:
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        # Resolved before the assign transaction: the quota gate is Redis + flag network I/O that
+        # must not run while holding the report row lock.
+        quota_gate = await database_sync_to_async(signals_quota_gate, thread_sensitive=False)(team)
+
         (
             report_id,
             promoted,
@@ -849,9 +875,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             reresearch_capped,
             report_status,
             report_signal_count,
-        ) = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
-
-        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+            promotion_suppressed,
+        ) = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(quota_gate.enforced)
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
@@ -939,6 +964,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         team_id=input.team_id,
                         source_id=input.source_id,
                     )
+            # Emitted only when the signal would have promoted the report, so the event volume
+            # measures withheld summary runs rather than every assignment on a limited team.
+            if quota_gate.limited and (promoted or promotion_suppressed):
+                capture_signal_report_quota_paused(
+                    team, report_id=report_id, stage="promotion", enforced=quota_gate.enforced
+                )
 
         if not matched_deleted:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
