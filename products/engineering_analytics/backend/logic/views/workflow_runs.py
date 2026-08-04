@@ -29,9 +29,21 @@ A merge-queue gate run is the one case where the association is present but wron
 purpose: it points at the throwaway PR the queue opened, not the PR being landed. The gate branch
 names its source PR (``trunk-merge/pr-77271/...``), so ``pr_number`` resolves through the branch
 whenever it is one, and ``is_merge_queue`` marks those rows for consumers that need the two
-populations apart. Without this a PR's CI rollup and cost card omit the full-suite run its own merge
-paid for — ~13% of this repo's CI spend — while it lands on a PR no surface shows. See
-``logic.merge_queue`` for the branch shapes and why the branch name is a sound key here.
+populations apart. Without this a PR's cost card omits the full-suite run its own merge paid for —
+~13% of this repo's CI spend — while it lands on a PR no surface shows. See ``logic.merge_queue``
+for the branch shapes and why the branch name is a sound key here.
+
+**The rule for a new ``pr_number`` consumer**, since crediting the gate run is right for most reads
+and wrong for a few. Ask what the number is being counted *for*:
+
+- Measuring **CI** — cost, duration, pass rate, which runs ran, which failures to read — include gate
+  runs. That work happened, the PR caused it, and excluding it under-reports what landing cost.
+- Measuring **what the author did** — pushes, re-run cycles, push history — exclude them with
+  ``NOT is_merge_queue``. A gate branch's head SHA is a rebase the queue made, so counting it reports
+  activity nobody performed, once per merge attempt.
+
+Only ``runs_by_pr`` (``_curated``) and the push-history scan (``pull_request_list``) are in the second
+group today. Getting this wrong is silent: the numbers stay plausible and just drift up.
 
 ``commit_pr_number`` is the complementary key: it is how a push run gets PR attribution at all,
 since a merged commit on the default branch has no association of its own. Consumers prefer
