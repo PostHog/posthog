@@ -547,6 +547,7 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
             run_id=str(result.task_run_id),
             create_pr=expected_create_pr,
             posthog_mcp_scopes=expected_scopes,
+            slack_thread_context=None,
         )
 
     @parameterized.expand(
