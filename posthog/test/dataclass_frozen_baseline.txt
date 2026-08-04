@@ -89,6 +89,7 @@
 1 posthog/temporal/session_replay/session_summary/activities/capture_timing.py
 1 posthog/temporal/signup_enrichment/workflow.py
 1 posthog/temporal/tests/common/test_logger.py
+1 posthog/temporal/tests/data_modeling/test_log_routing.py
 1 posthog/temporal/tests/session_replay/gemini_cleanup_sweep/test_activities.py
 1 posthog/test/test_journeys.py
 1 posthog/views.py
@@ -226,6 +227,7 @@
 1 products/visual_review/backend/logic.py
 1 products/warehouse_sources/backend/models/ssh_tunnel.py
 1 products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py
+1 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/delta/memory_governor.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_sync.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/batch_consumer.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/kafka/common.py
@@ -359,6 +361,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/buildkite/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bunny/bunny.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bunny/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/buttondown/buttondown.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/buttondown/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/buzzsprout/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cal_com/cal_com.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cal_com/settings.py
@@ -452,6 +456,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/tests/test_implementation.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/concord/concord.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/concord/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/conekta/conekta.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/conekta/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/configcat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/confluence/confluence.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/confluence/settings.py
@@ -517,6 +523,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/docuseal/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/docusign/docusign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/docusign/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/dodopayments/dodopayments.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/doppler/doppler.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/doppler/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dovetail/dovetail.py
@@ -597,6 +604,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/formbricks/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fourthwall/fourthwall.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fourthwall/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/fred/fred.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/fred/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshcaller/freshcaller.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshcaller/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/freshchat.py
@@ -659,6 +668,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/groq/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guardian/guardian.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guardian/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/gumroad/gumroad.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/gumroad/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guru/guru.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guru/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gusto/gusto.py
@@ -759,6 +770,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/klaviyo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/knock/knock.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/knowbe4/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/kommo/kommo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/kong_konnect.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/koyeb.py
@@ -888,6 +900,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/nuget/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/octopus_deploy/octopus_deploy.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/octopus_deploy/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/okendo/okendo.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/okendo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/okta/okta.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/okta/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/omni/omni.py
@@ -1244,6 +1258,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/typeform/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ubidots/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ubidots/ubidots.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/uk_companies_house/uk_companies_house.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/unleash.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/settings.py
