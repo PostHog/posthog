@@ -7,6 +7,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.messaging import MessagingRecord
 from posthog.tasks.email import NotificationSetting, should_send_notification
@@ -21,6 +22,12 @@ from products.error_tracking.backend.temporal.weekly_digest.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Marks the ApplicationError this activity raises purely to trigger a Temporal retry (see
+# `EXPECTED_CONTROL_FLOW_ERROR_TYPES` in posthog_client.py). Only set on non-final attempts:
+# the interceptor skips reporting these to error tracking, since a retry may still recover.
+# The final attempt raises without this type so the exhausted-retries failure is reported once.
+RETRY_EXPECTED_ERROR_TYPE = "et_weekly_digest_retry"
 
 
 def _get_digest_orgs(inputs: GetDigestOrgsInputs) -> list[str]:
@@ -159,8 +166,12 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     for team_id in needed_team_ids:
         try:
             data = weekly_digest.build_team_digest_data(all_org_teams[team_id], daily_rows_by_team.get(team_id))
-        except Exception:
+        except Exception as e:
             logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
+            # Report the actual cause (e.g. a ClickHouse capacity error) so it's visible in error
+            # tracking on its own merits, grouped by exception type/message rather than buried in a
+            # log line that only shows up if someone greps for it.
+            capture_exception(e, additional_properties={"team_id": team_id, "org_id": org_id})
             failed_team_ids.append(team_id)
             continue
         if data:
@@ -282,11 +293,18 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     if failed_count or failed_team_ids:
         # Trigger a Temporal retry; already-sent recipients are skipped via MessagingRecord, and
         # recipients missing a failed team were deferred above so the retry can complete them.
-        # sent_total rides in the details because a raising activity returns no result.
+        # The org id and counts ride in `details`, not the message: every org hitting this same
+        # failure mode should collapse into one error tracking issue, not one fingerprint per org
+        # (the message is what error tracking fingerprints on when there's no resolvable stack).
         raise ApplicationError(
-            f"Error Tracking weekly digest failed for {failed_count} recipients "
-            f"and {len(failed_team_ids)} team builds in org {org_id}",
+            "Error Tracking weekly digest failed for some recipients and team builds",
             sent_total,
+            org_id,
+            failed_count,
+            len(failed_team_ids),
+            # Non-final attempts are expected to be retried and recovered; only the exhausted-retries
+            # failure is a real signal worth reporting to error tracking.
+            type=None if is_final_attempt else RETRY_EXPECTED_ERROR_TYPE,
         )
 
     return SendOrgDigestResult(sent=sent_total, teams_built=len(team_digest_data))

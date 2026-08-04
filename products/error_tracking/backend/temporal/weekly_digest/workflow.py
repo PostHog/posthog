@@ -198,9 +198,14 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
         )
 
         if orgs_failed:
+            # Counts ride in `details`, not the message: they differ on every run, and error
+            # tracking fingerprints on the message when there's no resolvable stack, so a
+            # per-run count in the message would mint a brand-new issue every week.
             raise ApplicationError(
-                f"Error Tracking weekly digest failed for {orgs_failed}/{orgs} orgs "
-                f"({sent} digests sent, including partial sends from the failed orgs)",
+                "Error Tracking weekly digest failed for some orgs",
+                orgs_failed,
+                orgs,
+                sent,
                 type=FAILED_ORGS_ERROR_TYPE,
                 non_retryable=True,
             )

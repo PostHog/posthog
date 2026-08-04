@@ -29,7 +29,11 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.temporal.weekly_digest.activities import _get_digest_orgs, _send_org_digest
+from products.error_tracking.backend.temporal.weekly_digest.activities import (
+    RETRY_EXPECTED_ERROR_TYPE,
+    _get_digest_orgs,
+    _send_org_digest,
+)
 from products.error_tracking.backend.temporal.weekly_digest.types import (
     GetDigestOrgsInputs,
     SendOrgDigestInputs,
@@ -292,8 +296,12 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
             patch(_BUILD_TEAM_DIGEST_DATA, side_effect=build_or_fail),
             patch(_WEBHOOK_POST) as mock_post,
         ):
-            with pytest.raises(Exception, match="team builds"):
+            with pytest.raises(ApplicationError, match="team builds") as exc_info:
                 self._run()
+
+        # A non-final attempt is expected to be retried and recovered, so it must not be reported
+        # to error tracking as a defect (see RETRY_EXPECTED_ERROR_TYPE / EXPECTED_CONTROL_FLOW_ERROR_TYPES).
+        assert exc_info.value.type == RETRY_EXPECTED_ERROR_TYPE
 
         # Only the healthy-team-only recipient was sent; the incomplete recipient was deferred, not sent a partial.
         recipients = [c.kwargs["json"]["digest"]["recipient_email"] for c in mock_post.call_args_list]
@@ -366,7 +374,10 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
         sections = mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
         assert [s["team_name"] for s in sections] == [team_b.name]
         # A raising activity returns no result, so the count only reaches the workflow via details.
-        assert list(exc_info.value.details) == [1]
+        # org id and failure counts ride here too rather than in the message (see `_send_org_digest`).
+        assert list(exc_info.value.details) == [1, str(self.organization.id), 0, 1]
+        # The final attempt has exhausted retries, so it's a real failure worth reporting once.
+        assert exc_info.value.type is None
 
     def test_disabled_team_not_counted_as_excluded(self):
         _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
@@ -490,8 +501,9 @@ class TestErrorTrackingWeeklyDigestWorkflow:
         cause = exc_info.value.__cause__
         assert cause is not None and getattr(cause, "type", None) == FAILED_ORGS_ERROR_TYPE
         # org-a and org-c sent 1 each, org-b sent 3 before exhausting its retries. Dropping the
-        # failed org's count would report 2.
-        assert "5 digests sent" in str(cause)
+        # failed org's count would report 2. Counts ride in `details`, not the message, so every
+        # run collapses into one error tracking issue instead of one per run's counts.
+        assert list(getattr(cause, "details", ())) == [1, 3, 5]
         # The failed org must not prevent the other orgs from being processed.
         assert sent_orgs == {"org-a", "org-c"}
         # An input-less run can never send for real; only the schedule passes dry_run=False.

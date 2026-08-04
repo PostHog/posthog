@@ -26,7 +26,9 @@ logger = get_write_only_logger()
 # ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
 # probes, retryable transient-infra re-raises), not defects — same reasoning as the
 # EgressBudgetExhausted exemption below.
-EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled", "TransientRepartitionError"})
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
+    {"trace_not_settled", "TransientRepartitionError", "et_weekly_digest_retry"}
+)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
