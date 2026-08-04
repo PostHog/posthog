@@ -10,7 +10,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
+from products.data_warehouse.backend.facade.api import aget_s3_client, delta_proxy_storage_options, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -70,7 +70,7 @@ async def _purge_s3_prefix_once(s3: Any, uri: str) -> None:
 def delta_storage_options() -> dict[str, str]:
     """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
     read path (e.g. the person-property backfill) can open a Delta table without constructing a full
-    ``DeltaTableHelper`` (which carries caching, first-sync mutation, and corruption-repair)."""
+    ``DeltaTableRef`` (which carries caching, first-sync mutation, and corruption-repair)."""
     if settings.USE_LOCAL_SETUP:
         if (
             not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
@@ -97,7 +97,7 @@ def delta_storage_options() -> dict[str, str]:
             "AWS_ALLOW_HTTP": "true",
         }
     else:
-        options = {}
+        options = dict(delta_proxy_storage_options())
 
     # Conditional puts make a clashing concurrent commit fail loudly instead of
     # clobbering _delta_log; set explicitly so a library default change can't undo it.
@@ -107,7 +107,15 @@ def delta_storage_options() -> dict[str, str]:
     return options
 
 
-class DeltaTableHelper:
+class DeltaTableRef:
+    """Handle to one schema's Delta table: uri/credentials, the cached open (with corrupt-table
+    auto-heal), corruption detection, reset, file listing, and the first-sync flag.
+
+    This is the single stateful object threaded through a sync run. The operations over the table
+    are stateless wrappers constructed at their call sites: `DeltaWriter`, `Scd2DeltaWriter`, and
+    `DeltaMaintenance`.
+    """
+
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
