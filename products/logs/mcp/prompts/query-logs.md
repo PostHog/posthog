@@ -50,7 +50,7 @@ The `value` field accepts a string, number, or array of strings depending on the
 
 ## Filtering logs by a PostHog person
 
-When the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via `log_attribute` filters. The attribute keys are configurable per project (they default to `["posthogDistinctId"]`); read `logs_distinct_id_attribute_keys` from the `/api/projects/:id/logs_config/` endpoint and use those as the filter `key`s.
+When the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via `log_attribute` filters. The attribute keys are configurable per project (they default to `["posthogDistinctId"]`, the key PostHog SDKs auto-attach); call `logs-config-get` and read `logs_distinct_id_attribute_keys` (ordered list) to get the filter `key`s.
 
 If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them):
 
@@ -60,7 +60,7 @@ If a person has multiple `distinct_ids`, pass the array as the filter `value` wi
     "serviceNames": ["<service>"],
     "filterGroup": [
       {
-        "key": "posthogDistinctId",
+        "key": "<logs_distinct_id_attribute_keys[0]>",
         "operator": "exact",
         "type": "log_attribute",
         "value": ["<distinct_id_1>", "<distinct_id_2>"]
@@ -73,6 +73,28 @@ If a person has multiple `distinct_ids`, pass the array as the filter `value` wi
 Entries in the `filterGroup` array are combined with AND, so never put two distinct-id keys in one call — a log only carries one of them. When the team has multiple keys configured, run one query per key and merge the results.
 
 Do not invent a different attribute key based on what looks plausible — use the configured keys. If the configured keys return zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.
+
+## Filtering logs by a PostHog session
+
+When the user wants the logs behind a session — a session replay recording, or the `$session_id` on an error tracking exception (from `query-error-tracking-issue-events`) — filter via the project's configured session ID attribute keys: call `logs-config-get` and read `logs_session_id_attribute_keys` (ordered list, default `["posthogSessionId"]`). Build one `exact` filter of type `log_attribute` per configured key, all with the session ID as `value` — the filter group is OR'd, so any key matching counts.
+
+```json
+{
+  "query": {
+    "filterGroup": [
+      {
+        "key": "<logs_session_id_attribute_keys[0]>",
+        "operator": "exact",
+        "type": "log_attribute",
+        "value": "<session_id>"
+      }
+    ],
+    "dateRange": { "date_from": "<event timestamp -30m>", "date_to": "<event timestamp +30m>" }
+  }
+}
+```
+
+A session-scoped filter is already narrow, so this is the one case where `serviceNames` may be omitted — but scope `dateRange` around the event's timestamp (±30 minutes) rather than using a relative range, or older sessions return nothing. The same caveat as person filters applies: if the configured keys return zero results, the pipeline may not stamp session IDs on logs; say so instead of guessing other keys. For trace-scoped log lookups no config is needed — filter the native `trace_id` / `span_id` columns directly (type `log_attribute`, operator `exact`).
 
 ## Time period
 

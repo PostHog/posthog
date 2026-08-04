@@ -17,3 +17,7 @@ Returns sampled events with plural exception fields (`$exception_types`, `$excep
 # Session recordings
 
 When `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.
+
+# Logs
+
+When `$session_id` is present and the user asks for the logs behind the error, pivot to the logs product: call `logs-config-get` to read the project's `logs_session_id_attribute_keys` (ordered list, default `["posthogSessionId"]`), then call `query-logs` with one `exact` filter of type `log_attribute` per configured key, value set to the `$session_id`, and a `dateRange` scoped around the event timestamp (±30 minutes). Never guess the attribute key — projects configure where their pipeline stamps the session ID.
