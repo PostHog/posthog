@@ -25,6 +25,7 @@ from temporalio import (
 from temporalio.testing import WorkflowEnvironment
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
@@ -37,6 +38,8 @@ from posthog.temporal.data_modeling.run_workflow import (
     CleanupRunningJobsActivityInputs,
     CreateJobModelInputs,
     ModelNode,
+    ModelStatus,
+    NonRetryableException,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -46,6 +49,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     create_job_model_activity,
     fail_jobs_activity,
     finish_run_activity,
+    handle_model_ready,
     hogql_table,
     materialize_model,
     run_dag_activity,
@@ -973,6 +977,92 @@ async def test_materialize_model_reverts_materialization_on_unknown_table(ateam)
     assert saved_query.is_materialized is False
     assert saved_query.sync_frequency_interval is None
     assert saved_query.status is None
+
+
+async def test_materialize_model_raises_non_retryable_exception_for_hogql_error(ateam):
+    """A HogQL resolution error (e.g. a model referencing a column that no longer exists
+    upstream) can never succeed on retry, so it must fail as `NonRetryableException` wrapping
+    the original `QueryError` rather than the generic `Exception` used for unclassified errors."""
+
+    def mock_hogql_table(_query, _team, _logger):
+        raise QueryError("Unable to resolve field: nonexistent_column")
+
+    with (
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_s3_client"),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow._get_credentials", return_value={}),
+    ):
+        saved_query = await DataWarehouseSavedQuery.objects.acreate(
+            team=ateam,
+            name="my_model",
+            query={"query": "select nonexistent_column from events", "kind": "HogQLQuery"},
+        )
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id=str(uuid.uuid4()),
+        )
+
+        with pytest.raises(NonRetryableException) as exc_info:
+            await materialize_model(saved_query.id.hex, ateam, saved_query, job, unittest.mock.AsyncMock())
+
+        assert isinstance(exc_info.value.cause, QueryError)
+
+    await database_sync_to_async(job.refresh_from_db)()
+    assert job.status == DataModelingJob.Status.FAILED
+
+    await database_sync_to_async(saved_query.refresh_from_db)()
+    assert saved_query.latest_error is not None
+    assert "Unable to resolve field" in saved_query.latest_error
+
+
+async def test_handle_model_ready_skips_capture_exception_for_hogql_error(ateam):
+    """HogQL query errors are expected, user-fixable problems already surfaced on
+    `saved_query.latest_error` — they must not also be reported to error tracking as if they
+    were an unhandled backend crash. A genuinely unexpected error must still be reported."""
+
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my_model",
+        query={"query": "select nonexistent_column from events", "kind": "HogQLQuery"},
+    )
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id=str(uuid.uuid4()),
+    )
+    model = ModelNode(label=saved_query.id.hex, selected=True)
+
+    async def mock_materialize_model_hogql_error(model_label, team, saved_query, job, logger):
+        raise NonRetryableException("HogQL query error") from QueryError("Unable to resolve field: nonexistent_column")
+
+    async def mock_materialize_model_unexpected_error(model_label, team, saved_query, job, logger):
+        raise ValueError("something unexpected broke")
+
+    for mock_materialize_model, should_capture in (
+        (mock_materialize_model_hogql_error, False),
+        (mock_materialize_model_unexpected_error, True),
+    ):
+        queue: asyncio.Queue = asyncio.Queue()
+        job.status = DataModelingJob.Status.RUNNING
+        await database_sync_to_async(job.save)()
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.run_workflow.materialize_model", mock_materialize_model
+            ),
+            unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.capture_exception") as mock_capture,
+        ):
+            await handle_model_ready(model, ateam.pk, queue, str(job.id), unittest.mock.AsyncMock())
+
+        assert mock_capture.called is should_capture
+
+        message = queue.get_nowait()
+        assert message.status == ModelStatus.FAILED
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.FAILED
 
 
 async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures(

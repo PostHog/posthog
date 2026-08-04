@@ -42,6 +42,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -378,6 +379,16 @@ async def handle_model_ready(
     except CannotCoerceColumnException as err:
         await logger.aexception("Type coercion error for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Type coercion error for model %s: %s", logger)
+    except NonRetryableException as err:
+        if isinstance(err.cause, ExposedHogQLError):
+            await logger.ainfo("HogQL query error for model %s: %s", model.label, err, job_id=job_id)
+            await handle_error(job, model, queue, err, "HogQL query error for model %s: %s", logger)
+        else:
+            await logger.aexception(
+                "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
+            )
+            capture_exception(err)
+            await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s", logger)
     except DataModelingCancelledException as err:
         await logger.aexception("Data modeling run was cancelled for model %s", model.label, job_id=job_id)
         await handle_cancelled(job, model, queue, err, "Data modeling run was cancelled for model %s: %s", logger)
@@ -682,6 +693,12 @@ async def materialize_model(
                     CONSECUTIVE_TIMEOUTS_TO_PAUSE,
                 )
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+        elif isinstance(e, ExposedHogQLError):
+            saved_query.latest_error = f"Query failed to materialize: {error_message}"
+            await logger.ainfo("HogQL query error for model %s: %s", model_label, error_message)
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+            raise NonRetryableException(f"HogQL query error for model {model_label}: {error_message}") from e
         else:
             sanitized_error = strip_hostname_from_error(error_message)
             saved_query.latest_error = f"Query failed to materialize: {sanitized_error}"
