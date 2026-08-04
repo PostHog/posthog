@@ -235,6 +235,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
+    enforce_verified_domains = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.",
+    )
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_create_projects = models.BooleanField(
         default=False,

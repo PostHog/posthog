@@ -1486,7 +1486,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             # the retry path can't safely restart from the original
             # cursor: the delta merge only dedupes rows for `incremental`
             # writes into an existing table (see
-            # `delta_table_helper.write_to_deltalake`), so full-refresh
+            # `DeltaWriter.write`), so full-refresh
             # and first-ever-sync scenarios would get silent duplicates
             # on replay. The observed bad-plan failure fails before any
             # rows stream, so this guard is defensive — it enforces the
