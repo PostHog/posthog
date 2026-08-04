@@ -6,15 +6,17 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
-import structlog
+from posthog.constants import TRENDS_CUMULATIVE
 
 from products.product_analytics.backend.models.insight import Insight
-
-logger = structlog.get_logger(__name__)
 
 WEEKDAYS = [1, 2, 3, 4, 5]
 # hideWeekends only ever removed day buckets, so on these intervals it was a no-op
 NOOP_INTERVALS = {"hour", "minute", "week", "month", "quarter", "year"}
+# The runner drops weekend buckets on a second interval, but daysOfWeek only drops buckets on a
+# day interval — so it would leave a row of zeroed weekend buckets instead. Neither action is a
+# true no-op, and no insight uses it, so leave these alone rather than guess.
+AMBIGUOUS_INTERVALS = {"second"}
 # These displays render aggregated_value from a query with no day_start, so hideWeekends
 # (a day-bucket filter) was always a no-op on them; matches TrendsDisplay.is_total_value()
 TOTAL_VALUE_DISPLAYS = {"BoldNumber", "ActionsPie", "ActionsBarValue", "ActionsTable", "WorldMap", "CalendarHeatmap"}
@@ -40,12 +42,14 @@ def plan_migration(source: dict[str, Any]) -> tuple[str, str]:
     interval = source.get("interval") or "day"
     if interval in NOOP_INTERVALS:
         return "strip", f"hideWeekends is a no-op on {interval} interval"
+    if interval in AMBIGUOUS_INTERVALS:
+        return "skip", f"bucket semantics differ on {interval} interval"
 
     trends_filter = source.get("trendsFilter") or {}
     if any((series or {}).get("math") in RESULT_CHANGING_MATHS for series in source.get("series") or []):
         return "skip", "windowed or conditional aggregation counts weekend events"
     display = trends_filter.get("display")
-    if display == "ActionsLineGraphCumulative":
+    if display == TRENDS_CUMULATIVE:
         return "skip", "cumulative totals include weekend events"
     if display in TOTAL_VALUE_DISPLAYS:
         return "strip", f"hideWeekends is a no-op on the {display} display"
@@ -73,7 +77,12 @@ def apply_migration(source: dict[str, Any], action: str) -> None:
 class Command(BaseCommand):
     help = (
         "Migrate insights from the deprecated display-only trendsFilter.hideWeekends "
-        "to the query-level dateRange.daysOfWeek filter, where results are provably identical"
+        "to the query-level dateRange.daysOfWeek filter, where results are provably identical. "
+        "Two differences are accepted rather than skipped: with a breakdown, daysOfWeek also "
+        "filters the rows that decide the top-N values and the Other rollup, so the set of series "
+        "can shift even though each kept weekday value is identical; and a dashboard tile that "
+        "overrides the interval to week or longer will now exclude weekend events, where "
+        "hideWeekends was a no-op at that interval."
     )
 
     def add_arguments(self, parser) -> None:
@@ -96,8 +105,11 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run - no changes will be made"))
 
+        # Containment (`@>`) rather than path equality (`#>`), because only the former can use the
+        # GIN jsonb_ops index on `query` — path equality forces a sequential scan of every insight.
         queryset: QuerySet[Insight] = Insight.objects.filter(
-            Q(query__trendsFilter__hideWeekends=True) | Q(query__source__trendsFilter__hideWeekends=True)
+            Q(query__contains={"trendsFilter": {"hideWeekends": True}})
+            | Q(query__contains={"source": {"trendsFilter": {"hideWeekends": True}}})
         )
         if team_id is not None:
             queryset = queryset.filter(team_id=team_id)
