@@ -12559,7 +12559,7 @@ export type ExternalDataSchemasCancelCreate400 = {
 
 export type ExternalDataSchemasLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**
