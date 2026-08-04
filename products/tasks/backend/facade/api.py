@@ -2176,32 +2176,39 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
     its limit (for runs created the same UTC day; `refresh_org_self_driving_quota` documents the
     cross-midnight gap); the 15-minute quota cron only re-reads usage on its next tick. Dispatched
     on commit so the task reads the committed pr_url; best-effort because the cron is the backstop.
+    Never raises: the callers signal workflow completion and run other PR side effects right after,
+    and a refresh hiccup must not abort those or turn an already-committed run write into a 500.
     """
-    if old_pr_url:
-        return
-    new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
-    if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
-        return
-    # Billing only ever counts GitHub PR URLs (billing.py validates the same prefix), so a
-    # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
-    # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
-    # must not import signals internals.
-    if not new_pr_url.startswith("https://github.com/"):
-        return
-    organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
-    if organization_id is None:
-        return
-    from ee.tasks.quota_limiting import (
-        refresh_org_self_driving_quota_task,  # noqa: PLC0415 — keep billing deps off the api import path
-    )
+    try:
+        if old_pr_url:
+            return
+        new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+        if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+            return
+        # Billing only ever counts GitHub PR URLs (billing.py validates the same prefix), so a
+        # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
+        # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
+        # must not import signals internals.
+        if not new_pr_url.startswith("https://github.com/"):
+            return
+        organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
+        if organization_id is None:
+            return
+        from ee.tasks.quota_limiting import (
+            refresh_org_self_driving_quota_task,  # noqa: PLC0415 — keep billing deps off the api import path
+        )
 
-    def _dispatch() -> None:
-        try:
-            refresh_org_self_driving_quota_task.delay(str(organization_id))
-        except Exception:
-            logger.warning("self_driving_quota_refresh_dispatch_failed", extra={"run_id": str(run.id)}, exc_info=True)
+        def _dispatch() -> None:
+            try:
+                refresh_org_self_driving_quota_task.delay(str(organization_id))
+            except Exception:
+                logger.warning(
+                    "self_driving_quota_refresh_dispatch_failed", extra={"run_id": str(run.id)}, exc_info=True
+                )
 
-    transaction.on_commit(_dispatch)
+        transaction.on_commit(_dispatch)
+    except Exception:
+        logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
 
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:

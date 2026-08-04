@@ -1012,6 +1012,18 @@ class TestSelfDrivingQuotaRefreshDispatch(TestCase):
             self.assertEqual(task_mock.delay.call_args.args, (str(self.organization.id),))
 
     @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
+    def test_refresh_swallows_lookup_failure(self, task_mock):
+        # The refresh is best-effort (the quota cron is the backstop): a transient DB fault must
+        # not propagate, or it would 500 an already-committed run write and abort the completion
+        # signaling that follows at both call sites.
+        run = self._self_driving_run()
+        run.output = {"pr_url": "https://github.com/x/y/pull/1"}
+        run.save(update_fields=["output"])
+        with patch("products.tasks.backend.facade.api.Team.objects.filter", side_effect=RuntimeError("db down")):
+            facade._refresh_self_driving_quota_for_pr(run, None)
+        task_mock.delay.assert_not_called()
+
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
     def test_refresh_dispatch_skipped_for_other_origins(self, task_mock):
         run = self._self_driving_run()
         run.task.origin_product = Task.OriginProduct.USER_CREATED
