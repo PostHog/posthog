@@ -1534,7 +1534,7 @@ describe('sqlEditorLogic', () => {
             biLogic.unmount()
         })
 
-        it('clears incompatible fields when the source changes and persists blank shelf fields', async () => {
+        it('clears incompatible fields and opens persisted blank shelf fields for editing', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -1573,6 +1573,7 @@ describe('sqlEditorLogic', () => {
                     source: { table: 'persons' },
                 }),
             ])
+            expect(biLogic.values.activeExpressionEditorId).toEqual(biLogic.values.config.rows[0].id)
             expect(logic.values.queryInput).toEqual(
                 ['SELECT', '    count(*) AS count', 'FROM persons', 'LIMIT 1000'].join('\n')
             )

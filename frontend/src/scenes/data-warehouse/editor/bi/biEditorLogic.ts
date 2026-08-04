@@ -59,9 +59,9 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
     }
 }
 
-function blankField(source: BIDataSource): BIField {
+function blankField(source: BIDataSource, fieldId: string): BIField {
     return {
-        id: `bi-blank-${uuid()}`,
+        id: fieldId,
         name: '',
         expression: '',
         type: 'unknown',
@@ -156,6 +156,7 @@ export interface biEditorLogicValues {
     databaseLoading: boolean // databaseTableListLogic
     activeTab: QueryTab | null // sqlEditorLogic
     activeDropShelf: BIShelf | null
+    activeExpressionEditorId: string | null
     availableDataSources: BIDataSource[]
     config: BIConfig
     editorView: BIEditorView
@@ -174,6 +175,7 @@ export interface biEditorLogicActions {
         tab: QueryTab
     } // sqlEditorLogic
     addBlankFieldToShelf: (shelf: BIShelf) => {
+        fieldId: string
         shelf: BIShelf
     }
     addFieldToShelf: (
@@ -208,6 +210,9 @@ export interface biEditorLogicActions {
     }
     setActiveDropShelf: (shelf: BIShelf) => {
         shelf: BIShelf
+    }
+    setActiveExpressionEditorId: (fieldId: string | null) => {
+        fieldId: string | null
     }
     setChartType: (chartType: ChartDisplayType) => {
         chartType: ChartDisplayType
@@ -301,10 +306,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
         restoreState: (state: BIEditorState) => ({ state }),
         persistState: (editorView: BIEditorView, config: BIConfig) => ({ editorView, config }),
         addFieldToShelf: (field: BIField, shelf: BIShelf) => ({ field, shelf }),
-        addBlankFieldToShelf: (shelf: BIShelf) => ({ shelf }),
+        addBlankFieldToShelf: (shelf: BIShelf) => ({ shelf, fieldId: `bi-blank-${uuid()}` }),
         clearActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
         removeFieldFromShelf: (shelf: BIShelf, index: number) => ({ shelf, index }),
         setActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
+        setActiveExpressionEditorId: (fieldId: string | null) => ({ fieldId }),
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
@@ -325,6 +331,17 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     activeDropShelf === shelf ? null : activeDropShelf,
             },
         ],
+        activeExpressionEditorId: [
+            null as string | null,
+            {
+                addBlankFieldToShelf: (_, { fieldId }) => fieldId,
+                setActiveExpressionEditorId: (_, { fieldId }) => fieldId,
+                resetConfig: () => null,
+                restoreState: () => null,
+                setDataSource: () => null,
+                setEditorView: () => null,
+            },
+        ],
         editorView: [
             BIEditorView.SQL as BIEditorView,
             {
@@ -338,8 +355,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
             freshBIConfig(),
             {
                 addFieldToShelf: (config, { field, shelf }) => addFieldToConfig(config, field, shelf),
-                addBlankFieldToShelf: (config, { shelf }) =>
-                    config.source ? addFieldToConfig(config, blankField(config.source), shelf) : config,
+                addBlankFieldToShelf: (config, { shelf, fieldId }) =>
+                    config.source ? addFieldToConfig(config, blankField(config.source, fieldId), shelf) : config,
                 removeFieldFromShelf: (config, { shelf, index }) => removeFieldFromConfig(config, shelf, index),
                 setChartType: (config, { chartType }) => ({ ...config, chartType }),
                 setDataSource: (config, { source }) => setDataSourceInConfig(config, source),

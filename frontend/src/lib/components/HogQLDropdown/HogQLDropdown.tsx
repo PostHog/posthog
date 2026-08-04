@@ -21,6 +21,8 @@ export const HogQLDropdown = ({
     buttonLabel,
     buttonTooltip,
     buttonAriaLabel,
+    visible,
+    onVisibilityChange,
 }: {
     hogQLValue: string
     tableName: string
@@ -32,9 +34,16 @@ export const HogQLDropdown = ({
     buttonLabel?: ReactNode
     buttonTooltip?: string
     buttonAriaLabel?: string
+    visible?: boolean
+    onVisibilityChange?: (visible: boolean) => void
     onHogQLValueChange: (hogQLValue: string) => void
 }): JSX.Element => {
-    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
+    const [internalVisibility, setInternalVisibility] = useState(false)
+    const isHogQLDropdownVisible = visible ?? internalVisibility
+    const setIsHogQLDropdownVisible = (nextVisibility: boolean): void => {
+        setInternalVisibility(nextVisibility)
+        onVisibilityChange?.(nextVisibility)
+    }
 
     return (
         <div className={clsx('flex-auto min-w-0', className)}>

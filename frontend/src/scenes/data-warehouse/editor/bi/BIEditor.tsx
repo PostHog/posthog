@@ -74,7 +74,14 @@ const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
 
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
-    const { activeDropShelf, availableDataSources, config, databaseConnectionId, databaseLoading } = useValues(logic)
+    const {
+        activeDropShelf,
+        activeExpressionEditorId,
+        availableDataSources,
+        config,
+        databaseConnectionId,
+        databaseLoading,
+    } = useValues(logic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
     const {
@@ -84,6 +91,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         removeFieldFromShelf,
         resetConfig,
         setActiveDropShelf,
+        setActiveExpressionEditorId,
         setChartType,
         setDataSource,
         setFieldExpression,
@@ -192,6 +200,8 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                         <FieldExpressionEditor
                             key={field.id}
                             field={field}
+                            autoOpen={activeExpressionEditorId === field.id}
+                            onAutoOpenClose={() => setActiveExpressionEditorId(null)}
                             onChange={(expression) => setFieldExpression('rows', index, expression)}
                             onRemove={() => removeFieldFromShelf('rows', index)}
                         />
@@ -216,6 +226,8 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                         <FieldExpressionEditor
                             key={field.id}
                             field={field}
+                            autoOpen={activeExpressionEditorId === field.id}
+                            onAutoOpenClose={() => setActiveExpressionEditorId(null)}
                             onChange={(expression) => setFieldExpression('columns', index, expression)}
                             onRemove={() => removeFieldFromShelf('columns', index)}
                         />
@@ -260,6 +272,12 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                 field={value.field}
                                 label="Edit field expression"
                                 emptyLabel="Select field"
+                                visible={activeExpressionEditorId === value.field.id ? true : undefined}
+                                onVisibilityChange={(visible) => {
+                                    if (!visible) {
+                                        setActiveExpressionEditorId(null)
+                                    }
+                                }}
                                 onChange={(expression) => setFieldExpression('values', index, expression)}
                             />
                             {value.aggregation === 'custom' ? (
@@ -308,6 +326,12 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                                     field={filter.field}
                                     label="Edit field expression"
                                     emptyLabel="Select field"
+                                    visible={activeExpressionEditorId === filter.field.id ? true : undefined}
+                                    onVisibilityChange={(visible) => {
+                                        if (!visible) {
+                                            setActiveExpressionEditorId(null)
+                                        }
+                                    }}
                                     onChange={(expression) => setFieldExpression('filters', index, expression)}
                                 />
                                 <LemonSelect
@@ -369,10 +393,14 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
 
 function FieldExpressionEditor({
     field,
+    autoOpen,
+    onAutoOpenClose,
     onChange,
     onRemove,
 }: {
     field: BIField
+    autoOpen: boolean
+    onAutoOpenClose: () => void
     onChange: (expression: string) => void
     onRemove: () => void
 }): JSX.Element {
@@ -383,6 +411,12 @@ function FieldExpressionEditor({
                 field={field}
                 label="Edit field expression"
                 emptyLabel="Select field"
+                visible={autoOpen ? true : undefined}
+                onVisibilityChange={(visible) => {
+                    if (!visible) {
+                        onAutoOpenClose()
+                    }
+                }}
                 onChange={onChange}
             />
             <RemoveFieldButton field={field} onClick={onRemove} />
@@ -412,12 +446,16 @@ function ExpressionEditorButton({
     field,
     label,
     emptyLabel,
+    visible,
+    onVisibilityChange,
     onChange,
 }: {
     value: string
     field: BIField
     label: string
     emptyLabel?: string
+    visible?: boolean
+    onVisibilityChange?: (visible: boolean) => void
     onChange: (value: string) => void
 }): JSX.Element {
     return (
@@ -431,6 +469,8 @@ function ExpressionEditorButton({
             buttonLabel={value ? <code className="truncate">{value}</code> : emptyLabel}
             buttonTooltip={label}
             buttonAriaLabel={`${label} for ${field.name || 'field'}`}
+            visible={visible}
+            onVisibilityChange={onVisibilityChange}
         />
     )
 }
