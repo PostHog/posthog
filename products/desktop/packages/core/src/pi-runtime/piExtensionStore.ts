@@ -1,7 +1,6 @@
 import type {
   PiExtensionEvent,
   RpcExtensionUIRequest,
-  WidgetPlacement,
 } from "@posthog/agent/pi/types";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
@@ -29,7 +28,7 @@ type PiExtensionWidgetRequest = Extract<
 
 export interface PiExtensionWidget {
   lines: NonNullable<PiExtensionWidgetRequest["widgetLines"]>;
-  placement: WidgetPlacement;
+  placement: NonNullable<PiExtensionWidgetRequest["widgetPlacement"]>;
 }
 
 type PiExtensionEditorTextRequest = Extract<

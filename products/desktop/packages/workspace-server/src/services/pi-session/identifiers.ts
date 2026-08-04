@@ -18,12 +18,9 @@ export const PI_RPC_CLIENT_FACTORY = Symbol.for(
 );
 
 export interface PiRuntimeFactory {
-  create(input: {
-    cwd: string;
-    model?: string;
-    sessionFile?: string;
-    projectTrusted?: boolean;
-  }): Promise<PiRuntime>;
+  create(
+    input: Parameters<PiRpcClientFactory["create"]>[0],
+  ): Promise<PiRuntime>;
 }
 
 export const PI_RUNTIME_FACTORY = Symbol.for(

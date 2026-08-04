@@ -34,7 +34,11 @@ import type { ITaskMetadataRepository } from "../../db/repositories/task-metadat
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
 import type { ProcessTrackingService } from "../process-tracking/process-tracking";
 import { PI_RUNTIME_FACTORY, type PiRuntimeFactory } from "./identifiers";
-import { piExtensionEventSchema, type StartPiSessionInput } from "./schemas";
+import {
+  piExtensionEventSchema,
+  type ResumePiSessionInput,
+  type StartPiSessionInput,
+} from "./schemas";
 
 type PiPoolSessionState = "starting" | "idle" | "streaming";
 
@@ -273,19 +277,11 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     });
   }
 
-  async resume(input: {
-    taskId: string;
-    cwd: string;
-    projectTrustPath?: string;
-  }): Promise<void> {
+  async resume(input: ResumePiSessionInput): Promise<void> {
     await this.runExclusive(input.taskId, () => this.resumeLocked(input));
   }
 
-  private async resumeLocked(input: {
-    taskId: string;
-    cwd: string;
-    projectTrustPath?: string;
-  }): Promise<void> {
+  private async resumeLocked(input: ResumePiSessionInput): Promise<void> {
     const existingSession = this.sessions.get(input.taskId);
     const projectTrustPath = input.projectTrustPath ?? input.cwd;
     if (
@@ -399,7 +395,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         return;
       }
       if (payload.taskId === taskId && payload.session === session) {
-        yield piExtensionEventSchema.parse(payload.event) as PiExtensionEvent;
+        yield piExtensionEventSchema.parse(payload.event);
       }
     }
   }

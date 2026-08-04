@@ -9,7 +9,6 @@ import type {
 export type {
   RpcExtensionUIRequest,
   RpcExtensionUIResponse,
-  WidgetPlacement,
 } from "@earendil-works/pi-coding-agent";
 
 function exhaustiveValues<T>() {

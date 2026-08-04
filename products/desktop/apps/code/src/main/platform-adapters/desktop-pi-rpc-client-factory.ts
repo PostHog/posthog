@@ -24,12 +24,9 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     private readonly authProxy: AuthProxyService,
   ) {}
 
-  async create(input: {
-    cwd: string;
-    model?: string;
-    sessionFile?: string;
-    projectTrusted?: boolean;
-  }): Promise<PiRpcClient> {
+  async create(
+    input: Parameters<PiRpcClientFactory["create"]>[0],
+  ): Promise<PiRpcClient> {
     const credentials = await this.auth.getOAuthCredentials();
     if (!credentials) {
       throw new Error("Pi requires PostHog authentication");
