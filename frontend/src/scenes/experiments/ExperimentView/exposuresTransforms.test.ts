@@ -11,7 +11,6 @@ describe('buildExposureSeries', () => {
 
         const { labels, series } = buildExposureSeries(timeseries)
 
-        // Raw day strings, not pre-formatted — the chart's date axis parses them against the project timezone.
         expect(labels).toEqual(['2025-05-25', '2025-05-26'])
         expect(series).toEqual([
             { key: 'control', label: 'control', data: [10, 25] },
@@ -32,6 +31,10 @@ describe('buildExposureSeries', () => {
             { key: 'control', label: 'control', data: [0, 10] },
             { key: 'test', label: 'test', data: [0, 12] },
         ])
+    })
+
+    it('returns nothing for an empty timeseries', () => {
+        expect(buildExposureSeries([])).toEqual({ labels: [], series: [] })
     })
 
     it('keeps every series the same length as the labels', () => {

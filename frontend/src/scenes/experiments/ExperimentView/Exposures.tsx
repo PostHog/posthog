@@ -25,12 +25,14 @@ import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 import { buildExposureSeries } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
 
-/** `LineChart` rather than quill's `Sparkline`: the sparkline reserves 6px top and bottom for its
- *  hover ring, which in this 20px box would leave an 8px plot. This chart is inert, so it can use
- *  nearly the full height — 1px a side keeps the peak point's 2px stroke off the canvas edge.
- *  Held outside `useChartConfig` because the app defaults turn on axis lines and tick marks, which
- *  `hideXAxis`/`hideYAxis` don't suppress and which have nowhere to go in a 20px box. */
-const MICRO_CHART_CONFIG: LineChartConfig = {
+const srmFailureTooltipText =
+    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
+
+interface MicroChartProps {
+    exposures: ExperimentExposureQueryResponse
+}
+
+const CHART_CONFIG: LineChartConfig = {
     hideXAxis: true,
     hideYAxis: true,
     showGrid: false,
@@ -40,37 +42,18 @@ const MICRO_CHART_CONFIG: LineChartConfig = {
     tooltip: { enabled: false },
 }
 
-const srmFailureTooltipText =
-    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
-
-interface MicroChartProps {
-    exposures: ExperimentExposureQueryResponse
-}
-
 export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const timeseries = exposures?.timeseries
-    const { labels, series } = useMemo(
-        () => (timeseries?.length ? buildExposureSeries(timeseries) : { labels: [], series: [] }),
-        [timeseries]
-    )
+    const { labels, series } = useMemo(() => buildExposureSeries(timeseries ?? []), [timeseries])
 
     if (!timeseries?.length) {
         return null
     }
 
     return (
-        <div
-            className="inline-block"
-            style={{
-                width: '60px',
-                height: '20px',
-                pointerEvents: 'none',
-                borderBottom: '1px solid var(--color-border-primary)',
-                borderRight: '1px solid var(--color-border-primary)',
-            }}
-        >
-            <LineChart series={series} labels={labels} theme={theme} config={MICRO_CHART_CONFIG} />
+        <div className="inline-block w-[60px] h-[20px] pointer-events-none border-b border-r border-primary">
+            <LineChart series={series} labels={labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
 }
@@ -83,7 +66,6 @@ function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
     const { labels, series } = useMemo(() => buildExposureSeries(exposures.timeseries), [exposures.timeseries])
-    // quill's built-in date tick formatter only kicks in when both interval and timezone are set.
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({ xAxis: { interval: 'day', timezone }, tooltip: { placement: 'cursor' } }),
         [timezone]
