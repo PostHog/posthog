@@ -360,34 +360,3 @@ export const AccessControlDashboard: Story = {
         pageUrl: urls.dashboard(ACCESS_CONTROL_DASHBOARD_ID),
     },
 }
-
-// Dashboard with no access (user can't edit dashboard but can view some insights)
-const viewOnlyDashboard = {
-    ...accessControlDashboard,
-    id: ACCESS_CONTROL_DASHBOARD_ID + 1,
-    name: 'View Only Dashboard',
-    description: 'Dashboard where user has view access only',
-    user_access_level: 'viewer', // User can only view the dashboard
-}
-
-export const ViewOnlyDashboard: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                ...accessControlInsightMocks,
-                '/api/projects/:team_id/dashboards/': {
-                    count: 1,
-                    next: null,
-                    previous: null,
-                    results: [viewOnlyDashboard],
-                },
-                [`/api/projects/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID + 1}/`]: viewOnlyDashboard,
-                [`/api/environments/:team_id/dashboards/${ACCESS_CONTROL_DASHBOARD_ID + 1}/`]: viewOnlyDashboard,
-                [`/api/environments/:team_id/insights/:id/`]: insightFetchMock,
-            },
-        }),
-    ],
-    parameters: {
-        pageUrl: urls.dashboard(ACCESS_CONTROL_DASHBOARD_ID + 1),
-    },
-}
