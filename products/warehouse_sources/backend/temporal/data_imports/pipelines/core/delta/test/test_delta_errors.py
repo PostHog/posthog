@@ -91,8 +91,8 @@ class TestIsTransientDeltaMaintenanceError:
                 ),
                 True,
             ),
-            # "File not found" outside the log directory must not match — a data file missing for some
-            # other reason is a real failure to capture, not this specific log-commit race.
+            # "File not found" outside the log directory must not match, because a data file missing for
+            # some other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
@@ -133,7 +133,7 @@ class TestIsTransientMaintenanceError:
                 True,
             ),
             # A full_refresh `reset_table` purging `_delta_log` out from under a concurrent
-            # vacuum — the maintenance call sites only consult this folded-in classifier, so the
+            # vacuum. The maintenance call sites only consult this folded-in classifier, so the
             # signature has to reach them through here too.
             (
                 "missing_delta_log_commit_file",

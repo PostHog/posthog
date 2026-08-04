@@ -78,7 +78,7 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     # `optimize.compact()` ever deletes a `_delta_log/*.json` commit file itself, so a missing one here
     # means something else raced the read rather than the table being corrupt. Matched on the log
     # directory specifically rather than on "File not found" alone, which a genuinely missing data file
-    # or a truly corrupt table can also raise — those stay captured.
+    # or a truly corrupt table can also raise, and those stay captured.
     return "File not found" in text and "_delta_log/" in text
 
 
