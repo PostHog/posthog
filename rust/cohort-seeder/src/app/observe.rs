@@ -236,7 +236,10 @@ async fn apply_verdict(
                 team_id = target.team_id.0,
                 topic = %target.watch.topic,
                 no_reads_past_ends,
-                "zero reconcile markers observed for a settled run: the processor reconcile gate is off fleet-wide, or its markers are landing on a different topic than the one watched"
+                "no reconcile marker folded for a settled run: either markers reached the watched \
+                 topic but named another team, run, or cohort, or none reached it at all — the \
+                 processor reconcile gate is off fleet-wide, or its markers land somewhere else. A \
+                 false `no_reads_past_ends` rules the second out; a true one rules nothing out"
             );
             let incomplete: Vec<(CohortId, PartitionBitmap)> =
                 active.iter().map(|p| (p.cohort_id, p.bits)).collect();

@@ -16,6 +16,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 
+use cohort_seeder::app::completion::verify_marker_topic;
 use cohort_seeder::app::{
     AutoDispatchPolicy, CompletionDriver, KafkaCommittedOffsets, KafkaTopicOffsets,
     MarkerWatchTask, ObservePolicy, OrchestratorSettings, PersonComponents, PgMarkerFlush,
@@ -199,21 +200,7 @@ async fn build_completion(
 
     // Both halves anchor on the marker topic — dispatch captures its watermarks, the observer watches
     // it for markers — so prove it is reachable before either arms.
-    let verify_producer = producer.clone();
-    let marker_topic = config.cohort_reconcile_markers_topic.clone();
-    tokio::task::spawn_blocking(move || {
-        verify_producer.capture_topic_offsets(&marker_topic, PARTITION_VERIFY_TIMEOUT)
-    })
-    .await
-    .context("joining marker topic verification task")?
-    .with_context(|| {
-        format!(
-            "verifying the marker topic {:?} is reachable. Provision it before arming either \
-             completion half, or leave SEEDER_RECONCILE_AUTO_DISPATCH_ENABLED and \
-             SEEDER_RECONCILE_OBSERVER_ENABLED off to boot without it.",
-            config.cohort_reconcile_markers_topic,
-        )
-    })?;
+    verify_marker_topic(producer, &config.cohort_reconcile_markers_topic).await?;
 
     let mut driver = CompletionDriver::new(
         pool.clone(),

@@ -272,7 +272,8 @@ pub struct Config {
     /// The reconcile-marker topic whose high watermarks anchor the marker watcher's start positions,
     /// captured at dispatch time. The observer reads markers from the same topic. Its partition count
     /// must not change while runs are in flight: a run's watch covers the partitions that existed at
-    /// its dispatch, so one added later is never read and holds the run open until a re-dispatch.
+    /// its dispatch, so one added later is never read — holding the run open if it appeared before
+    /// the observation ends were captured, and settling the run short if it appeared after them.
     #[envconfig(default = "cohort_reconcile_markers")]
     pub cohort_reconcile_markers_topic: String,
 

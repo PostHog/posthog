@@ -91,7 +91,9 @@ pub struct ReconcileDeps {
     pub enabled: bool,
     pub scan_page: usize,
     pub backlog: Arc<ReconcileBacklog>,
-    /// Sink for `cohort_reconcile_markers` (a no-op when the reconcile gate is off).
+    /// Sink for `cohort_reconcile_markers`. With the reconcile gate off this is
+    /// [`NoopReconcileMarkerSink`], which fails every produce rather than acking a marker the seeder
+    /// would then wait for.
     pub marker_sink: Arc<dyn ReconcileMarkerSink>,
 }
 

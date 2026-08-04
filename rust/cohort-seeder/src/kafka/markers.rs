@@ -4,11 +4,11 @@
 //! it participates in no rebalance and leaves no durable offset. It watches every marker partition
 //! from explicit start offsets (the high watermarks captured at dispatch), with `auto.offset.reset=
 //! error` so a start below the log's low watermark surfaces as [`WatchError::Truncated`] instead of
-//! silently jumping. Every marker is keyed `"{team}:{cohort}:{run}:{partition}"`; on a dedicated
-//! topic the `b':'` probe is no longer a hot-path filter but a guard against a mis-pointed topic, so
-//! anything it (or the parse behind it) rejects is counted by `reason`. Skipped messages still
-//! advance the partition's next-read offset. rdkafka types stay confined here — the watcher yields
-//! typed [`WatchItem`]s.
+//! silently jumping. Records are classified by payload alone: a marker refuses to deserialize unless
+//! its `type` is `reconcile_complete`, so a mis-pointed topic is caught without this crate depending
+//! on the key format the processor writes. Anything the parse rejects is counted by `reason`, and
+//! skipped messages still advance the partition's next-read offset. rdkafka types stay confined
+//! here — the watcher yields typed [`WatchItem`]s.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -136,7 +136,7 @@ impl MarkerWatcher {
         let message = self.consumer.recv().await.map_err(WatchError::Recv)?;
         let partition = WatchPartition::new(message.partition());
         let next_offset = NextOffset::from_high_watermark(message.offset() + 1);
-        let marker = classify_marker(message.key(), message.payload());
+        let marker = classify_marker(message.payload());
         Ok(WatchItem {
             partition,
             next_offset,
@@ -170,19 +170,14 @@ fn build_assignment(
     Ok(tpl)
 }
 
-/// Key probe then parse. On a dedicated topic every record should be a marker, so each rejection is
-/// counted under the `reason` that explains it rather than silently skipped.
-fn classify_marker(key: Option<&[u8]>, payload: Option<&[u8]>) -> Option<ObservedMarker> {
+/// On a dedicated topic every record should be a marker, so each rejection is counted under the
+/// `reason` that explains it rather than silently skipped. A record that came from a mis-pointed
+/// topic fails the payload's `reconcile_complete` discriminant and lands under `decode`.
+fn classify_marker(payload: Option<&[u8]>) -> Option<ObservedMarker> {
     let skip = |reason: &'static str| {
         counter!(RECONCILE_MARKER_PARSE_FAILURES, "reason" => reason).increment(1);
         None
     };
-    let Some(key) = key else {
-        return skip("no_key");
-    };
-    if !key.contains(&b':') {
-        return skip("key_not_a_marker");
-    }
     let Some(payload) = payload else {
         return skip("no_payload");
     };
@@ -267,21 +262,18 @@ mod tests {
     }
 
     #[test]
-    fn classify_probes_the_key_before_parsing_and_extracts_the_marker() {
-        // A foreign, person-keyed row: no ':' in the key, so no parse attempt, no marker.
-        assert!(classify_marker(Some(b"01928aaa-bbbb-cccc"), Some(b"{}")).is_none());
-
-        // A marker key with a valid payload.
-        let observed = classify_marker(Some(b"2:42:run"), Some(&marker_payload(7))).unwrap();
+    fn classify_extracts_a_marker_and_rejects_every_other_payload() {
+        let observed = classify_marker(Some(&marker_payload(7))).unwrap();
         assert_eq!(observed.team_id, TeamId(2));
         assert_eq!(observed.cohort_id, CohortId(42));
         assert_eq!(observed.partition.get(), 7);
 
-        // A key that passes the probe but a payload that is not a marker: dropped, not a marker.
-        assert!(classify_marker(Some(b"2:42:run"), Some(b"{\"not\":\"a marker\"}")).is_none());
+        // A membership row, i.e. what a mis-pointed topic delivers: no `reconcile_complete` type.
+        assert!(classify_marker(Some(b"{\"not\":\"a marker\"}")).is_none());
+        assert!(classify_marker(None).is_none());
 
         // A marker whose partition is outside the bitmap range is corrupt: dropped.
-        assert!(classify_marker(Some(b"2:42:run"), Some(&marker_payload(64))).is_none());
+        assert!(classify_marker(Some(&marker_payload(64))).is_none());
     }
 
     #[test]

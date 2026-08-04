@@ -877,8 +877,7 @@ async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()>
                 &full_hwms(),
                 &MarkerWatch {
                     topic: "cohort_membership_changed_shadow".to_string(),
-                    positions: WatchPositions::new(),
-                    ends: None,
+                    ..empty_watch()
                 },
             )
             .await?;

@@ -10,9 +10,6 @@ pub mod marker;
 pub mod merge;
 pub mod seed;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-
 use async_trait::async_trait;
 use chrono::Utc;
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -27,6 +24,7 @@ pub use cohort_core::seed::ReconcileCompleteMarker;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;
 use crate::observability::metrics::OUTPUT_TRANSITIONS_UNMAPPED;
+use crate::producer::merge::Capture;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 
 pub use batcher::OutputBuffer;
@@ -171,10 +169,7 @@ pub trait MembershipSink: Send + Sync {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct CaptureSink {
-    changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
-    fail_remaining: Arc<AtomicUsize>,
-}
+pub struct CaptureSink(Capture<CohortMembershipChange>);
 
 impl CaptureSink {
     pub fn new() -> Self {
@@ -182,25 +177,11 @@ impl CaptureSink {
     }
 
     pub fn failing_first(n: usize) -> Self {
-        Self {
-            changes: Arc::default(),
-            fail_remaining: Arc::new(AtomicUsize::new(n)),
-        }
+        Self(Capture::failing_first(n))
     }
 
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .clone()
-    }
-
-    fn should_fail(&self) -> bool {
-        self.fail_remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                (n > 0).then(|| n - 1)
-            })
-            .is_ok()
+        self.0.recorded()
     }
 }
 
@@ -210,18 +191,7 @@ impl MembershipSink for CaptureSink {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        if self.should_fail() {
-            return changes
-                .into_iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        let acks = (0..changes.len()).map(|_| Ok(())).collect();
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .extend(changes);
-        acks
+        self.0.produce(changes)
     }
 }
 

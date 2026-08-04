@@ -7,12 +7,13 @@
 //! One topic property the seeder's watcher depends on, recorded here because the topic is
 //! provisioned in another repo and would fail silently: a stable partition count. The watcher
 //! captures a start offset per partition at dispatch and is assigned exactly those, so a partition
-//! added mid-run is never read and holds the run open.
+//! added mid-run is never read. Added before that run's observation ends are captured, it holds the
+//! run open until a re-dispatch; added after them, it is not even consulted, and the run settles
+//! short on the markers that landed where nothing was watching.
 //!
-//! The key ([`reconcile_complete_key`]) carries the body partition so every marker of a run is a
-//! distinct key. The topic is provisioned `cleanup.policy=delete`, but a compacting one would keep
-//! all 64 rather than collapsing them to whichever arrived last — a mis-provision that would
-//! otherwise record completed backfills as short.
+//! The key ([`reconcile_complete_key`]) carries the body partition, so a run's 64 certificates are
+//! 64 distinct keys rather than one — what stops a compacting topic from keeping whichever arrived
+//! last and recording a completed backfill as short.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -114,8 +115,8 @@ impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
 }
 
 /// Unique per marker, not per run: the partition is what makes 64 distinct keys out of one dispatch,
-/// so no cleanup policy can collapse them. Nothing downstream reads the key beyond the watcher's
-/// `':'` probe, and the ledger's fold is order-independent, so the grouping carries no meaning.
+/// so no cleanup policy can collapse them. Nothing downstream reads the key and the ledger's fold is
+/// order-independent, so the grouping carries no meaning beyond that.
 fn reconcile_complete_key(marker: &ReconcileCompleteMarker) -> Option<String> {
     Some(format!(
         "{}:{}:{}:{}",

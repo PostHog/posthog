@@ -68,6 +68,56 @@ use super::watch::{WatchDirective, WatchDirectives};
 /// Timeout for the blocking Kafka metadata and watermark calls the dispatch makes.
 const KAFKA_METADATA_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Prove the marker topic exists before anything anchors on it: the daemon before it arms either
+/// completion half, the CLI before it claims a run. [`dispatch_and_record`]'s first act is to capture
+/// this topic's watermarks and it owns the claim by then, so an unprovisioned topic would otherwise
+/// park the run in `reconciling` with no dispatch record. Shared by both binaries so the diagnosis
+/// and the guidance stay the same wherever an operator meets them.
+pub async fn verify_marker_topic(
+    producer: &SeedTileProducer,
+    topic: &str,
+) -> Result<(), MarkerTopicError> {
+    let probe = producer.clone();
+    let probed = topic.to_string();
+    let joined = tokio::task::spawn_blocking(move || {
+        probe.verify_topic_reachable(&probed, KAFKA_METADATA_TIMEOUT)
+    })
+    .await;
+    match joined {
+        Err(source) => Err(MarkerTopicError::Join {
+            topic: topic.to_string(),
+            source,
+        }),
+        Ok(Err(source)) => Err(MarkerTopicError::Unreachable {
+            topic: topic.to_string(),
+            source,
+        }),
+        Ok(Ok(())) => Ok(()),
+    }
+}
+
+/// Why the marker-topic preflight failed. The operator guidance rides the error rather than each call
+/// site, so the daemon and the CLI cannot drift apart on what to do about it.
+#[derive(Debug, thiserror::Error)]
+pub enum MarkerTopicError {
+    #[error("joining the {topic:?} reachability probe")]
+    Join {
+        topic: String,
+        #[source]
+        source: JoinError,
+    },
+    #[error(
+        "reconcile marker topic {topic:?} is unreachable. Provision it before dispatching a run or \
+         arming either completion half, or leave SEEDER_RECONCILE_AUTO_DISPATCH_ENABLED and \
+         SEEDER_RECONCILE_OBSERVER_ENABLED off to boot without it."
+    )]
+    Unreachable {
+        topic: String,
+        #[source]
+        source: CaptureOffsetsError,
+    },
+}
+
 /// Whether automatic dispatch is armed. `Enabled` carries the register-backfill attestation, so the
 /// driver cannot be constructed without it.
 #[derive(Debug, Clone, Copy)]

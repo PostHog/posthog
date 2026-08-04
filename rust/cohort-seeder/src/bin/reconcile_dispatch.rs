@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
-use cohort_seeder::app::completion::dispatch_and_record;
+use cohort_seeder::app::completion::{dispatch_and_record, verify_marker_topic};
 use cohort_seeder::app::reconcile_dispatch::{
     execute_reconcile_dispatch, prepare_reconcile_dispatch, CompletionRequirement,
     PreparedDispatch, RegisterBackfillConfirmation,
@@ -202,20 +202,6 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
             }
         }
     }
-    Ok(())
-}
-
-/// Prove the marker topic exists and reports watermarks, the same preflight the daemon runs before
-/// arming either completion half.
-async fn verify_marker_topic(producer: &SeedTileProducer, topic: &str) -> Result<()> {
-    let producer = producer.clone();
-    let owned = topic.to_string();
-    tokio::task::spawn_blocking(move || {
-        producer.capture_topic_offsets(&owned, PARTITION_VERIFY_TIMEOUT)
-    })
-    .await
-    .context("joining the marker topic verification task")?
-    .with_context(|| format!("verifying the marker topic {topic:?} is reachable"))?;
     Ok(())
 }
 

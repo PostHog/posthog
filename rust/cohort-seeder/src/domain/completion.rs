@@ -546,7 +546,7 @@ pub enum UndispatchedReason {
 impl UndispatchedReason {
     /// Metric label. A topic rename re-dispatches every in-flight run at once, which is expected;
     /// without the label that spike is indistinguishable from a genuinely corrupt dispatch record.
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::NeverDispatched => "never_dispatched",
             Self::MissingRecord => "missing_record",

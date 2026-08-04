@@ -150,9 +150,49 @@ impl SeedTileProducer {
                     budget,
                 })
         };
+        let partitions = self.topic_partition_ids(topic, remaining(deadline)?)?;
         let client = self.producer.client();
-        let metadata = client
-            .fetch_metadata(Some(topic), remaining(deadline)?)
+        let mut positions = WatchPositions::new();
+        for partition in partitions {
+            let (_low, high) = client
+                .fetch_watermarks(topic, partition, remaining(deadline)?)
+                .map_err(|source| CaptureOffsetsError::Watermarks {
+                    topic: topic.to_string(),
+                    partition,
+                    source,
+                })?;
+            positions.insert(
+                WatchPartition::new(partition),
+                NextOffset::from_high_watermark(high),
+            );
+        }
+        Ok(positions)
+    }
+
+    /// Prove `topic` exists and reports partitions. Metadata-only, so it costs one round trip where
+    /// [`Self::capture_topic_offsets`] costs another per partition: a preflight needs existence, and
+    /// the offsets it would collect are stale the moment it returns. Blocking — call via
+    /// `spawn_blocking` from async contexts.
+    pub fn verify_topic_reachable(
+        &self,
+        topic: &str,
+        timeout: Duration,
+    ) -> Result<(), CaptureOffsetsError> {
+        self.topic_partition_ids(topic, timeout).map(|_| ())
+    }
+
+    /// The topic's partition ids, with the "is this topic actually there" checks the offset capture
+    /// and the reachability probe share. A topic reporting no partitions is refused here: an empty
+    /// position set would be vacuously "caught up", minting a settlement proof over nothing.
+    fn topic_partition_ids(
+        &self,
+        topic: &str,
+        timeout: Duration,
+    ) -> Result<Vec<i32>, CaptureOffsetsError> {
+        let metadata = self
+            .producer
+            .client()
+            .fetch_metadata(Some(topic), timeout)
             .map_err(CaptureOffsetsError::Metadata)?;
         let topic_metadata = metadata
             .topics()
@@ -168,33 +208,21 @@ impl SeedTileProducer {
             });
         }
         if topic_metadata.partitions().is_empty() {
-            // An empty position set would be vacuously "caught up", minting a settlement proof over
-            // nothing. Refuse it at the source, the way `verify_partition_count` refuses a
-            // mis-provisioned seed topic.
             return Err(CaptureOffsetsError::NoPartitions {
                 topic: topic.to_string(),
             });
         }
-        let mut positions = WatchPositions::new();
-        for partition in topic_metadata.partitions() {
-            let (_low, high) = client
-                .fetch_watermarks(topic, partition.id(), remaining(deadline)?)
-                .map_err(|source| CaptureOffsetsError::Watermarks {
-                    topic: topic.to_string(),
-                    partition: partition.id(),
-                    source,
-                })?;
-            positions.insert(
-                WatchPartition::new(partition.id()),
-                NextOffset::from_high_watermark(high),
-            );
-        }
-        Ok(positions)
+        Ok(topic_metadata
+            .partitions()
+            .iter()
+            .map(|partition| partition.id())
+            .collect())
     }
 }
 
-/// Why capturing the marker topic's start positions failed. The dispatch cannot record a resumable
-/// watch state without them, so every variant aborts the dispatch (it re-converges on the next tick).
+/// Why a marker-topic metadata read failed — capturing the watch start positions, or the startup
+/// probe that only proves the topic is there. The dispatch cannot record a resumable watch state
+/// without those positions, so every variant aborts the dispatch (it re-converges on the next tick).
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureOffsetsError {
     #[error("fetching marker topic metadata")]
