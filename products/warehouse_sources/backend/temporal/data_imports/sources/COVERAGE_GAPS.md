@@ -592,16 +592,25 @@ tables dynamically at sync time, so message coverage is better than the static c
 - [ ] User groups, team info, emoji.
 - [ ] Admin analytics (member and channel activity).
 
-### Intercom — needs confirmation
+### Intercom — spec-verified
 
-Fourteen tables and solid coverage.
+Diffed 2026-08-04 against [Intercom's published OpenAPI description](https://github.com/intercom/Intercom-OpenAPI)
+for every API version this source supports (2.13, 2.15, 2.16).
+Twenty-one tables.
 
-- [ ] `data_events` — user event stream.
-- [ ] Help center collections and sections (we have `articles` but not their structure).
-- [ ] Subscription types.
-- [ ] `visitors`.
-- [ ] Conversation ratings.
-- [ ] News items, ticket types, macros / saved replies.
+- [ ] `data_events` — user event stream. (skipped: `GET /events` is not listable. It requires a
+      single-contact filter plus `type=user` and only serves the last 90 days, so it would fan out to
+      one request per contact against a per-workspace rate limit.)
+- [x] Help center collections and sections — shipped as `collections` and `help_centers`. Sections are
+      nested collections (`parent_id`), so the collections table covers both.
+- [x] Subscription types — shipped as `subscription_types`.
+- [ ] `visitors` — (skipped: `GET /visitors` requires a `user_id` and returns a single visitor; there is
+      no list endpoint.)
+- [ ] Conversation ratings — (skipped: no endpoint. `conversation_rating` is a field on the conversation
+      object, already synced by `conversations`.)
+- [x] News items, ticket types — shipped as `news_items`, `newsfeeds`, `ticket_types` and `ticket_states`.
+      Macros / saved replies skipped: `GET /macros` only exists in 2.16, so sources pinned to 2.13 or
+      2.15 would 404 on it.
 
 ### Webflow, WordPress, Calendly, ActiveCampaign, Pipedrive
 
