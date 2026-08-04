@@ -134,7 +134,7 @@ GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
 }
 
 
-# These should be kept in sync with OrganizationUsageInfo and CURRENT_USAGE_RESOURCES.
+# These should be kept in sync with OrganizationUsageInfo.
 class UsageCounters(TypedDict):
     events: int
     exceptions: int
@@ -170,9 +170,6 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_cpu_cost_microusd",
     "sandbox_compute_memory_cost_microusd",
 )
-CURRENT_USAGE_RESOURCES = tuple(resource.value for resource in QuotaResource) + INFORMATIONAL_USAGE_RESOURCES
-
-
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -821,13 +818,12 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
-    for field in CURRENT_USAGE_RESOURCES:
+    for resource in QuotaResource:
+        field = resource.value
         original_field_usage = original_usage.get(field, {}) if original_usage else {}
         resource_usage = cast(dict, new_usage.get(field, {"limit": None, "usage": 0, "todays_usage": 0}))
 
         if not resource_usage:
-            if field in INFORMATIONAL_USAGE_RESOURCES and original_field_usage:
-                cast(dict, new_usage)[field] = original_field_usage
             continue
 
         # Preserve quota_limited_until and quota_limiting_suspended_until if it exists
@@ -855,10 +851,32 @@ def set_org_usage_summary(
                 todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0
                 resource_usage["todays_usage"] = todays_usage_value
 
+    _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage)
+
     has_changed = new_usage != organization.usage
     organization.usage = new_usage
 
     return has_changed
+
+
+def _merge_informational_usage_summary(
+    new_usage: dict[str, Any], original_usage: dict[str, Any], todays_usage: Optional[UsageCounters]
+) -> None:
+    for field in INFORMATIONAL_USAGE_RESOURCES:
+        original_field_usage = original_usage.get(field, {})
+        resource_usage = new_usage.get(field)
+
+        if not resource_usage:
+            if original_field_usage:
+                new_usage[field] = original_field_usage
+            continue
+
+        if todays_usage:
+            resource_usage["todays_usage"] = todays_usage.get(field, 0)
+        elif original_field_usage.get("usage") != resource_usage.get("usage"):
+            resource_usage["todays_usage"] = 0
+        else:
+            resource_usage["todays_usage"] = original_field_usage.get("todays_usage", 0)
 
 
 def _patch_organization_usage_jsonb(organization: Organization, ops: Sequence[tuple[list[str], Any]]) -> None:
@@ -905,23 +923,34 @@ def _patch_todays_usage(organization: Organization, todays_report: "UsageCounter
 
     ops: list[tuple[list[str], Any]] = []
 
-    for field in CURRENT_USAGE_RESOURCES:
-        existing_resource = organization.usage.get(field)
-        if not existing_resource:
-            continue
-
-        new_todays_usage = todays_report[field]  # type: ignore[literal-required]
-        if existing_resource.get("todays_usage") == new_todays_usage:
-            continue
-
-        existing_resource["todays_usage"] = new_todays_usage
-        ops.append(([field, "todays_usage"], new_todays_usage))
+    for resource in QuotaResource:
+        _append_todays_usage_patch(organization, todays_report, resource.value, ops)
+    for field in INFORMATIONAL_USAGE_RESOURCES:
+        _append_todays_usage_patch(organization, todays_report, field, ops)
 
     if not ops:
         return False
 
     _patch_organization_usage_jsonb(organization, ops)
     return True
+
+
+def _append_todays_usage_patch(
+    organization: Organization,
+    todays_report: UsageCounters,
+    field: str,
+    ops: list[tuple[list[str], Any]],
+) -> None:
+    existing_resource = organization.usage.get(field) if organization.usage else None
+    if not existing_resource:
+        return
+
+    new_todays_usage = todays_report[field]  # type: ignore[literal-required]
+    if existing_resource.get("todays_usage") == new_todays_usage:
+        return
+
+    existing_resource["todays_usage"] = new_todays_usage
+    ops.append(([field, "todays_usage"], new_todays_usage))
 
 
 def _identify_refresh_candidates(

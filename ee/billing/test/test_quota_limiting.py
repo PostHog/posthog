@@ -2632,6 +2632,12 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.usage = {
             "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
             "sandbox_compute_credits": existing_component,
+            "posthog_code_token_credits": {
+                "usage": 20,
+                "limit": None,
+                "todays_usage": 4,
+                "quota_limited_until": 123,
+            },
             "period": _PERIOD,
         }
 
@@ -2640,12 +2646,18 @@ class TestPatchTodaysUsage(BaseTest):
             {
                 "events": {"usage": 101, "limit": 1_000},
                 "sandbox_compute_credits": {},
+                "posthog_code_token_credits": {"usage": 21, "limit": None},
                 "period": _PERIOD,
             },
         )
 
         assert set_org_usage_summary(self.organization, new_usage=new_usage) is True
         assert self.organization.usage["sandbox_compute_credits"] == existing_component
+        assert self.organization.usage["posthog_code_token_credits"] == {
+            "usage": 21,
+            "limit": None,
+            "todays_usage": 0,
+        }
 
     def test_returns_false_when_no_resources_to_patch(self) -> None:
         # Org has only `period` — no per-resource dicts to patch.
