@@ -31,10 +31,12 @@ describe('supportLogic', () => {
         })
 
         it('rewrites the session line to the internal golink for staff triage', () => {
-            mockedGetReplayUrl.mockReturnValue(`${window.location.origin}/replay/abc?t=30`)
+            // posthog-js returns a project-scoped path, not one rooted at the current origin's /replay/ —
+            // this shape is what regressed the naive origin-prefix replace this test used to assert on.
+            mockedGetReplayUrl.mockReturnValue(`${window.location.origin}/project/sTMFPsFhdP1Ssg/replay/abc?t=30`)
             const snippet = getPublicSupportSnippet(Region.US, organization, team, false)
             expect(snippet).toContain('Session: http://go/session/abc?t=30')
-            expect(snippet).not.toContain(`${window.location.origin}/replay/`)
+            expect(snippet).not.toContain(`${window.location.origin}/project/`)
         })
 
         it('omits the session line when there is no recording', () => {
