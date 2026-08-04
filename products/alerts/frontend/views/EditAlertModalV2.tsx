@@ -49,9 +49,6 @@ import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModalV2/Aler
 import { buildWizardSteps } from './EditAlertModalV2/buildWizardSteps'
 import { EditAlertTabs } from './EditAlertModalV2/EditAlertTabs'
 
-/** Redesigned alert edit/create modal. New alerts use a 3-step wizard (Monitor → Schedule & notify
- *  → Review); editing an existing alert skips the wizard and uses a sectioned layout with a one-line
- *  summary and a live preview card. Gated behind the ALERTS_REDESIGNED_EDIT_MODAL feature flag. */
 export function EditAlertModalV2({
     initialAlert,
     isOpen,
@@ -107,7 +104,6 @@ export function EditAlertModalV2({
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
-        uiVersion: 'redesigned' as const,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
