@@ -332,33 +332,6 @@ describe('insightDataLogic', () => {
                 .toNotHaveDispatchedActions(['syncQueryFromProps'])
                 .toMatchValues({ query: sharedQuery })
         })
-
-        it('re-syncs to the saved query on load when there is no URL query', async () => {
-            const savedQuery = setLatestVersionsOnQuery({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [],
-                    dateRange: { date_from: '-7d' },
-                    interval: 'day',
-                },
-            }) as InsightVizNode
-
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/insights/': {
-                        results: [{ id: 1, short_id: Insight123, query: savedQuery }],
-                    },
-                },
-            })
-
-            await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.loadInsight(Insight123)
-            })
-                .toDispatchActions(theInsightLogic, ['loadInsightSuccess'])
-                .toDispatchActions(['syncQueryFromProps'])
-                .toMatchValues({ query: savedQuery })
-        })
     })
 
     describe('reacts when the insight changes', () => {

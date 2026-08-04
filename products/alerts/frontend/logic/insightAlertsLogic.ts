@@ -148,7 +148,7 @@ export interface insightAlertsLogicValues {
 export interface insightAlertsLogicActions {
     setQuery: (
         query: Node<Record<string, any>> | null,
-        fromUrl?: boolean
+        fromUrl?: boolean | undefined
     ) => {
         fromUrl: boolean
         query: Node<Record<string, any>> | null

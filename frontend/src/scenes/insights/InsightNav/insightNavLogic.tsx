@@ -415,7 +415,7 @@ export interface insightNavLogicValues {
 export interface insightNavLogicActions {
     setQuery: (
         query: Node<Record<string, any>> | null,
-        fromUrl?: boolean
+        fromUrl?: boolean | undefined
     ) => {
         fromUrl: boolean
         query: Node<Record<string, any>> | null
