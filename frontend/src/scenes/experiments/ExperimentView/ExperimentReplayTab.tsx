@@ -16,19 +16,147 @@ import {
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { pluralize } from 'lib/utils/strings'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 
 import { Experiment } from '~/types'
 
 import { isLaunched } from '../experimentStatus'
+import { NOT_A_FUNNEL_REASON } from '../utils'
 import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
-import { ExperimentReplayMetricOption, experimentReplayTabLogic } from './experimentReplayTabLogic'
+import {
+    ExperimentReplayMetricFilterMode,
+    ExperimentReplayMetricOption,
+    ExperimentSessionBucket,
+    experimentReplayTabLogic,
+} from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
 // LemonSegmentedButton values must be strings; the logic stores null for "All". '$' is not an
 // allowed character in variant keys, so the '$' prefix guarantees no collision with a real
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
+
+// A session fires a metric's events, never the metric — the caption spells that out where it
+// has the room the trigger doesn't.
+const MODE_SUMMARIES: Record<ExperimentReplayMetricFilterMode, string> = {
+    fired_all: 'fired events from every selected metric',
+    fired_any: 'fired events from at least one selected metric',
+    no_metric_activity: 'fired no events from the selected metrics',
+    funnel_dropoff: "started the funnel but didn't finish it",
+}
+
+/**
+ * What the trigger says, so the current mode is readable without opening the menu.
+ *
+ * The count is always of *metrics* — that's what the checkboxes select. A metric can count
+ * several events (a ratio counts two, a funnel one per step), so counting events here would
+ * disagree with the number of boxes ticked. The mode verb carries the events half: what a
+ * session fires is a metric's events, never the metric itself.
+ */
+function metricFilterTriggerLabel(
+    mode: ExperimentReplayMetricFilterMode,
+    selectedUuids: string[],
+    options: ExperimentReplayMetricOption[]
+): string {
+    if (mode === 'funnel_dropoff') {
+        const selected = options.find((option) => option.uuid === selectedUuids[0])
+        return selected ? `Didn't finish funnel: ${selected.name}` : "Didn't finish funnel"
+    }
+    if (selectedUuids.length === 0) {
+        // Never fall back to the neutral label for a non-default mode: the mode is on, and the
+        // caption below is what explains why it isn't narrowing anything yet.
+        return mode === 'fired_all' ? 'Metric events' : mode === 'fired_any' ? 'Fired any' : 'No metric events'
+    }
+    const metrics = pluralize(selectedUuids.length, 'metric')
+    if (selectedUuids.length === 1) {
+        // "all of" and "any of" one metric are the same question, and both quantifiers read as
+        // noise next to a count of one.
+        return mode === 'no_metric_activity' ? `Didn't fire ${metrics}` : `Fired ${metrics}`
+    }
+    if (mode === 'fired_any') {
+        return `Fired any of ${metrics}`
+    }
+    if (mode === 'no_metric_activity') {
+        return `Fired none of ${metrics}`
+    }
+    return `Fired all ${metrics}`
+}
+
+/** Why a picked mode isn't narrowing the list — it needs a selection it doesn't have yet. */
+function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
+    return mode === 'funnel_dropoff'
+        ? 'Pick a funnel metric with at least two steps that can be matched to recordings. Showing every exposed recording until then.'
+        : 'Pick at least one metric. Showing every exposed recording until then.'
+}
+
+/**
+ * States what the server-computed set does and doesn't cover. Every clause is load-bearing: the
+ * list is capped, the scan window is clamped, and "in this session" is the honest unit — the
+ * experiment analysis counts per person over the whole run window.
+ */
+function bucketCaption(bucket: ExperimentSessionBucket): string {
+    const { session_ids, truncated, considered_metrics, excluded_metrics, filter_test_accounts } = bucket.response
+    if (session_ids.length === 0) {
+        return 'No recordings matched this filter.'
+    }
+    const sessions = truncated
+        ? `Showing the ${session_ids.length} most recent recordings that`
+        : `Showing ${pluralize(session_ids.length, 'recording')} that`
+    const what =
+        bucket.request.bucket === 'no_metric_activity'
+            ? `fired no events from ${pluralize(considered_metrics.length, 'metric')} in this session`
+            : bucket.request.bucket === 'fired_any' && considered_metrics.length === 1
+              ? // One metric needs no quantifier, and naming it beats "at least one selected metric".
+                `fired events from ${considered_metrics[0].metric_name} in this session`
+              : `${MODE_SUMMARIES[bucket.request.bucket as ExperimentReplayMetricFilterMode]}, in this session`
+    const caveats = [
+        filter_test_accounts ? 'test accounts excluded' : null,
+        excluded_metrics.length > 0
+            ? `${pluralize(excluded_metrics.length, 'metric')} left out: ${excluded_metrics
+                  .map((metric) => metric.metric_name)
+                  .join(', ')}`
+            : null,
+    ].filter(Boolean)
+    return `${sessions} ${what}.${caveats.length > 0 ? ` ${caveats.join('. ')}.` : ''}`
+}
+
+/** A metric row: its name, plus the events a session actually has to have fired to match it. */
+function MetricOptionLabel({ option }: { option: ExperimentReplayMetricOption }): JSX.Element {
+    return (
+        <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate">{option.name}</span>
+            {option.eventNames.length > 0 && (
+                <span className="shrink-0 text-xs text-muted">{option.eventNames.join(', ')}</span>
+            )}
+        </span>
+    )
+}
+
+const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; label: string; tooltip: string }[] = [
+    {
+        value: 'fired_all',
+        label: 'Fired all',
+        tooltip: 'Sessions that fired events for every selected metric.',
+    },
+    {
+        value: 'fired_any',
+        label: 'Fired any',
+        tooltip: 'Sessions that fired events for at least one of the selected metrics.',
+    },
+    {
+        value: 'no_metric_activity',
+        label: 'Fired none',
+        tooltip:
+            'Sessions that fired no events for any of the selected metrics. Select nothing to use every metric that can be matched.',
+    },
+    {
+        value: 'funnel_dropoff',
+        label: "Didn't finish funnel",
+        tooltip:
+            "Sessions that reached a funnel metric's first step but not its last one during the recording. The same person may have finished it in a later session.",
+    },
+]
 
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
@@ -40,8 +168,21 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         usingExposureFallback,
         effectiveMetricUuids,
         metricOptions,
+        metricFilterMode,
+        sessionBucket,
+        sessionBucketLoading,
+        sessionBucketError,
+        sessionBucketRequest,
     } = useValues(logic)
-    const { setSelectedVariantKey, setMetricSelected, recordingsLoaded, recordingOpened } = useActions(logic)
+    const {
+        setSelectedVariantKey,
+        setMetricSelected,
+        setMetricFilterMode,
+        loadSessionBucket,
+        playlistFiltersChanged,
+        recordingsLoaded,
+        recordingOpened,
+    } = useActions(logic)
 
     if (!isLaunched(experiment)) {
         return <LemonBanner type="info">Launch the experiment to see recordings of participants.</LemonBanner>
@@ -51,18 +192,23 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         return <LemonBanner type="warning">{EXPOSURE_UNLINKABLE_REASON}</LemonBanner>
     }
 
-    // Selectable metrics render as checkboxes. Unlinkable ones move to labelled sections that
-    // explain once, via a section tooltip, why they can't be matched — instead of repeating the
-    // same reason on every row. One section per distinct reason, since metrics can be unmatchable
-    // for different reasons (server-side events, a retention window, data-warehouse-only sources).
-    const linkableMetricOptions = metricOptions.filter((option) => !option.unlinkable)
-    const unlinkableOptionsByReason = new Map<string, ExperimentReplayMetricOption[]>()
+    // Selectable metrics render as checkboxes. The rest move to labelled sections that explain
+    // once, via a section tooltip, why they can't be matched — instead of repeating the same
+    // reason on every row. One section per distinct reason, since metrics can be unmatchable for
+    // different reasons (server-side events, a retention window, data-warehouse-only sources, or
+    // simply not being a funnel while the drop-off mode is on).
+    const linkableMetricOptions = metricOptions.filter(
+        (option) => !option.unlinkable && (metricFilterMode !== 'funnel_dropoff' || option.dropoffReason === null)
+    )
+    const unselectableOptionsByReason = new Map<string, ExperimentReplayMetricOption[]>()
     for (const option of metricOptions) {
-        if (option.unlinkable && option.unlinkableReason) {
-            unlinkableOptionsByReason.set(option.unlinkableReason, [
-                ...(unlinkableOptionsByReason.get(option.unlinkableReason) ?? []),
-                option,
-            ])
+        const reason = option.unlinkable
+            ? option.unlinkableReason
+            : metricFilterMode === 'funnel_dropoff'
+              ? option.dropoffReason
+              : null
+        if (reason) {
+            unselectableOptionsByReason.set(reason, [...(unselectableOptionsByReason.get(reason) ?? []), option])
         }
     }
 
@@ -91,16 +237,24 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     size="small"
                                     type="secondary"
                                     sideIcon={<IconChevronDown />}
-                                    tooltip="Only show sessions that fired events for every selected metric. Whether a session fired a metric's events can differ from what the experiment analysis counts."
+                                    tooltip="Narrow the list by what fired in each session. Whether a session fired a metric's events can differ from what the experiment analysis counts."
                                     data-attr="experiment-recordings-metric-filter"
                                 />
                             }
                         >
-                            {effectiveMetricUuids.length > 0
-                                ? `Metric events (${effectiveMetricUuids.length})`
-                                : 'Metric events'}
+                            {metricFilterTriggerLabel(metricFilterMode, effectiveMetricUuids, metricOptions)}
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="min-w-fit max-w-100">
+                            <div className="p-1">
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    fullWidth
+                                    value={metricFilterMode}
+                                    onChange={(value) => setMetricFilterMode(value)}
+                                    options={METRIC_FILTER_MODE_OPTIONS}
+                                />
+                            </div>
+                            <DropdownMenuSeparator />
                             {linkableMetricOptions.map((option) => (
                                 <DropdownMenuCheckboxItem
                                     key={option.uuid}
@@ -109,10 +263,10 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     closeOnClick={false}
                                     data-attr="experiment-recordings-metric-option"
                                 >
-                                    {option.name}
+                                    <MetricOptionLabel option={option} />
                                 </DropdownMenuCheckboxItem>
                             ))}
-                            {[...unlinkableOptionsByReason.entries()].map(([reason, options], index) => (
+                            {[...unselectableOptionsByReason.entries()].map(([reason, options], index) => (
                                 // Fragment, not a wrapper element: the separator, label, and items
                                 // must stay direct children of the menu for keyboard nav and ARIA.
                                 <Fragment key={reason}>
@@ -121,7 +275,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                         live inside a DropdownMenuGroup or it throws at render. */}
                                     <DropdownMenuGroup>
                                         <DropdownMenuLabel inset className="flex items-center gap-1">
-                                            Can't match to recordings
+                                            {reason === NOT_A_FUNNEL_REASON
+                                                ? 'Needs two funnel steps'
+                                                : "Can't match to recordings"}
                                             <Tooltip title={reason}>
                                                 <IconInfo className="size-3 shrink-0" />
                                             </Tooltip>
@@ -135,7 +291,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                                 disabled
                                                 data-attr="experiment-recordings-metric-option"
                                             >
-                                                {option.name}
+                                                <MetricOptionLabel option={option} />
                                             </DropdownMenuItem>
                                         ))}
                                     </DropdownMenuGroup>
@@ -145,11 +301,32 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </DropdownMenu>
                 )}
             </div>
+            {/* The default mode also uses the endpoint for a single multi-source metric, so the
+                caption follows the request, not the mode. */}
+            {(sessionBucketRequest || metricFilterMode !== 'fired_all') && (
+                <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
+                    {!sessionBucketRequest ? (
+                        <span>{unappliedModeReason(metricFilterMode)}</span>
+                    ) : sessionBucketError !== null ? (
+                        <>
+                            <span>Couldn't work out which sessions match this filter: {sessionBucketError}</span>
+                            <LemonButton size="xsmall" type="secondary" onClick={() => loadSessionBucket()}>
+                                Try again
+                            </LemonButton>
+                        </>
+                    ) : sessionBucketLoading || !sessionBucket ? (
+                        <span>Finding matching sessions…</span>
+                    ) : (
+                        <span data-attr="experiment-recordings-bucket-caption">{bucketCaption(sessionBucket)}</span>
+                    )}
+                </div>
+            )}
             <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist
                     logicKey={`experiment-${experiment.id}`}
                     filters={recordingsFilters}
                     updateSearchParams={false}
+                    onFiltersChange={(filters) => playlistFiltersChanged(filters)}
                     onRecordingsLoaded={(recordings) => recordingsLoaded(recordings.map((recording) => recording.id))}
                     onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
                 />

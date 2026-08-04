@@ -102,6 +102,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     update_task_run_status,
 )
 from products.tasks.backend.temporal.process_task.credential_refresh import (
+    TASK_ROWS_GONE_ERROR_MESSAGE,
     CredentialRefreshExitReason,
     run_credential_refresh_loop,
 )
@@ -1095,28 +1096,38 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
-        will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
+        repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
+        will_clone = bool(repositories_to_clone)
+        checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
+        will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            await workflow.execute_activity(
-                clone_repository_in_sandbox,
-                CloneRepositoryInSandboxInput(
-                    context=self.context,
-                    sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
-                    github_token=prepared.github_token,
-                    shallow_clone=prepared.shallow_clone,
-                ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+            await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        clone_repository_in_sandbox,
+                        CloneRepositoryInSandboxInput(
+                            context=self.context,
+                            sandbox_id=created.sandbox_id,
+                            repository=repository,
+                            github_token=prepared.github_token,
+                            shallow_clone=prepared.shallow_clone,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for repository in repositories_to_clone
+                )
             )
-            await self._emit_progress("clone", "completed", "Cloned repository", "setup")
+            clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
+            await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         if will_checkout and not is_resume:
+            assert checkout_repository is not None
+            assert prepared.branch is not None
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -1125,7 +1136,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 CheckoutBranchInSandboxInput(
                     context=self.context,
                     sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
+                    repository=checkout_repository,
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
@@ -1343,6 +1354,23 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 sandbox_id=sandbox_id,
             )
+        elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
+            workflow.logger.warning(
+                "execute_sandbox_task_rows_gone_detected",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+            # Ends the main loop through the sandbox-gone event so the workflow winds down
+            # instead of waiting on signals that can never arrive. Recording failure here is
+            # what makes the end visible: an interactive run is exempt from the terminal
+            # status write on its normal completion path, so without this it would report
+            # success for a run whose rows no longer exist. The write itself then fails
+            # non-retryably, since those rows are gone, which fails the workflow in both
+            # modes rather than only for background runs.
+            self._completion_status = "failed"
+            self._completion_error = TASK_ROWS_GONE_ERROR_MESSAGE
+            self._completion_error_type = "TaskRunDeletedError"
+            self._sandbox_gone = True
 
     def _mark_sandbox_gone(self) -> None:
         self._task_completed = True

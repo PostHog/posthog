@@ -95,7 +95,11 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
 
         // Use pre-computed initial key instead of string manipulation
         const initialKey = INITIAL_KEY_MAP.get(key)!
-        if (!(initialKey in $set_once!)) {
+        // Never write a null into $set_once: browser SDKs send every absent campaign param as an
+        // explicit null, and $set_once only applies while the person property is missing, so
+        // `$initial_gclid: null` would permanently block the real first-touch value. $set keeps
+        // its nulls because clearing the latest-touch value on a param-less visit is intentional.
+        if (value != null && !(initialKey in $set_once!)) {
             $set_once![initialKey] = value
         }
     }
@@ -115,7 +119,8 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
         if (!('$os' in $set)) {
             $set.$os = osName
         }
-        if (!('$initial_os' in $set_once!)) {
+        // Same null rule as above: a null $os_name must not claim $initial_os for good.
+        if (osName !== null && !('$initial_os' in $set_once!)) {
             $set_once!.$initial_os = osName
         }
         // $os_name is normalized to $os, so remove it from person properties

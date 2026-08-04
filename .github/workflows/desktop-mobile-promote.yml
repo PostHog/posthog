@@ -1,0 +1,100 @@
+name: Desktop Mobile Promote
+
+# Promotes the most recent finished EAS build to the stores:
+#   iOS     -> App Store Connect (build becomes available in TestFlight)
+#   Android -> Google Play "internal" testing track
+#
+# Uses `eas submit --latest`, which submits the latest successful build for the
+# selected platform/profile. Run "Desktop Mobile Build" with the matching profile first.
+#
+# Required repository secret:
+#   EXPO_TOKEN  - Expo access token (submit permissions).
+#
+# Store credentials live on EAS, not in this repo: the iOS App Store Connect API
+# key and the Android Google Play service account key are configured once via
+# `eas credentials` so that `--non-interactive` submits can authenticate.
+
+on:
+    workflow_dispatch:
+        inputs:
+            platform:
+                description: 'Platform to promote'
+                type: choice
+                default: all
+                options:
+                    - all
+                    - ios
+                    - android
+            profile:
+                description: 'EAS submit profile'
+                type: choice
+                default: production
+                options:
+                    - production
+    # Allows "Desktop Mobile Build" to chain into this workflow after a successful build.
+    workflow_call:
+        inputs:
+            platform:
+                type: string
+                default: all
+            profile:
+                type: string
+                default: production
+        secrets:
+            EXPO_TOKEN:
+                required: true
+
+concurrency:
+    group: desktop-mobile-promote-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    submit:
+        name: Submit (${{ matrix.platform }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                platform: ${{ inputs.platform == 'all' && fromJSON('["ios","android"]') || fromJSON(format('["{0}"]', inputs.platform)) }}
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop/apps/mobile
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Setup EAS
+              uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # v9.0.0
+              with:
+                  eas-version: latest
+                  token: ${{ secrets.EXPO_TOKEN }}
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+              working-directory: products/desktop
+
+            - name: EAS submit
+              env:
+                  PLATFORM: ${{ matrix.platform }}
+                  PROFILE: ${{ inputs.profile }}
+              run: |
+                  eas submit \
+                    --non-interactive \
+                    --platform "$PLATFORM" \
+                    --profile "$PROFILE" \
+                    --latest
