@@ -671,6 +671,7 @@ the row lists both.
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
+| youtube_analytics                | HTTP                        | requests                                                        | ✅                          |
 | zapier_supported_storage         | HTTP                        | requests                                                        | ✅                          |
 | zapsign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | zendesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1427,7 +1428,6 @@ doesn't conflict with concurrent PRs.
 - yoco
 - yotpo
 - younium
-- youtube_analytics
 - youtube_data
 - zalando_zdirect
 - zapsign

@@ -1,1 +1,1 @@
-1286_cleanup_orphaned_identity_provider_configs
+1287_add_youtube_analytics_integration_kind

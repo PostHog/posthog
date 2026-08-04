@@ -89,6 +89,7 @@ export interface integrationsLogicValues {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         )[]
     ) => IntegrationType[]
     githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
@@ -167,6 +168,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         searchParams: any
     }
     linkExistingGithubInstallation: (installationId?: string) => string
@@ -278,6 +280,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -329,6 +332,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     }
@@ -397,6 +401,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -452,6 +457,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -500,6 +506,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
     }
     openSetupModal: (
         integration?: IntegrationType,
@@ -558,7 +565,8 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
-            | 'vercel',
+            | 'vercel'
+            | 'youtube-analytics',
         payload?: {
             kind: IntegrationKind
         }
@@ -603,6 +611,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         payload?: {
             kind: IntegrationKind
         }
@@ -660,6 +669,7 @@ export interface integrationsLogicMeta {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
             )[]
         ) => IntegrationType[]
         slackAvailable: (preflight: PreflightStatus | null) => boolean | undefined
