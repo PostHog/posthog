@@ -513,7 +513,7 @@ describe('supportTicketSceneLogic message sending', () => {
         return createMock.mock.calls[callIndex][0].idempotency_key
     }
 
-    beforeEach(() => {
+    beforeEach(async () => {
         initKeaTests()
         createMock.mockReset()
         listMock.mockReset().mockResolvedValue({ results: [] })
@@ -521,6 +521,9 @@ describe('supportTicketSceneLogic message sending', () => {
         // running, and those stray polls would otherwise reset this logic's message list.
         logic = supportTicketSceneLogic({ id: 4242 })
         logic.mount()
+        // Drain mount-time listeners: loadTicket dispatches its own loadMessages, which would
+        // otherwise race the polls these tests stage and consume their queued mock responses.
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setTicket(makeTicket())
     })
 
