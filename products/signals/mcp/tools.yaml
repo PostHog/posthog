@@ -1130,6 +1130,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-scratchpad-search. This alias forwards to the same endpoint and will be
             removed. Call scout-scratchpad-search directly with the same arguments.'
+    signals-source-configs-dormancy-retrieve:
+        operation: signals_source_configs_dormancy_retrieve
+        enabled: false
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false
