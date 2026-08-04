@@ -23,7 +23,7 @@ A user in a Slack thread asks `@PostHog check this in two weeks and report back 
 
 3. **Reporting.** The run's final message reaches the thread through the existing pending-reply relay (mapping lookup by `task_run`), exactly like a mention-created run's reply. After the report, thread replies route to the run via the existing follow-up forwarding, so the report is conversational.
 
-4. **Self-defer.** When the data is too thin, the agent calls `POST .../tasks/{task_id}/runs/{run_id}/defer_followup/` (bounded 1 hour to 90 days out, one pending re-check at a time, capped by `slack_thread_target.max_defers`). The re-arm happens server-side in `logic/services/loop_followups.py` as a fresh one-time trigger, because loop-fired runs deliberately have `loop:write` stripped from their tokens.
+4. **Self-defer.** When the data is too thin, the agent calls `POST .../tasks/{task_id}/runs/{run_id}/defer_followup/` (bounded 1 hour to 90 days out, one pending re-check at a time, capped by `slack_thread_target.max_defers`). The re-arm happens server-side in `logic/services/loop_followups.py` as a fresh one-time trigger, because loop-fired runs deliberately have `loop:write` stripped from their tokens. The endpoint is the sandbox's own REST channel (called with the run's key and ids), so its generated MCP tool entry (`tasks-runs-defer-followup-create`) stays disabled.
 
 5. **Cancel.** `@PostHog cancel the follow-up` in the thread disables the requester's bound loops (`facade.loops.disable_slack_followup_loops_for_thread`, owner-only). Follow-up loops are also visible and manageable in the Loops UI.
 
