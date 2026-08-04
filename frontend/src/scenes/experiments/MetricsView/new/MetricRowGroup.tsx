@@ -1103,7 +1103,7 @@ export function MetricRowGroup({
                         {/* Variant name */}
                         <td
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                significant ? '' : isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
@@ -1113,7 +1113,7 @@ export function MetricRowGroup({
                         {/* Value */}
                         <td
                             className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                significant ? '' : isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
@@ -1126,7 +1126,7 @@ export function MetricRowGroup({
                         {/* Delta */}
                         <td
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                significant ? '' : isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
