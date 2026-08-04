@@ -37,6 +37,10 @@ class FirstPromoterEndpointConfig:
     # Merged into every request. Used for the documented `sorting[<field>]` params, which keep
     # page boundaries stable while rows are inserted mid-sync.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Response fields stripped from every row before storage because they are credentials, not
+    # data - a warehouse table is the wrong place for them and any project member with query
+    # access could read one.
+    redact_fields: tuple[str, ...] = ()
     description: str | None = None
 
 
@@ -82,6 +86,9 @@ FIRST_PROMOTER_ENDPOINTS: dict[str, FirstPromoterEndpointConfig] = {
         data_selector="data",
         partition_key="joined_at",
         extra_params={"sorting[joined_at]": "asc"},
+        # A promoter row carries `password_setup_url`, a link that sets that promoter's dashboard
+        # password. It's a live credential, not analytics data, so it never reaches a table.
+        redact_fields=("password_setup_url",),
         # Full refresh: `filters[joined_at][from]` exists, but every interesting field on a
         # promoter (stats, balances, state, last_login_at) keeps moving after they join, so a
         # joined_at cursor would freeze them at their first-imported values.

@@ -1,6 +1,7 @@
 import logging
 import dataclasses
 from collections.abc import Callable, Iterable
+from functools import partial
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -123,6 +124,14 @@ class FirstPromoterPaginator(PageNumberPaginator):
             self._has_next_page = False
 
 
+def _drop_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    """Strip `fields` from a row before storage. Mutates and returns `row` so it can be used
+    directly as a `data_map`."""
+    for field in fields:
+        row.pop(field, None)
+    return row
+
+
 def rest_api_client_config(api_key: str, account_id: str, api_version: str) -> ClientConfig:
     return {
         "base_url": base_url(api_version),
@@ -134,6 +143,11 @@ def rest_api_client_config(api_key: str, account_id: str, api_version: str) -> C
         # server-side redirect can never replay the bearer token off-host.
         "allowed_hosts": [],
         "allow_redirects": False,
+        # Promoter rows carry the `password_setup_url` credential plus PII (emails, names, tax-form
+        # URLs) that the name-based sample scrubbers don't recognise. Sample capture observes the
+        # raw body before `data_map` strips the credential, so keep these bodies out of shared HTTP
+        # sample storage entirely. Requests stay metered and logged with the API key redacted.
+        "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False),
     }
 
 
@@ -163,13 +177,17 @@ def get_resource(
             incremental_field_name or config.default_incremental_field or "created_at",
         )
 
-    return {
+    resource: EndpointResource = {
         "name": config.name,
         "table_name": config.name,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
     }
+    if config.redact_fields:
+        # Strip credential fields (e.g. `password_setup_url`) from each row before it's persisted.
+        resource["data_map"] = partial(_drop_fields, fields=config.redact_fields)
+    return resource
 
 
 def _make_source_response(
@@ -239,7 +257,9 @@ def first_promoter_source(
 
 
 def validate_credentials(api_key: str, account_id: str, api_version: str) -> tuple[bool, str | None]:
-    response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
+    # capture=False: the probe hits `/promoters`, whose rows carry the `password_setup_url`
+    # credential and promoter PII; keep the response body out of shared HTTP sample storage.
+    response = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False).get(
         f"{base_url(api_version)}/promoters",
         headers={"Authorization": f"Bearer {api_key}", "ACCOUNT-ID": account_id, "Accept": "application/json"},
         params={"per_page": 1},

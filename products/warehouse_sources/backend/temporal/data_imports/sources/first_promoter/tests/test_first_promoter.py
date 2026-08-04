@@ -148,6 +148,21 @@ class TestFirstPromoterTransport:
         # Fail loud on a changed response shape instead of silently syncing 0 rows.
         assert resource["endpoint"]["data_selector_required"] is True
 
+    def test_promoters_resource_strips_the_password_setup_credential(self) -> None:
+        # `password_setup_url` is a live link that sets the promoter's password; stripping it in the
+        # data_map is what keeps it out of the warehouse table. Losing this wiring is a silent
+        # account-takeover leak, so pin the behaviour end to end.
+        resource = cast(dict[str, Any], get_resource("promoters", should_use_incremental_field=False))
+        redacted = resource["data_map"]({"id": 1, "email": "a@b.com", "password_setup_url": "https://fp/setup"})
+        assert redacted == {"id": 1, "email": "a@b.com"}
+
+    @parameterized.expand([("commissions",), ("payouts",), ("promo_codes",), ("promoter_campaigns",), ("referrals",)])
+    def test_non_promoter_resources_keep_every_field(self, endpoint: str) -> None:
+        # Only /promoters carries a credential; the redaction must not silently drop columns anywhere
+        # else, so these endpoints get no data_map at all.
+        resource = cast(dict[str, Any], get_resource(endpoint, should_use_incremental_field=False))
+        assert "data_map" not in resource
+
     def test_client_config_sends_both_credentials_and_pins_the_host(self) -> None:
         config = rest_api_client_config("fp-key", "98765", "v2")
         assert config["base_url"] == "https://api.firstpromoter.com/api/v2/company"
@@ -157,6 +172,17 @@ class TestFirstPromoterTransport:
         # A redirect off the FirstPromoter host would otherwise replay the bearer token.
         assert config["allowed_hosts"] == []
         assert config["allow_redirects"] is False
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.make_tracked_session"
+    )
+    def test_client_config_keeps_response_bodies_out_of_sample_capture(self, mock_session: MagicMock) -> None:
+        # Sample capture sees the raw body before the data_map runs, so the promoter credential (and
+        # PII) would leak into shared sample storage unless capture is off on the sync session.
+        config = rest_api_client_config("fp-key", "98765", "v2")
+        assert config["session"] is mock_session.return_value
+        assert mock_session.call_args.kwargs["capture"] is False
+        assert mock_session.call_args.kwargs["redact_values"] == ("fp-key",)
 
     @parameterized.expand(
         [
@@ -187,6 +213,8 @@ class TestFirstPromoterTransport:
         assert call.kwargs["headers"]["Authorization"] == "Bearer fp-key"
         assert call.kwargs["headers"]["ACCOUNT-ID"] == "98765"
         assert mock_session.call_args.kwargs["allow_redirects"] is False
+        # The probe reads /promoters, whose bodies carry the password_setup_url credential and PII.
+        assert mock_session.call_args.kwargs["capture"] is False
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.rest_api_resource"
