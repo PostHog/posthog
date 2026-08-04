@@ -113,7 +113,6 @@ export function TaxonomicBreakdownFilter({
         typeof breakdown === 'object' ? (
             <EditableBreakdownTag
                 key={breakdown.property}
-                taxonomicBreakdownLogicProps={logicProps}
                 breakdown={breakdown.property}
                 breakdownType={breakdown.type ?? 'event'}
                 isTrends={isTrends}
@@ -123,7 +122,6 @@ export function TaxonomicBreakdownFilter({
         ) : (
             <EditableBreakdownTag
                 key={breakdown}
-                taxonomicBreakdownLogicProps={logicProps}
                 breakdown={breakdown}
                 breakdownType={breakdownFilter?.breakdown_type ?? 'event'}
                 isTrends={isTrends}
@@ -161,7 +159,6 @@ export function TaxonomicBreakdownFilter({
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
                 <TaxonomicBreakdownButton
-                    logicProps={logicProps}
                     disabledReason={composedDisabledReason}
                     disabledReasonInteractive={!!composedDisabledReason}
                     size={size}

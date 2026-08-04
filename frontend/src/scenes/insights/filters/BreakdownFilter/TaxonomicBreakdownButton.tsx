@@ -6,28 +6,26 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { TaxonomicBreakdownFilterLogicProps, taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 interface TaxonomicBreakdownButtonProps {
-    logicProps: TaxonomicBreakdownFilterLogicProps
     disabledReason?: ReactElement | string
     disabledReasonInteractive?: boolean
     size?: 'small' | 'medium'
 }
 
 export function TaxonomicBreakdownButton({
-    logicProps,
     disabledReason,
     disabledReasonInteractive,
     size,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
-    const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic(logicProps))
+    const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
 
     return (
-        <TaxonomicBreakdownPopover logicProps={logicProps} open={open} setOpen={setOpen}>
+        <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
             <LemonButton
                 type="secondary"
                 icon={<IconPlusSmall />}
