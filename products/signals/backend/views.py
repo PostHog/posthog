@@ -104,7 +104,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.quota import signals_quota_gate
+from products.signals.backend.quota import signals_quota_enforcement_enabled, signals_quota_gate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
@@ -2233,7 +2233,11 @@ class SignalReportViewSet(
     )
     @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["task:read"])
     def refund_summary(self, request: Request, **kwargs):
-        if not self._signals_pr_refunds_enabled():
+        # Two independent flags can each make this endpoint matter: refunds (the netting numbers)
+        # and quota enforcement (`quota_limited` drives the widget's paused banner, and enforcement
+        # can roll out before refunds). Gating on refunds alone would hide the paused state for
+        # enforcement-only orgs.
+        if not (self._signals_pr_refunds_enabled() or signals_quota_enforcement_enabled(self.team)):
             raise NotFound("PR refunds are not enabled for this organization.")
 
         period = current_billing_period_bounds(self.organization)

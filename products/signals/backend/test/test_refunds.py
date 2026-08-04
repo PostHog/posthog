@@ -20,6 +20,7 @@ from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
+from products.signals.backend.quota import SIGNALS_QUOTA_ENFORCEMENT_FLAG
 from products.signals.backend.tasks import (
     _OUT_OF_PERIOD_SYNC_ERROR,
     _REFUND_SYNC_MAX_RETRIES,
@@ -513,6 +514,21 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
 
 class TestSignalReportRefundFlagGate(APIBaseTest):
+    @patch("posthoganalytics.feature_enabled")
+    def test_refund_summary_available_with_only_enforcement_flag(self, flag_mock):
+        # The two flags roll out independently; an enforcement-only org still needs quota_limited
+        # from this endpoint, or the widget's paused banner can never render.
+        flag_mock.side_effect = lambda key, *args, **kwargs: key == SIGNALS_QUOTA_ENFORCEMENT_FLAG
+        summary = self.client.get(f"/api/projects/{self.team.id}/signals/reports/refund-summary/")
+        assert summary.status_code == status.HTTP_200_OK
+        assert summary.json()["quota_limited"] is False
+        # The refund action itself stays refunds-gated.
+        report = _make_report(self.team)
+        refund = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/refund/", {"reason": "other"}, format="json"
+        )
+        assert refund.status_code == status.HTTP_404_NOT_FOUND
+
     @parameterized.expand([("refund",), ("refund_summary",)])
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_endpoints_unavailable_with_flag_off(self, action_path, _flag):
