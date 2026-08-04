@@ -34,14 +34,16 @@ MISSING_COHORT_ID = 12345
 
 BACKFILL_KINDS = [("behavioral", CohortBackfillKind.BEHAVIORAL), ("person", CohortBackfillKind.PERSON_PROPERTY)]
 
-# What the task needs to reach the creators: both allowlists open and every attestation the two
-# kinds check between them. Tests peel these back to exercise the individual guards.
+# What the task needs to reach the creators: both allowlists open, every attestation the two kinds
+# check between them, and a person seed budget. Tests peel these back to exercise the guards.
 BACKFILL_TASK_SETTINGS = {
     "REALTIME_COHORT_TEAM_ALLOWLIST": "all",
     "COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST": "all",
     "BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED": True,
+    "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED": True,
+    "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1_000_000,
 }
 
 

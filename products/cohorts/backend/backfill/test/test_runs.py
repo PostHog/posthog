@@ -272,6 +272,7 @@ class TestPersonBackfillRuns(BaseTest):
                 "person_horizon_days": expected_horizon_days,
             },
         )
+        self.assertIn("person_seed_estimated_topic_bytes", run.preconditions)
         self.assertEqual(participation.filters_shape_hash, cohort.filters_shape_hash)
         self.assertEqual(participation.behavioral_filters_shape_hash, "")
         self.assertEqual(participation.person_filters_shape_hash, cohort.person_filters_shape_hash)
@@ -307,6 +308,21 @@ class TestPersonBackfillRuns(BaseTest):
             cohort_id=cohort.id,
             person_horizon_days=0,
         )
+
+    @parameterized.expand([("over_budget",), ("estimate_fails",)])
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_signal_path_refuses_unsized_person_seed(self, _name: str, estimate: mock.Mock) -> None:
+        # A user save replays cost here, so the automated path has to honor the same topic-bytes
+        # budget as the operator creator. An estimate failure has to refuse quietly too: raising
+        # would burn the Celery task's retries repeating the estimate's own capped scan.
+        if _name == "over_budget":
+            estimate.return_value = self._estimate(estimated_topic_bytes=2_000_000)
+        else:
+            estimate.side_effect = Exception("read cap exceeded")
+        cohort = self._cohort()
+
+        self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
     def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:

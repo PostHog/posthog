@@ -847,7 +847,10 @@ def collect_cohort_query_stats(
         raise
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+# acks_late: a countdown message acked on receipt sits in one worker's memory for the whole window
+# and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
+# the redelivery this trades into is harmless.
+@shared_task(ignore_result=True, acks_late=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind: str, backfill_kind: str) -> None:
     """Create the run a debounced cohort save asked for, reading the cohort's current definition.
 
@@ -873,9 +876,7 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
             )
             return
         person = backfill_kind == CohortBackfillKind.PERSON_PROPERTY
-        _, missing = (
-            check_person_run_preconditions(requires_sizing_attestation=False) if person else check_run_preconditions()
-        )
+        _, missing = check_person_run_preconditions() if person else check_run_preconditions()
         if missing:
             logger.info(
                 "skipping_cohort_backfill_run_task_missing_attestations",

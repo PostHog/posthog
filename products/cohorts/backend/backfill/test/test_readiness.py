@@ -47,6 +47,7 @@ KINDS = [
     BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
     BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED=True,
 )
 class TestBackfillReadiness(BaseTest):
     def _filters(self, window_days: int, *, person_hash: str | None = None) -> dict:

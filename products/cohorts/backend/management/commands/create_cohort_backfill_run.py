@@ -140,7 +140,7 @@ class Command(BaseCommand):
         boundary_at: datetime | None,
         dry_run: bool,
     ) -> None:
-        _, missing = check_person_run_preconditions(requires_sizing_attestation=True)
+        _, missing = check_person_run_preconditions()
         if missing:
             raise CommandError(f"Missing operator attestations: {', '.join(missing)}")
         if person_horizon_days < 1:

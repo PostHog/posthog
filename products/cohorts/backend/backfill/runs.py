@@ -51,22 +51,22 @@ def check_run_preconditions() -> tuple[dict[str, Any], list[str]]:
     return preconditions, missing
 
 
-def check_person_run_preconditions(*, requires_sizing_attestation: bool) -> tuple[dict[str, Any], list[str]]:
-    """Person-run gates: the behavioral ones plus person-record TTL, and sizing for team runs.
+def check_person_run_preconditions() -> tuple[dict[str, Any], list[str]]:
+    """Person-run gates: the behavioral ones plus person-record TTL and seed sizing.
 
-    TTL is not scope-dependent — every person seed lands in the same ``cf_person_records`` store,
+    Neither is scope-dependent. Every person seed lands in the same ``cf_person_records`` store,
     whose retention Django cannot see (the seeder reads ``COHORT_PERSON_RECORD_TTL_DAYS``), so an
-    operator has to attest it for any kind of person run. Only the team creator estimates topic
-    bytes, so only it requires the sizing attestation.
+    operator has to attest it for any kind of person run. And both person creators size their seed
+    emission against ``BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET``, so sizing is attested for
+    any kind of person run too.
     """
     preconditions, missing = check_run_preconditions()
     preconditions["person_ttl_attested"] = settings.BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED
     if not preconditions["person_ttl_attested"]:
         missing.append("person record TTL")
-    if requires_sizing_attestation:
-        preconditions["person_sizing_attested"] = settings.BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED
-        if not preconditions["person_sizing_attested"]:
-            missing.append("person seed sizing")
+    preconditions["person_sizing_attested"] = settings.BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED
+    if not preconditions["person_sizing_attested"]:
+        missing.append("person seed sizing")
     return preconditions, missing
 
 
@@ -308,10 +308,11 @@ def create_person_backfill_run_for_cohort(
 ) -> CohortBackfillRun | None:
     """Create one cohort's person-property run, on the signal path's contract.
 
-    Unlike ``create_person_team_backfill_run`` this never raises and never touches ClickHouse: it is
-    the target of ``cohort_person_shape_changed_backfill``, where a refusal has to warn and return
-    rather than fail the Celery task. That is also why the horizon defaults from settings here but is
-    required on the operator-driven team creator.
+    Unlike ``create_person_team_backfill_run`` this never raises: it is the target of
+    ``cohort_person_shape_changed_backfill``, where a refusal has to warn and return rather than
+    fail the Celery task. That is also why the horizon defaults from settings here but is required
+    on the operator-driven team creator, and why the seed-topic-bytes gate refuses quietly, even
+    when the estimate itself fails, where the team creator raises.
     """
     if not is_realtime_cohort_team(team_id):
         return None
@@ -327,6 +328,53 @@ def create_person_backfill_run_for_cohort(
             team_id=team_id,
             cohort_id=cohort_id,
             person_horizon_days=horizon_days,
+        )
+        return None
+
+    # Unlocked pre-pass for the sizing gate: the estimate is a ClickHouse round trip, so it must not
+    # run while the create path below holds the cohort row FOR UPDATE. The locked pass re-derives
+    # eligibility and the pin, and refuses if the definition moved in between.
+    cohort = Cohort.objects.filter(id=cohort_id, team_id=team_id).first()
+    if cohort is None or person_backfill_ineligibility_reason(cohort) is not None:
+        return None
+    if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.PERSON_PROPERTY):
+        return None
+    if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.PERSON_PROPERTY):
+        return None
+    try:
+        pinned = pin_person_conditions_for_cohorts(
+            [cohort],
+            max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
+        )
+    except PersonPinningCapExceeded:
+        logger.warning(
+            "cohort_person_backfill_pinning_cap_exceeded",
+            team_id=team_id,
+            cohort_id=cohort_id,
+            max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
+        )
+        return None
+
+    person_scan_since = django_timezone.now() - timedelta(days=horizon_days)
+    try:
+        estimate = estimate_person_seed_topic_bytes(team_id, person_scan_since, len(pinned["conditions"]))
+    except Exception as error:
+        # Fail closed without raising: a deterministic failure (the estimate's own read cap on an
+        # enormous team) would otherwise burn the task's retries on repeated full scans.
+        logger.warning(
+            "cohort_person_backfill_sizing_failed",
+            team_id=team_id,
+            cohort_id=cohort_id,
+            error=str(error),
+        )
+        return None
+    if estimate.over_budget:
+        logger.warning(
+            "cohort_person_backfill_over_budget",
+            team_id=team_id,
+            cohort_id=cohort_id,
+            estimated_topic_bytes=estimate.estimated_topic_bytes,
+            budget_bytes=estimate.budget_bytes,
         )
         return None
 
@@ -346,7 +394,7 @@ def create_person_backfill_run_for_cohort(
                 return None
 
             try:
-                pinned = pin_person_conditions_for_cohorts(
+                locked_pinned = pin_person_conditions_for_cohorts(
                     [cohort],
                     max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
                 )
@@ -358,12 +406,20 @@ def create_person_backfill_run_for_cohort(
                     max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
                 )
                 return None
+            if locked_pinned != pinned:
+                # A racing edit changed the definition after sizing; its own save dispatched a fresh
+                # debounced task, so that task owns the re-sized run.
+                logger.warning(
+                    "cohort_person_backfill_definition_changed_during_sizing",
+                    team_id=team_id,
+                    cohort_id=cohort_id,
+                )
+                return None
 
             filters_shape_hash = ensure_filters_shape_hash(cohort)
             person_filters_shape_hash = cohort.person_filters_shape_hash or ""
-            preconditions, missing = check_person_run_preconditions(requires_sizing_attestation=False)
+            preconditions, missing = check_person_run_preconditions()
             status, blocked_reason = _run_status(missing)
-            person_scan_since = django_timezone.now() - timedelta(days=horizon_days)
             run = CohortBackfillRun.objects.for_team(team_id).create(
                 team_id=team_id,
                 cohort=cohort,
@@ -374,7 +430,7 @@ def create_person_backfill_run_for_cohort(
                 timezone=cohort.team.timezone,
                 person_scan_since=person_scan_since,
                 pinned={**pinned, "person_horizon_days": horizon_days},
-                preconditions=preconditions,
+                preconditions={**preconditions, **estimate.as_preconditions()},
                 blocked_reason=blocked_reason,
             )
             CohortBackfillRunCohort.objects.for_team(team_id).create(
@@ -437,7 +493,7 @@ def create_person_team_backfill_run(
         raise ValueError("person_horizon_days must be at least 1")
 
     boundary_at = _validate_boundary_at(trigger_kind, boundary_at)
-    preconditions, missing = check_person_run_preconditions(requires_sizing_attestation=True)
+    preconditions, missing = check_person_run_preconditions()
     if missing:
         raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
 
@@ -514,6 +570,8 @@ def create_person_team_backfill_run(
 
 
 def supersede_active_runs(team_id: int, cohort_ids: Iterable[int], *, kind: CohortBackfillKind) -> int:
+    """Returns the number of participations newly superseded, not everything written: superseding a
+    run whose participation the seeder already terminalized returns 0."""
     cohort_id_set = set(cohort_ids)
     if not cohort_id_set:
         return 0
