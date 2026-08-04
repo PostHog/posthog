@@ -3576,6 +3576,20 @@
             "readOnlyHint": false
         }
     },
+    "experiment-create-from-prompt": {
+        "description": "Create a draft experiment that compares versions of an existing LLM prompt (managed with the llma-prompt tools). Pass the prompt's exact name (call llma-prompt-list to discover names), two or more of its version numbers (the first entry becomes the control variant), and one or more metric templates — call experiment-prompt-templates for the allowed template keys. Builds one variant per version, each carrying a feature flag payload with the prompt name and version so the SDK can resolve which version to serve, and attaches one primary metric per template, scoped to the prompt. The feature flag is auto-created — do not create one separately. Launch the experiment with the launch tool when ready.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment from LLM prompt",
+        "title": "Create experiment from LLM prompt",
+        "required_scopes": ["experiment:write", "llm_prompt:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "experiment-delete": {
         "description": "Delete an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Always confirm by name before deleting.",
         "category": "Experiments",
@@ -3812,6 +3826,20 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "experiment-prompt-templates": {
+        "description": "List the metric templates accepted by experiment-create-from-prompt. Each entry has a key (the value to pass in that tool's templates parameter), a label, and a description of what the metric measures.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "List LLM prompt metric templates",
+        "title": "List LLM prompt metric templates",
+        "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "experiment-reset": {
