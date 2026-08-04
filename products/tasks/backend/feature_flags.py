@@ -87,6 +87,9 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
 
 
 def is_tasks_orchestration_enabled(*, distinct_id: str, organization_id: str) -> bool:
+    if settings.DEBUG:
+        return True
+
     try:
         return bool(
             posthoganalytics.feature_enabled(
