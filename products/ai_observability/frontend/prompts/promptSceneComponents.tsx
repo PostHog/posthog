@@ -669,7 +669,7 @@ export function PromptCode({ prompt }: { prompt: LLMPrompt }): JSX.Element {
             <PromptCodeSnippets prompt={prompt} />
 
             <LemonBanner type="info">
-                During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
+                Each prompt fetch is charged as a Product analytics event. See the{' '}
                 <Link to="https://posthog.com/pricing" target="_blank">
                     pricing page
                 </Link>
@@ -1055,7 +1055,13 @@ export function PromptVersionSidebar({
                         const selected = prompt?.id === versionPrompt.id
                         const isCompareTarget = compareVersion === versionPrompt.version
                         const canCompare = !readOnly && prompt?.version !== versionPrompt.version
-                        const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
+                        // The latest version's canonical URL has no ?version param, so landing on
+                        // it matches the state the scene starts in.
+                        const versionUrl = buildPromptUrl(
+                            promptName,
+                            searchParams,
+                            versionPrompt.is_latest ? null : versionPrompt.version
+                        )
 
                         const cardContent = (
                             <>
@@ -1165,7 +1171,9 @@ export function PromptVersionSidebar({
                                     : 'border-primary/10 hover:bg-fill-secondary'
                         }`
 
-                        if (readOnly) {
+                        // The selected version is not a link: navigating to the version already
+                        // shown would only trigger a pointless reload.
+                        if (readOnly || selected) {
                             return (
                                 <div key={versionPrompt.id} className={cardClassName}>
                                     {cardContent}

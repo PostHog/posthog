@@ -12500,6 +12500,50 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     */
+    export type BuildStatusEnum = typeof BuildStatusEnum[keyof typeof BuildStatusEnum];
+
+
+    export const BuildStatusEnum = {
+      Queued: 'queued',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface BulkOptOutEntry {
+      /**
+         * The recipient identifier to opt out (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Message category key for this recipient. Overrides the request-level category_key. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsRequest {
+      /** Recipients to opt out, at most 1000 per request. */
+      opt_outs: BulkOptOutEntry[];
+      /** Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsResult {
+      /** Number of opt-out entries received. */
+      total: number;
+      /** Number of recipient and category pairs recorded as opted out. */
+      opted_out: number;
+      /** Number of entries skipped because their category_key doesn't exist. */
+      skipped: number;
+      /** The first few entry-level problems, so the caller can fix their list. */
+      errors: string[];
+    }
+
+    /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
      * * `partial` - partial
@@ -13127,10 +13171,10 @@ export namespace Schemas {
      * * `error` - error
      * * `warning` - warning
      */
-    export type UtmIssueSeverityEnum = typeof UtmIssueSeverityEnum[keyof typeof UtmIssueSeverityEnum];
+    export type DiagnosticSeverityEnum = typeof DiagnosticSeverityEnum[keyof typeof DiagnosticSeverityEnum];
 
 
-    export const UtmIssueSeverityEnum = {
+    export const DiagnosticSeverityEnum = {
       Error: 'error',
       Warning: 'warning',
     } as const;
@@ -13167,7 +13211,7 @@ export namespace Schemas {
        *
        * * `error` - error
        * * `warning` - warning */
-      severity: UtmIssueSeverityEnum;
+      severity: DiagnosticSeverityEnum;
       /** Which kind of UTM problem this campaign has
        *
        * * `not_linked` - not_linked
@@ -13205,6 +13249,18 @@ export namespace Schemas {
       event_count: number;
       /** List of detected UTM configuration issues */
       issues: UtmIssue[];
+    }
+
+    export type MatchField = typeof MatchField[keyof typeof MatchField];
+
+
+    export const MatchField = {
+      CampaignName: 'campaign_name',
+      CampaignId: 'campaign_id',
+    } as const;
+
+    export interface CampaignFieldPreference {
+      match_field: MatchField;
     }
 
     export interface CampaignMappingSuggestion {
@@ -13259,6 +13315,227 @@ export namespace Schemas {
     }
 
     /**
+     * A canvas document. Version/build content hangs off the source and build endpoints.
+     */
+    export interface Canvas {
+      readonly id: string;
+      readonly name: string;
+      readonly channel: string;
+      readonly template_id: string;
+      readonly context: string;
+      /** @nullable */
+      readonly generation_task_id: string | null;
+      /** Whether the canvas is pinned to its channel. */
+      readonly pinned: boolean;
+      /** @nullable */
+      readonly pinned_at: string | null;
+      /**
+         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+         * @nullable
+         */
+      readonly current_version_id: string | null;
+      /**
+         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+         * @nullable
+         */
+      readonly published_build_id: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * One emitted file of a built canvas artifact.
+     */
+    export interface CanvasArtifactAsset {
+      /** Artifact-relative path of the emitted file. */
+      path: string;
+      /** Hex SHA-256 of the file content. */
+      contentHash: string;
+      /** Size of the file in bytes. */
+      sizeBytes: number;
+    }
+
+    /**
+     * Exact dependency versions the artifact was built against.
+     */
+    export type CanvasArtifactManifestDependencies = {[key: string]: string};
+
+    /**
+     * Declared PostHog/network capabilities the artifact is held to at runtime.
+     */
+    export type CanvasArtifactManifestCapabilities = { [key: string]: unknown };
+
+    /**
+     * The manifest frozen into a ready build: entry, assets, versions, capabilities.
+     */
+    export interface CanvasArtifactManifest {
+      /** The artifact's entry HTML file. */
+      entryHtml: string;
+      /** Every emitted artifact file with its content hash. */
+      assets: CanvasArtifactAsset[];
+      /** Exact dependency versions the artifact was built against. */
+      dependencies: CanvasArtifactManifestDependencies;
+      /** Version of the `ph` canvas SDK the artifact targets. */
+      canvasSdkVersion: string;
+      /**
+         * Path of the runtime-mounted React component, for legacy-tier artifacts.
+         * @nullable
+         */
+      legacyComponentPath?: string | null;
+      /**
+         * The runtime-mounted component source, for legacy-tier artifacts.
+         * @nullable
+         */
+      legacyCode?: string | null;
+      /** Declared PostHog/network capabilities the artifact is held to at runtime. */
+      capabilities: CanvasArtifactManifestCapabilities;
+    }
+
+    /**
+     * One structured validation/build diagnostic for a canvas source project.
+     */
+    export interface CanvasDiagnostic {
+      /** 'error' blocks publishing; 'warning' is advisory and does not block.
+       *
+       * * `error` - error
+       * * `warning` - warning */
+      severity: DiagnosticSeverityEnum;
+      /** Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'. */
+      code: string;
+      /** Human-readable description of the problem and how to fix it. */
+      message: string;
+      /** Project-relative path of the file the diagnostic points at, when file-specific. */
+      path?: string;
+      /** 1-based line number within `path`, when the diagnostic points at a specific line. */
+      line?: number;
+    }
+
+    /**
+     * Lifecycle record of one build of a canvas source version.
+     */
+    export interface CanvasBuild {
+      /** The build's id. */
+      id: string;
+      /** The source version this build compiled. */
+      source_version_id: string;
+      /** Build lifecycle state. A failed build never replaces the last-known-good artifact.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum;
+      /** Structured diagnostics recorded by the build (errors explain a failed status). */
+      diagnostics: CanvasDiagnostic[];
+      /** The frozen artifact manifest — present once the build is ready. */
+      manifest?: CanvasArtifactManifest | null;
+      /**
+         * Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.
+         * @nullable
+         */
+      integrity: string | null;
+      /**
+         * Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.
+         * @nullable
+         */
+      readonly artifact_url: string | null;
+      /** Pinned builds are retained for the lifetime of the canvas. */
+      pinned: boolean;
+      /** When the build was queued. */
+      created_at: string;
+      /**
+         * When the build reached a terminal state.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    /**
+     * * `retry` - retry
+     * * `pin` - pin
+     * * `unpin` - unpin
+     * * `cancel` - cancel
+     */
+    export type CanvasBuildActionActionEnum = typeof CanvasBuildActionActionEnum[keyof typeof CanvasBuildActionActionEnum];
+
+
+    export const CanvasBuildActionActionEnum = {
+      Retry: 'retry',
+      Pin: 'pin',
+      Unpin: 'unpin',
+      Cancel: 'cancel',
+    } as const;
+
+    export interface CanvasBuildAction {
+      action: CanvasBuildActionActionEnum;
+      build_id: string;
+    }
+
+    /**
+     * A canvas's build lifecycle: live pointers plus its most recent builds.
+     */
+    export interface CanvasBuildsResponse {
+      /**
+         * Id of the canvas's live build (the last successful, still-eligible one). Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /**
+         * Id of the source version the canvas's head points at.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** Most recent builds, newest first (capped at 20; the live build is always included). */
+      builds: CanvasBuild[];
+    }
+
+    export interface CanvasPostHogCapabilities {
+      /**
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      insights: string[];
+      inlineQueries: boolean;
+      /**
+         * @maxItems 100
+         * @items.maxLength 200
+         */
+      captureEvents: string[];
+    }
+
+    export interface CanvasNetworkCapabilities {
+      /**
+         * @maxItems 20
+         * @items.maxLength 2048
+         */
+      origins: string[];
+    }
+
+    export interface CanvasCapabilities {
+      posthog: CanvasPostHogCapabilities;
+      network: CanvasNetworkCapabilities;
+    }
+
+    /**
+     * Payload for creating a new, empty canvas in a channel.
+     */
+    export interface CanvasCreate {
+      /**
+         * Display name for the canvas.
+         * @maxLength 400
+         */
+      name: string;
+      /** Id of the channel the canvas belongs to. */
+      channel_id: string;
+      /**
+         * Canvas template identifier.
+         * @maxLength 64
+         */
+      template_id?: string;
+    }
+
+    /**
      * 409 body for a guarded canvas publish based on a stale version.
      */
     export interface CanvasPublishConflict {
@@ -13267,10 +13544,265 @@ export namespace Schemas {
       /** Always "version_conflict". */
       code: string;
       /**
-         * The canvas's live currentVersionId at rejection time (null when the canvas has no versions).
+         * The canvas's live current_version_id at rejection time (null when the canvas has no versions).
          * @nullable
          */
       current_version_id: string | null;
+    }
+
+    /**
+     * Payload for reverting the canvas's head to an existing source version.
+     */
+    export interface CanvasRevert {
+      /** Id of the source version to make the head again. */
+      version_id: string;
+      /**
+         * Current source version observed before requesting the revert.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
+    }
+
+    /**
+     * * `base64` - base64
+     */
+    export type EncodingEnum = typeof EncodingEnum[keyof typeof EncodingEnum];
+
+
+    export const EncodingEnum = {
+      Base64: 'base64',
+    } as const;
+
+    /**
+     * * `image/png` - image/png
+     * * `image/jpeg` - image/jpeg
+     * * `image/gif` - image/gif
+     * * `image/webp` - image/webp
+     * * `image/svg+xml` - image/svg+xml
+     * * `font/woff` - font/woff
+     * * `font/woff2` - font/woff2
+     * * `application/wasm` - application/wasm
+     * * `application/octet-stream` - application/octet-stream
+     */
+    export type ContentTypeEnum = typeof ContentTypeEnum[keyof typeof ContentTypeEnum];
+
+
+    export const ContentTypeEnum = {
+      ImagePng: 'image/png',
+      ImageJpeg: 'image/jpeg',
+      ImageGif: 'image/gif',
+      ImageWebp: 'image/webp',
+      ImageSvgXml: 'image/svg+xml',
+      FontWoff: 'font/woff',
+      FontWoff2: 'font/woff2',
+      ApplicationWasm: 'application/wasm',
+      ApplicationOctetStream: 'application/octet-stream',
+    } as const;
+
+    export interface CanvasSourceAsset {
+      encoding: EncodingEnum;
+      contentType: ContentTypeEnum;
+      /**
+         * @maxLength 2796204
+         * @pattern ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
+         */
+      content: string;
+    }
+
+    /**
+     * One per-file edit: set a file's content, or delete it.
+     */
+    export interface CanvasSourceEditOperation {
+      /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+      path: string;
+      /**
+         * The file's complete new content. Null (or omitted) deletes the file.
+         * @nullable
+         */
+      content?: string | null;
+    }
+
+    /**
+     * Payload for publishing per-file edits against the canvas's current source.
+     */
+    export interface CanvasSourceEdit {
+      /** Edits applied in order to the canvas's current source project. */
+      operations: CanvasSourceEditOperation[];
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /**
+         * Optional new display name for the canvas.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
+    }
+
+    /**
+     * 400 body for a publish whose source project failed validation.
+     */
+    export interface CanvasSourceInvalid {
+      /** Human-readable summary of why the project was rejected. */
+      detail: string;
+      /** Always "invalid_source_project". */
+      code: string;
+      /** The validation diagnostics, including at least one error. */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
+     * Project files keyed by relative path (forward slashes, no '..').
+     */
+    export type CanvasSourceProjectFiles = {[key: string]: string};
+
+    /**
+     * Optional base64-encoded binary assets keyed by safe project-relative paths.
+     */
+    export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
+
+    /**
+     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     */
+    export type CanvasSourceProjectDependencies = {[key: string]: string};
+
+    /**
+     * A canvas's multi-file source project — the canonical write format for canvas source.
+     */
+    export interface CanvasSourceProject {
+      /** Source-project schema version. Currently always 1. */
+      schemaVersion: number;
+      /** Project files keyed by relative path (forward slashes, no '..'). */
+      files: CanvasSourceProjectFiles;
+      /** Optional base64-encoded binary assets keyed by safe project-relative paths. */
+      assets?: CanvasSourceProjectAssets;
+      /** The project's entry HTML file. Currently always "index.html". */
+      entryHtml: string;
+      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      dependencies?: CanvasSourceProjectDependencies;
+      /** Version of the host-injected `ph` canvas SDK the project targets. */
+      canvasSdkVersion?: string;
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      capabilities?: CanvasCapabilities;
+    }
+
+    /**
+     * Payload for publishing a complete canvas source project.
+     */
+    export interface CanvasSourcePublish {
+      /** The complete source project to publish. */
+      project: CanvasSourceProject;
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /**
+         * Optional new display name for the canvas.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+         * @nullable
+         */
+      expected_current_version_id?: string | null;
+    }
+
+    /**
+     * Identity and version pointers for one canvas.
+     */
+    export interface CanvasSummary {
+      /** The canvas's id. */
+      id: string;
+      /** Display name of the canvas. */
+      name: string;
+      /** Id of the channel the canvas belongs to. */
+      channel_id: string;
+      /**
+         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /**
+         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /** When the canvas was created. */
+      created_at: string;
+    }
+
+    /**
+     * Result of a successful source-project publish.
+     */
+    export interface CanvasSourcePublishResponse {
+      /** The canvas after the publish, including the new version pointer. */
+      canvas: CanvasSummary;
+      /** Id of the source version this publish created. */
+      current_version_id: string;
+      /** Advisory (warning-severity) diagnostics recorded for the published project. */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
+     * A canvas's source project plus the version pointer edits must be based on.
+     */
+    export interface CanvasSourceResponse {
+      /** Identity and version pointers for the canvas. */
+      canvas: CanvasSummary;
+      /** The canvas's source project. Pre-relational single-file canvases are presented as a synthetic project. */
+      project: CanvasSourceProject;
+      /**
+         * The live source version this project reflects — pass as expected_current_version_id when publishing an edit. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+    }
+
+    /**
+     * Payload for validating a candidate source project without publishing it.
+     */
+    export interface CanvasValidateRequest {
+      /** The candidate source project to validate. */
+      project: CanvasSourceProject;
+    }
+
+    /**
+     * Validation outcome for a candidate source project.
+     */
+    export interface CanvasValidateResponse {
+      /** True when the project has no error-severity diagnostics. */
+      valid: boolean;
+      /** Structured diagnostics; errors block publishing, warnings are advisory. */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
+     * One entry of a canvas's source-version history (metadata only —
+     * fetch a version's files via `source?version_id=`).
+     */
+    export interface CanvasVersion {
+      /** The version's id. */
+      id: string;
+      /**
+         * The version this one was based on (null for the first publish).
+         * @nullable
+         */
+      parent_version_id: string | null;
+      /**
+         * Short description recorded with the publish.
+         * @nullable
+         */
+      prompt: string | null;
+      /**
+         * Task that published the version, when one did.
+         * @nullable
+         */
+      task_id: string | null;
+      readonly created_by: UserBasic | null;
+      /** When the version was published. */
+      created_at: string;
     }
 
     /**
@@ -13412,6 +13944,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `certified` - certified
+     * * `deprecated` - deprecated
+     */
+    export type ProposedStatusEnum = typeof ProposedStatusEnum[keyof typeof ProposedStatusEnum];
+
+
+    export const ProposedStatusEnum = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    /**
      * Input for proposing a certification: address the target by id or (convenience) by name.
      */
     export interface CertificationCreate {
@@ -13425,6 +13969,11 @@ export namespace Schemas {
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
+      /** Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).
+       *
+       * * `certified` - certified
+       * * `deprecated` - deprecated */
+      proposed_status?: ProposedStatusEnum;
     }
 
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
@@ -13523,6 +14072,14 @@ export namespace Schemas {
     }
 
     /**
+     * The task currently generating this channel's CONTEXT.md, or null.
+     */
+    export interface ChannelContextGeneration {
+      /** @nullable */
+      task_id: string | null;
+    }
+
+    /**
      * @nullable
      */
     export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
@@ -13557,6 +14114,7 @@ export namespace Schemas {
       repositories: string[];
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
+      starred?: boolean;
     }
 
     /**
@@ -13627,6 +14185,35 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for a channel's CONTEXT.md instructions version.
+     */
+    export interface ChannelInstructionsDTO {
+      channel: string;
+      content: string;
+      version: number;
+      /** @nullable */
+      created_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+    }
+
+    /**
+     * Request body for publishing a new instructions version.
+     */
+    export interface ChannelInstructionsWrite {
+      /**
+         * The complete markdown instructions (CONTEXT.md) for the channel.
+         * @maxLength 100000
+         */
+      content: string;
+      /**
+         * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+         * @minimum 0
+         * @nullable
+         */
+      base_version?: number | null;
+    }
+
+    /**
      * * `widget` - Widget
      * * `email` - Email
      * * `slack` - Slack
@@ -13643,6 +14230,13 @@ export namespace Schemas {
       Teams: 'teams',
       Github: 'github',
     } as const;
+
+    /**
+     * Request body for starring/unstarring a channel for the requesting user.
+     */
+    export interface ChannelStarWrite {
+      starred: boolean;
+    }
 
     /**
      * Request body for creating (resolve-or-create) or renaming a public channel.
@@ -14774,22 +15368,6 @@ export namespace Schemas {
       Rocket: 'rocket',
       Eyes: 'eyes',
     } as const;
-
-    export interface ContextGeneration {
-      /**
-         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
-         * @nullable
-         */
-      task_id: string | null;
-    }
-
-    export interface ContextGenerationSet {
-      /**
-         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
-         * @nullable
-         */
-      task_id: string | null;
-    }
 
     export type ConversationMessagesItem = { [key: string]: unknown };
 
@@ -16659,6 +17237,8 @@ export namespace Schemas {
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
+      /** The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled. */
+      readonly proposed_status: string;
       /** Why this mark exists, e.g. 'canonical MRR source'. */
       notes?: string;
       /** User who last set certified/deprecated, or null. */
@@ -16939,6 +17519,8 @@ export namespace Schemas {
       readonly error: string | null;
       readonly created_at: string;
       readonly last_run_at: string;
+      /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+      readonly updated_at: string;
       /** @nullable */
       readonly workflow_id: string | null;
       /** @nullable */
@@ -28179,6 +28761,8 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      readonly resolved_exposure_event: string;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -29090,6 +29674,8 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      readonly resolved_exposure_event: string;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -32158,7 +32744,7 @@ export namespace Schemas {
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
       /**
-         * Table name prefix in HogQL.
+         * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
          * @maxLength 100
          * @nullable
          */
@@ -33158,49 +33744,6 @@ export namespace Schemas {
          * @nullable
          */
       latest_at: string | null;
-    }
-
-    export interface FolderInstructions {
-      /** Unique identifier for this instructions version. */
-      readonly id: string;
-      /** Markdown instructions describing the contents of the folder. */
-      readonly content: string;
-      /** Monotonically increasing version number, starting at 1. */
-      readonly version: number;
-      /** Whether this is the current (latest) version for the folder. */
-      readonly is_latest: boolean;
-      /** User who published this version. */
-      readonly created_by: UserBasic;
-      /** When this version was published. */
-      readonly created_at: string;
-      /** When this version row was last modified. */
-      readonly updated_at: string;
-    }
-
-    export interface FolderInstructionsPublish {
-      /** Full markdown instructions to publish as a new version for the folder. */
-      content: string;
-      /**
-         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-         * @minimum 0
-         */
-      base_version?: number;
-    }
-
-    /**
-     * Version-history entry: metadata only, with the markdown content omitted.
-     */
-    export interface FolderInstructionsVersion {
-      /** Unique identifier for this instructions version. */
-      readonly id: string;
-      /** Monotonically increasing version number, starting at 1. */
-      readonly version: number;
-      /** Whether this is the current (latest) version for the folder. */
-      readonly is_latest: boolean;
-      /** User who published this version. */
-      readonly created_by: UserBasic;
-      /** When this version was published. */
-      readonly created_at: string;
     }
 
     /**
@@ -34510,7 +35053,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -34569,7 +35112,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -35311,6 +35854,17 @@ export namespace Schemas {
       readonly batch_export_id: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**
@@ -35324,8 +35878,10 @@ export namespace Schemas {
     export type HogFunctionInvocationClickhouseEvent = { [key: string]: unknown };
 
     export interface HogFunctionInvocation {
-      /** Full function configuration to test. */
-      configuration: HogFunction;
+      /** Full function configuration to test. Omit when use_draft is true. */
+      configuration?: HogFunction;
+      /** Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged. */
+      use_draft?: boolean;
       /** Mock global variables available during test invocation. */
       globals?: HogFunctionInvocationGlobals;
       /** Mock ClickHouse event data to test the function with. */
@@ -35364,6 +35920,61 @@ export namespace Schemas {
       readonly execution_order: number | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+    }
+
+    export interface HogFunctionPublishRequest {
+      /** False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function. */
+      confirm?: boolean;
+      /** From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed. */
+      confirm_token?: string;
+    }
+
+    export interface HogFunctionPublishResponse {
+      /** Whether the draft was applied to the live function. */
+      published: boolean;
+      /**
+         * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
+         * @nullable
+         */
+      draft_updated_at: string | null;
+      /**
+         * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+         * @nullable
+         */
+      confirm_token: string | null;
+      /**
+         * Config fields publishing would change (hog, inputs_schema, inputs, filters, mappings, masking). Only set on previews.
+         * @nullable
+         */
+      changed_fields: string[] | null;
+      /** The function after publishing (only set when published=true). */
+      function?: HogFunction | null;
+    }
+
+    export interface HogFunctionRevision {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFunctionRevisionBasic {
+      /** Function version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFunctionRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
     }
 
     /**
@@ -39874,9 +40485,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface LogsRetentionRuleNameSuggestion {
+      /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+      name: string;
+    }
+
     export interface LogsRetentionRuleReorder {
       /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
       ordered_ids: string[];
+    }
+
+    export interface LogsRetentionRuleSuggestName {
+      /** Retention tier the rule would assign, in days. */
+      retention_days: number;
+      /** PropertyGroupFilter tree the rule would match on. */
+      filter_group: unknown;
     }
 
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
@@ -40095,15 +40718,15 @@ export namespace Schemas {
     export interface LoopContextTargetDTO {
       /** What the loop maintains in this context each run. */
       outputs: LoopContextOutputsDTO;
-      folder_id: string;
+      channel_id: string;
       name: string;
     }
 
     export interface LoopContextTargetWrite {
-      /** Desktop folder id of the context this loop is attached to. */
-      folder_id: string;
+      /** Id of the channel (context) this loop is attached to. */
+      channel_id: string;
       /**
-         * Context (channel) name, used to file runs into its feed.
+         * Display name of the context, shown in the loop's publish prompt.
          * @maxLength 128
          */
       name: string;
@@ -41526,10 +42149,10 @@ export namespace Schemas {
       detail: string;
       /** Number of this source's schemas visible to the warehouse. */
       total_schemas: number;
-      /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-      backfilled_schemas: number;
+      /** Number of schemas applied by a completed copy or register workflow. */
+      applied_schemas: number;
       /**
-         * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
+         * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
          * @nullable
          */
       last_applied_at: string | null;
@@ -41552,7 +42175,7 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of imported source readiness. */
       detail: string;
-      /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+      /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
       sources: ManagedWarehouseSourceSummary[];
     }
 
@@ -41576,6 +42199,36 @@ export namespace Schemas {
       generated_at: string;
     }
 
+    /**
+     * * `copy` - copy
+     * * `register` - register
+     */
+    export type WorkflowTypeEnum = typeof WorkflowTypeEnum[keyof typeof WorkflowTypeEnum];
+
+
+    export const WorkflowTypeEnum = {
+      Copy: 'copy',
+      Register: 'register',
+    } as const;
+
+    /**
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale
+     */
+    export type WorkflowStatusEnum = typeof WorkflowStatusEnum[keyof typeof WorkflowStatusEnum];
+
+
+    export const WorkflowStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Stale: 'stale',
+    } as const;
+
     export interface ManagedWarehouseSourceTableStatus {
       /** Imported source schema identifier. */
       schema_id: string;
@@ -41598,17 +42251,28 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
       detail: string;
-      /** Whether the one-time historical copy into the warehouse has completed for this table. */
-      backfilled: boolean;
-      /** Backfill chunks already copied into the warehouse. */
-      completed_chunks: number;
+      /** Workflow applying the latest source import, or null if no workflow has run.
+       *
+       * * `copy` - copy
+       * * `register` - register */
+      workflow_type: WorkflowTypeEnum | null;
+      /** State of the latest copy or register workflow, or null if no workflow has run.
+       *
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `skipped` - skipped
+       * * `stale` - stale */
+      workflow_status: WorkflowStatusEnum | null;
       /**
-         * Total backfill chunks, or null before the copy plan is ready.
+         * When the latest copy or register workflow started, or null if no workflow has run.
          * @nullable
          */
-      total_chunks: number | null;
+      workflow_started_at: string | null;
+      /** Whether a copy or register workflow has applied this table to the warehouse. */
+      applied: boolean;
       /**
-         * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
+         * When a copy or register workflow most recently applied this table, or null if no workflow completed.
          * @nullable
          */
       last_applied_at: string | null;
@@ -41620,7 +42284,7 @@ export namespace Schemas {
     }
 
     export interface ManagedWarehouseSourceSchemasResponse {
-      /** Per-schema backfill and live import application status for the requested source. */
+      /** Per-schema copy or register workflow status for the requested source. */
       schemas: ManagedWarehouseSourceTableStatus[];
     }
 
@@ -41628,6 +42292,156 @@ export namespace Schemas {
       /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
       snapshot_id: string;
     }
+
+    export type MarketingAnalyticsActionConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsActionConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from an action.
+     */
+    export interface MarketingAnalyticsActionConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      id: number;
+      kind: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsActionConversionGoalResponse;
+      schema_map: MarketingAnalyticsActionConversionGoalSchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * Mapping of integration type to the campaign field used when matching campaigns.
+     */
+    export interface MarketingAnalyticsCampaignFieldPreferences {[key: string]: CampaignFieldPreference}
+
+    /**
+     * Mapping of integration type to canonical campaign name to the aliases folded into it.
+     */
+    export interface MarketingAnalyticsCampaignNameMappings {[key: string]: {[key: string]: string[]}}
+
+    export type MarketingAnalyticsEventConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsEventConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from events.
+     */
+    export interface MarketingAnalyticsEventConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      /** The event or `null` for all events. */
+      event?: string | null;
+      kind: 'EventsNode';
+      limit?: number | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      /** Columns to order by */
+      orderBy?: string[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsEventConversionGoalResponse;
+      schema_map: MarketingAnalyticsEventConversionGoalSchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type MarketingAnalyticsWarehouseConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsWarehouseConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from a data warehouse table.
+     */
+    export interface MarketingAnalyticsWarehouseConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      distinct_id_field: string;
+      dw_source_type?: string | null;
+      id: string;
+      id_field: string;
+      kind: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsWarehouseConversionGoalResponse;
+      schema_map: MarketingAnalyticsWarehouseConversionGoalSchemaMap;
+      table_name: string;
+      timestamp_field: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * The conversion goals configured for marketing analytics, in display order.
+     */
+    export type MarketingAnalyticsConversionGoalList = (MarketingAnalyticsEventConversionGoal | MarketingAnalyticsActionConversionGoal | MarketingAnalyticsWarehouseConversionGoal)[];
+
+    /**
+     * Mapping of integration type to the custom UTM source values folded into it.
+     */
+    export interface MarketingAnalyticsCustomSourceMappings {[key: string]: string[]}
+
+    export interface SourceMap {
+      ad_group_id?: string | null;
+      ad_group_name?: string | null;
+      ad_id?: string | null;
+      ad_name?: string | null;
+      campaign?: string | null;
+      clicks?: string | null;
+      cost?: string | null;
+      currency?: string | null;
+      date?: string | null;
+      id?: string | null;
+      impressions?: string | null;
+      reported_conversion?: string | null;
+      reported_conversion_value?: string | null;
+      source?: string | null;
+    }
+
+    /**
+     * Mapping of external data source id to that source's column mapping.
+     */
+    export interface MarketingAnalyticsSourceMapping {[key: string]: SourceMap}
 
     export interface MarketingDiagnosticResponse {
       /** Per-integration cross-domain diagnostics */
@@ -41960,6 +42774,11 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+    }
+
+    export interface MessagingError {
+      /** Human-readable description of what went wrong. */
+      error: string;
     }
 
     /**
@@ -43655,6 +44474,8 @@ export namespace Schemas {
 
     /**
      * * `opened` - OPENED
+     * * `ready_for_review` - READY_FOR_REVIEW
+     * * `converted_to_draft` - CONVERTED_TO_DRAFT
      * * `ci_started` - CI_STARTED
      * * `ci_finished` - CI_FINISHED
      * * `merged` - MERGED
@@ -43665,6 +44486,8 @@ export namespace Schemas {
 
     export const PRLifecycleEventKindEnum = {
       Opened: 'opened',
+      ReadyForReview: 'ready_for_review',
+      ConvertedToDraft: 'converted_to_draft',
       CiStarted: 'ci_started',
       CiFinished: 'ci_finished',
       Merged: 'merged',
@@ -43672,9 +44495,11 @@ export namespace Schemas {
     } as const;
 
     export interface PRLifecycleEvent {
-      /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+      /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
        *
        * * `opened` - OPENED
+       * * `ready_for_review` - READY_FOR_REVIEW
+       * * `converted_to_draft` - CONVERTED_TO_DRAFT
        * * `ci_started` - CI_STARTED
        * * `ci_finished` - CI_FINISHED
        * * `merged` - MERGED
@@ -43683,7 +44508,7 @@ export namespace Schemas {
       /** When the event occurred. */
       at: string;
       /**
-         * Optional detail, e.g. workflow name and conclusion for CI events.
+         * Optional detail: workflow name and conclusion for CI events, the acting user's login for draft/ready transitions.
          * @nullable
          */
       detail?: string | null;
@@ -43885,6 +44710,24 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
+    export interface PaginatedCanvasList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Canvas[];
+    }
+
+    export interface PaginatedCanvasVersionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CanvasVersion[];
+    }
+
     export interface PaginatedChangeRequestList {
       count: number;
       /** @nullable */
@@ -43910,6 +44753,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ChannelFeedMessageDTO[];
+    }
+
+    export interface PaginatedChannelInstructionsDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelInstructionsDTO[];
     }
 
     export interface PaginatedClickhouseEventList {
@@ -44457,15 +45309,6 @@ export namespace Schemas {
       results: FileSystemShortcut[];
     }
 
-    export interface PaginatedFolderInstructionsVersionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: FolderInstructionsVersion[];
-    }
-
     export interface PaginatedGatewayMemberSummaryList {
       count: number;
       /** @nullable */
@@ -44527,6 +45370,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFunctionMinimal[];
+    }
+
+    export interface PaginatedHogFunctionRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFunctionRevisionBasic[];
     }
 
     export interface PaginatedHogFunctionTemplateList {
@@ -44915,6 +45767,26 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ObjectMediaPreview[];
+    }
+
+    /**
+     * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+     * {count, next, previous, results} envelope instead of an untyped object.
+     */
+    export interface PaginatedOptOuts {
+      /** Total number of opted-out recipients for the category. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      results: MessagePreferences[];
     }
 
     export interface PaginatedOrganizationDomainList {
@@ -47834,6 +48706,30 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `off` - off
+     * * `minimal` - minimal
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode
+     */
+    export type TaskRunReasoningEffortEnum = typeof TaskRunReasoningEffortEnum[keyof typeof TaskRunReasoningEffortEnum];
+
+
+    export const TaskRunReasoningEffortEnum = {
+      Off: 'off',
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+      Ultracode: 'ultracode',
+    } as const;
+
     export interface TaskRunArtifactMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -47928,13 +48824,15 @@ export namespace Schemas {
       model?: string | null;
       /** Configured reasoning effort for this run when the selected model supports it.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
+      reasoning_effort?: TaskRunReasoningEffortEnum | null;
       /**
          * Presigned S3 URL for log access (valid for 1 hour).
          * @nullable
@@ -49950,20 +50848,40 @@ export namespace Schemas {
     }
 
     /**
-     * Payload for publishing a freeform canvas's React source via the agent.
+     * Writable canvas fields: metadata only — source changes go through publish/edit.
      */
-    export interface PatchedCanvasPublish {
-      /** The complete single-file React source for the canvas. */
-      code?: string;
-      /** Short description of the change, stored on the appended version history entry. */
-      prompt?: string;
-      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
-      name?: string;
+    export interface PatchedCanvasUpdate {
       /**
-         * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+         * Updated display name.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Updated author context markdown. */
+      context?: string;
+      /** Whether the canvas is pinned in its channel. */
+      pinned?: boolean;
+      /**
+         * Task currently generating this canvas, or null to clear it.
          * @nullable
          */
-      expected_current_version_id?: string | null;
+      generation_task_id?: string | null;
+    }
+
+    /**
+     * Request body for publishing a new instructions version.
+     */
+    export interface PatchedChannelInstructionsWrite {
+      /**
+         * The complete markdown instructions (CONTEXT.md) for the channel.
+         * @maxLength 100000
+         */
+      content?: string;
+      /**
+         * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+         * @minimum 0
+         * @nullable
+         */
+      base_version?: number | null;
     }
 
     export interface PatchedChannelUpdate {
@@ -51580,6 +52498,8 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      readonly resolved_exposure_event?: string;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -52007,16 +52927,6 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    export interface PatchedFolderInstructionsPublish {
-      /** Full markdown instructions to publish as a new version for the folder. */
-      content?: string;
-      /**
-         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-         * @minimum 0
-         */
-      base_version?: number;
-    }
-
     export interface PatchedGroupType {
       readonly group_type?: string;
       readonly group_type_index?: number;
@@ -52361,6 +53271,17 @@ export namespace Schemas {
       readonly batch_export_id?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
+      /** Incremented every time the live config changes. See the revisions endpoint. */
+      readonly version?: number;
+      /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+      readonly draft?: unknown;
+      /**
+         * When config was last staged for review, or null when nothing is staged.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**
@@ -53655,17 +54576,30 @@ export namespace Schemas {
     }
 
     export interface TeamMarketingAnalyticsConfig {
-      sources_map?: unknown;
-      conversion_goals?: unknown;
+      /** Column mapping per external data source, keyed by source id. Tells marketing analytics which column holds campaign, source, cost, clicks and impressions for that source. */
+      sources_map?: MarketingAnalyticsSourceMapping;
+      /** Conversion goals to attribute against, in display order. Each goal points at an event, an action or a data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the timestamp and the distinct id. Replaces the whole list on write. */
+      conversion_goals?: MarketingAnalyticsConversionGoalList;
       /**
+         * How many days back a touchpoint can be credited for a conversion. Between 1 and 90.
          * @minimum 1
          * @maximum 90
          */
       attribution_window_days?: number;
+      /** How credit is split across touchpoints when a person saw several campaigns before converting.
+       *
+       * * `first_touch` - First Touch
+       * * `last_touch` - Last Touch
+       * * `linear` - Linear
+       * * `time_decay` - Time Decay
+       * * `position_based` - Position Based */
       attribution_mode?: AttributionModeEnum;
-      campaign_name_mappings?: unknown;
-      custom_source_mappings?: unknown;
-      campaign_field_preferences?: unknown;
+      /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
+      campaign_name_mappings?: MarketingAnalyticsCampaignNameMappings;
+      /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
+      custom_source_mappings?: MarketingAnalyticsCustomSourceMappings;
+      /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
+      campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
     }
 
     export interface TeamCustomerAnalyticsConfig {
@@ -59621,6 +60555,11 @@ export namespace Schemas {
          * @nullable
          */
       open_to_merge_seconds: number | null;
+      /**
+         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+         * @nullable
+         */
+      ready_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
       /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
@@ -62715,6 +63654,16 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd_prev: number | null;
+      /**
+         * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes: number | null;
+      /**
+         * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      merge_queue_billable_minutes_prev: number | null;
       /** Whether the job-level source is synced (cost and queue figures exist). */
       jobs_available: boolean;
       /** 'master' or 'main', picked by observed run volume in the window. */
@@ -64386,7 +65335,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. */
       origin: string;
     }
 
@@ -64611,6 +65560,18 @@ export namespace Schemas {
       /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
       send_async?: boolean;
     }
+
+    /**
+     * * `positive` - positive
+     * * `negative` - negative
+     */
+    export type SentimentEnum = typeof SentimentEnum[keyof typeof SentimentEnum];
+
+
+    export const SentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
 
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to grant or revoke. */
@@ -64939,6 +65900,24 @@ export namespace Schemas {
       failed_count: number;
       /** Number of requested ids not visible to the caller. */
       not_found_count: number;
+    }
+
+    export interface SignalReportFeedbackRequest {
+      /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
+       *
+       * * `positive` - positive
+       * * `negative` - negative */
+      sentiment: SentimentEnum;
+      /**
+         * Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.
+         * @maxLength 4000
+         */
+      note: string;
+    }
+
+    export interface SignalReportFeedbackResponse {
+      /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
+      forwarded: boolean;
     }
 
     export interface SignalReportRefundRequest {
@@ -69674,7 +70653,7 @@ export namespace Schemas {
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
-         * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
+         * Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. Does not filter which tables are imported. Defaults to the source type.
          * @maxLength 100
          * @nullable
          */
@@ -71560,13 +72539,15 @@ export namespace Schemas {
       model?: string;
       /** Reasoning effort to request for models that expose an effort control.
        *
+       * * `off` - off
+       * * `minimal` - minimal
        * * `low` - low
        * * `medium` - medium
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max
        * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: TaskRunReasoningEffortEnum;
       /** Context window size for models that support the 1M window.
        *
        * * `200k` - 200k
@@ -77105,6 +78086,39 @@ export namespace Schemas {
       text?: string;
     };
 
+    export type CanvasesListParams = {
+    /**
+     * Only return canvases in this channel.
+     */
+    channel?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CanvasesSourceRetrieveParams = {
+    /**
+     * Read this historical source version instead of the head (for version browsing).
+     */
+    version_id?: string;
+    };
+
+    export type CanvasesVersionsRetrieveParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ChangeRequestsListParams = {
     action_key?: string;
     /**
@@ -77126,7 +78140,7 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
-     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     * Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.
      */
     basic?: boolean;
     /**
@@ -78144,47 +79158,6 @@ export namespace Schemas {
     };
 
     export type DatasetsRevisionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DesktopFileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopFileSystemInstructionsVersionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopFileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
      */
@@ -80659,6 +81632,17 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type HogFunctionsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type IdentityMatchingLinksListParams = {
     /**
      * Identity matching run to read. Defaults to the team's most recent run.
@@ -82513,6 +83497,22 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MessagingPreferencesExportOptOutsCsvRetrieveParams = {
+    /**
+     * Message category key to export. If omitted, exports recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    };
+
+    export type MessagingPreferencesOptOutsRetrieveParams = {
+    /**
+     * Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    page?: number;
+    page_size?: number;
+    };
+
     export type MessagingSuppressionsSuppressionsRetrieveParams = {
     page?: number;
     page_size?: number;
@@ -83518,6 +84518,10 @@ export namespace Schemas {
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string;
+    /**
+     * Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.
+     */
+    scout_prefix?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */

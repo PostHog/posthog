@@ -16,7 +16,7 @@ import type {
 
 import { CustomPropertyTargetType, customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
-import { type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
+import { type SourceSyncStatusLevel, runOutcomeNote, sourceSyncStatus } from './customPropertyTypes'
 
 const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
     synced: 'success',
@@ -46,15 +46,43 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
     const columns: LemonTableColumns<CustomPropertySyncRunApi> = [
         {
             title: 'Status',
-            render: (_, run) => (
-                <Tooltip title={run.error ?? undefined}>
-                    <LemonTag type={TAG_TYPE_BY_RUN_STATUS[run.status] ?? 'default'}>{run.status}</LemonTag>
-                </Tooltip>
-            ),
+            render: (_, run) => {
+                const note = runOutcomeNote(run, labels.entityPlural)
+                return (
+                    <div className="flex items-center gap-2">
+                        <Tooltip title={run.error ?? undefined}>
+                            <LemonTag type={TAG_TYPE_BY_RUN_STATUS[run.status] ?? 'default'}>{run.status}</LemonTag>
+                        </Tooltip>
+                        {note && (
+                            <Tooltip title={note.tooltip}>
+                                <span className="text-secondary text-xs whitespace-nowrap">{note.label}</span>
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
         },
         { title: 'Trigger', dataIndex: 'trigger' },
-        { title: 'Rows produced', render: (_, run) => run.produced },
-        { title: `Affected ${labels.entityPlural}`, render: (_, run) => run.existing },
+        {
+            title: (
+                <Tooltip title="Warehouse rows this sync staged. A sync only stages rows the import itself added or changed, so a quiet table reads zero.">
+                    <span>Rows read</span>
+                </Tooltip>
+            ),
+            render: (_, run) => run.rows_read,
+        },
+        {
+            title: (
+                <Tooltip title="Rows whose mapped values differ from what was last sent. Rows that already match are skipped, even on a full refresh.">
+                    <span>Changed</span>
+                </Tooltip>
+            ),
+            render: (_, run) => run.changed,
+        },
+        {
+            title: `Affected ${labels.entityPlural}`,
+            render: (_, run) => run.existing,
+        },
         {
             title: `Skipped (no ${labels.entity})`,
             render: (_, run) => <span className="text-secondary">{run.skipped_missing_person}</span>,

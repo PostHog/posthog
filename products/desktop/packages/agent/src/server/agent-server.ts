@@ -1575,9 +1575,7 @@ export class AgentServer {
         return null;
       }),
     ]);
-    this.taskRepositories =
-      preTask?.repositories ??
-      (preTask?.repository ? [preTask.repository] : []);
+    this.taskRepositories = preTask?.repository ? [preTask.repository] : [];
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -3560,6 +3558,13 @@ You are replying in a Slack thread. Slack readers want short, skimmable answers 
 - Prefer plain prose. Treat bullet lists as the exception, not the norm, and avoid headers and tables unless they genuinely make a complex answer clearer.
 - Do not narrate your thinking or list every step you took; report what matters and the result.
 - This is a default, not a hard rule. If the user (or their saved memory) asks for more depth or a specific format, follow that instead.
+
+# PostHog products first
+PostHog is a product suite, not just analytics — session replay, feature flags, experiments, surveys, error tracking, logs, data warehouse, CDP, messaging, and customer support all ship as PostHog products.
+- When someone asks how to set up, enable, configure, or use a capability, assume they mean PostHog's version of it and answer about that.
+- Search our docs with the \`docs-search\` tool before you answer, and ground the answer in what it returns rather than in what you remember. The product changes faster than your training data.
+- Never send the user to a third-party product for something PostHog does. If you are unsure whether we cover it, search the docs before concluding we don't — and if we genuinely don't, say so plainly instead of recommending a competitor. Pointing at a third party we integrate with, as a source or destination, is fine.
+- When a request could mean either a PostHog feature or something in the user's own codebase, ask which they mean instead of guessing.
 
 # Mentioning users
 To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears in the message context — copy it verbatim, including the \`U…\` ID. Do NOT construct a mention token from a name, and do NOT substitute the display name (or any other string) for the \`U…\` ID — \`<@Jane|Jane Doe>\` is not a valid mention; only the form with the real ID like \`<@U01ABCDEF23|Jane Doe>\` is. If the person you want to refer to has no \`<@U…|displayname>\` token anywhere in the thread context, write their name as plain text instead of inventing one. These \`<@U…>\` tokens are Slack-only: never carry one — or a name or handle derived from it — into a GitHub PR, commit message, or review request as an \`@\`-mention. A Slack display name or handle is NOT a GitHub username; see the pull-request instructions below.
