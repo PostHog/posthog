@@ -357,6 +357,7 @@ INSIGHT_ACTORS_KINDS = {
     "FunnelsActorsQuery",
     "FunnelCorrelationActorsQuery",
     "StickinessActorsQuery",
+    "PathsV2ActorsQuery",
 }
 
 

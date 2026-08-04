@@ -41,8 +41,11 @@ import {
     JourneyGridRow,
     buildJourneyGridModel,
     chainCardKey,
+    dominantDisplayedChain,
     isCardOnChain,
+    isChainDisplayed,
     journeyItemKey,
+    journeyRibbonKey,
 } from './journeyGridModel'
 import {
     journeysChainModalTitle,
@@ -178,7 +181,8 @@ export interface journeysDataLogicMeta {
         prefixCounts: (prefixes: PathsV2Prefix[]) => Map<string, number>
         activeChainHighlight: (
             activeChain: PathsV2Item[] | null,
-            prefixCounts: Map<string, number>
+            prefixCounts: Map<string, number>,
+            gridModel: JourneyGridModel
         ) => JourneyChainHighlight | null
     }
 }
@@ -237,9 +241,10 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
                 setDraftMaxRowsPerStep: (_, { maxRowsPerStep }) => maxRowsPerStep,
             },
         ],
-        // The hover-preview chain (anchored mode). It stays active while the pointer stays on the
-        // chain's own cards and ribbons, so the pointer can travel from a ribbon onto a chain card
-        // and the card's click opens the chain's persons rather than the union's.
+        // The hover-preview chain (anchored mode). Hovering a card or a ribbon activates the dominant
+        // chain reaching it; hovering a card already on the chain keeps the chain, so the pointer can
+        // travel from a ribbon onto a chain card and the card's click opens the chain's persons
+        // rather than the union's. Leaving the grid clears it.
         activeChain: [
             null as PathsV2Item[] | null,
             {
@@ -284,12 +289,18 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
                 new Map(prefixes.map((prefix) => [chainKey(prefix.items), prefix.count])),
         ],
         activeChainHighlight: [
-            (s) => [s.activeChain, s.prefixCounts],
-            (activeChain: PathsV2Item[] | null, prefixCounts: Map<string, number>): JourneyChainHighlight | null => {
+            (s) => [s.activeChain, s.prefixCounts, s.gridModel],
+            (
+                activeChain: PathsV2Item[] | null,
+                prefixCounts: Map<string, number>,
+                gridModel: JourneyGridModel
+            ): JourneyChainHighlight | null => {
                 if (!activeChain || activeChain.length === 0) {
                     return null
                 }
+                const totalByStep = new Map(gridModel.columns.map((column) => [column.stepIndex, column.total]))
                 const countByCardKey: Record<string, number> = {}
+                const fractionByCardKey: Record<string, number> = {}
                 const ribbonKeys = new Set<string>()
                 for (let position = 0; position < activeChain.length; position++) {
                     const count = prefixCounts.get(chainKey(activeChain.slice(0, position + 1)))
@@ -297,16 +308,21 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
                         // A sub-chain fell beyond the carried prefix rows: no honest preview exists.
                         return null
                     }
-                    countByCardKey[chainCardKey(position, activeChain[position])] = count
+                    const cardKey = chainCardKey(position, activeChain[position])
+                    countByCardKey[cardKey] = count
+                    const total = totalByStep.get(position) ?? 0
+                    fractionByCardKey[cardKey] = total > 0 ? count / total : 0
                     if (position > 0) {
                         ribbonKeys.add(
-                            `${position - 1}:${journeyItemKey(activeChain[position - 1])}→${journeyItemKey(
-                                activeChain[position]
-                            )}`
+                            journeyRibbonKey(
+                                position - 1,
+                                journeyItemKey(activeChain[position - 1]),
+                                journeyItemKey(activeChain[position])
+                            )
                         )
                     }
                 }
-                return { chain: activeChain, countByCardKey, ribbonKeys }
+                return { chain: activeChain, countByCardKey, fractionByCardKey, ribbonKeys }
             },
         ],
     }),
@@ -438,13 +454,25 @@ export const journeysDataLogic = kea<journeysDataLogicType>([
                 (prefix) =>
                     prefix.items.length === ribbon.sourceStep + 2 &&
                     journeyItemKey(prefix.items[ribbon.sourceStep]) === ribbon.sourceKey &&
-                    journeyItemKey(prefix.items[ribbon.sourceStep + 1]) === ribbon.targetKey
+                    journeyItemKey(prefix.items[ribbon.sourceStep + 1]) === ribbon.targetKey &&
+                    isChainDisplayed(prefix.items, values.gridModel.displayedItemKeys)
             )
             actions.setActiveChain(chain?.items ?? null)
         },
         cardHovered: ({ stepIndex, row }) => {
-            if (values.activeChain && !isCardOnChain(values.activeChain, stepIndex, row.key)) {
-                actions.setActiveChain(null)
+            // A card already on the active chain keeps it, so the pointer can travel from a ribbon
+            // onto the chain's cards and the card's click still opens the chain's people.
+            if (values.activeChain && isCardOnChain(values.activeChain, stepIndex, row.key)) {
+                return
+            }
+            // Only a named card past the anchor column previews a chain: the anchor column is the
+            // whole population, and the other and drop-off rows are union-only elements.
+            const chain =
+                values.isAnchored && stepIndex > 0 && row.kind === 'item'
+                    ? dominantDisplayedChain(values.prefixes, stepIndex, row.key, values.gridModel.displayedItemKeys)
+                    : null
+            if (chain !== null || values.activeChain) {
+                actions.setActiveChain(chain)
             }
         },
         gridLeft: () => {
