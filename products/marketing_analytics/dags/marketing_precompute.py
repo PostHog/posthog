@@ -33,24 +33,18 @@ Cloud (`DEFAULT_ROLLOUT_TEAM_IDS`), fully overridable via the `MARKETING_PRECOMP
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from functools import partial
 
 import dagster
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import MarketingAnalyticsDrillDownLevel
-
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges
 from posthog.models import Team
-from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.settings import TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -58,8 +52,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
     ensure_precomputed,
 )
-from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
-from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
     PRECOMPUTE_TTL_SECONDS,
     ConversionGoalProcessor,
@@ -70,6 +62,10 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
+from products.marketing_analytics.backend.services.cost_precompute_invalidation import (
+    COST_MATERIALIZATION_GRAINS as _COST_MATERIALIZATION_GRAINS,
+    iter_cost_materializations,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
@@ -94,11 +90,9 @@ DEFAULT_ATTRIBUTION_WINDOW_DAYS = 90
 # Cost rows are materialized at each grain a source supports; the read side picks the matching grain per
 # drill-down (a campaign-stats row is not the roll-up of its ads). Warming all three keeps every drill-
 # down warm — campaign serves CHANNEL/SOURCE/CAMPAIGN/UTM, ad_group/ad serve their own levels.
-COST_MATERIALIZATION_GRAINS = (
-    MarketingAnalyticsDrillDownLevel.CAMPAIGN,
-    MarketingAnalyticsDrillDownLevel.AD_GROUP,
-    MarketingAnalyticsDrillDownLevel.AD,
-)
+# Defined by the invalidation service, which owns the cost materialization set; re-exported here
+# because the dag's tests and schedule config reference it.
+COST_MATERIALIZATION_GRAINS = _COST_MATERIALIZATION_GRAINS
 
 # Built-in rollout audience used when the env var is unset: PostHog's internal dogfood project.
 # Applied on PostHog Cloud only (see get_selected_team_ids).
@@ -259,46 +253,22 @@ def _ensure_costs_for_team(
     a requesting user. Caller gates on _team_has_cost_sources, so at least one warehouse table exists.
     Returns (source_grain_pairs_warmed, failures).
     """
-    # Database.create_for is ~550ms; build once and share across grains/sources for this team.
-    database = Database.create_for(
-        team=team,
-        modifiers=create_default_modifiers_for_team(team),
-        bypass_warehouse_access_control=True,
-    )
-    base_currency = team.base_currency or DEFAULT_CURRENCY
     warmed = 0
     failures = 0
-    for grain in COST_MATERIALIZATION_GRAINS:
-        ctx = QueryContext(
-            date_range=None,  # materialization filters on time_window placeholders, not the range
-            team=team,
-            base_currency=base_currency,
-            drill_down_level=grain,
-            database=database,
+    # Shared with the invalidation service so the hashes this warmer creates are exactly the ones
+    # invalidation deletes — a second enumeration here would drift and silently strand jobs.
+    for materialization in iter_cost_materializations(team):
+        warmed += 1
+        failures += _ensure_chunks(
+            context,
+            team,
+            LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
+            materialization.build_query,
+            costs_precompute_ttl_schedule(team),
+            start,
+            end,
+            chunk_days,
         )
-        factory = MarketingSourceFactory(context=ctx)
-        adapters = [a for a in factory.get_valid_adapters(factory.create_adapters()) if a.supports_level(grain)]
-        for adapter in adapters:
-            source_id = adapter.get_source_id()
-            # A source that can't build a materialization query (e.g. missing table) does so deterministically
-            # regardless of window — probe once, skip the whole source rather than every chunk.
-            if adapter.build_materialization_query(source_id) is None:
-                context.log.info(
-                    f"marketing_precompute_skip_source team={team.pk} table={_COSTS_TABLE_LABEL} "
-                    f"grain={grain.value} source_id={source_id} reason=unmaterializable"
-                )
-                continue
-            warmed += 1
-            failures += _ensure_chunks(
-                context,
-                team,
-                LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
-                partial(adapter.build_materialization_query, source_id),
-                costs_precompute_ttl_schedule(team),
-                start,
-                end,
-                chunk_days,
-            )
     return warmed, failures
 
 

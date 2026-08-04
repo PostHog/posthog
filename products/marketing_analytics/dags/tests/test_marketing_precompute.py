@@ -27,8 +27,12 @@ from products.marketing_analytics.dags.marketing_precompute import (
 _IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
-_DB = "products.marketing_analytics.dags.marketing_precompute.Database"
-_FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
+# The cost source enumeration lives in the invalidation service, which owns the cost materialization
+# set so the warmer and invalidation can't derive different query hashes. These tests still drive the
+# dag op end to end; only the patch target moved.
+_SERVICE = "products.marketing_analytics.backend.services.cost_precompute_invalidation"
+_DB = f"{_SERVICE}.Database"
+_FACTORY = f"{_SERVICE}.MarketingSourceFactory"
 _DWT = "products.marketing_analytics.dags.marketing_precompute.DataWarehouseTable"
 # Patch chunking to a single chunk so call counts are deterministic in the op tests. Must exceed
 # PRECOMPUTE_WINDOW_DAYS + the team's attribution window (default 90) to collapse to one chunk.
