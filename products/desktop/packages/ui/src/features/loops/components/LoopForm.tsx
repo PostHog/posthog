@@ -70,7 +70,7 @@ const ADAPTER_LABELS: Record<LoopSchemas.LoopRuntimeAdapterEnum, string> = {
   codex: "Codex",
 };
 
-const STEPS = ["Prompt", "When", "Options", "Review"] as const;
+const STEPS = ["Prompt", "When", "Settings", "Review"] as const;
 
 type LoopFormBaseline = {
   loopId: string;
@@ -345,7 +345,7 @@ export function LoopForm({
       >
         <Step
           title="Prompt"
-          description="Name it and write the prompt the agent runs each time."
+          description="Name the loop and describe what PostHog should do each time it runs."
         >
           <Field label="Name" required>
             <TextField.Root
@@ -389,8 +389,8 @@ export function LoopForm({
         <Divider />
 
         <Step
-          title="Options"
-          description="Visibility, working context, and notifications."
+          title="Settings"
+          description="Choose access, context, notifications, and advanced behavior."
         >
           <div className="grid gap-4 md:grid-cols-2">
             <Field
@@ -420,7 +420,7 @@ export function LoopForm({
               hint={
                 values.repositories.length > 1
                   ? `${values.repositories.length - 1} more attached.`
-                  : "Optional for report-only loops."
+                  : "Optional. Choose a repository if this loop should inspect code or open PRs."
               }
             >
               <LoopRepositoryPicker
@@ -465,7 +465,10 @@ export function LoopForm({
 
         <Divider />
 
-        <Step title="Advanced" description="Behavior, model, and reasoning.">
+        <Step
+          title="Advanced"
+          description="Model, reasoning, and PR automation."
+        >
           <Field label="Behavior">
             <LoopBehaviorFields
               behaviors={values.behaviors}
@@ -545,7 +548,7 @@ export function LoopForm({
           {step === 0 ? (
             <Step
               title="What should this loop do?"
-              description="Name it and write the prompt the agent runs on every fire."
+              description="Name the loop and describe what PostHog should do each time it runs."
             >
               <Field label="Name" required>
                 <TextField.Root
@@ -577,7 +580,7 @@ export function LoopForm({
           {step === 1 ? (
             <Step
               title="When should it run?"
-              description="A loop can have several triggers, and any one of them starts a run. With no triggers, you run it yourself from the loop's page."
+              description="Add one or more triggers. Any trigger can start the loop."
             >
               <LoopTriggerEditor
                 triggers={values.triggers}
@@ -590,39 +593,39 @@ export function LoopForm({
 
           {step === 2 ? (
             <Step
-              title="Options"
-              description="Who can see it and how you hear about runs."
+              title="Settings"
+              description="Choose access, context, notifications, and advanced behavior."
             >
-              <Field
-                label="Visibility"
-                className="max-w-[340px]"
-                hint={
-                  values.contextTarget
-                    ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
-                    : undefined
-                }
-              >
-                <SettingsOptionSelect
-                  value={values.visibility}
-                  options={VISIBILITY_OPTIONS}
-                  disabled={isSubmitting || !!values.contextTarget}
-                  size="lg"
-                  ariaLabel="Visibility"
-                  onValueChange={(value) =>
-                    patch({
-                      visibility: value as LoopSchemas.LoopVisibilityEnum,
-                    })
+              <SettingsSection title="Access">
+                <Field
+                  label="Visibility"
+                  className="max-w-[340px]"
+                  hint={
+                    values.contextTarget
+                      ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
+                      : undefined
                   }
-                />
-              </Field>
-
-              <Divider />
+                >
+                  <SettingsOptionSelect
+                    value={values.visibility}
+                    options={VISIBILITY_OPTIONS}
+                    disabled={isSubmitting || !!values.contextTarget}
+                    size="lg"
+                    ariaLabel="Visibility"
+                    onValueChange={(value) =>
+                      patch({
+                        visibility: value as LoopSchemas.LoopVisibilityEnum,
+                      })
+                    }
+                  />
+                </Field>
+              </SettingsSection>
 
               {showContextField ? (
-                <>
+                <SettingsSection title="Channel context">
                   <Field
                     label="Context"
-                    hint="A context is one of the channels in your sidebar. Attach this loop to a channel and its runs show up in that channel's feed; it can also keep the channel's context.md or a canvas up to date."
+                    hint="Attach this loop to a sidebar channel. Runs show in the channel feed, and the loop can update context.md or a canvas."
                   >
                     <LoopContextFields
                       value={values.contextTarget}
@@ -636,50 +639,49 @@ export function LoopForm({
                       }
                     />
                   </Field>
-
-                  <Divider />
-                </>
+                </SettingsSection>
               ) : null}
 
-              <Field
-                label="Base repository"
-                hint={
-                  values.repositories.length > 1
-                    ? `${values.repositories.length - 1} more ${
-                        values.repositories.length === 2
-                          ? "repository stays"
-                          : "repositories stay"
-                      } attached to this loop.`
-                    : "The repository runs check out and work in. Optional. Leave empty for a report-only loop that works purely through connectors."
-                }
-              >
-                <LoopRepositoryPicker
-                  value={values.repositories[0] ?? null}
-                  disabled={isSubmitting}
-                  onChange={(repository) =>
-                    setValues((prev) => ({
-                      ...prev,
-                      repositories: repository
-                        ? [repository, ...prev.repositories.slice(1)]
-                        : prev.repositories.slice(1),
-                    }))
+              <SettingsSection title="Repository">
+                <Field
+                  label="Base repository"
+                  hint={
+                    values.repositories.length > 1
+                      ? `${values.repositories.length - 1} more ${
+                          values.repositories.length === 2
+                            ? "repository stays"
+                            : "repositories stay"
+                        } attached to this loop.`
+                      : "Optional. Choose a repository if this loop should inspect code or open PRs. Leave empty for report-only loops."
                   }
-                />
-              </Field>
+                >
+                  <LoopRepositoryPicker
+                    value={values.repositories[0] ?? null}
+                    disabled={isSubmitting}
+                    onChange={(repository) =>
+                      setValues((prev) => ({
+                        ...prev,
+                        repositories: repository
+                          ? [repository, ...prev.repositories.slice(1)]
+                          : prev.repositories.slice(1),
+                      }))
+                    }
+                  />
+                </Field>
+              </SettingsSection>
 
-              <Divider />
-
-              <Field label="Notifications">
+              <SettingsSection
+                title="Notifications"
+                description="Full run output is always saved on the loop page. Notifications send a short summary and link."
+              >
                 <LoopNotificationsFields
                   notifications={values.notifications}
                   disabled={isSubmitting}
                   onChange={(notifications) => patch({ notifications })}
                 />
-              </Field>
+              </SettingsSection>
 
-              <Divider />
-
-              <Flex direction="column" gap="4">
+              <SettingsSection>
                 <button
                   type="button"
                   onClick={() => setShowAdvanced((open) => !open)}
@@ -695,7 +697,7 @@ export function LoopForm({
                     Advanced
                   </Text>
                   <Text className="text-[11.5px] text-gray-9">
-                    Behavior, model and reasoning
+                    Model, reasoning, and PR automation
                   </Text>
                 </button>
                 {showAdvanced ? (
@@ -722,16 +724,20 @@ export function LoopForm({
                     />
                   </Flex>
                 ) : null}
-              </Flex>
+              </SettingsSection>
             </Step>
           ) : null}
 
           {step === 3 ? (
             <Step
               title="Review"
-              description="Check everything before you create the loop."
+              description="Check the loop before creating it."
             >
-              <ReviewList values={values} showContext={showContextField} />
+              <ReviewList
+                values={values}
+                showContext={showContextField}
+                onEdit={setStep}
+              />
             </Step>
           ) : null}
         </Box>
@@ -879,12 +885,45 @@ function Divider() {
   return <Box className="h-px bg-(--gray-4)" />;
 }
 
+function SettingsSection({
+  title,
+  description,
+  children,
+}: {
+  title?: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Flex direction="column" gap="3">
+      {title || description ? (
+        <Flex direction="column" gap="1">
+          {title ? (
+            <Text className="font-medium text-[13px] text-gray-12">
+              {title}
+            </Text>
+          ) : null}
+          {description ? (
+            <Text className="text-[12px] text-gray-10 leading-snug">
+              {description}
+            </Text>
+          ) : null}
+        </Flex>
+      ) : null}
+      {children}
+      <Divider />
+    </Flex>
+  );
+}
+
 function ReviewList({
   values,
   showContext,
+  onEdit,
 }: {
   values: LoopFormValues;
   showContext: boolean;
+  onEdit: (step: number) => void;
 }) {
   const reasoning = values.reasoningEffort ?? "auto";
   const channels = (["push", "email", "slack"] as const).filter(
@@ -894,59 +933,99 @@ function ReviewList({
   return (
     <Flex
       direction="column"
-      className="divide-y divide-(--gray-4) rounded-(--radius-3) border border-border"
+      gap="3"
+      className="rounded-(--radius-3) border border-border p-3"
     >
-      <ReviewRow label="Name" value={values.name || "Not set"} />
-      <ReviewRow
-        label="Visibility"
-        value={values.visibility === "team" ? "Team" : "Personal"}
-      />
-      <ReviewRow
-        label="Prompt"
-        value={
-          values.skill
-            ? buildSkillInstructions(values.skill.name, values.skillContext)
-            : values.instructions.trim() || "No prompt"
-        }
-        multiline
-      />
-      <ReviewRow
-        label="Model"
-        value={`${ADAPTER_LABELS[values.runtimeAdapter]} · ${formatLoopModel(
-          values.runtimeAdapter,
-          values.model,
-        )} · ${reasoning} reasoning`}
-      />
-      {showContext ? (
+      <ReviewSection title="Prompt" onEdit={() => onEdit(0)}>
+        <ReviewRow label="Name" value={values.name || "Not set"} />
         <ReviewRow
-          label="Context"
-          value={describeContext(values.contextTarget)}
+          label="Instructions"
+          value={
+            values.skill
+              ? buildSkillInstructions(values.skill.name, values.skillContext)
+              : values.instructions.trim() || "No instructions"
+          }
+          multiline
         />
-      ) : null}
-      <ReviewRow
-        label="Base repository"
-        value={
-          values.repositories.length > 0
-            ? values.repositories.map((repo) => repo.full_name).join(", ")
-            : "None (report-only)"
-        }
-      />
-      <ReviewRow
-        label="Triggers"
-        value={
-          values.triggers.length === 0
-            ? "Manual only"
-            : values.triggers.map(summarizeTrigger).join(", ")
-        }
-      />
-      <ReviewRow
-        label="Auto-fix PRs"
-        value={isAutoFixEnabled(values.behaviors) ? "On" : "Off"}
-      />
-      <ReviewRow
-        label="Notifications"
-        value={channels.length === 0 ? "None" : channels.join(", ")}
-      />
+      </ReviewSection>
+
+      <ReviewSection title="Schedule" onEdit={() => onEdit(1)}>
+        <ReviewRow
+          label="Triggers"
+          value={
+            values.triggers.length === 0
+              ? "Manual only"
+              : values.triggers.map(summarizeTrigger).join(", ")
+          }
+        />
+      </ReviewSection>
+
+      <ReviewSection title="Settings" onEdit={() => onEdit(2)}>
+        <ReviewRow
+          label="Visibility"
+          value={values.visibility === "team" ? "Team" : "Personal"}
+        />
+        {showContext ? (
+          <ReviewRow
+            label="Context"
+            value={describeContext(values.contextTarget)}
+          />
+        ) : null}
+        <ReviewRow
+          label="Repository"
+          value={
+            values.repositories.length > 0
+              ? values.repositories.map((repo) => repo.full_name).join(", ")
+              : "None, report-only"
+          }
+        />
+        <ReviewRow
+          label="Notifications"
+          value={channels.length === 0 ? "None" : channels.join(", ")}
+        />
+        <ReviewRow
+          label="Auto-fix PRs"
+          value={isAutoFixEnabled(values.behaviors) ? "On" : "Off"}
+        />
+        <ReviewRow
+          label="Model"
+          value={`${ADAPTER_LABELS[values.runtimeAdapter]} · ${formatLoopModel(
+            values.runtimeAdapter,
+            values.model,
+          )} · ${reasoning} reasoning`}
+        />
+      </ReviewSection>
+    </Flex>
+  );
+}
+
+function ReviewSection({
+  title,
+  onEdit,
+  children,
+}: {
+  title: string;
+  onEdit: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Flex direction="column" gap="2">
+      <Flex align="center" justify="between" gap="2">
+        <Text className="font-medium text-[13px] text-gray-12">{title}</Text>
+        <button
+          type="button"
+          className="text-[12px] text-gray-10 hover:text-gray-12"
+          onClick={onEdit}
+        >
+          Edit
+        </button>
+      </Flex>
+      <Flex
+        direction="column"
+        className="divide-y divide-(--gray-4) rounded-(--radius-2) border border-border"
+      >
+        {children}
+      </Flex>
     </Flex>
   );
 }
@@ -962,7 +1041,7 @@ function ReviewRow({
 }) {
   return (
     <Flex gap="4" className="px-3 py-2.5">
-      <Text className="w-24 shrink-0 text-[12px] text-gray-10">{label}</Text>
+      <Text className="w-28 shrink-0 text-[12px] text-gray-10">{label}</Text>
       <Text
         className={`min-w-0 flex-1 text-[12.5px] text-gray-12 ${
           multiline ? "whitespace-pre-wrap" : "truncate"

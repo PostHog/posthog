@@ -48,14 +48,14 @@ export function LoopNotificationsFields({
     <Flex direction="column" gap="3">
       <NotificationChannelRow
         title="Push"
-        description="Owner devices"
+        description="Notify the loop owner's devices."
         channel={notifications.push}
         disabled={disabled}
         onChange={(patch) => updateChannel("push", patch)}
       />
       <NotificationChannelRow
         title="Email"
-        description="Owner account"
+        description="Email the loop owner a run summary."
         channel={notifications.email}
         disabled={disabled}
         onChange={(patch) => updateChannel("email", patch)}
@@ -199,7 +199,7 @@ function SlackNotificationRow({
   return (
     <NotificationChannelRow
       title="Slack"
-      description="Channel summary"
+      description="Post a run summary to a Slack channel."
       channel={channel}
       disabled={disabled}
       onChange={onChange}

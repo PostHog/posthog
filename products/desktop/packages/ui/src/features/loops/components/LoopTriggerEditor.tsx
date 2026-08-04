@@ -61,22 +61,22 @@ const TRIGGER_TYPES: {
   {
     type: "schedule",
     label: "Schedule",
-    subtitle: "Runs at times you set",
-    menuDescription: "Hourly, daily, weekly or once at a set time",
+    subtitle: "Runs at a time you choose",
+    menuDescription: "Hourly, daily, weekly, or once",
     icon: CalendarBlank,
   },
   {
     type: "github",
-    label: "GitHub event",
+    label: "GitHub activity",
     subtitle: "Runs on repository activity",
-    menuDescription: "When a repo gets a push, PR or issue activity",
+    menuDescription: "Run when a repo has push, PR, or issue activity",
     icon: GithubLogo,
   },
   {
     type: "api",
-    label: "API",
+    label: "API request",
     subtitle: "Runs when your code calls an endpoint",
-    menuDescription: "An authenticated POST from your own systems",
+    menuDescription: "Run from your own system with an authenticated request",
     icon: Globe,
   },
 ];
@@ -505,7 +505,7 @@ function ScheduleTriggerFields({
       {nextRun && nextRunLabel ? (
         <Flex align="center" gap="2" className="text-[12px]">
           <Clock size={13} className="text-gray-10" />
-          <Text className="text-gray-10">Next run</Text>
+          <Text className="font-medium text-gray-10">Next run:</Text>
           <TimezoneTimestamp
             timestamp={nextRun}
             timezone={nextRunTimezone}

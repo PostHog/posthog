@@ -26,8 +26,8 @@ export function LoopBehaviorFields({
             Auto-fix pull requests
           </Text>
           <Text className="text-[12px] text-gray-10">
-            Watch CI and review comments on PRs this loop opens, and let PostHog
-            push fixes.
+            When this loop opens a PR, watch CI and review comments so PostHog
+            can push fixes.
           </Text>
         </Flex>
         <Switch
