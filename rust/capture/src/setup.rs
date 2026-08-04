@@ -171,6 +171,19 @@ pub async fn build_components(
         )
     });
 
+    // Fire-and-forget health telemetry to the kafka-manager service. Unset
+    // URL (the default) means no reporter task and untouched produce paths.
+    if let Some(url) = &config.capture_kafka_manager_url {
+        crate::manager_reporter::init(crate::manager_reporter::ReporterConfig {
+            url: url.clone(),
+            deployment: config.otel_service_name.clone(),
+            interval: Duration::from_secs(config.capture_kafka_manager_report_interval_secs.max(1)),
+            request_timeout: Duration::from_millis(
+                config.capture_kafka_manager_request_timeout_ms.max(100),
+            ),
+        });
+    }
+
     let redis_client = Arc::new(
         RedisClient::with_config(
             config.redis_url.clone(),

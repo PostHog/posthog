@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use tracing::error;
 
 use crate::api::CaptureError;
+use crate::manager_reporter::{self, DeliveryOutcome};
 use crate::prometheus::report_dropped_events;
 
 /// A record to be produced to Kafka
@@ -64,6 +65,7 @@ impl Future for DeliveryAckFuture {
                         // Cancelled due to timeout while retrying
                         metrics::counter!("capture_kafka_produce_errors_total").increment(1);
                         error!("failed to produce to Kafka before write timeout");
+                        manager_reporter::record_delivery_outcome(DeliveryOutcome::TimedOut);
                         ("cancelled", Err(CaptureError::RetryableSinkError))
                     }
                     Ok(Err((
@@ -71,6 +73,7 @@ impl Future for DeliveryAckFuture {
                         _,
                     ))) => {
                         report_dropped_events("kafka_message_size", 1);
+                        manager_reporter::record_delivery_outcome(DeliveryOutcome::TooLarge);
                         (
                             "too_large",
                             Err(CaptureError::EventTooBig(
@@ -81,10 +84,12 @@ impl Future for DeliveryAckFuture {
                     Ok(Err((err, _))) => {
                         metrics::counter!("capture_kafka_produce_errors_total").increment(1);
                         error!("failed to produce to Kafka: {err:#}");
+                        manager_reporter::record_delivery_outcome(DeliveryOutcome::BrokerError);
                         ("broker_err", Err(CaptureError::RetryableSinkError))
                     }
                     Ok(Ok(_)) => {
                         metrics::counter!("capture_events_ingested_total").increment(1);
+                        manager_reporter::record_delivery_outcome(DeliveryOutcome::Delivered);
                         ("ok", Ok(()))
                     }
                 };
@@ -107,6 +112,7 @@ impl Drop for DeliveryAckFuture {
         // wait so tail-latency dashboards don't lose the slowest samples.
         if !self.recorded {
             let elapsed_ms = self.started.elapsed().as_secs_f64() * 1000.0;
+            manager_reporter::record_delivery_outcome(DeliveryOutcome::Abandoned);
             histogram!(
                 "capture_kafka_produce_ack_duration_ms",
                 "outcome" => "dropped",
@@ -152,6 +158,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
                     report_dropped_events("kafka_message_size", 1);
+                    manager_reporter::record_delivery_outcome(DeliveryOutcome::TooLarge);
                     Err(CaptureError::EventTooBig(
                         "Event rejected by kafka during send".to_string(),
                     ))
@@ -160,6 +167,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
                     // Use error counter, not dropped counter - this is retryable
                     counter!("capture_kafka_produce_errors_total").increment(1);
                     error!("failed to produce event: {e:#}");
+                    manager_reporter::record_delivery_outcome(DeliveryOutcome::EnqueueError);
                     Err(CaptureError::RetryableSinkError)
                 }
             },

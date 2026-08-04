@@ -2176,6 +2176,7 @@ dependencies = [
  "httparse",
  "hyper 1.9.0",
  "hyper-util",
+ "kafka-manager-types",
  "lifecycle",
  "limiters",
  "lz-str",

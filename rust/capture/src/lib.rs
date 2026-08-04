@@ -9,6 +9,7 @@ pub mod extractors;
 pub mod global_rate_limiter;
 pub mod ingestion_warnings;
 pub mod log_util;
+pub mod manager_reporter;
 pub mod metrics_middleware;
 pub mod otel;
 pub mod payload;

@@ -153,6 +153,9 @@ mod tests {
             enable_historical_rerouting: false,
             historical_rerouting_threshold_days: 1,
             is_mirror_deploy: false,
+            capture_kafka_manager_url: None,
+            capture_kafka_manager_report_interval_secs: 10,
+            capture_kafka_manager_request_timeout_ms: 2000,
             log_level: Level::INFO,
             verbose_sample_percent: 0.0,
             kafka: KafkaConfig {

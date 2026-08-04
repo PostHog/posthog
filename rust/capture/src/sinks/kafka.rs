@@ -91,6 +91,30 @@ impl rdkafka::ClientContext for KafkaContext {
         let down_brokers = total_brokers.saturating_sub(up_brokers);
         gauge!("capture_kafka_any_brokers_down").set(if down_brokers > 0 { 1.0 } else { 0.0 });
 
+        // Snapshot for the kafka-manager reporter, from the liveness-gating
+        // (primary) producer only — a secondary producer sharing this context
+        // type would otherwise overwrite the primary's view. Guarded so the
+        // per-broker Vec is only built when a reporter is installed.
+        if self.liveness.is_some() && crate::manager_reporter::enabled() {
+            crate::manager_reporter::record_producer_stats(kafka_manager_types::ProducerStats {
+                queue_depth: stats.msg_cnt,
+                queue_capacity: stats.msg_max,
+                brokers_up: up_brokers as u32,
+                brokers_total: total_brokers as u32,
+                brokers: stats
+                    .brokers
+                    .values()
+                    .map(|broker| kafka_manager_types::BrokerStats {
+                        id: broker.nodeid.to_string(),
+                        up: broker.state == "UP",
+                        rtt_p99_us: broker.rtt.as_ref().map(|rtt| rtt.p99).unwrap_or(0),
+                        tx_errors: broker.txerrs,
+                        request_timeouts: broker.req_timeouts,
+                    })
+                    .collect(),
+            });
+        }
+
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);

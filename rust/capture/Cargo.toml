@@ -33,6 +33,7 @@ common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-kafka = { path = "../common/kafka" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
+kafka-manager-types = { path = "../kafka-manager-types" }
 limiters = { path = "../common/limiters" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
@@ -44,6 +45,7 @@ prost = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 redis = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }

@@ -321,6 +321,18 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub is_mirror_deploy: bool,
 
+    /// Base URL of the kafka-manager service. Unset (the default) disables the
+    /// telemetry reporter entirely — no task is spawned and the produce path
+    /// runs exactly as before. The reporter is fire-and-forget: a down or slow
+    /// manager only ever costs dropped reports, never capture behavior.
+    pub capture_kafka_manager_url: Option<String>,
+
+    #[envconfig(default = "10")]
+    pub capture_kafka_manager_report_interval_secs: u64,
+
+    #[envconfig(default = "2000")]
+    pub capture_kafka_manager_request_timeout_ms: u64,
+
     #[envconfig(default = "info")]
     pub log_level: Level,
 
