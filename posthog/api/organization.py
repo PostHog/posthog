@@ -48,7 +48,7 @@ from posthog.permissions import (
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, visible_teams_for_user
 from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
@@ -254,16 +254,9 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        # Support new access control system
-        visible_teams = (
-            self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
-            if self.user_access_control
-            else instance.teams.none()
-        )
-        # Support old access control system
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
-            "project"
-        )
+        visible_teams = visible_teams_for_user(
+            instance, self.user_access_control, self.user_permissions
+        ).select_related("project")
         return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
     @tracer.start_as_current_span("organization_serializer.projects")
@@ -650,16 +643,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.organization
-        # Both access control systems, in the same order as OrganizationSerializer._fetch_visible_teams.
-        # Filtering on only the legacy one would report activity for projects RBAC hides.
-        visible_teams = (
-            self.user_access_control.filter_queryset_by_access_level(
-                organization.teams.all(), include_all_if_admin=True
-            )
-            if self.user_access_control
-            else organization.teams.none()
-        )
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).only(
+        visible_teams = visible_teams_for_user(organization, self.user_access_control, self.user_permissions).only(
             "id", "project_id", "ingested_event"
         )
         results = get_organization_data_freshness(str(organization.id), list(visible_teams))
