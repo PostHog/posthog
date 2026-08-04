@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { Survey, SurveyEventName, SurveyEventProperties, SurveyQuestion } from '~/types'
 
-import { buildPartialResponsesFilter, createAnswerFilterHogQLExpression } from './utils'
+import { buildPartialResponsesFilter, buildUniqueQuestionAliases, createAnswerFilterHogQLExpression } from './utils'
 
 function escapeSqlIdentifier(value: string): string {
     return value.replace(/"/g, '""')
@@ -48,11 +48,14 @@ LIMIT
     }
 
     const generateFullSurveyQuery = (): string => {
+        const aliases = buildUniqueQuestionAliases(
+            survey.questions.map((question: SurveyQuestion) => escapeSqlIdentifier(question.question))
+        )
         const questionSelects = survey.questions
             .map((question: SurveyQuestion, index: number) => {
                 return `    getSurveyResponse(${index}, '${question.id}'${
                     question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-                }) AS "${escapeSqlIdentifier(question.question)}"`
+                }) AS "${aliases[index]}"`
             })
             .join(',\n')
 

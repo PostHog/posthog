@@ -23,6 +23,7 @@ import {
     buildPartialResponsesFilter,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
+    buildUniqueQuestionAliases,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
@@ -998,6 +999,27 @@ describe('survey utils', () => {
             expect(
                 buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED, 'true')
             ).toBe(`coalesce(JSONExtractString(properties, '$survey_partially_completed'), '') != 'true'`)
+        })
+    })
+
+    describe('buildUniqueQuestionAliases', () => {
+        const cases: [string, string[], string[]][] = [
+            ['leaves distinct labels untouched', ['How was it?', 'Why?'], ['How was it?', 'Why?']],
+            [
+                'numbers repeated labels after the first',
+                ['Anything else?', 'Anything else?', 'Anything else?'],
+                ['Anything else?', 'Anything else? (2)', 'Anything else? (3)'],
+            ],
+            ['falls back to the question number for blank labels', ['', '   '], ['Question 1', 'Question 2']],
+            [
+                'stays unique when a label already looks like a numbered one',
+                ['Rate us', 'Rate us (2)', 'Rate us'],
+                ['Rate us', 'Rate us (2)', 'Rate us (3)'],
+            ],
+        ]
+
+        it.each(cases)('%s', (_, labels, expected) => {
+            expect(buildUniqueQuestionAliases(labels)).toEqual(expected)
         })
     })
 })

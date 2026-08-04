@@ -998,6 +998,23 @@ export function getExpressionCommentForQuestion(
     return `Question ${questionIndex + 1}`
 }
 
+// Survey question text is neither unique within a survey nor guaranteed to be non-empty, but the SQL
+// helper uses it as a SELECT alias, and HogQL rejects a query that has the same column alias twice.
+// The first use of a label keeps it; blanks and later repeats fall back to their question number.
+export function buildUniqueQuestionAliases(labels: string[]): string[] {
+    const used = new Set<string>()
+    return labels.map((label, index) => {
+        const base = label.trim() || `Question ${index + 1}`
+        let alias = base
+        let attempt = index + 1
+        while (used.has(alias)) {
+            alias = `${base} (${attempt++})`
+        }
+        used.add(alias)
+        return alias
+    })
+}
+
 export function getSurveyForFeatureFlagVariant(variantKey: string, surveys?: Survey[]): Survey | undefined {
     return surveys?.find((survey) => survey.conditions?.linkedFlagVariant === variantKey)
 }
