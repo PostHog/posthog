@@ -26,8 +26,7 @@ from typing import Any
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 
-# Local dev writes land in sharded_events; sharded_events_recent is cleared too
-# for parity with clear_eval_data, in case anything ever mirrors rows there.
+# Clear the recent mirror too in case local ingestion populated it.
 EVENTS_DATA_TABLES = ("sharded_events", "sharded_events_recent")
 
 INSERT_CHUNK_SIZE = 500
@@ -77,7 +76,6 @@ def _build_population(rng: random.Random, size: int, window_start: datetime) -> 
         )
         for _ in range(size)
     ]
-    # Zipf-ish activity distribution: a heavy head of power users, a long tail.
     weights = [(rank + 1) ** -0.7 for rank in range(size)]
     return users, weights
 
@@ -91,7 +89,6 @@ def _day_anchor(now: datetime, days_ago: int) -> datetime:
 
 
 def _working_hours_ts(rng: random.Random, day: datetime, now: datetime) -> datetime:
-    # Cluster around mid-afternoon UTC with jitter; never emit future timestamps.
     for _ in range(8):
         hour = min(22, max(7, round(rng.gauss(14.0, 3.2))))
         ts = day.replace(
@@ -125,8 +122,6 @@ def _seed_funnel_stream(
             ts = _working_hours_ts(rng, day, now)
             in_drop = drop_cutoff is not None and ts >= drop_cutoff
             for step, event_name in enumerate(event_names):
-                # Chain conditional pass-through rates so per-event daily volumes
-                # land near the spec; the drop modifier rewrites one step's rate.
                 prev_daily = daily[step - 1] if step > 0 else daily[0]
                 step_daily = float(drop["to_daily"]) if drop and in_drop and step == drop_index else float(daily[step])
                 p = min(1.0, step_daily / prev_daily) if prev_daily else 0.0
@@ -177,7 +172,6 @@ def _seed_exception_stream(
         window_start = now - timedelta(hours=float(burst["from_hours_ago"]))
         window_seconds = (now - window_start).total_seconds()
         for _ in range(int(burst["count"])):
-            # Front-loaded spread: the errors pile up right after the trigger.
             ts = window_start + timedelta(seconds=window_seconds * rng.betavariate(1.5, 2.5))
             out.append(
                 _SeedEvent(
@@ -283,7 +277,6 @@ def seed_task_events(team_id: int, seed_spec: dict[str, Any], now: datetime | No
     days = int(seed_spec["days"])
     streams: list[dict[str, Any]] = seed_spec["streams"]
 
-    # Deterministic per (team, spec), so re-seeding a task universe is reproducible.
     rng = random.Random(f"{team_id}:{json.dumps(seed_spec, sort_keys=True)}")
 
     total_head_daily = sum(_stream_head_daily(stream, days) for stream in streams)

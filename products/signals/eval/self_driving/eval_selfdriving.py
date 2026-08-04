@@ -26,7 +26,6 @@ from products.signals.eval.self_driving.harness.grade import TASKS_DIR, grade_re
 PROJECT_NAME = "signals-self-driving"
 
 RunFn = Callable[[str, int], Awaitable[dict[str, Any]]]
-"""(task_id, trial) -> TaskRunResult.to_json() dict; drives the real pipeline inside Django."""
 
 
 class BraintrustEvalError(RuntimeError):
@@ -42,20 +41,17 @@ class BraintrustUploadError(BraintrustEvalError):
 
 
 SCORER_NAMES: tuple[str, ...] = (
-    # Stage R - research
     "root_cause_identified",
     "evidence_grounding",
     "distractor_avoidance",
     "actionability_calibration",
     "priority_calibration",
     "pipeline_progression",
-    # Stage I - implementation
     "behavioral_correctness",
     "no_regressions",
     "mergeability",
     "pr_narrative",
     "task_completion",
-    # End-to-end
     "e2e_resolution",
 )
 

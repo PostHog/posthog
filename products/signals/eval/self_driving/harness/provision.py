@@ -68,9 +68,7 @@ def provision_task_team(task_id: str, repo_full_name: str, repo_dir: str | None 
         "installation_id": 90000000 + (abs(hash(task_id)) % 1000000),
         "repository_selection": "selected",
         "connecting_user_github_login": GITHUB_LOGIN,
-        # Never-expiring cached token: access_token_expired() checks
-        # refreshed_at + expires_in, so the dummy token below is always served
-        # from cache and no request ever reaches GitHub.
+        # Keep the synthetic token cached so provisioning cannot make GitHub requests.
         "expires_in": 10 * 365 * 24 * 3600,
         "refreshed_at": time.time(),
     }
@@ -93,9 +91,7 @@ def provision_task_team(task_id: str, repo_full_name: str, repo_dir: str | None 
         integration.errors = ""
         integration.save()
 
-    # The repo-selection candidate list comes from the heavy per-row cache, not the JSON
-    # field — entries must exist, be non-archived, and be fresh (TTL) so the sync's
-    # GitHub refresh path never fires for our synthetic installation.
+    # Repository selection refreshes GitHub when this per-repository cache is missing or stale.
     readme = ""
     tree_paths = ""
     if repo_dir:

@@ -28,8 +28,7 @@ REPO_ORG = "acme"
 RESEARCH_TERMINAL = {"ready", "pending_input", "failed", "dismissed"}
 TASK_RUN_TERMINAL = {"completed", "failed", "cancelled"}
 
-# Local ClickHouse allows only one unfinished mutation per table — the cleanup deletes
-# (cleanup_signals + clear_task_events) from concurrent tasks must not overlap.
+# ClickHouse rejects concurrent cleanup mutations for the same table.
 _SETUP_LOCK = asyncio.Lock()
 
 
@@ -95,7 +94,6 @@ def materialize_repo(task_id: str, workspace: Path) -> Path:
     subprocess.run(["git", "init", "-q", "-b", "main", str(dst)], check=True, capture_output=True)
     git("add", "-A")
     git("commit", "-qm", "feat: initial service implementation")
-    # A couple of innocent commits so the defect isn't trivially "the last change".
     readme = dst / "README.md"
     if readme.exists():
         readme.write_text(readme.read_text() + "\n<!-- ops: deployed 2026-07-08 -->\n")
@@ -105,7 +103,7 @@ def materialize_repo(task_id: str, workspace: Path) -> Path:
     git("add", "-A")
     git("commit", "-qm", "chore: add editorconfig")
 
-    # A local bare "origin" so the agent's push works without GitHub.
+    # The sandbox needs a push target without external GitHub access.
     bare = workspace / "remotes" / f"{task_id}.git"
     if bare.exists():
         shutil.rmtree(bare)
@@ -199,17 +197,15 @@ def extract_patch(repo_dir: Path) -> tuple[str, list[str]]:
 
     base = git("rev-list", "--max-count=1", "--grep=chore: add editorconfig", "--all").strip().splitlines()
     base_sha = base[0] if base else git("rev-list", "--max-parents=0", "HEAD").strip().splitlines()[0]
-    # The agent may commit on a feature branch without checking main out again —
-    # grade the newest tip across all local branches.
     tips = [
         line.split()
         for line in git(
             "for-each-ref", "--sort=-committerdate", "--format=%(objectname) %(refname:short)", "refs/heads"
         ).splitlines()
     ]
-    head = tips[0][0] if tips else "HEAD"
-    messages = [m for m in git("log", "--format=%s", f"{base_sha}..{head}").splitlines() if m]
-    committed = git("diff", base_sha, head)
+    newest_tip = tips[0][0] if tips else "HEAD"
+    messages = [m for m in git("log", "--format=%s", f"{base_sha}..{newest_tip}").splitlines() if m]
+    committed = git("diff", base_sha, newest_tip)
     uncommitted = git("diff", "HEAD")
     untracked_names = [n for n in git("ls-files", "--others", "--exclude-standard").splitlines() if n]
     untracked_blobs = []
@@ -258,8 +254,6 @@ async def run_one_task(
         )
         result.team_id = team_id = info["team_id"]
 
-        # Clean slate: previous trials' reports/signals/embeddings and seeded events.
-        # Serialized across tasks — concurrent ClickHouse mutations exceed the local limit.
         async with _SETUP_LOCK:
             cleanup = await asyncio.to_thread(manage, ["cleanup_signals", "--team-id", str(team_id), "--yes"])
             if cleanup.returncode != 0:
@@ -316,7 +310,7 @@ async def run_one_task(
         result.timings["implementation"] = time.monotonic() - t0
 
         result.patch, result.commit_messages = extract_patch(repo_dir)
-    except Exception as e:  # noqa: BLE001 — the eval must record, not crash
+    except Exception as e:  # noqa: BLE001 (the eval must record failures instead of crashing)
         result.failure = f"{type(e).__name__}: {e}"
 
     result.timings["total"] = time.monotonic() - t0

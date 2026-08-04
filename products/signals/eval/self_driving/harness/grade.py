@@ -41,11 +41,6 @@ def load_task_spec(task_id: str) -> dict[str, Any]:
     return json.loads((TASKS_DIR / task_id / "task.json").read_text())
 
 
-# ---------------------------------------------------------------------------
-# Hidden behavioral tests (DeepSWE-style)
-# ---------------------------------------------------------------------------
-
-
 def _empty_counts() -> dict[str, int]:
     return {"pass": 0, "fail": 0}
 
@@ -118,7 +113,6 @@ def _parse_tap_summary(output: str, fallback_fail: int) -> dict[str, int]:
     failed = _tap_count(output, "fail")
     cancelled = _tap_count(output, "cancelled") or 0
     if passed is None and failed is None:
-        # Crashed before emitting the TAP summary - count the whole group as failing.
         return {"pass": 0, "fail": max(fallback_fail, 1)}
     return {"pass": passed or 0, "fail": (failed or 0) + cancelled}
 
@@ -167,7 +161,6 @@ def score_behavioral(verify_patched: dict[str, Any], verify_pristine: dict[str, 
     return {
         "behavioral_correctness": _pass_fraction(fix),
         "no_regressions": _pass_fraction(regression),
-        # Sanity: by construction the fix tests must all fail on the unpatched repo.
         "fix_tests_failed_pristine": pristine_fix["fail"] > 0 and pristine_fix["pass"] == 0,
     }
 
@@ -175,11 +168,6 @@ def score_behavioral(verify_patched: dict[str, Any], verify_pristine: dict[str, 
 def _pass_fraction(counts: dict[str, int]) -> float:
     total = counts["pass"] + counts["fail"]
     return counts["pass"] / total if total else 0.0
-
-
-# ---------------------------------------------------------------------------
-# LLM judges
-# ---------------------------------------------------------------------------
 
 
 def llm_judge(prompt: str, team_id: int | None, max_tokens: int = 1200) -> dict[str, Any]:
@@ -406,11 +394,6 @@ Scoring rubric (0..1):
     return {"name": name, **llm_judge(prompt, team_id=result.get("team_id"))}
 
 
-# ---------------------------------------------------------------------------
-# Deterministic scorers
-# ---------------------------------------------------------------------------
-
-
 def _score_actionability(task_spec: dict[str, Any], result: dict[str, Any]) -> tuple[float, str]:
     expected = bool(task_spec.get("ground_truth", {}).get("immediately_actionable"))
     judgment = _latest_artefact_json(result, "actionability_judgment")
@@ -526,7 +509,6 @@ def grade_result(task_spec: dict[str, Any], result: dict[str, Any], repos_worksp
     }.items():
         scores[scorer_name] = {"score": score, "reasoning": reasoning}
 
-    # FrontierSWE-style gated score: a lucky patch without a correct diagnosis caps at 0.5.
     root_cause_score = scores["root_cause_identified"]["score"]
     behavioral_score = behavioral["behavioral_correctness"]
     scores["e2e_resolution"] = {
