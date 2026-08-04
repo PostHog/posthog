@@ -57,6 +57,10 @@ CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON = get_from_env(
     "0 5 1 */3 *",
 )
 
+# Cohort selection for the Python realtime cohort calculation coordinator, which no longer has a
+# schedule (rust/cohort-stream-processor replaced it). These survive only because the coordinator
+# still parses them, and go away with the Python implementation. Unrelated to
+# REALTIME_COHORT_TEAM_ALLOWLIST, which is the live setting Rust and Django both read.
 # Teams that should process all their cohorts (comma-separated team IDs)
 # Example: "2,42" means team 2 and team 42 process all cohorts
 REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
@@ -71,148 +75,4 @@ REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
     "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE",
     0.0,
     type_cast=float,
-)
-
-# Realtime cohort calculation schedule intervals (in minutes) based on duration percentiles
-# Faster cohorts run more frequently, slower cohorts run less frequently
-REALTIME_COHORT_CALCULATION_P0_P50_INTERVAL_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P0_P50_INTERVAL_MINUTES",
-    7,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P50_P80_INTERVAL_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P50_P80_INTERVAL_MINUTES",
-    10,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P80_P90_INTERVAL_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P80_P90_INTERVAL_MINUTES",
-    15,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES",
-    20,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P95_P99_INTERVAL_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P95_P99_INTERVAL_MINUTES",
-    25,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P99_P100_INTERVAL_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P99_P100_INTERVAL_MINUTES",
-    45,
-    type_cast=int,
-)
-
-# How often precalculated_events is reconciled against person_distinct_id_overrides to
-# repair rows made stale by person merges. Runs at the realtime calculation cadence so a
-# merge is reconciled by the next calculation run. Each run re-diffs every override from the
-# last RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS (6 by default) — there is no
-# watermark, so a wider window just reprocesses more already-handled merges. The window must stay
-# well above this interval and well below the overrides squash cadence
-# (SQUASH_PERSON_OVERRIDES_SCHEDULE, weekly by default) — the squash deletes override rows
-# after folding them into events, and reconciliation needs to see them before then.
-RECONCILE_PRECALCULATED_DATA_INTERVAL_MINUTES: int = get_from_env(
-    "RECONCILE_PRECALCULATED_DATA_INTERVAL_MINUTES",
-    15,
-    type_cast=int,
-)
-
-# Batch delay settings for different percentile ranges
-REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES",
-    1,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES",
-    1,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P80_P90_BATCH_DELAY_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P80_P90_BATCH_DELAY_MINUTES",
-    1,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P90_P95_BATCH_DELAY_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P90_P95_BATCH_DELAY_MINUTES",
-    1,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P95_P99_BATCH_DELAY_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P95_P99_BATCH_DELAY_MINUTES",
-    1,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P99_P100_BATCH_DELAY_MINUTES: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P99_P100_BATCH_DELAY_MINUTES",
-    1,
-    type_cast=int,
-)
-
-# Parallelism settings for different percentile ranges
-REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM",
-    12,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM",
-    8,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P80_P90_PARALLELISM: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P80_P90_PARALLELISM",
-    4,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P90_P95_PARALLELISM: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P90_P95_PARALLELISM",
-    2,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM",
-    16,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P99_P100_PARALLELISM: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P99_P100_PARALLELISM",
-    16,
-    type_cast=int,
-)
-
-
-# Workflows per batch settings for different percentile ranges
-REALTIME_COHORT_CALCULATION_P0_P50_WORKFLOWS_PER_BATCH: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P0_P50_WORKFLOWS_PER_BATCH",
-    6,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P50_P80_WORKFLOWS_PER_BATCH: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P50_P80_WORKFLOWS_PER_BATCH",
-    4,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P80_P90_WORKFLOWS_PER_BATCH: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P80_P90_WORKFLOWS_PER_BATCH",
-    2,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P90_P95_WORKFLOWS_PER_BATCH: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P90_P95_WORKFLOWS_PER_BATCH",
-    1,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P95_P99_WORKFLOWS_PER_BATCH: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P95_P99_WORKFLOWS_PER_BATCH",
-    1,
-    type_cast=int,
-)
-REALTIME_COHORT_CALCULATION_P99_P100_WORKFLOWS_PER_BATCH: int = get_from_env(
-    "REALTIME_COHORT_CALCULATION_P99_P100_WORKFLOWS_PER_BATCH",
-    1,
-    type_cast=int,
 )

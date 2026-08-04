@@ -57,6 +57,8 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     sortedByValue?: boolean
     /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
+    /** Override the default "click to view X" footer — e.g. to explain why drill-down is unavailable. */
+    footerOverride?: React.ReactNode
 }
 
 // ── Pure helpers ───────────────────────────────────────────────────────────
@@ -172,6 +174,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     renderSeriesOverride,
     sortedByValue = true,
     hideZeroRows,
+    footerOverride,
 }: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { weekStartDay } = useValues(teamLogic)
@@ -290,11 +293,12 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             valueFormatter={valueFormatter}
             onRowClick={onRowClick ? onRowClickEntry : undefined}
             footer={
-                onRowClick
+                footerOverride ??
+                (onRowClick
                     ? context.seriesData.length > 1
                         ? `Click a series to view ${groupTypeLabel}`
                         : `Click to view ${groupTypeLabel}`
-                    : undefined
+                    : undefined)
             }
         />
     )

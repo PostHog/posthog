@@ -853,6 +853,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
+class DatabaseSchemaTableCertificationStatus(StrEnum):
+    CERTIFIED = "certified"
+    DEPRECATED = "deprecated"
+
+
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
     SYSTEM = "system"
@@ -2043,6 +2048,7 @@ class ExternalDataSourceType(StrEnum):
     CAMPFIRE = "Campfire"
     CRISP = "Crisp"
     KOMMO = "Kommo"
+    GOOGLE_MERCHANT_CENTER = "GoogleMerchantCenter"
     AXIOM = "Axiom"
     PLIVO = "Plivo"
     DATA_FOR_SEO = "DataForSEO"
@@ -2437,6 +2443,28 @@ class ExternalDataSourceType(StrEnum):
     DUCK_LAKE = "DuckLake"
     STARBURST = "Starburst"
     EASYBILL = "Easybill"
+    BEXIO = "Bexio"
+    UMAMI = "Umami"
+    MANYCHAT = "Manychat"
+    KICKSTARTER = "Kickstarter"
+    TYPESENSE = "Typesense"
+    FIRST_PROMOTER = "FirstPromoter"
+    ZERO = "Zero"
+    INTH = "Inth"
+    BCMS = "BCMS"
+    CONVONITE = "Convonite"
+    HOOKDECK = "Hookdeck"
+    BILLIT = "Billit"
+    MOXIE = "Moxie"
+    TRIPLE_WHALE = "TripleWhale"
+    DIRECTUS = "Directus"
+    CLAY = "Clay"
+    TRADABLE_BITS = "TradableBits"
+    SWAN = "Swan"
+    HYROS = "Hyros"
+    ODOO = "Odoo"
+    AIRBRIDGE = "Airbridge"
+    SNOVIO = "Snovio"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2830,6 +2858,7 @@ class IntegrationKind(StrEnum):
     FIREBASE = "firebase"
     JIRA = "jira"
     PINTEREST_ADS = "pinterest-ads"
+    PARDOT = "pardot"
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
@@ -2910,6 +2939,17 @@ class LogsSparklineBreakdownBy(StrEnum):
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
+
+
+class MarketingAnalyticsAttributionBreakdown(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
+    MEDIUM = "medium"
+    CONTENT = "content"
+    TERM = "term"
+    REFERRING_DOMAIN = "referring_domain"
+    LANDING_PAGE = "landing_page"
 
 
 class MarketingAnalyticsBaseColumns(StrEnum):
@@ -3175,6 +3215,7 @@ class NodeKind(StrEnum):
     WEB_OVERVIEW_QUERY = "WebOverviewQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
+    WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -3183,6 +3224,7 @@ class NodeKind(StrEnum):
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3208,6 +3250,8 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_TOOL_CALL_BREAKDOWN_QUERY = "MCPToolCallBreakdownQuery"
+    MCP_TOOL_CALLS_AND_ERRORS_QUERY = "MCPToolCallsAndErrorsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
@@ -3300,6 +3344,7 @@ class ProductIntentContext(StrEnum):
     METRICS_SQL_QUERY_RUN = "metrics_sql_query_run"
     METRICS_QUERY_SAVED = "metrics_query_saved"
     METRICS_FIRST_INGESTED = "metrics_first_ingested"
+    METRICS_SCRAPE_AGENT_SNIPPET_COPIED = "metrics_scrape_agent_snippet_copied"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -3490,6 +3535,10 @@ class PropertyOperator(StrEnum):
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
     NOT_ICONTAINS = "not_icontains"
+    STARTS_WITH = "starts_with"
+    NOT_STARTS_WITH = "not_starts_with"
+    ENDS_WITH = "ends_with"
+    NOT_ENDS_WITH = "not_ends_with"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
     GT = "gt"
@@ -3993,6 +4042,11 @@ class WebAnalyticsPreComputeStrategy(StrEnum):
     PRE_AGGREGATED = "pre_aggregated"
     LAZY_PRECOMPUTE = "lazy_precompute"
     LIVE = "live"
+
+
+class WebBotsBreakdown(StrEnum):
+    CRAWLER = "Crawler"
+    PATH = "Path"
 
 
 class WebStatsBreakdown(StrEnum):

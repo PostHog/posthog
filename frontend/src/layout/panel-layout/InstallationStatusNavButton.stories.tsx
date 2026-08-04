@@ -111,7 +111,7 @@ function useCloudRun(overrides?: Partial<CloudRunHandle>): void {
 function useLocalSession(): void {
     useMountedLogic(wizardActiveSessionDetectorLogic)
     useEffect(() => {
-        wizardActiveSessionDetectorLogic.actions.markActive()
+        wizardActiveSessionDetectorLogic.actions.markActive('posthog-integration')
     }, [])
 }
 

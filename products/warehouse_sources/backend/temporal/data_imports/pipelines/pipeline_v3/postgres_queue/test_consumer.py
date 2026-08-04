@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 import structlog
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
     batch_consumer as batch_consumer_module,
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ConsumerConfig,
     DeltaBatchConsumerAdapter,
     _group_by_key,
+    _update_job_status_to_failed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
@@ -183,6 +185,10 @@ class TestProcessSingle:
             # fits the stored type): the run fails with an actionable message but stays out of
             # error tracking.
             ("Source column type changed: 'price' has values that no longer fit its stored type int64", False),
+            # The job or schema was deleted mid-sync (e.g. the source was removed) — also an
+            # upstream/customer condition, not a pipeline bug.
+            ("ExternalDataJob matching query does not exist.", False),
+            ("ExternalDataSchema matching query does not exist.", False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
         ],
@@ -925,6 +931,26 @@ class TestFailRun:
             await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         mock_status.assert_called_once()
+
+
+class TestUpdateJobStatusToFailed:
+    def test_swallows_does_not_exist_when_job_deleted_mid_sync(self):
+        # The job row can vanish (e.g. its source was removed) between the "not already
+        # failed" check and the write below — this must be a no-op, not a second
+        # DoesNotExist raised on top of the batch's original failure.
+        with (
+            patch(
+                "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
+            ) as mock_filter,
+            patch(
+                "products.data_warehouse.backend.facade.api.update_external_job_status",
+                side_effect=ExternalDataJob.DoesNotExist,
+            ) as mock_update,
+        ):
+            mock_filter.return_value.first.return_value = None
+            _update_job_status_to_failed(job_id="job-1", team_id=1, error="boom")
+
+        mock_update.assert_called_once()
 
 
 class TestShouldProcessBatch:

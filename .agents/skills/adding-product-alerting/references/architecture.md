@@ -13,9 +13,9 @@ Use this reference to decide where code belongs before editing it.
 | Shared product alert UI     | `products/alerts/frontend/components/`                       | Container-agnostic editor layout, definition primitives, advanced options, destination editor, schedule presentation, and evaluation chart             |
 | Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Form logic, API calls, product fields, normalized adapters, entry points, detail tables, and wizard configuration                                      |
 
-`products/logs` is the reference adopter for the shared lifecycle, fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
+`products/logs` is the reference adopter for fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
 
-Insight alerts are the reference adopter for shared calendar anchors, schedule restrictions, weekend skipping, and email delivery. Their model, API, query evaluation, and Django scheduling adapters live in `products/alerts/backend/` and `posthog/tasks/alerts/`. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
+Logs and insight alerts both adapt their product state to the shared lifecycle engine. Insight alerts are also the reference adopter for shared calendar anchors, schedule restrictions, weekend skipping, and email delivery. Their model, API, query evaluation, and Django scheduling adapters live in `products/alerts/backend/` and `posthog/tasks/alerts/`. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
 
 ## Frontend contract
 
