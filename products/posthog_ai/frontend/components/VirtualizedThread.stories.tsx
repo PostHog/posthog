@@ -272,9 +272,9 @@ export const AnchoredOpen: Story = {
 
 /**
  * Anchored open, mid-turn with a short tail — reopening a thread the agent is still working on, with less
- * than a viewport of response under the anchor so a plain scroll would clamp to the bottom. Must open with
- * the anchor at the top over reserved space (the fresh-send posture). Static (`turnActive` but no timers),
- * so the visual-regression run captures the reserve landing without flakes.
+ * than a viewport of response under the anchor. The top is unreachable, so this must open at the bottom,
+ * pinned (no padding is reserved to force the anchor higher). Static (`turnActive` but no timers), so the
+ * visual-regression run captures the clamped landing without flakes.
  */
 export const AnchoredOpenMidTurn: Story = {
     render: () => {
@@ -301,10 +301,10 @@ export const AnchoredOpenMidTurn: Story = {
 }
 
 /**
- * Anchored open, mid-turn, live timers — the same short-tail reserve open as `AnchoredOpenMidTurn`, but a
- * timer keeps appending streamed rows: the reserve absorbs them 1:1 (view static), and once the response
- * outgrows the viewport stick-to-bottom takes over. Debugging only: excluded from the visual-regression run
- * (`test-skip`) — capture `AnchoredOpenMidTurn` instead.
+ * Anchored open, mid-turn, live timers — the same short-tail open as `AnchoredOpenMidTurn`, but a timer
+ * keeps appending streamed rows: the thread opens at the bottom, pinned, and follows the appends.
+ * Debugging only: excluded from the visual-regression run (`test-skip`) — capture `AnchoredOpenMidTurn`
+ * instead.
  */
 export const AnchoredOpenMidTurnDebug: Story = {
     tags: ['test-skip'],

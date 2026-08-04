@@ -1,4 +1,4 @@
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { elementScroll, useVirtualizer } from '@tanstack/react-virtual'
 import {
     createContext,
     CSSProperties,
@@ -40,6 +40,26 @@ const AT_BOTTOM_EPSILON = 1
 
 /** The core snaps its own scroll writes to within 1.5px of their target — below that is never the reader. */
 const UNPIN_SLACK = 1.5
+
+/**
+ * How long a recorded programmatic scroll write explains the scroll event it causes. Events land on the
+ * next frame; the window only needs to survive frame jank, and staying short keeps a coincidental user
+ * scroll to the same offset from being swallowed for long.
+ */
+const PROGRAMMATIC_SCROLL_MATCH_MS = 200
+
+/**
+ * The settle window after an anchor landing: how often and how many times the landing is re-asserted
+ * against the anchor's (re-measured) offset. Needed because the core's scroll reconciler has a blind
+ * spot — once its target stops moving, an offset nudge from a late row measurement is rewritten by
+ * neither of its branches, so it idles to its timeout and leaves the drift in place. Any reader scroll
+ * cancels the window immediately.
+ */
+const ANCHOR_SETTLE_INTERVAL_MS = 250
+const ANCHOR_SETTLE_CHECKS = 8
+
+/** Drift below this is indistinguishable from subpixel rounding — not worth a corrective write. */
+const ANCHOR_SETTLE_TOLERANCE_PX = 2
 
 /**
  * How long a bottom arrival is ignored by the re-pin test after a programmatic anchor landing. On the
@@ -140,15 +160,11 @@ export interface VirtualizedThreadRootProps<T> {
     turnActive?: boolean
     /**
      * Key of the row the reader's attention anchors to — the last human message, typically. Two behaviors
-     * hang off it. Open: the thread opens with this row at the top of the viewport (the last meaningful
-     * turn, its response below) instead of the absolute bottom, mid-turn included; when less than a
-     * viewport of content follows the anchor, bottom padding is reserved so the row can sit at the top
-     * anyway (the same posture as a send). Change to a new non-null value (a fresh send): the row is
-     * scrolled to the top with bottom padding reserved so it can anchor there — the "sent message pins to
-     * the top, the response streams into the space below" chat pattern. The reserve shrinks 1:1 as the
-     * response streams into it, so the view stays put while the space fills; once the response outgrows
-     * the viewport the reserve is gone and stick-to-bottom follows the newest output for the rest of the
-     * turn.
+     * hang off it. Open: when at least a viewport of content follows this row, the thread opens with it
+     * at the top of the viewport (the last meaningful turn, its response below), mid-turn included; with
+     * less content the scroll clamps and the thread opens at the bottom — no padding is ever reserved to
+     * force the row higher. Change to a new non-null value (a fresh send): the thread pins to the bottom
+     * and follows the streaming answer; the sent message rides up naturally as the response grows.
      */
     anchorItemKey?: string | null
     /**
@@ -218,6 +234,22 @@ function Root<T>({
     // Until when bottom arrivals may not re-pin (see `BOTTOM_REPIN_BLOCK_MS`). Armed by programmatic
     // anchor landings; cleared early by an explicit downward gesture.
     const bottomRepinBlockedUntilRef = useRef(0)
+    // The last scroll write software performed — ours (follow, landings) or the virtualizer core's
+    // (`scrollToFn` routes through here). The scroll listener uses it to tell content-driven movement
+    // from the reader's: during a fast stream the core writes `scrollTop` many times a frame from its
+    // own bookkeeping (measurement compensations, end anchoring), and any of those can move the offset
+    // *up* — a lagging internal offset, a row measuring smaller than its estimate — which is byte-for-
+    // byte what an upward gesture looks like. Matching events against the last write is what keeps a
+    // burst of streamed rows from unpinning the thread out from under the reader.
+    const programmaticScrollRef = useRef<{ value: number; at: number } | null>(null)
+    // Item keys of the previous populated commit — how the anchor-change effect tells a fresh send (the
+    // key did not exist before) from a replayed anchor (it did). See that effect for why position can't.
+    const prevItemKeysRef = useRef<Set<string> | null>(null)
+    // When the reader last scrolled (a scroll event no programmatic write explains, or a wheel/touch
+    // gesture). The anchor settle loop stands down the moment this passes its start time.
+    const lastUserScrollAtRef = useRef(0)
+    // The previous scroll event's offset — how the listener recognizes a shrink clamp (see `onScroll`).
+    const lastScrollEventTopRef = useRef<number | null>(null)
     // Keeps following for a beat after the turn reports done, so the trailing usage/cost row lands in
     // view (see `FOLLOW_GRACE_MS`).
     const [followGrace, setFollowGrace] = useState(false)
@@ -226,11 +258,11 @@ function Root<T>({
     // Read by the scroll listener without re-subscribing it per render.
     const followingRef = useRef(following)
     followingRef.current = following
-    // Bottom padding reserved by the anchor-on-send behavior (`anchorItemKey`), fed to the virtualizer as
-    // `paddingEnd`. `undefined` in the prev-key ref means "thread not yet populated".
-    const [anchorPadding, setAnchorPadding] = useState(0)
+    // Read by the open-decision loop without re-arming it per commit.
+    const itemsLengthRef = useRef(items.length)
+    itemsLengthRef.current = items.length
+    // `undefined` means "thread not yet populated" — the anchor-change effect adopts the first real key.
     const prevAnchorKeyRef = useRef<string | null | undefined>(undefined)
-    const pendingAnchorScrollRef = useRef<{ index: number; padding: number } | null>(null)
 
     const renderRow = useCallback(
         (index: number): ReactNode => {
@@ -313,10 +345,15 @@ function Root<T>({
         estimateSize: estimateVirtualRow,
         overscan: overscanCount,
         getItemKey: getVirtualItemKey,
-        paddingEnd: anchorPadding,
         // The virtualizer writes container height + row offsets to the DOM itself, in the same tick as each
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
+        // The default `elementScroll`, wrapped so every scroll write the core performs is recorded for
+        // the scroll listener's programmatic-vs-reader test (see `programmaticScrollRef`).
+        scrollToFn: (offset, options, instance) => {
+            programmaticScrollRef.current = { value: offset + (options.adjustments ?? 0), at: performance.now() }
+            elementScroll(offset, options, instance)
+        },
         // No `gap` — inter-row spacing is baked into the measured row height via `paddingBottom` (see `Row`).
         ...(stickToBottom
             ? {
@@ -327,16 +364,12 @@ function Root<T>({
                   // is strictly a pinned-state behavior: its key/count anchoring applies on every append
                   // with no threshold check, so with it always on, a reader away from the bottom is glued
                   // back to the end whenever rows land — it overrode the opening anchor scroll within
-                  // milliseconds while a history replay was still folding in. While the send reserve is
-                  // up (`anchorPadding > 0`) it is off for a second reason: the core would pin to the
-                  // *padded* end — scrolling content up over a blank band — while the view must stay put
-                  // as the response streams into the reserved space (see the shrink effect). Off during
-                  // `itemsLoading` too: end-anchoring each partial fold walks the core's *internal*
-                  // offset to the bottom, and that internal offset only re-syncs via async scroll events
-                  // — so the opening anchor scroll lands, the next measurement batch compensates against
-                  // the stale bottom offset, and the landing is yanked straight back down.
-                  anchorTo:
-                      anchorPadding > 0 || itemsLoading || !pinnedRef.current ? ('start' as const) : ('end' as const),
+                  // milliseconds while a history replay was still folding in. Off during `itemsLoading`
+                  // too: end-anchoring each partial fold walks the core's *internal* offset to the
+                  // bottom, and that internal offset only re-syncs via async scroll events — so the
+                  // opening anchor scroll lands, the next measurement batch compensates against the
+                  // stale bottom offset, and the landing is yanked straight back down.
+                  anchorTo: itemsLoading || !pinnedRef.current ? ('start' as const) : ('end' as const),
                   // The core's growth compensation (`resizeItem` re-applying a row's growth to the scroll
                   // offset whenever that offset is within this many px of the end) writes `scrollTop`
                   // synchronously, with no scroll-direction check and no knowledge of our pinned flag. At
@@ -389,9 +422,7 @@ function Root<T>({
             }
             pinnedRef.current = next
             virtualizer.options.scrollEndThreshold = next ? BOTTOM_THRESHOLD : NO_END_COMPENSATION
-            // Mirrors the render-time ternary (reserve up ⇒ 'start' regardless of the pin) — `paddingEnd`
-            // is `anchorPadding`'s already-committed value, which spares this callback a state dep.
-            virtualizer.options.anchorTo = next && !((virtualizer.options.paddingEnd ?? 0) > 0) ? 'end' : 'start'
+            virtualizer.options.anchorTo = next ? 'end' : 'start'
             if (next) {
                 peakTopRef.current = scrollRef.current?.scrollTop ?? 0
             }
@@ -404,22 +435,97 @@ function Root<T>({
     // a follow write — has to reset it; otherwise the scroll event our own jump emits reads as the reader
     // walking away and unpins on the spot (the slack is sub-pixel, it forgives nothing).
     const noteProgrammaticScroll = useCallback((): void => {
-        peakTopRef.current = scrollRef.current?.scrollTop ?? 0
+        const top = scrollRef.current?.scrollTop ?? 0
+        peakTopRef.current = top
+        programmaticScrollRef.current = { value: top, at: performance.now() }
     }, [])
+
+    // Hold an unpinned anchor landing steady while the thread's measurements settle (see the settle
+    // constants). Re-asserts via `scrollToIndex` so the corrective write re-computes the offset from the
+    // freshest measurements; stands down permanently the moment the reader scrolls or the thread pins
+    // (a pinned thread belongs to the follow effect).
+    const scheduleAnchorSettle = useCallback(
+        (anchorIndex: number): void => {
+            const startedAt = performance.now()
+            let remaining = ANCHOR_SETTLE_CHECKS
+            const tick = (): void => {
+                const el = scrollRef.current
+                if (!el || lastUserScrollAtRef.current > startedAt || pinnedRef.current) {
+                    return
+                }
+                const target = virtualizer.getOffsetForIndex(anchorIndex, 'start')?.[0]
+                if (target !== undefined && Math.abs(el.scrollTop - target) > ANCHOR_SETTLE_TOLERANCE_PX) {
+                    virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
+                    noteProgrammaticScroll()
+                }
+                remaining -= 1
+                if (remaining > 0) {
+                    setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
+                }
+            }
+            setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
+        },
+        [virtualizer, noteProgrammaticScroll]
+    )
+
+    // The open's top-or-bottom verdict, re-taken once real measurements exist. The opening commit only
+    // has estimates for the rows under the anchor (they render and measure a few frames later), and the
+    // estimates habitually undershoot real markdown — deciding from them alone opens threads with a
+    // viewport of response at the bottom instead of on the question. So the open lands on the anchor
+    // provisionally (the scroll clamps to the bottom by itself when content is truly short) and this
+    // loop settles the verdict: enough content measured below ⇒ the anchor stands; the window ending
+    // still short — or the live stream appending before it ends, which makes the open a live-edge open —
+    // ⇒ a bottom open, pinned. Stops the moment the reader scrolls: their position, their call.
+    const scheduleOpenDecision = useCallback(
+        (anchorIndex: number): void => {
+            const startedAt = performance.now()
+            const itemsAtOpen = itemsLengthRef.current
+            let remaining = ANCHOR_SETTLE_CHECKS
+            const commitBottomOpen = (el: HTMLElement): void => {
+                el.scrollTop = el.scrollHeight
+                noteProgrammaticScroll()
+                setPinned(true)
+            }
+            const tick = (): void => {
+                const el = scrollRef.current
+                if (!el || lastUserScrollAtRef.current > startedAt || pinnedRef.current) {
+                    return
+                }
+                const viewport = el.clientHeight
+                const totalSize = virtualizer.getTotalSize()
+                const anchorStart = virtualizer.measurementsCache[anchorIndex]?.start
+                const contentBelow = anchorStart !== undefined ? totalSize - anchorStart : 0
+                if (viewport > 0 && contentBelow >= viewport) {
+                    return
+                }
+                if (itemsLengthRef.current !== itemsAtOpen) {
+                    commitBottomOpen(el)
+                    return
+                }
+                remaining -= 1
+                if (remaining > 0) {
+                    setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
+                    return
+                }
+                commitBottomOpen(el)
+            }
+            setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
+        },
+        [virtualizer, noteProgrammaticScroll, setPinned]
+    )
 
     // Initial open (once): land before the browser paints, so a long thread never shows a top-frame
     // flicker or a visible crawl. A thread that already has messages opens on its last meaningful turn —
     // the anchor row (the last human message) at the top of the viewport, its response below — whether or
     // not the agent is still working on it: a reader arriving mid-turn wants the question that was asked,
-    // not the tail of the answer to it. When less than a viewport of content follows the anchor, a plain
-    // scroll cannot put it at the top — it clamps to the bottom — so the open reserves bottom padding the
-    // same way a fresh send does: the anchor sits at the top and, if a turn is live, the response streams
-    // into the reserved space (the shrink effect consumes it 1:1). No anchor ⇒ plain bottom open.
+    // not the tail of the answer to it. That is only possible when at least a viewport of content follows
+    // the anchor; with less, the scroll clamps and the open is a plain bottom open — no padding is ever
+    // reserved to force the anchor higher, the message just sits wherever the content puts it. No anchor
+    // ⇒ bottom open too.
     //
-    // Whether the landing starts pinned follows from its kind: a reserve open is the send posture, so it
-    // pins (the reserve holds the view static until the response outgrows the viewport); a plain anchor
-    // open is a reading position, so it unpins and streaming must not steal it; an anchorless open is the
-    // bottom, following from the first frame.
+    // Whether the landing starts pinned follows from its kind: an anchor at the top is a reading
+    // position, so it unpins and streaming must not steal it; a bottom open pins, following from the
+    // first frame whenever a turn is live.
     // Waits for the items to finish assembling, not merely for one to exist: the run-context header and
     // the thinking footer can commit before any message does, and with debug rows enabled the history
     // replay's earliest fold commits carry renderable console items long before the human turns land.
@@ -431,47 +537,38 @@ function Root<T>({
         didInitialScrollRef.current = true
         const anchorIndex = anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
         const el = scrollRef.current
-        if (anchorIndex < 0) {
-            if (turnActive && el) {
-                // Deliberately not `scrollToIndex` for an anchorless thread that is already streaming:
-                // that arms the core's reconciler against a target that never stabilizes — it recomputes
-                // the growing end every frame for up to five seconds, with no notion of a user gesture
-                // cancelling it, so every upward scroll the reader attempts in that window is undone. The
-                // follow effect below owns the landing instead: it holds the bottom as rows measure and
-                // yields the moment the reader scrolls away.
-                el.scrollTop = el.scrollHeight
-            } else {
-                // Settled thread: nothing is growing, so the reconciler's target stabilizes within a
-                // frame or two, and it is the accurate way to land on the last row's end while rows are
-                // unmeasured.
-                virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
-            }
+        if (anchorIndex >= 0) {
+            // Provisional anchor landing — this commit only has estimates for the rows under the anchor,
+            // so whether the thread is really "top" or "bottom" shaped is decided by the decision loop
+            // once measurements land (see `scheduleOpenDecision`). The scroll itself is safe under
+            // either truth: a genuinely short thread clamps to the bottom on its own. The reconciler
+            // this arms re-targets a *stable* offset — rows above the anchor don't move when the tail
+            // grows — so it settles in a frame or two; the settle loop then covers the drift the
+            // reconciler can't (see `scheduleAnchorSettle`).
+            virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
             noteProgrammaticScroll()
-            setPinned(true)
+            setPinned(false)
+            bottomRepinBlockedUntilRef.current = performance.now() + BOTTOM_REPIN_BLOCK_MS
+            scheduleAnchorSettle(anchorIndex)
+            scheduleOpenDecision(anchorIndex)
             return
         }
-        // Measured where it counts: the first render window centers on the anchor (`initialOffset`), so
-        // the anchor and the rows below it — the ones this sum depends on — carry real measurements by
-        // this effect; distant rows are estimates, but those only matter when the tail is long enough
-        // that the reserve is moot anyway. An overestimate self-corrects: the shrink effect re-derives
-        // the reserve every commit from the same arithmetic.
-        const viewport = el?.clientHeight ?? 0
-        const totalSize = virtualizer.getTotalSize()
-        const anchorStart = virtualizer.measurementsCache[anchorIndex]?.start
-        const contentBelow = anchorStart !== undefined ? totalSize - anchorStart : Number.POSITIVE_INFINITY
-        if (viewport > 0 && contentBelow < viewport) {
-            pendingAnchorScrollRef.current = { index: anchorIndex, padding: Math.ceil(viewport - contentBelow) }
-            setAnchorPadding(pendingAnchorScrollRef.current.padding)
-            setPinned(true)
-            return
+        if (turnActive && el) {
+            // Deliberately not `scrollToIndex` for a thread that is already streaming: that arms the
+            // core's reconciler against a target that never stabilizes — it recomputes the growing end
+            // every frame for up to five seconds, with no notion of a user gesture cancelling it, so
+            // every upward scroll the reader attempts in that window is undone. The follow effect below
+            // owns the landing instead: it holds the bottom as rows measure and yields the moment the
+            // reader scrolls away.
+            el.scrollTop = el.scrollHeight
+        } else {
+            // Settled thread: nothing is growing, so the reconciler's target stabilizes within a frame
+            // or two, and it is the accurate way to land on the last row's end while rows are
+            // unmeasured.
+            virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
         }
-        // The reconciler this arms re-targets a *stable* offset — rows above the anchor don't move when
-        // the tail grows — so it settles in a frame or two, which is what holds the landing steady while
-        // rows measure.
-        virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
         noteProgrammaticScroll()
-        setPinned(false)
-        bottomRepinBlockedUntilRef.current = performance.now() + BOTTOM_REPIN_BLOCK_MS
+        setPinned(true)
     }, [
         virtualized,
         stickToBottom,
@@ -483,21 +580,27 @@ function Root<T>({
         findVirtualIndexForKey,
         noteProgrammaticScroll,
         setPinned,
+        scheduleAnchorSettle,
+        scheduleOpenDecision,
         items.length,
     ])
 
-    // Anchor-on-change (see `anchorItemKey`): a key change means a new anchor row landed. A *trailing*
-    // anchor (nothing after it yet) is a fresh send — reserve enough bottom padding for the row to reach
-    // the top of the viewport (via the paired effect below, once the padding is in the DOM) so the
-    // response streams into the space below. An anchor that already has content after it (a replayed
-    // turn) just scrolls — reserving there would leave dead whitespace under a finished response. The
-    // first populated commit only adopts the key: the initial-open effect above owns that scroll.
+    // Anchor-on-change (see `anchorItemKey`): a key change means a new anchor row landed. An anchor the
+    // thread has never held before is a fresh send — pin to the bottom and follow the answer from there;
+    // the sent message rides up naturally as the response streams in. An anchor whose key already
+    // existed (a replayed turn) just scrolls to it. Novelty, not position: the fold inserts a sent
+    // message at the *turn start*, behind any debug/status rows the turn already carries, so on a send
+    // the anchor is frequently not the trailing item and any is-it-last test classifies the send by
+    // whichever frames happened to land first. The first populated commit only adopts the key: the
+    // initial-open effect above owns that scroll.
     // Gated on `itemsLoading` like the initial open — adopting mid-replay would pin the pre-history
     // anchor value (typically null) and misread the full history's anchor as a fresh send.
     useLayoutEffect(() => {
         if (!virtualized || itemsLoading || items.length === 0) {
             return
         }
+        const prevKeys = prevItemKeysRef.current
+        prevItemKeysRef.current = new Set(items.map((item, index) => getItemKey(item, index)))
         const prev = prevAnchorKeyRef.current
         if (prev === undefined) {
             prevAnchorKeyRef.current = anchorItemKey ?? null
@@ -511,91 +614,37 @@ function Root<T>({
         if (anchorIndex < 0) {
             return
         }
-        const isTrailingItem = anchorIndex === (hasHeader ? 1 : 0) + items.length - 1
-        if (!isTrailingItem) {
+        const isFreshSend = prevKeys === null || !prevKeys.has(anchorItemKey)
+        if (!isFreshSend) {
             virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
             noteProgrammaticScroll()
             // Same estimate-clamp settle as the initial open: the landing may touch the bottom
             // transiently, and those touches must not read as the reader arriving there.
             bottomRepinBlockedUntilRef.current = performance.now() + BOTTOM_REPIN_BLOCK_MS
+            scheduleAnchorSettle(anchorIndex)
             return
         }
-        // Sending is an explicit request to follow the answer, wherever the reader had scrolled to while
-        // composing — so re-pin here rather than leaving it to the reader to scroll back down.
+        // Sending is an explicit request to follow the answer, wherever the reader had scrolled to
+        // while composing — pin and land on the bottom now rather than leaving it to the reader; the
+        // follow effect keeps it there as the turn streams.
         setPinned(true)
-        // `getTotalSize()` first: it recomputes the measurements, so the `measurementsCache` read below
-        // reflects this commit's rows (including the anchor row's just-taken first measurement).
-        const totalSize = virtualizer.getTotalSize()
-        const anchorStart = virtualizer.measurementsCache[anchorIndex]?.start
-        const viewport = scrollRef.current?.clientHeight ?? 0
-        if (anchorStart === undefined || viewport === 0) {
-            return
+        const el = scrollRef.current
+        if (el) {
+            el.scrollTop = el.scrollHeight
+            noteProgrammaticScroll()
         }
-        // Content below the anchor's top edge, excluding the currently reserved padding — the new reserve
-        // must top it up to a full viewport so the anchor row can sit flush at the top.
-        const contentBelow = totalSize - anchorPadding - anchorStart
-        const padding = Math.max(0, Math.ceil(viewport - contentBelow))
-        pendingAnchorScrollRef.current = { index: anchorIndex, padding }
-        setAnchorPadding(padding)
     }, [
         virtualized,
-        items.length,
+        items,
+        getItemKey,
         anchorItemKey,
         itemsLoading,
         findVirtualIndexForKey,
         virtualizer,
-        anchorPadding,
-        hasHeader,
         setPinned,
         noteProgrammaticScroll,
+        scheduleAnchorSettle,
     ])
-
-    // Runs every commit: performs the pending anchor scroll only once the reserved padding is committed to
-    // the DOM — scrolling earlier would clamp against the un-padded scroll range and land short of the top.
-    useLayoutEffect(() => {
-        const pending = pendingAnchorScrollRef.current
-        if (!pending || pending.padding !== anchorPadding) {
-            return
-        }
-        pendingAnchorScrollRef.current = null
-        virtualizer.scrollToIndex(pending.index, { align: 'start' })
-        noteProgrammaticScroll()
-    })
-
-    // Runs every commit while the send reserve is up: shrink it 1:1 as the response streams in. The
-    // reserved whitespace is consumed by new content, so the total size — and with it the reader's scroll
-    // position — stays put while the response fills the viewport below the anchor. Once content below the
-    // anchor exceeds the viewport the reserve is exhausted, the true end is the content end again, and
-    // stick-to-bottom takes over for the rest of the turn. Shrink-only on purpose: a row collapsing
-    // mid-turn must not re-open whitespace under the thread.
-    useLayoutEffect(() => {
-        if (!virtualized || anchorPadding <= 0 || pendingAnchorScrollRef.current) {
-            return
-        }
-        const viewport = scrollRef.current?.clientHeight ?? 0
-        if (viewport === 0) {
-            return
-        }
-        const anchorKey = prevAnchorKeyRef.current
-        const anchorIndex = anchorKey != null ? findVirtualIndexForKey(anchorKey) : -1
-        if (anchorIndex < 0) {
-            // The anchor row left the thread (reset/replay) — drop the reserve with it.
-            setAnchorPadding(0)
-            return
-        }
-        // `getTotalSize()` first: it recomputes the measurements, so the `measurementsCache` read below
-        // reflects this commit's rows.
-        const totalSize = virtualizer.getTotalSize()
-        const anchorStart = virtualizer.measurementsCache[anchorIndex]?.start
-        if (anchorStart === undefined) {
-            return
-        }
-        const contentBelow = totalSize - anchorPadding - anchorStart
-        const needed = Math.max(0, Math.min(anchorPadding, Math.ceil(viewport - contentBelow)))
-        if (needed !== anchorPadding) {
-            setAnchorPadding(needed)
-        }
-    })
 
     // Pin/unpin from what the reader did, not from where they ended up. Movement that the scroll range
     // itself doesn't explain is the reader; everything else is content shifting under them. Asymmetric on
@@ -616,6 +665,9 @@ function Root<T>({
         let touchStartY: number | null = null
         let touchStartX: number | null = null
         const onWheel = (event: WheelEvent): void => {
+            if (event.deltaY !== 0) {
+                lastUserScrollAtRef.current = performance.now()
+            }
             if (event.deltaY < 0) {
                 setPinned(false)
             } else if (event.deltaY > 0) {
@@ -638,6 +690,7 @@ function Root<T>({
             }
             const deltaY = touch.clientY - touchStartY
             if (Math.abs(deltaY) > Math.abs(touch.clientX - touchStartX)) {
+                lastUserScrollAtRef.current = performance.now()
                 if (deltaY > 0) {
                     setPinned(false)
                 } else if (deltaY < 0) {
@@ -651,13 +704,36 @@ function Root<T>({
             const top = el.scrollTop
             const maxTop = Math.max(0, el.scrollHeight - el.clientHeight)
             // Content shrinking under the reader — a tool card's accordion collapsing the moment the tool
-            // completes, which on this surface is every finished tool, or the send reserve giving its
-            // space back — lowers the scroll range, and the browser clamps `scrollTop` down with it. That
+            // completes, which on this surface is every finished tool — lowers the scroll range, and the
+            // browser clamps `scrollTop` down with it. That
             // is an offset decrease nobody asked for, and reading it as a gesture would unpin the thread
             // mid-turn every time a tool finished. A clamp can never pull below the new maximum, so the
             // maximum is the line between "the content moved" and "the reader moved". Growth needs no
             // such correction: it moves `scrollHeight`, never `scrollTop`.
             peakTopRef.current = Math.min(peakTopRef.current, maxTop)
+            // An event that lands where software just wrote is that write echoing back, not the reader
+            // (see `programmaticScrollRef`) — adopt the position and decide nothing from it. Matched
+            // against the write's clamped value: the write may have targeted past the range. A reader
+            // gesture racing this window still lands on a different offset (or came in as a wheel/touch
+            // event, which unpins before any scroll event fires).
+            const write = programmaticScrollRef.current
+            const prevEventTop = lastScrollEventTopRef.current
+            lastScrollEventTopRef.current = top
+            if (
+                write !== null &&
+                performance.now() - write.at < PROGRAMMATIC_SCROLL_MATCH_MS &&
+                Math.abs(top - Math.min(Math.max(0, write.value), maxTop)) <= UNPIN_SLACK
+            ) {
+                peakTopRef.current = top
+                return
+            }
+            // A downward move that lands exactly on the (new) maximum is the shrink clamp again — no
+            // write explains it because the browser performed it, and counting it as the reader would
+            // cancel a settle loop the moment a tool card above collapses.
+            const isShrinkClamp = prevEventTop !== null && top < prevEventTop && top >= maxTop - UNPIN_SLACK
+            if (!isShrinkClamp) {
+                lastUserScrollAtRef.current = performance.now()
+            }
             if (pinnedRef.current) {
                 if (top < peakTopRef.current - UNPIN_SLACK) {
                     setPinned(false)
@@ -707,24 +783,14 @@ function Root<T>({
 
     // Runs every commit: while a turn is live (or just ended, see above) and the reader is pinned, keep
     // the bottom in view. Each streamed frame is a commit, so this needs no other trigger; the core's
-    // at-end resize compensation smooths growth that lands between commits. During the send-reserve phase
-    // the bottom is the padded end, which the shrink effect holds constant — so this no-ops and the view
-    // stays put while the reserved space fills. Writes `scrollTop` directly instead of `scrollToEnd()`:
-    // the latter arms the core's multi-frame scroll reconciler, which re-targets the (growing) end every
-    // frame and overrides the user's attempt to scroll away — exactly the gesture that must win here.
+    // at-end resize compensation smooths growth that lands between commits. Writes `scrollTop` directly
+    // instead of `scrollToEnd()`: the latter arms the core's multi-frame scroll reconciler, which
+    // re-targets the (growing) end every frame and overrides the user's attempt to scroll away —
+    // exactly the gesture that must win here.
     useLayoutEffect(() => {
-        // A queued anchor scroll (fresh send) owns the next landing — following here would paint one
-        // frame at the unpadded end before the anchor scroll pulls the sent message to the top. Inert
-        // while items are still assembling: following a partial fold would walk the scroll to the
+        // Inert while items are still assembling: following a partial fold would walk the scroll to the
         // bottom of a thread whose open — which owns the landing — hasn't happened yet.
-        if (
-            !virtualized ||
-            !stickToBottom ||
-            itemsLoading ||
-            !following ||
-            !pinnedRef.current ||
-            pendingAnchorScrollRef.current
-        ) {
+        if (!virtualized || !stickToBottom || itemsLoading || !following || !pinnedRef.current) {
             return
         }
         const el = scrollRef.current

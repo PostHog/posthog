@@ -92,8 +92,8 @@ export function ThreadView({
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
-    // meaningful turn, response below — rather than the absolute bottom; a fresh send (the key changing)
-    // pins it to the top of the viewport with space reserved below for the streaming response.
+    // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
+    // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
     const anchorItemKey = useMemo(
         () => threadItems.findLast((item) => item.type === 'human_message')?.id ?? null,
         [threadItems]
