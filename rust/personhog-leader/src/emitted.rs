@@ -43,9 +43,12 @@ pub struct EmittedVersions {
     ///
     /// Spilling keeps the safety property and gives up only precision:
     /// every person in the partition derives past the spilled version, so
-    /// versions jump once and stay monotonic. Nothing reads a version as
-    /// an update count, and the writer's guard only cares that it
-    /// increases.
+    /// versions jump once and stay monotonic. A spilled floor is also
+    /// never lowered — only `clear_partition` drops it, on release —
+    /// which is safe for the same reason the jump is: nothing downstream
+    /// reads a version as a count. The writer's guard is a strict
+    /// greater-than, and ClickHouse collapses person rows by the highest
+    /// version; both are indifferent to gaps of any size.
     partition_floors: DashMap<u32, i64>,
     capacity: usize,
 }

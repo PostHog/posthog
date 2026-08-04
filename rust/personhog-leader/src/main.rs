@@ -217,7 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // dirty index uses: both hold one entry per person written but not
     // yet settled, and both are attackable the same way.
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(
-        config.dirty_index_max_entries,
+        config.emitted_versions_max_entries,
     ));
     let recovery = Arc::new(
         ChangelogRecovery::new(RecoveryConfig {
@@ -605,7 +605,9 @@ async fn discover_own_controller(
 /// already inside it, and no rate function can recover a delta that
 /// precedes a series' first sample.
 fn preregister_metrics() {
-    counter!("personhog_leader_indeterminate_evictions_total").increment(0);
+    for fenced in ["true", "false"] {
+        counter!("personhog_leader_indeterminate_outcomes_total", "fenced" => fenced).increment(0);
+    }
     counter!("personhog_leader_unresolved_versions_total").increment(0);
     gauge!("personhog_leader_unresolved_versions").set(0.0);
     counter!("personhog_leader_warmed_messages_total").increment(0);

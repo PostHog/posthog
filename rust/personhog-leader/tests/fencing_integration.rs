@@ -9,6 +9,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use envconfig::Envconfig;
 use personhog_coordination::pod::HandoffHandler;
 use personhog_leader::fencing::{
     FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
@@ -874,4 +875,120 @@ async fn releasing_a_partition_retires_its_fresh_fence_mark() {
         .produce(0, &test_person(2))
         .await
         .expect("a resume after a release must take the fence again");
+}
+
+/// A committer that unwinds with subscribers still queued must condemn
+/// the producer, not strand them.
+///
+/// The mark's drop used to clear `committing` and nothing else: the
+/// orphaned waiter list blocked every later window (nothing opens while
+/// waiters remain) while `is_usable` kept reporting the fence healthy —
+/// every write on the partition parked until its own deadline, silently,
+/// forever. Condemning routes it into the same bounce-and-recover story
+/// as every other producer no window can be begun from.
+#[tokio::test]
+async fn an_unwound_committer_condemns_rather_than_stranding_its_waiters() {
+    let topic = format!("fence_orphan_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    producers.acquire(0).await.expect("acquire the fence");
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("a healthy fence writes");
+
+    producers.orphan_committer_for_test(0);
+
+    // Bounded: the pre-fix behavior parks this produce forever, and a
+    // hung test reports a stuck runner rather than the defect.
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        producers.produce(0, &test_person(2)),
+    )
+    .await
+    .expect("a write after an unwound committer must answer, not park");
+    match outcome {
+        Err(FencedProduceError::NotAcquired) => {}
+        other => panic!("an unwound committer's partition must answer as unowned, got {other:?}"),
+    }
+}
+
+/// One run of the whole composition at the values production derives,
+/// not the test constants: window 5ms, txn ~1.2s, settle 2s, broker
+/// patience ~6s at the production lease. The per-arm tests pin each
+/// mechanism with generous constants; this pins that the *derived*
+/// numbers compose against a real broker — windows turn over, commits
+/// land inside their budgets, and a drain (with its settle) finishes
+/// inside the lease runway the arithmetic promises.
+#[tokio::test]
+async fn the_derived_production_timescales_compose_against_a_real_broker() {
+    let mut config =
+        personhog_leader::config::Config::init_from_env().expect("defaults are constructible");
+    config.kafka_transactional_fencing = true;
+    config.lease_ttl = 30;
+    config.fencing_txn_timeout_ms = 0;
+    config.fencing_message_timeout_ms = 0;
+    config
+        .validate_fencing_timescales()
+        .expect("the production lease supports fencing");
+
+    let topic = format!("fence_derived_{}", uuid::Uuid::new_v4().simple());
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+    let producers = Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        topic: topic.clone(),
+        init_timeout: config.fencing_init_timeout(),
+        commit_timeout: config.fencing_txn_timeout(),
+        broker_txn_timeout: config.fencing_broker_txn_timeout(),
+        window: Duration::from_millis(config.fencing_window_ms),
+        settle_budget: config.fencing_settle_budget(),
+    }));
+    producers
+        .acquire(0)
+        .await
+        .expect("acquire at derived init timeout");
+
+    // Sustained concurrent writes across many real 5ms window turnovers.
+    let mut writers = Vec::new();
+    for w in 0..4 {
+        let p = Arc::clone(&producers);
+        writers.push(tokio::spawn(async move {
+            let mut acked = 0u32;
+            for i in 0..25 {
+                p.produce(0, &test_person(i64::from(w * 100 + i)))
+                    .await
+                    .expect("a write inside the derived budgets must ack");
+                acked += 1;
+            }
+            acked
+        }));
+    }
+    let mut acked = 0;
+    for writer in writers {
+        acked += writer.await.expect("writer task");
+    }
+    assert_eq!(acked, 100);
+
+    // The drain — wait plus settle — must fit the runway the validator
+    // sized it against.
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+    let drain_started = std::time::Instant::now();
+    handler
+        .drain_partition_inflight(0)
+        .await
+        .expect("the drain succeeds at derived timescales");
+    assert!(
+        drain_started.elapsed() < config.lease_fence_runway(),
+        "the drain must fit the lease runway it is budgeted for, took {:?} of {:?}",
+        drain_started.elapsed(),
+        config.lease_fence_runway()
+    );
+
+    // Everything acked is committed and visible to a read_committed
+    // consumer, which is the property every consumer relies on.
+    assert_eq!(
+        read_committed_count(&topic).await,
+        100,
+        "every acked write must be committed once the drain settles"
+    );
 }

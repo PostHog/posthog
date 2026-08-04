@@ -35,7 +35,7 @@ impl PersonConsumer {
             // advance past an open window, so a leader that stops
             // mid-window holds the partition at its last stable offset
             // until the broker abandons the transaction — bounded by the
-            // leader's derived broker transaction timeout (about 7.5s at
+            // leader's derived broker transaction timeout (about 6s at
             // the production lease).
             .set("isolation.level", "read_committed")
             // Cooperative-sticky: during scale events, only partitions that need

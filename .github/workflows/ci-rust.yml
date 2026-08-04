@@ -648,8 +648,9 @@ jobs:
                   fi
                   # The freeze has to outlive the lease, or the woken pod
                   # still holds a valid claim and the broker fence is
-                  # never asked anything. 21s is the lowest TTL
-                  # validate_fencing_timescales accepts with fencing on,
+                  # never asked anything. 27s is the lowest TTL
+                  # validate_fencing_timescales accepts with fencing on
+                  # (the write budget pays the drain's settle slack first),
                   # so the freeze runs past it and the run is sized to
                   # leave the woken zombie time to try. The gate asserts
                   # rejection by consequence (an unfenced landing fails
@@ -658,9 +659,9 @@ jobs:
                   # fencing_integration tests carry the per-arm coverage.
                   ./target/debug/personhog-test-harness gate \
                     --leader-env KAFKA_TRANSACTIONAL_FENCING=true \
-                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 40s \
-                    --leader-lease-ttl 21 \
-                    --zombie-after 5s --zombie-duration 26s \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
+                    --leader-lease-ttl 27 \
+                    --zombie-after 5s --zombie-duration 32s \
                     --writer-pause-after 4s --writer-pause-duration 6s
 
             - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)

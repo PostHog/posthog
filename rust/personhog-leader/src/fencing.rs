@@ -124,6 +124,16 @@ struct Gate {
     waiters: Vec<oneshot::Sender<Result<(), FencedProduceError>>>,
 }
 
+/// Send a fence to the blocking pool to die. Dropping the last
+/// reference runs librdkafka's destroy, which blocks while the client
+/// tears down — up to hundreds of milliseconds — and both removal sites
+/// run on async workers. Best-effort: a caller (an in-flight write, the
+/// settle wait) still holding the Arc pays the destroy wherever it drops
+/// last, which is rarer than the common case this moves.
+fn drop_fence_off_worker(fence: Arc<PartitionFence>) {
+    tokio::task::spawn_blocking(move || drop(fence));
+}
+
 struct PartitionFence {
     producer: TransactionalProducer,
     /// Makes the next commit task panic, so tests can reach the arm that
@@ -274,16 +284,17 @@ impl Drop for WindowSlot {
 /// repair path looks at a gate.
 struct CommittingMark {
     fence: Arc<PartitionFence>,
+    partition: u32,
 }
 
 impl CommittingMark {
-    fn take(fence: Arc<PartitionFence>) -> Self {
+    fn take(fence: Arc<PartitionFence>, partition: u32) -> Self {
         {
             let mut gate = fence.gate.lock().unwrap();
             gate.open = false;
             gate.committing = true;
         }
-        Self { fence }
+        Self { fence, partition }
     }
 }
 
@@ -292,10 +303,31 @@ impl Drop for CommittingMark {
         // Deliberately tolerant of a poisoned gate: the mark existing is
         // what wedges the partition, so it has to come off even when the
         // lock's last holder panicked.
-        match self.fence.gate.lock() {
-            Ok(mut gate) => gate.committing = false,
-            Err(poisoned) => poisoned.into_inner().committing = false,
+        let orphans = match self.fence.gate.lock() {
+            Ok(mut gate) => {
+                gate.committing = false;
+                mem::take(&mut gate.waiters)
+            }
+            Err(poisoned) => {
+                let mut gate = poisoned.into_inner();
+                gate.committing = false;
+                mem::take(&mut gate.waiters)
+            }
+        };
+        // On the ordinary path the committer took the waiters before this
+        // drops, so the list is empty. Waiters still here mean the
+        // committer unwound between taking the mark and answering anyone
+        // — their outcomes are unobservable, and leaving them queued
+        // would park every later write forever: nothing can open a window
+        // while waiters remain, and nothing would notify again. Dropping
+        // their senders answers each with the doubt it earned (a closed
+        // channel reads as an unobserved commit), and condemning routes
+        // the partition into the same bounce-and-recover story as every
+        // other producer no window can be begun from.
+        if !orphans.is_empty() {
+            self.fence.condemn(self.partition, "committer_unwound");
         }
+        drop(orphans);
         self.fence.window_closed.notify_waiters();
     }
 }
@@ -475,7 +507,9 @@ impl FencedChangelogProducers {
     /// Drop the partition's fence with ownership. The broker-side epoch
     /// survives; only a future owner's init advances it.
     pub fn release(&self, partition: u32) {
-        self.partitions.remove(&partition);
+        if let Some((_, fence)) = self.partitions.remove(&partition) {
+            drop_fence_off_worker(fence);
+        }
     }
 
     /// Commit the partition's open window before its owner gives it up.
@@ -514,7 +548,7 @@ impl FencedChangelogProducers {
         // successor's abort is the right answer regardless. The cap
         // matters because the pre-revoke self-fence allows three seconds
         // for a whole drain: a budget derived from the lease alone
-        // reaches 7.5s at the production TTL, so every shutdown with an
+        // reaches about 6s at the production TTL, so every shutdown with an
         // open window would truncate here and report a failed drain.
         let budget = self.settle_budget;
         let waited = timeout(budget, async {
@@ -601,6 +635,20 @@ impl FencedChangelogProducers {
     pub fn poison_window_for_test(&self, partition: u32) {
         if let Some(fence) = self.installed(partition) {
             fence.gate.lock().unwrap().poisoned = true;
+        }
+    }
+
+    /// Stage a committer that unwound between taking the mark and
+    /// answering its subscribers — the shape a runtime teardown or a
+    /// panic in the settle wait leaves behind. Real unwinds are not
+    /// stageable deterministically; what matters is the mark's cleanup.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn orphan_committer_for_test(&self, partition: u32) {
+        if let Some(fence) = self.installed(partition) {
+            let mark = CommittingMark::take(Arc::clone(&fence), partition);
+            let (tx, _rx) = oneshot::channel();
+            fence.gate.lock().unwrap().waiters.push(tx);
+            drop(mark);
         }
     }
 
@@ -873,9 +921,9 @@ impl FencedChangelogProducers {
     fn forget_fence(&self, partition: u32, fence: &Arc<PartitionFence>) {
         let removed = self
             .partitions
-            .remove_if(&partition, |_, installed| Arc::ptr_eq(installed, fence))
-            .is_some();
-        if removed {
+            .remove_if(&partition, |_, installed| Arc::ptr_eq(installed, fence));
+        if let Some((_, evicted)) = removed {
+            drop_fence_off_worker(evicted);
             // The escalation signal for a partition giving up its fence
             // outside the orderly release path — the series exists so a
             // deploy-window burst of these is visible.
@@ -1028,7 +1076,7 @@ async fn commit_window_after(
     // holds until this function returns — by any path — so no writer can
     // begin the next transaction while this one is still resolving, and
     // none is stranded if it unwinds.
-    let _committing = CommittingMark::take(Arc::clone(&fence));
+    let _committing = CommittingMark::take(Arc::clone(&fence), partition);
     loop {
         // Register interest before inspecting the gate: a settle that
         // fires between the check and the await must not be lost.

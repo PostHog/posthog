@@ -225,6 +225,17 @@ pub struct Config {
     #[envconfig(default = "10000000")]
     pub dirty_index_max_entries: usize,
 
+    /// Bound on the unresolved-version floors, its own knob rather than
+    /// borrowing the dirty index's. The two grow under different
+    /// failures: dirty marks accumulate whenever the writer lags, floors
+    /// only when writes end without an answer — cancellations and
+    /// ambiguous commits — which is orders of magnitude rarer. Past the
+    /// bound, floors spill to one coarse per-partition value (safety
+    /// survives; precision degrades), so this sizes memory, not
+    /// correctness. The default is a fraction of the dirty index's.
+    #[envconfig(default = "1000000")]
+    pub emitted_versions_max_entries: usize,
+
     // ── PG fallback ───────────────────────────────────────────────
     /// Postgres URL for cache miss fallback. If empty, cache misses
     /// return NotFound without querying PG. Must point at the primary:
@@ -353,11 +364,24 @@ impl Config {
         Duration::from_millis((self.lease_ttl.max(0) as u64).saturating_mul(1000) / 3)
     }
 
+    /// Slack the drain spends outside the writes themselves: the settle
+    /// wait that follows `wait_until_empty`, plus one poll interval of
+    /// granularity on the wait (the coordination drain polls at 50ms).
+    /// Subtracted from the runway before sizing the write budget — sizing
+    /// against the full runway left the lease-loss drain oversubscribed
+    /// by construction, so worst-case queueing failed the drain and cost
+    /// a restart to load rather than to failure.
+    fn fencing_drain_slack(&self) -> Duration {
+        self.fencing_settle_budget() + Duration::from_millis(50)
+    }
+
     /// The budget one write may spend, derived so that a write queued
-    /// behind another still finishes inside the runway.
+    /// behind another — and the settle that follows the queue draining —
+    /// still finishes inside the runway.
     fn fencing_budget(&self) -> Duration {
         self.lease_fence_runway()
             .saturating_sub(Duration::from_millis(self.fencing_window_ms))
+            .saturating_sub(self.fencing_drain_slack())
             / 2
     }
 
@@ -451,9 +475,10 @@ impl Config {
     /// patience instead would be inert — `fencing_txn_timeout` floors at
     /// a second and the window can make three such calls, so that bound
     /// never falls below four and a half, and every accepted lease would
-    /// leave the cap doing all the work. It reached 7.5s at the
-    /// production lease, which truncated on every shutdown with an open
-    /// window and reported the drain as failed.
+    /// leave the cap doing all the work. Before the drain slack was paid
+    /// out of the write budget it sat at 7.5s at the production lease
+    /// (about 6s now), truncating on every shutdown with an open window
+    /// and reporting the drain as failed.
     ///
     /// Residual: a `drain_timeout` configured under two seconds shrinks
     /// that allowance below this budget, and the leader cannot see the
@@ -555,7 +580,8 @@ impl Config {
         // two — each of them including every commit attempt the code
         // will make, not just the first.
         let queued_worst_case = window + (message + txn * FENCING_TXN_CALLS) * 2;
-        if queued_worst_case > runway {
+        let drain_room = runway.saturating_sub(self.fencing_drain_slack());
+        if queued_worst_case > drain_room {
             return Err(format!(
                 "a fenced write queued behind another can take {queued_worst_case:?} \
                  (window {window:?} + 2 × (send {message:?} + {FENCING_TXN_CALLS} × commit/abort \
@@ -911,12 +937,25 @@ mod fencing_timescale_tests {
     /// fails on every partition with only a counter to explain it.
     #[test]
     fn a_lease_ttl_that_outruns_the_broker_ceiling_is_refused() {
-        let err = fenced(3600)
+        let err = fenced(3607)
             .validate_fencing_timescales()
             .expect_err("an hour-long lease derives a transaction timeout no broker accepts");
         assert!(
             err.contains("transaction.max.timeout.ms"),
             "the refusal must name the broker setting it would trip, got: {err}"
+        );
+        // The band's edges, both sides: the last accepted TTL under the
+        // broker ceiling, and the first accepted one above the librdkafka
+        // floors once the drain slack is paid.
+        fenced(3606)
+            .validate_fencing_timescales()
+            .expect("LEASE_TTL=3606 sits just inside the broker ceiling");
+        fenced(27)
+            .validate_fencing_timescales()
+            .expect("LEASE_TTL=27 is the acceptance floor");
+        assert!(
+            fenced(26).validate_fencing_timescales().is_err(),
+            "below the floor, the librdkafka minimums cannot fit the drain room"
         );
         // And the production value must stay comfortably inside it.
         fenced(30)
