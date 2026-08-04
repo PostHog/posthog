@@ -303,6 +303,88 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_select_repository_activity_captures_no_repo_reason_for_missing_integration(monkeypatch, ateam):
+    # Regression: the analytics event used to collapse this into a bare `result="no_repo"`,
+    # indistinguishable from a matching regression. It must carry the category so the alert
+    # can be triaged from the data alone.
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: None,
+    )
+
+    captured_events = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture",
+        lambda **kwargs: captured_events.append(kwargs),
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
+
+    completed = [e for e in captured_events if e["event"] == "signals_repo_research_completed"]
+    assert len(completed) == 1
+    assert completed[0]["properties"]["result"] == "no_repo"
+    assert completed[0]["properties"]["no_repo_reason"] == "no_github_integration"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "no_repo_reason,expected",
+    [
+        (None, "agent_no_match"),
+        ("no_eligible_repos", "no_eligible_repos"),
+        ("agent_rejected", "agent_rejected"),
+    ],
+)
+async def test_select_repository_activity_captures_no_repo_reason_from_result(
+    monkeypatch, ateam, no_repo_reason, expected
+):
+    # Regression: the agent-run branch collapsed `RepoSelectionUnavailableError`,
+    # `RepoSelectionRejectedError`, and a genuine agent no-match into the same event. A missing
+    # category (agent's own null decision) must default to `agent_no_match`, not be dropped.
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
+    )
+
+    async def fake_select_repo(*args, **kwargs):
+        return RepoSelectionResult(repository=None, reason="none matched", no_repo_reason=no_repo_reason)
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        fake_select_repo,
+    )
+
+    captured_events = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture",
+        lambda **kwargs: captured_events.append(kwargs),
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
+
+    completed = [e for e in captured_events if e["event"] == "signals_repo_research_completed"]
+    assert len(completed) == 1
+    assert completed[0]["properties"]["result"] == "no_repo"
+    assert completed[0]["properties"]["no_repo_reason"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_select_repository_activity_does_not_raise_with_only_user_integration(monkeypatch, ateam):
     # PostHog Desktop installs land in `UserIntegration`, never on `Integration`. Before the cascade
     # was wired up, this combination raised `RuntimeError("No GitHub integration found ...")` and

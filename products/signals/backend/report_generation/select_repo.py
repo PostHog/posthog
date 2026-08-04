@@ -116,11 +116,12 @@ async def select_repository_for_team(
                 f"Agent selected '{exc.returned_repository}' which is not in the candidate list. "
                 f"Original reason: '{exc.reason}'"
             ),
+            no_repo_reason="agent_rejected",
         )
     except RepoSelectionUnavailableError as exc:
         # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
-        return RepoSelectionResult(repository=None, reason=exc.reason)
+        return RepoSelectionResult(repository=None, reason=exc.reason, no_repo_reason="no_eligible_repos")
 
 
 async def select_repository_for_report(

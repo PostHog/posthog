@@ -62,12 +62,15 @@ def _capture_repo_research_event(
     report_id: str,
     result: str | None = None,
     failure_reason: str | None = None,
+    no_repo_reason: str | None = None,
 ) -> None:
     properties: dict = {"report_id": report_id}
     if result is not None:
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if no_repo_reason is not None:
+        properties["no_repo_reason"] = no_repo_reason
     try:
         posthoganalytics.capture(
             event=event,
@@ -138,6 +141,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 no_repo_result = RepoSelectionResult(
                     repository=None,
                     reason="No GitHub integration connected to a team/user.",
+                    no_repo_reason="no_github_integration",
                 )
                 _capture_repo_research_event(
                     "signals_repo_research_completed",
@@ -145,6 +149,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     team.organization,
                     input.report_id,
                     result="no_repo",
+                    no_repo_reason=no_repo_result.no_repo_reason,
                 )
                 return no_repo_result
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
@@ -172,6 +177,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 team.organization,
                 input.report_id,
                 result="selected" if result.repository is not None else "no_repo",
+                no_repo_reason=((result.no_repo_reason or "agent_no_match") if result.repository is None else None),
             )
             return result
     except Exception as e:

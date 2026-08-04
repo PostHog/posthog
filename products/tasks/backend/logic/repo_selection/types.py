@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+# Why `repository` came back null. Distinguishes operational failures (no integration, no
+# eligible repos, LLM hallucination) from the agent genuinely deciding none of the candidates
+# match — callers (e.g. Signals analytics) need this to tell a matching regression apart from
+# a customer batch-researching companies that have no public repo. `None` when `repository` is
+# set, or for results produced before this field existed.
+NoRepoReason = Literal["no_github_integration", "no_eligible_repos", "agent_rejected", "agent_no_match"]
 
 
 class RepoSelectionResult(BaseModel):
@@ -21,6 +30,10 @@ class RepoSelectionResult(BaseModel):
             "decision. When no query was made, justify why the choice was unambiguous from the "
             "context and repo names alone."
         )
+    )
+    no_repo_reason: NoRepoReason | None = Field(
+        default=None,
+        description="Machine-readable category for why `repository` is null. Null when a repository was selected.",
     )
     # Set by `select_repository` after the sandbox session, never by the LLM (it is stripped from
     # the prompt's JSON schema). Optional with a default so persisted results and in-flight

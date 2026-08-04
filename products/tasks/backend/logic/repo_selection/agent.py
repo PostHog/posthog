@@ -209,8 +209,9 @@ def _build_repo_selection_prompt(context_block: str, candidate_repos: list[str])
     responsible for rendering domain-specific data structures into a string before calling.
     """
     schema = RepoSelectionResult.model_json_schema()
-    # `task_id` is system-set after the run — keep it out of the agent's output contract.
+    # `task_id` and `no_repo_reason` are system-set — keep them out of the agent's output contract.
     schema.get("properties", {}).pop("task_id", None)
+    schema.get("properties", {}).pop("no_repo_reason", None)
     schema_json = json.dumps(schema, indent=2)
     repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
 
@@ -413,6 +414,7 @@ async def select_repository(
                 if reconnect_required
                 else "No GitHub repositories connected to this team."
             ),
+            no_repo_reason="no_github_integration",
         )
     if candidate_repos is None:
         candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
@@ -420,6 +422,7 @@ async def select_repository(
         return RepoSelectionResult(
             repository=None,
             reason="No GitHub repositories connected to this team.",
+            no_repo_reason="no_eligible_repos",
         )
 
     # Hydrate the heavy cache before running the agent. Single-flighted per integration —
