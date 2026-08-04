@@ -35,6 +35,7 @@ from posthog.hogql.database.database import (
     _compute_system_table_access_decision,
     _construct_database_root_node,
     _preload_active_external_data_schemas,
+    _system_table_access_scopes,
     build_database_root_node,
     get_data_warehouse_table_name,
 )
@@ -3681,3 +3682,45 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         user_access_control, _denied = captured["result"]
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
+
+    def test_compute_system_table_access_decision_retries_transient_operational_error(self):
+        from django.db import OperationalError
+
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        attempts = {"n": 0}
+
+        def flaky_membership(self):
+            attempts["n"] += 1
+            if attempts["n"] < 2:
+                raise OperationalError("connection timeout expired")
+            return None
+
+        # A one-off connection blip on the org-membership lookup must be retried rather than
+        # propagate up and abort the whole database build.
+        with (
+            patch.object(UserAccessControl, "_organization_membership", property(flaky_membership)),
+            patch("posthog.hogql.database.database._SYSTEM_TABLE_ACCESS_RETRY_DELAY_SECONDS", 0),
+        ):
+            user_access_control, _denied = _compute_system_table_access_decision(self.team, self.user)
+
+        assert attempts["n"] == 2
+        assert user_access_control is not None
+
+    def test_compute_system_table_access_decision_fails_closed_after_persistent_operational_error(self):
+        from django.db import OperationalError
+
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        def always_fails(self):
+            raise OperationalError("connection timeout expired")
+
+        # Once retries are exhausted, the decision must degrade to denying every scoped system table
+        # instead of raising and crashing the caller (e.g. the HogQL validation path in Max/MCP tools).
+        with (
+            patch.object(UserAccessControl, "_organization_membership", property(always_fails)),
+            patch("posthog.hogql.database.database._SYSTEM_TABLE_ACCESS_RETRY_DELAY_SECONDS", 0),
+        ):
+            _user_access_control, denied = _compute_system_table_access_decision(self.team, self.user)
+
+        assert denied == {name for name, _ in _system_table_access_scopes()}

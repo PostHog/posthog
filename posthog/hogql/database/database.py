@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import copy
+import time
 import pickle
 import threading
 import dataclasses
@@ -467,6 +468,14 @@ def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
     )
 
 
+# The org-membership/access-level lookups below each open a fresh Postgres connection (the default
+# DB runs CONN_MAX_AGE=0 and posthog/sync.py closes old connections on every thread entry), so a slow
+# DB or PgBouncer can raise a transient OperationalError. Retry a couple of times, then fail closed
+# (deny every scoped system table) rather than let one connection blip crash the whole database build.
+_SYSTEM_TABLE_ACCESS_MAX_ATTEMPTS = 3
+_SYSTEM_TABLE_ACCESS_RETRY_DELAY_SECONDS = 0.1
+
+
 def _compute_system_table_access_decision(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
@@ -478,6 +487,8 @@ def _compute_system_table_access_decision(
 
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     # Lazy imports keep the Django ORM off this module's import path.
+    from django.db import OperationalError  # noqa: PLC0415
+
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
@@ -491,18 +502,29 @@ def _compute_system_table_access_decision(
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
-    org_membership = user_access_control._organization_membership
-    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, set()
+    last_error: OperationalError | None = None
+    for attempt in range(_SYSTEM_TABLE_ACCESS_MAX_ATTEMPTS):
+        try:
+            org_membership = user_access_control._organization_membership
+            if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+                return user_access_control, set()
 
-    denied: set[str] = set()
-    for name, access_scope in scoped_tables:
-        access_level = user_access_control.access_level_for_resource(access_scope)
-        if access_level and access_level != NO_ACCESS_LEVEL:
-            continue  # User has access, keep it
-        denied.add(name)
+            denied: set[str] = set()
+            for name, access_scope in scoped_tables:
+                access_level = user_access_control.access_level_for_resource(access_scope)
+                if access_level and access_level != NO_ACCESS_LEVEL:
+                    continue  # User has access, keep it
+                denied.add(name)
 
-    return user_access_control, denied
+            return user_access_control, denied
+        except OperationalError as e:
+            last_error = e
+            if attempt < _SYSTEM_TABLE_ACCESS_MAX_ATTEMPTS - 1:
+                time.sleep(_SYSTEM_TABLE_ACCESS_RETRY_DELAY_SECONDS * (attempt + 1))
+
+    logger.warning("system_table_access_decision_degraded", exc_info=last_error)
+    capture_exception(last_error)
+    return user_access_control, {name for name, _ in scoped_tables}
 
 
 class Database(BaseModel):

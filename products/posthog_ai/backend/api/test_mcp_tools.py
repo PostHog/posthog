@@ -85,6 +85,26 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertIn("Tool failed", data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
+    def test_invoke_tool_transient_db_error_returns_retryable_response(self, mock_execute):
+        from django.db import OperationalError
+
+        # A transient Postgres connect timeout must be classified as retryable, not funneled into the
+        # generic internal-error branch that tells the caller "do not immediately retry".
+        mock_execute.side_effect = OperationalError("connection timeout expired")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
+            {"args": {"query": "SELECT 1"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertNotIn("do not immediately retry", data["content"].lower())
+        self.assertIn("retry", data["content"].lower())
+
+    @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
         mock_execute.side_effect = RuntimeError("unexpected")
 

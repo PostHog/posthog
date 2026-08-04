@@ -2,6 +2,7 @@ import json
 from typing import cast
 
 from django.conf import settings
+from django.db import OperationalError
 from django.views.generic import View
 
 import pydantic
@@ -26,7 +27,7 @@ from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tool_errors import MaxToolError, MaxToolTransientError
 from ee.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
@@ -157,6 +158,19 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 {
                     "success": False,
                     "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
+                }
+            )
+        except OperationalError as e:
+            # A transient Postgres connection blip (e.g. a slow PgBouncer accept) surfaces here as an
+            # unguarded OperationalError. It isn't a real tool bug, so classify it as retryable instead
+            # of falling into the generic internal-error branch below, which tells the caller not to retry.
+            logger.warning("Transient DB error calling tool", extra={"tool_name": tool_name, "error": str(e)})
+            capture_exception(e, properties={"tag": "mcp", "args": args_data, "retryable": True})
+            transient_error = MaxToolTransientError(f"transient database error: {e}")
+            return Response(
+                {
+                    "success": False,
+                    "content": f"Tool failed: {transient_error.to_summary()}.{transient_error.retry_hint}",
                 }
             )
         except Exception as e:
