@@ -100,9 +100,11 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_MERGE_FOLD_ENABLED: false,
             PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
             PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '',
+            PERSONLESS_WRITES_DISABLED_TEAMS: '',
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
             FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
+            EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
         },
         outputs: mockOutputs,
         teamManager: {

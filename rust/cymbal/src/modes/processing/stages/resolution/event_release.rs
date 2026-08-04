@@ -18,10 +18,10 @@ use crate::{
 
 /// Per-worker cache for event-level release resolution. Both lookups run once per exception event
 /// on the ingestion hot path, so without this a mobile app that never bound a release re-queries
-/// Postgres on every event it sends (the common negative case). A release row is immutable once
-/// the CLI creates it, so a positive hit never goes stale; caching the negative result too is what
-/// removes the per-event query, and the TTL bounds how long a miss lingers after a later dSYM
-/// upload creates the release.
+/// Postgres on every event it sends (the common negative case). The CLI never mutates a release
+/// after creating it, but the public API can update or delete one, so a positive hit can go stale;
+/// the TTL bounds that staleness, and also how long a miss lingers after a later dSYM upload
+/// creates the release. Caching the negative result too is what removes the per-event query.
 ///
 /// The two lookups key on different things — a release-row id for web builds, a reconstructed
 /// content hash for mobile builds — so they get separate caches. `try_get_with` coalesces
@@ -29,49 +29,22 @@ use crate::{
 /// than one per event. moka caches are internally Arc'd, so cloning this into each per-batch
 /// `ResolutionStage` is cheap.
 ///
-/// Both caches are bounded in bytes rather than entries: a release carries a free-form `metadata`
-/// JSON column that any client can write, so entry count says nothing about memory held.
+/// An entry-count budget is a real memory bound here because every cached record is small:
+/// `metadata` is clamped to `MAX_RELEASE_METADATA_BYTES` at fetch, and negative entries (`None`)
+/// are near-empty.
 #[derive(Clone)]
 pub struct ReleaseCache {
     by_id: Cache<(TeamId, Uuid), Option<ReleaseRecord>>,
     by_hash: Cache<(TeamId, String), Option<ReleaseRecord>>,
 }
 
-/// Charged on top of the payload for every entry, covering the key and moka's own per-entry
-/// bookkeeping. It also keeps a negative entry (`None`) from weighing nothing: misses are the
-/// high-cardinality side — one per app that never bound a release — so weightless negatives would
-/// let the cache grow without bound, which is the whole thing the byte budget exists to stop.
-const CACHE_ENTRY_OVERHEAD_BYTES: usize = 128;
-
-fn entry_weight(key_bytes: usize, value: &Option<ReleaseRecord>) -> u32 {
-    let bytes = CACHE_ENTRY_OVERHEAD_BYTES
-        + key_bytes
-        + value.as_ref().map_or(0, ReleaseRecord::approx_size_bytes);
-    bytes.try_into().unwrap_or(u32::MAX)
-}
-
 impl ReleaseCache {
-    /// `max_bytes` bounds each of the two caches independently, so the pair can hold twice that.
-    pub fn new(max_bytes: u64, ttl: Duration) -> Self {
+    /// `max_entries` bounds each of the two caches independently, so the pair can hold twice that.
+    pub fn new(max_entries: u64, ttl: Duration) -> Self {
         Self {
-            by_id: CacheBuilder::new(max_bytes)
-                .weigher(|_key, value: &Option<ReleaseRecord>| entry_weight(0, value))
-                .time_to_live(ttl)
-                .build(),
-            by_hash: CacheBuilder::new(max_bytes)
-                .weigher(|key: &(TeamId, String), value: &Option<ReleaseRecord>| {
-                    entry_weight(key.1.len(), value)
-                })
-                .time_to_live(ttl)
-                .build(),
+            by_id: CacheBuilder::new(max_entries).time_to_live(ttl).build(),
+            by_hash: CacheBuilder::new(max_entries).time_to_live(ttl).build(),
         }
-    }
-
-    /// A no-op cache for the paths that never resolve event releases (the remote resolution server
-    /// and frame-resolution tests). A zero byte budget retains nothing, but those paths never read
-    /// it anyway.
-    pub fn disabled() -> Self {
-        Self::new(0, Duration::from_secs(0))
     }
 
     async fn for_id<'c, E>(
@@ -127,7 +100,9 @@ fn record_cache_outcome(cache_type: &'static str, cache_miss: bool) {
 }
 
 /// Resolves the event-level release without going through the per-frame symbol-set join, so the
-/// release is independent of which chunks resolved the stack.
+/// release is independent of which chunks resolved the stack. Runs inside `ResolutionStage` after
+/// `resolve_batch`, so a future fallback for legacy events (which carry neither `$release_id` nor
+/// app metadata) can read the resolved frames' symbol sets.
 ///
 /// Two sources, in order of preference:
 ///   1. `$release_id` — web builds inject the release row's id, which the SDK emits verbatim. Direct
@@ -136,8 +111,8 @@ fn record_cache_outcome(cache_type: &'static str, cache_miss: bool) {
 ///      `$app_version`, and `$app_build`, which the CLI hashed into the release when it uploaded the
 ///      dSYMs. We reconstruct that hash and look the release up by it.
 ///
-/// When neither resolves, the event release stays unset and the pipeline falls back to the
-/// per-frame symbol-set join for legacy events.
+/// When neither resolves, the event release stays unset and `$exception_release` is omitted;
+/// there is no per-frame fallback yet.
 #[derive(Clone, Default)]
 pub struct EventReleaseResolver;
 
@@ -156,11 +131,6 @@ impl ValueOperator for EventReleaseResolver {
         mut evt: ExceptionEvent<Parsed>,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
-        // No pool means the remote resolution server, which never resolves event releases.
-        let Some(pool) = ctx.posthog_pool.as_ref() else {
-            return Ok(Ok(evt));
-        };
-
         let release_id = evt
             .properties()
             .get("$release_id")
@@ -170,13 +140,13 @@ impl ValueOperator for EventReleaseResolver {
         if let Some(release_id) = release_id {
             let record = ctx
                 .release_cache
-                .for_id(pool, release_id, evt.team_id())
+                .for_id(&ctx.posthog_pool, release_id, evt.team_id())
                 .await?;
             evt.set_event_release(record);
         } else if let Some(hash_id) = mobile_release_hash_from_props(evt.properties()) {
             let record = ctx
                 .release_cache
-                .for_hash(pool, &hash_id, evt.team_id())
+                .for_hash(&ctx.posthog_pool, &hash_id, evt.team_id())
                 .await?;
             evt.set_event_release(record);
         }
@@ -217,15 +187,6 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
-    }
-
-    #[test]
-    fn negative_entries_are_not_weightless() {
-        // Misses are the high-cardinality side of this cache — one per app that never bound a
-        // release — so a zero-weight `None` would let the by-hash cache grow without bound under
-        // the byte budget, which is exactly what the weigher exists to prevent.
-        assert!(entry_weight(0, &None) > 0);
-        assert!(entry_weight(128, &None) > entry_weight(0, &None));
     }
 
     #[test]

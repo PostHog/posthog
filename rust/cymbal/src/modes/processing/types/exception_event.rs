@@ -799,8 +799,7 @@ mod tests {
         let exception_list =
             exception_list_with_frames(vec![frame_with_release(Some(newer_frame_release))]);
 
-        let metadata =
-            ResolvedMetadata::from_exception_list(&exception_list, Some(&event_release));
+        let metadata = ResolvedMetadata::from_exception_list(&exception_list, Some(&event_release));
 
         let expected = serde_json::to_value(event_release.to_info()).unwrap();
         assert_eq!(serde_json::to_value(&metadata.release).unwrap(), expected);
@@ -867,12 +866,13 @@ mod tests {
             description: None,
             created_at: chrono::Utc::now(),
         };
-        let expected = serde_json::to_value(release_record("hash-abc").to_info()).unwrap();
+        let record = release_record("hash-abc");
+        let expected = serde_json::to_value(record.to_info()).unwrap();
 
         // A resolved release surfaces as `$exception_release` on both the grouping-rule projection
         // and the derived wire form.
         let mut resolved = resolved_event();
-        resolved.state.metadata.release = Some(release_record("hash-abc").to_info());
+        resolved.state.metadata.release = Some(record.to_info());
         let grouping = resolved.grouping_rule_properties();
         assert_eq!(grouping["$exception_release"], expected);
         let fingerprinted =

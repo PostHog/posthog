@@ -82,6 +82,7 @@ depends_on = [
     "products.approvals",
     "products.batch_exports",
     "products.business_knowledge",
+    "products.canvas",
     "products.cdp",
     "products.conversations",
     "products.customer_analytics",
@@ -102,6 +103,7 @@ depends_on = [
     "products.links",
     "products.ai_observability",
     "products.logs",
+    "products.managed_warehouse",
     "products.marketing_analytics",
     "products.messaging",
     "products.metrics",
@@ -260,6 +262,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.warehouse_sources_queue",
     "products.workflows",
+    "products.managed_warehouse",
 ]
 layer = "modules"
 
@@ -272,6 +275,7 @@ depends_on = [
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
     "products.warehouse_sources_queue",
+    "products.managed_warehouse",
 ]
 layer = "modules"
 
@@ -310,6 +314,7 @@ depends_on = [
     "products.data_warehouse",
     "products.product_analytics",
     "products.signals", "products.warehouse_sources",
+    "products.managed_warehouse",
 ]
 layer = "modules"
 
@@ -695,6 +700,17 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.managed_warehouse"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.data_warehouse",
+    "products.data_modeling",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.marketing_analytics"
 depends_on = [
     "ee",
@@ -713,6 +729,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
+    "products.exports",
     "products.feature_flags",
     "products.ai_observability",
     "products.mcp_store",
@@ -722,6 +739,34 @@ depends_on = [
     "products.slack_app",
 ]
 layer = "modules"
+
+[[modules]]
+path = "products.canvas"
+depends_on = [
+    "posthog",
+    # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
+    "products.tasks",
+]
+layer = "modules"
+
+# Canvas's public surface: routes + presentation for the API layer, tasks for
+# the Celery registrations posthog/tasks/scheduled.py imports.
+[[interfaces]]
+expose = [
+    "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.artifacts.*",
+    "backend\\.tasks.*",
+]
+from = [
+    "products.canvas",
+]
 
 [[modules]]
 path = "products.tracing"
@@ -776,6 +821,7 @@ depends_on = [
     "products.actions",
     "products.cdp",
     "products.feature_flags",
+    "products.messaging",
     "products.notifications",
 ]
 layer = "modules"
@@ -789,7 +835,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
