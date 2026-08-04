@@ -35862,6 +35862,11 @@
                     "$ref": "#/definitions/PathsV2Anchor",
                     "description": "Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead."
                 },
+                "applyTeamPathCleaning": {
+                    "default": true,
+                    "description": "Apply the team's path cleaning rules to naming property values before they become path items.",
+                    "type": "boolean"
+                },
                 "collapseRepeats": {
                     "default": true,
                     "description": "Merge immediate repeats of the same path item within a journey.",
@@ -35876,6 +35881,14 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
                     "default": "minute"
                 },
+                "excludedItems": {
+                    "description": "Path items dropped from the item universe: events deriving to one of these items are ignored as if their event were not a step source, on both the paths side and the \"view as funnel\" side.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Item"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                },
                 "gapInterval": {
                     "default": 30,
                     "description": "Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds.",
@@ -35884,6 +35897,13 @@
                 "gapIntervalUnit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
                     "default": "minute"
+                },
+                "localPathCleaningFilters": {
+                    "description": "Path cleaning rules for this insight only, applied after the team's rules.",
+                    "items": {
+                        "$ref": "#/definitions/PathCleaningFilter"
+                    },
+                    "type": "array"
                 },
                 "maxRowsPerStep": {
                     "default": 3,

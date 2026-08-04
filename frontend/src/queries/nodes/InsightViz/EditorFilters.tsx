@@ -39,6 +39,8 @@ import {
     PathType,
 } from '~/types'
 
+import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
+import { JourneysSettings } from 'products/product_analytics/frontend/insights/journeys/JourneysSettings'
 import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'
 
 import { Breakdown } from './Breakdown'
@@ -71,6 +73,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isTrendsLike,
         display,
         pathsFilter,
+        pathsV2Filter,
         querySource,
         series,
         breakdownFilter,
@@ -120,7 +123,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const seriesSummary = getSeriesSummary(series)
     const filtersSummary = getFiltersSummary(properties)
     const breakdownSummary = getBreakdownSummary(breakdownFilter)
-    const exclusionCount = isPaths ? (pathsFilter?.excludeEvents?.length ?? 0) : 0
+    const exclusionCount = isPaths
+        ? (pathsFilter?.excludeEvents?.length ?? 0)
+        : isPathsV2
+          ? (pathsV2Filter?.excludedItems?.length ?? 0)
+          : 0
     const exclusionsSummary = exclusionCount > 0 ? pluralize(exclusionCount, 'exclusion') : null
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
@@ -154,8 +161,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 { key: 'event-types', label: 'Event Types', component: PathsEventsTypes, show: isPaths },
                 {
                     key: 'step-source',
-                    label: 'Step source',
-                    tooltip: <>The events that can appear as steps in a journey.</>,
+                    label: 'Step sources',
+                    tooltip: (
+                        <>
+                            The events that can appear as steps in a journey. Each source is an event, optionally named
+                            by a property: page views named by their URL path, for example.
+                        </>
+                    ),
                     component: JourneysStepSourcePicker,
                     show: isPathsV2,
                 },
@@ -202,10 +214,17 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
-            title: isFunnels ? 'Funnel settings' : isPaths ? 'Path settings' : 'Advanced options',
+            title: isFunnels
+                ? 'Funnel settings'
+                : isPaths
+                  ? 'Path settings'
+                  : isPathsV2
+                    ? 'Journey settings'
+                    : 'Advanced options',
             defaultExpanded: false,
             editorFilters: visibleFilters([
                 { key: 'paths-advanced', component: PathsAdvanced, show: isPaths },
+                { key: 'journeys-settings', component: JourneysSettings, show: isPathsV2 },
                 {
                     key: 'funnel-step-configuration',
                     component: FunnelStepConfiguration,
@@ -359,6 +378,18 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     ),
                     component: PathsExclusions,
                     show: isPaths,
+                },
+                {
+                    key: 'journeys-exclusions',
+                    label: 'Exclusions',
+                    tooltip: (
+                        <>
+                            Exclude specific path items. Their events are ignored entirely, on the chart and in any
+                            funnel created from it.
+                        </>
+                    ),
+                    component: JourneysExclusions,
+                    show: isPathsV2,
                 },
             ]),
         },
