@@ -428,6 +428,11 @@ jobs:
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
+            # Dedicated app: every "Mint setup-action GitHub token" step in this file
+            # draws on posthog-devex-general rather than the posthog-setup-actions app
+            # the other workflows share. Backend CI is the largest single consumer of
+            # setup-action calls in the repo, enough to threaten a shared 15k/hr bucket
+            # at merge peaks, so it gets one to itself.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
