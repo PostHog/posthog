@@ -529,6 +529,18 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
+    dashboards-groups-create:
+        operation: dashboards_groups_create
+        enabled: false
+    dashboards-groups-delete-create:
+        operation: dashboards_groups_delete_create
+        enabled: false
+    dashboards-groups-move-tile-create:
+        operation: dashboards_groups_move_tile_create
+        enabled: false
+    dashboards-groups-update-partial-update:
+        operation: dashboards_groups_update_partial_update
+        enabled: false
     dashboards-move-tile-create:
         operation: dashboards_move_tile_create
         enabled: false
