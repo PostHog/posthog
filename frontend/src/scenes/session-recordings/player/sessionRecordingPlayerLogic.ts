@@ -3100,14 +3100,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const htmlChars = rawIframeHtml.length
+            const html = stripRrwebScriptShims(rawIframeHtml)
+            const htmlChars = html.length
             if (htmlChars > MAX_REPLAY_IFRAME_HTML_CHARS) {
                 rejectHeatmapSnapshot('too_large', htmlChars)
                 return
             }
 
             const data: ReplayIframeData = {
-                html: stripRrwebScriptShims(rawIframeHtml),
+                html,
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
