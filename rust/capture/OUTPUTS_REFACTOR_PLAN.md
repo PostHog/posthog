@@ -249,26 +249,26 @@ When all steps land, the five strata hold:
 | 1 · Routing golden oracle | done | `test(capture): consolidate routing golden oracle with headers and counters` |
 | 2 · Pure `route()` | done | `refactor(capture): extract pure route() from prepare_record` |
 | 3 · `OutputRegistry` + completeness | done | `refactor(capture): output registry with startup completeness check` |
-| 4 · Serialization layer | done | `refactor(capture): serialization layer — format and envelope behind one seam` |
-| 5 · `Pipeline` + `Lane`; lane resolution | done | `refactor(capture): pipeline and lane address; lane decision moves to the pipeline layer` |
-| 6 · Kafka sink → backend mechanism | done | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
-| 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns failover and split policies` |
-| 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
-| 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
-| 9 · Mode-scoped completeness | done | `refactor(capture): mode-scoped output registry completeness` |
-| 10 · Breaker mode (dark) | done | `feat(capture): breaker-driven failover mode (dark)` |
-| 11 · v1 convergence | done | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
-| 12 · Prep hoist; `Prepare` retired | done | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
-| 13 · Typed addresses; AI pipeline | done | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
-| 14 · Sinks realize namespaces | done | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
-| 15 · Per-mode output tables | done | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |
-| 16 · AI ingress family | done | `feat(capture): ai ingress is its own router family with its own capability` |
-| 17 · Topic tables injected into sinks | done | `refactor(capture): topic tables are sink-side data, injected at construction` |
-| 18 · Per-pipeline output overrides; boot topic verification | done | `feat(capture): per-pipeline output overrides and boot topic verification` |
-| 19a · Naming and import hygiene | done | `refactor(capture): replace remaining nested paths with imports` + `refactor(capture): name the session replay pipeline consistently` |
-| 19b · Outputs as an open trait; sinks pure transport | done | `refactor(capture): outputs own namespace realization; Outputs becomes an open trait` |
-| 19c · Dynamic outputs prototype | done | `feat(capture): prototype dynamic outputs with incremental switchover (test-only)` |
-| 19d · Per-event publish results | done | `refactor(capture): Outputs::publish reports per-event results` |
-| 20a · v1 boundary mapping + parity oracle | done | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
-| 20b · v1 publishes through shared outputs | done | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
-| 20c · Legacy v1 sink stack deleted | done | `refactor(capture): delete the legacy v1 sink stack` |
+| 4 · Serialization layer | pending | `refactor(capture): serialization layer — format and envelope behind one seam` |
+| 5 · `Pipeline` + `Lane`; lane resolution | pending | `refactor(capture): pipeline and lane address; lane decision moves to the pipeline layer` |
+| 6 · Kafka sink → backend mechanism | pending | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
+| 7 · Outputs layer with policies; composites retired | pending | `feat(capture): outputs layer owns failover and split policies` |
+| 8a · Call sites on the table | pending | `refactor(capture): call sites publish through outputs` |
+| 8b · `Event` retired | pending | `refactor(capture): retire v0 Event trait` |
+| 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
+| 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
+| 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
+| 12 · Prep hoist; `Prepare` retired | pending | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
+| 13 · Typed addresses; AI pipeline | pending | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
+| 14 · Sinks realize namespaces | pending | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
+| 15 · Per-mode output tables | pending | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |
+| 16 · AI ingress family | pending | `feat(capture): ai ingress is its own router family with its own capability` |
+| 17 · Topic tables injected into sinks | pending | `refactor(capture): topic tables are sink-side data, injected at construction` |
+| 18 · Per-pipeline output overrides; boot topic verification | pending | `feat(capture): per-pipeline output overrides and boot topic verification` |
+| 19a · Naming and import hygiene | pending | `refactor(capture): replace remaining nested paths with imports` + `refactor(capture): name the session replay pipeline consistently` |
+| 19b · Outputs as an open trait; sinks pure transport | pending | `refactor(capture): outputs own namespace realization; Outputs becomes an open trait` |
+| 19c · Dynamic outputs prototype | pending | `feat(capture): prototype dynamic outputs with incremental switchover (test-only)` |
+| 19d · Per-event publish results | pending | `refactor(capture): Outputs::publish reports per-event results` |
+| 20a · v1 boundary mapping + parity oracle | pending | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
+| 20b · v1 publishes through shared outputs | pending | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
+| 20c · Legacy v1 sink stack deleted | pending | `refactor(capture): delete the legacy v1 sink stack` |
