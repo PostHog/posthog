@@ -121,8 +121,6 @@ type MatchedJob = {
     stepMatched: boolean
     conversionMatched: boolean
     exitsOnConversion: boolean
-    // Live version of the workflow at match time, so the conversion metric and event can be attributed
-    // to the config that was running when the person converted.
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string

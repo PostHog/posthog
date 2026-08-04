@@ -363,9 +363,10 @@ export type HogFlowInvocationContext = {
     // applied; the matcher rejects any repoint whose version isn't strictly greater, so an out-of-order
     // older move can't rewind the wait onto an obsolete person.
     personIdRepointVersion?: number
-    // Version of the workflow this run started under. Attribution has to use this rather than the
-    // currently published version: a conversion arriving after a republish belongs to the version
-    // whose message the person actually received, not whatever is live when they convert.
+    // Version this run's conversions attribute to: the one that sent the last message, or the one
+    // the run started under if it hasn't sent yet. Never the currently published version — a
+    // conversion arriving after a republish belongs to the version whose message the person
+    // actually received, not whatever happens to be live when they convert.
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number

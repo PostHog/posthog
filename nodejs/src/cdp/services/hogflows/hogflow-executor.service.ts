@@ -84,9 +84,10 @@ export function createHogFlowInvocation(
             event: globals.event,
             actionStepCount: 0,
             variables: mergedVariables,
-            // Pinned at run start and persisted with the state, because the flow itself isn't: the
+            // Seeded at run start and persisted with the state, because the flow itself isn't: the
             // job is re-loaded by functionId on every resume, so by the time a conversion lands the
-            // manager may be serving a newer version. Attribution reads this, not the live flow.
+            // manager may be serving a newer version. A message step re-pins this to the version
+            // that actually sent (see HogFunctionHandler); until then this is the best answer.
             flowVersion: hogFlow.version,
         },
         teamId: hogFlow.team_id,

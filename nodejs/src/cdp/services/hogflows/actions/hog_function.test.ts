@@ -496,6 +496,41 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    // Live edits reach runs already in flight, so a run that entered on one version can send its
+    // message under a newer one. The conversion belongs to the version whose message the person
+    // received — the same version `email_sent` is counted under — so a send re-pins the attribution
+    // version. A non-message step must leave it alone.
+    it.each([
+        { billingType: 'email' as const, expected: 3 },
+        { billingType: 'push' as const, expected: 3 },
+        { billingType: 'fetch' as const, expected: 1 },
+    ])(
+        'a completed $billingType step leaves the attribution version at $expected',
+        async ({ billingType, expected }) => {
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType
+            )
+            // The run entered on v1; v3 is what is live now and what this step executes under.
+            const republished = {
+                ...invocation,
+                hogFlow: { ...invocation.hogFlow, version: 3 },
+                state: { ...invocation.state, flowVersion: 1 },
+            }
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await handler.execute({ invocation: republished, action, result: invocationResult })
+
+            expect(invocationResult.invocation.state.flowVersion).toBe(expected)
+        }
+    )
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
