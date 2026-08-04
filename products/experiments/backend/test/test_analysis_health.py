@@ -102,3 +102,20 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert result is not None
         self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+
+    def test_small_smaller_arm_returns_none_even_above_percentage_threshold(self):
+        # A single day-one `$multiple` user out of ~200 total exposures is 0.5%, well
+        # above MULTIPLE_VARIANT_BIAS_THRESHOLD, but the smaller ("test") arm has only
+        # 39 observed exposures — nowhere near enough to say the split caused bias.
+        result = evaluate_bias_risk(
+            UNEVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 160, "test": 39, "$multiple": 1}
+        )
+        self.assertIsNone(result)
+
+    def test_smaller_arm_at_minimum_boundary_is_not_gated(self):
+        # Smaller arm exactly at MIN_SMALLER_ARM_EXPOSURES_FOR_BIAS_RISK (100) should
+        # still be evaluated, not gated out.
+        result = evaluate_bias_risk(
+            UNEVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 800, "test": 100, "$multiple": 20}
+        )
+        self.assertIsNotNone(result)

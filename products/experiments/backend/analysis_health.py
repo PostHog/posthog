@@ -16,6 +16,13 @@ MULTIPLE_VARIANT_KEY = "$multiple"
 # exclusion effect on arm means is too small to matter in practice.
 MULTIPLE_VARIANT_BIAS_THRESHOLD = 0.1  # on the 0-100 scale (0.1 = 0.1%)
 
+# Minimum observed exposures required in the smallest variant arm before the bias
+# percentage means anything. The exclusion bias lands on the smaller arm specifically,
+# so gating on the total (the way SRM_MINIMUM_SAMPLE_SIZE does) isn't enough: a total
+# that clears a low bar can still hide a tiny smaller arm where a single `$multiple`
+# exclusion swings the percentage past the threshold on noise alone.
+MIN_SMALLER_ARM_EXPOSURES_FOR_BIAS_RISK = 100
+
 
 def evaluate_bias_risk(
     flag_variants: list[dict] | None,
@@ -38,10 +45,11 @@ def evaluate_bias_risk(
     if is_evenly_distributed(rollout_percentages):
         return None
 
-    total_observed = sum(total_exposures.values())
-    if total_observed <= 0:
+    arm_exposures = {key: count for key, count in total_exposures.items() if key != MULTIPLE_VARIANT_KEY}
+    if not arm_exposures or min(arm_exposures.values()) < MIN_SMALLER_ARM_EXPOSURES_FOR_BIAS_RISK:
         return None
 
+    total_observed = sum(total_exposures.values())
     multiple_observed = total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
     multiple_variant_percentage = (multiple_observed / total_observed) * 100
     if multiple_variant_percentage <= MULTIPLE_VARIANT_BIAS_THRESHOLD:

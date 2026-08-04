@@ -534,39 +534,44 @@ export function Exposures(): JSX.Element {
                                             },
                                         ]}
                                     />
-                                    {exposures?.sample_ratio_mismatch != null && (
-                                        <div className="flex items-center gap-1 text-xs mt-2">
-                                            {hasSRM ? (
-                                                <>
-                                                    <Tooltip title={srmFailureTooltipText}>
-                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                            <IconWarning className="text-sm" />
-                                                            <span className="font-semibold">
-                                                                Sample ratio mismatch detected
-                                                            </span>
-                                                        </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
+                                    <div className="flex items-center gap-1 text-xs mt-2">
+                                        {exposures?.sample_ratio_mismatch == null ? (
+                                            <Tooltip title="We check for a sample ratio mismatch once there are enough exposures to tell signal from noise.">
+                                                <span className="flex items-center gap-1 text-secondary cursor-pointer">
+                                                    <IconInfo className="text-sm" />
+                                                    <span>
+                                                        Not enough exposures yet to check for a sample ratio mismatch
                                                     </span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
-                                                        <span className="flex items-center gap-1 text-success cursor-pointer">
-                                                            <IconCheckCircle className="text-sm" />
-                                                            <span>
-                                                                Exposure distribution matches rollout percentages
-                                                            </span>
+                                                </span>
+                                            </Tooltip>
+                                        ) : hasSRM ? (
+                                            <>
+                                                <Tooltip title={srmFailureTooltipText}>
+                                                    <span className="flex items-center gap-1 text-warning cursor-pointer">
+                                                        <IconWarning className="text-sm" />
+                                                        <span className="font-semibold">
+                                                            Sample ratio mismatch detected
                                                         </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
                                                     </span>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
+                                                </Tooltip>
+                                                <span className="text-muted">
+                                                    (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
+                                                    <span className="flex items-center gap-1 text-success cursor-pointer">
+                                                        <IconCheckCircle className="text-sm" />
+                                                        <span>Exposure distribution matches rollout percentages</span>
+                                                    </span>
+                                                </Tooltip>
+                                                <span className="text-muted">
+                                                    (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>
