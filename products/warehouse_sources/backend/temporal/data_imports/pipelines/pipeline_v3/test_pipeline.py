@@ -4,6 +4,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    ImportJobModels,
+)
 
 
 def _make_logger() -> MagicMock:
@@ -125,11 +128,8 @@ class TestAttemptScopedRunUuid:
                 job_id="job-1",
                 reset_pipeline=False,
                 shutdown_monitor=MagicMock(),
-                job=mock_job,
-                schema=mock_schema,
-                source=mock_source,
-                table=None,
                 resumable_source_manager=None,
+                models=ImportJobModels(job=mock_job, schema=mock_schema, source=mock_source, table=None),
             )
 
         assert pipeline._attempt == 3

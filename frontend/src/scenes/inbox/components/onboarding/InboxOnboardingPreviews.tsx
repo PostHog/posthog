@@ -29,7 +29,7 @@ const PULL_REQUEST_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
     id: 'onboarding-preview-pr',
     title: 'fix(compression): stop 4K streams dropping to single-threaded encode',
     summary:
-        'Middle-out throughput fell 41% above 2160p after the Anton migration – the Weissman score slid from 5.2 to 2.9 and p95 encode time tripled. This repins the chunk scheduler and restores both to pre-migration numbers.',
+        'Middle-out throughput fell 41% above 2160p after the Anton migration. The Weissman score slid from 5.2 to 2.9 and p95 encode time tripled. This repins the chunk scheduler and restores both to pre-migration numbers.',
     status: SignalReportStatus.READY,
     total_weight: 0,
     signal_count: 3,
@@ -44,9 +44,9 @@ const PULL_REQUEST_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
 // A "needs your call" report: no clean code change, a judgment to make.
 const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
     id: 'onboarding-preview-report',
-    title: 'Hooli traffic is hammering the Pipernet beta – throttle or let it ride?',
+    title: 'Hooli traffic is hammering the Pipernet beta. Throttle or let it ride?',
     summary:
-        "Sign-ups from Hooli IP ranges jumped 6× overnight and mostly bounce at onboarding. Could be Gavin's team load-testing us, or real interest worth keeping – worth your call before we rate-limit.",
+        "Sign-ups from Hooli IP ranges jumped 6× overnight and mostly bounce at onboarding. This could be Gavin's team load-testing us or real interest worth keeping. Review it before we rate-limit.",
     status: SignalReportStatus.READY,
     total_weight: 0,
     signal_count: 5,
