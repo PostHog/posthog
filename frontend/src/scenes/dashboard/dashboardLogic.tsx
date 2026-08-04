@@ -2210,7 +2210,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 dashboardNotFound: () => true,
+                loadDashboard: () => false,
+                loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
+                loadDashboardMetadataSuccess: () => false,
                 loadDashboardFailure: () => false,
             },
         ],

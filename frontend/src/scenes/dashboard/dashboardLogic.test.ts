@@ -1220,6 +1220,26 @@ describe('dashboardLogic', () => {
             expect(logic.values.error404).toBe(true)
         })
 
+        it('clears NotFound when a streaming retry starts or delivers metadata', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(false)
+
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            expect(logic.values.error404).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.error404).toBe(false)
+        })
+
         it('routes a 403 status to access denied and other errors to a toast', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
