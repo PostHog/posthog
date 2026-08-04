@@ -33,6 +33,8 @@ export interface DataModelingJobApi {
     readonly error: string | null
     readonly created_at: string
     readonly last_run_at: string
+    /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+    readonly updated_at: string
     /** @nullable */
     readonly workflow_id: string | null
     /** @nullable */
@@ -2600,6 +2602,9 @@ export interface CredentialApi {
  * * `Airbridge` - Airbridge
  * * `Snovio` - Snovio
  * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3882,6 +3887,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Airbridge: 'Airbridge',
     Snovio: 'Snovio',
     GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

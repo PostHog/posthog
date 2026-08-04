@@ -3,6 +3,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
+import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
@@ -106,10 +107,38 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
     [channelId, fileTask, navigate, queryClient],
   );
 
+  // Retargeting navigates to that space's own new-task route; the composer's
+  // draft lives in the shared "task-input" draft store, so text typed before
+  // switching survives the navigation.
+  const handleSpaceChange = useCallback(
+    (nextChannelId: string) => {
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "new_task_open",
+        surface: "new_task",
+        channel_id: nextChannelId,
+      });
+      void navigate({
+        to: "/website/$channelId/new",
+        params: { channelId: nextChannelId },
+      });
+    },
+    [navigate],
+  );
+
   return (
     <Flex className="h-full min-w-0 flex-1">
       <div className="min-w-0 flex-1">
         <TaskInput
+          // Beside the Cloud/Local chip: which space the task files into.
+          // Arriving from a space's own "+" this is pre-filled; the global
+          // new-task entry points land on #me.
+          spaceSelector={({ disabled }) => (
+            <SpaceSelect
+              value={channelId}
+              onChange={handleSpaceChange}
+              disabled={disabled}
+            />
+          )}
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
           channelName={channelName}

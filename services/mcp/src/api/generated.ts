@@ -9271,6 +9271,11 @@ export namespace Schemas {
       Agents: 'agents',
     } as const;
 
+    export interface ApplyPathCleaningSuggestionResponse {
+      /** Number of rules merged into the team's path_cleaning_filters. */
+      applied: number;
+    }
+
     /**
      * * `members` - members
      * * `agents` - agents
@@ -9502,13 +9507,13 @@ export namespace Schemas {
     }
 
     export interface AuditCounts {
-      /** Every audited tool call. */
+      /** Every audited tool call visible to the requesting user. */
       all: number;
-      /** Calls made by service accounts. */
+      /** Visible calls made by service accounts. */
       agents: number;
-      /** Calls that were approved or are awaiting approval. */
+      /** Visible calls that were approved or are awaiting approval. */
       approvals: number;
-      /** Calls the gateway blocked. */
+      /** Visible calls the gateway blocked. */
       blocked: number;
     }
 
@@ -12515,6 +12520,34 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    export interface BulkOptOutEntry {
+      /**
+         * The recipient identifier to opt out (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Message category key for this recipient. Overrides the request-level category_key. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsRequest {
+      /** Recipients to opt out, at most 1000 per request. */
+      opt_outs: BulkOptOutEntry[];
+      /** Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages. */
+      category_key?: string;
+    }
+
+    export interface BulkAddOptOutsResult {
+      /** Number of opt-out entries received. */
+      total: number;
+      /** Number of recipient and category pairs recorded as opted out. */
+      opted_out: number;
+      /** Number of entries skipped because their category_key doesn't exist. */
+      skipped: number;
+      /** The first few entry-level problems, so the caller can fix their list. */
+      errors: string[];
+    }
+
     /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
@@ -13223,6 +13256,18 @@ export namespace Schemas {
       issues: UtmIssue[];
     }
 
+    export type MatchField = typeof MatchField[keyof typeof MatchField];
+
+
+    export const MatchField = {
+      CampaignName: 'campaign_name',
+      CampaignId: 'campaign_id',
+    } as const;
+
+    export interface CampaignFieldPreference {
+      match_field: MatchField;
+    }
+
     export interface CampaignMappingSuggestion {
       /** Integration key the campaign values belong to */
       integration: string;
@@ -13289,7 +13334,6 @@ export namespace Schemas {
       readonly pinned: boolean;
       /** @nullable */
       readonly pinned_at: string | null;
-      readonly is_home: boolean;
       /**
          * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
          * @nullable
@@ -13494,8 +13538,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
-      /** Create the canvas as the channel's home board (at most one per channel). */
-      is_home?: boolean;
     }
 
     /**
@@ -13907,6 +13949,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `certified` - certified
+     * * `deprecated` - deprecated
+     */
+    export type ProposedStatusEnum = typeof ProposedStatusEnum[keyof typeof ProposedStatusEnum];
+
+
+    export const ProposedStatusEnum = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    /**
      * Input for proposing a certification: address the target by id or (convenience) by name.
      */
     export interface CertificationCreate {
@@ -13920,6 +13974,11 @@ export namespace Schemas {
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
+      /** Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).
+       *
+       * * `certified` - certified
+       * * `deprecated` - deprecated */
+      proposed_status?: ProposedStatusEnum;
     }
 
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
@@ -17183,6 +17242,8 @@ export namespace Schemas {
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
+      /** The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled. */
+      readonly proposed_status: string;
       /** Why this mark exists, e.g. 'canonical MRR source'. */
       notes?: string;
       /** User who last set certified/deprecated, or null. */
@@ -17463,6 +17524,8 @@ export namespace Schemas {
       readonly error: string | null;
       readonly created_at: string;
       readonly last_run_at: string;
+      /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+      readonly updated_at: string;
       /** @nullable */
       readonly workflow_id: string | null;
       /** @nullable */
@@ -19470,6 +19533,9 @@ export namespace Schemas {
      * * `Airbridge` - Airbridge
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
+     * * `Raisely` - Raisely
+     * * `WindsorAi` - WindsorAi
+     * * `Wix` - Wix
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20752,6 +20818,9 @@ export namespace Schemas {
       Airbridge: 'Airbridge',
       Snovio: 'Snovio',
       GoogleMerchantCenter: 'GoogleMerchantCenter',
+      Raisely: 'Raisely',
+      WindsorAi: 'WindsorAi',
+      Wix: 'Wix',
     } as const;
 
     /**
@@ -22047,7 +22116,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -23956,7 +24028,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31367,7 +31442,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -32681,7 +32759,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -33975,6 +34056,42 @@ export namespace Schemas {
       config_id?: string | null;
       /** Period the brief should cover. Defaults to the last 7 days. */
       period?: Period;
+    }
+
+    export interface SuggestedRule {
+      /** re2 pattern matching the dynamic path segment. */
+      regex: string;
+      /** Replacement with angle-bracket placeholders, e.g. /users/<id>. */
+      alias: string;
+      /** Apply order; rules run sequentially, output feeds the next. */
+      order: number;
+      /** How many of the sampled paths this rule rewrites — evidence the rule was validated on real traffic. */
+      match_count: number;
+    }
+
+    /**
+     * A path-cleaning suggestion, stored as a `path_cleaning_suggestions` health issue.
+     */
+    export interface PathCleaningSuggestionIssue {
+      /** Health-issue id; pass it to the apply endpoint or the health-issues API. */
+      id: string;
+      /** When the suggestion was generated (ISO 8601). */
+      created_at: string;
+      /** Validated path-cleaning rules proposed for this team, most specific first. */
+      rules: SuggestedRule[];
+      /** LLM that generated the rules. */
+      model: string;
+      /** How many real paths were sampled for generation. */
+      sampled_path_count: number;
+      /** Distinct pathnames seen in the sampling window. */
+      distinct_path_count: number;
+    }
+
+    export interface GeneratePathCleaningSuggestionResponse {
+      /** generated, skipped_low_cardinality, skipped_no_paths, skipped_configured, or error. */
+      status: string;
+      /** The stored suggestion when status is generated, else null. */
+      suggestion?: PathCleaningSuggestionIssue | null;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -42235,6 +42352,156 @@ export namespace Schemas {
       snapshot_id: string;
     }
 
+    export type MarketingAnalyticsActionConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsActionConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from an action.
+     */
+    export interface MarketingAnalyticsActionConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      id: number;
+      kind: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsActionConversionGoalResponse;
+      schema_map: MarketingAnalyticsActionConversionGoalSchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * Mapping of integration type to the campaign field used when matching campaigns.
+     */
+    export interface MarketingAnalyticsCampaignFieldPreferences {[key: string]: CampaignFieldPreference}
+
+    /**
+     * Mapping of integration type to canonical campaign name to the aliases folded into it.
+     */
+    export interface MarketingAnalyticsCampaignNameMappings {[key: string]: {[key: string]: string[]}}
+
+    export type MarketingAnalyticsEventConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsEventConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from events.
+     */
+    export interface MarketingAnalyticsEventConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      /** The event or `null` for all events. */
+      event?: string | null;
+      kind: 'EventsNode';
+      limit?: number | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      /** Columns to order by */
+      orderBy?: string[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsEventConversionGoalResponse;
+      schema_map: MarketingAnalyticsEventConversionGoalSchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type MarketingAnalyticsWarehouseConversionGoalResponse = { [key: string]: unknown } | null;
+
+    export type MarketingAnalyticsWarehouseConversionGoalSchemaMap = {[key: string]: string | unknown};
+
+    /**
+     * A conversion goal counted from a data warehouse table.
+     */
+    export interface MarketingAnalyticsWarehouseConversionGoal {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      distinct_id_field: string;
+      dw_source_type?: string | null;
+      id: string;
+      id_field: string;
+      kind: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name: string;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
+      response?: MarketingAnalyticsWarehouseConversionGoalResponse;
+      schema_map: MarketingAnalyticsWarehouseConversionGoalSchemaMap;
+      table_name: string;
+      timestamp_field: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * The conversion goals configured for marketing analytics, in display order.
+     */
+    export type MarketingAnalyticsConversionGoalList = (MarketingAnalyticsEventConversionGoal | MarketingAnalyticsActionConversionGoal | MarketingAnalyticsWarehouseConversionGoal)[];
+
+    /**
+     * Mapping of integration type to the custom UTM source values folded into it.
+     */
+    export interface MarketingAnalyticsCustomSourceMappings {[key: string]: string[]}
+
+    export interface SourceMap {
+      ad_group_id?: string | null;
+      ad_group_name?: string | null;
+      ad_id?: string | null;
+      ad_name?: string | null;
+      campaign?: string | null;
+      clicks?: string | null;
+      cost?: string | null;
+      currency?: string | null;
+      date?: string | null;
+      id?: string | null;
+      impressions?: string | null;
+      reported_conversion?: string | null;
+      reported_conversion_value?: string | null;
+      source?: string | null;
+    }
+
+    /**
+     * Mapping of external data source id to that source's column mapping.
+     */
+    export interface MarketingAnalyticsSourceMapping {[key: string]: SourceMap}
+
     export interface MarketingDiagnosticResponse {
       /** Per-integration cross-domain diagnostics */
       integrations: IntegrationDiagnostic[];
@@ -42566,6 +42833,11 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+    }
+
+    export interface MessagingError {
+      /** Human-readable description of what went wrong. */
+      error: string;
     }
 
     /**
@@ -44261,6 +44533,8 @@ export namespace Schemas {
 
     /**
      * * `opened` - OPENED
+     * * `ready_for_review` - READY_FOR_REVIEW
+     * * `converted_to_draft` - CONVERTED_TO_DRAFT
      * * `ci_started` - CI_STARTED
      * * `ci_finished` - CI_FINISHED
      * * `merged` - MERGED
@@ -44271,6 +44545,8 @@ export namespace Schemas {
 
     export const PRLifecycleEventKindEnum = {
       Opened: 'opened',
+      ReadyForReview: 'ready_for_review',
+      ConvertedToDraft: 'converted_to_draft',
       CiStarted: 'ci_started',
       CiFinished: 'ci_finished',
       Merged: 'merged',
@@ -44278,9 +44554,11 @@ export namespace Schemas {
     } as const;
 
     export interface PRLifecycleEvent {
-      /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+      /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
        *
        * * `opened` - OPENED
+       * * `ready_for_review` - READY_FOR_REVIEW
+       * * `converted_to_draft` - CONVERTED_TO_DRAFT
        * * `ci_started` - CI_STARTED
        * * `ci_finished` - CI_FINISHED
        * * `merged` - MERGED
@@ -44289,7 +44567,7 @@ export namespace Schemas {
       /** When the event occurred. */
       at: string;
       /**
-         * Optional detail, e.g. workflow name and conclusion for CI events.
+         * Optional detail: workflow name and conclusion for CI events, the acting user's login for draft/ready transitions.
          * @nullable
          */
       detail?: string | null;
@@ -45550,6 +45828,26 @@ export namespace Schemas {
       results: ObjectMediaPreview[];
     }
 
+    /**
+     * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+     * {count, next, previous, results} envelope instead of an untyped object.
+     */
+    export interface PaginatedOptOuts {
+      /** Total number of opted-out recipients for the category. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      results: MessagePreferences[];
+    }
+
     export interface PaginatedOrganizationDomainList {
       count: number;
       /** @nullable */
@@ -46381,6 +46679,8 @@ export namespace Schemas {
       description: string;
       /** JSON Schema describing the tool's input arguments. */
       input_schema: ResolvedToolPolicyInputSchema;
+      /** Whether the canonical gateway heuristic treats this tool as destructive. */
+      is_destructive: boolean;
       /** Effective state for the scope.
        *
        * * `approved` - Approved
@@ -54337,17 +54637,30 @@ export namespace Schemas {
     }
 
     export interface TeamMarketingAnalyticsConfig {
-      sources_map?: unknown;
-      conversion_goals?: unknown;
+      /** Column mapping per external data source, keyed by source id. Tells marketing analytics which column holds campaign, source, cost, clicks and impressions for that source. */
+      sources_map?: MarketingAnalyticsSourceMapping;
+      /** Conversion goals to attribute against, in display order. Each goal points at an event, an action or a data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the timestamp and the distinct id. Replaces the whole list on write. */
+      conversion_goals?: MarketingAnalyticsConversionGoalList;
       /**
+         * How many days back a touchpoint can be credited for a conversion. Between 1 and 90.
          * @minimum 1
          * @maximum 90
          */
       attribution_window_days?: number;
+      /** How credit is split across touchpoints when a person saw several campaigns before converting.
+       *
+       * * `first_touch` - First Touch
+       * * `last_touch` - Last Touch
+       * * `linear` - Linear
+       * * `time_decay` - Time Decay
+       * * `position_based` - Position Based */
       attribution_mode?: AttributionModeEnum;
-      campaign_name_mappings?: unknown;
-      custom_source_mappings?: unknown;
-      campaign_field_preferences?: unknown;
+      /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
+      campaign_name_mappings?: MarketingAnalyticsCampaignNameMappings;
+      /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
+      custom_source_mappings?: MarketingAnalyticsCustomSourceMappings;
+      /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
+      campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
     }
 
     export interface TeamCustomerAnalyticsConfig {
@@ -57862,6 +58175,15 @@ export namespace Schemas {
       variants?: unknown;
     }
 
+    export interface PathCleaningPreviewExample {
+      /** A real sampled path before the suggested rules are applied. */
+      before: string;
+      /** The same path after all suggested rules run in order. */
+      after: string;
+      /** Pageviews this path received in the sampling window. */
+      views: number;
+    }
+
     export interface PauseResponse {
       /** Always 'paused'. */
       status: string;
@@ -58284,6 +58606,15 @@ export namespace Schemas {
       emailable: boolean;
       /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
+    }
+
+    export interface PreviewPathCleaningSuggestionResponse {
+      /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
+      examples: PathCleaningPreviewExample[];
+      /** How many of the sampled paths the suggested rules rewrite in total. */
+      changed_path_count: number;
+      /** How many top paths were sampled for this preview. */
+      sampled_path_count: number;
     }
 
     /**
@@ -60303,6 +60634,11 @@ export namespace Schemas {
          * @nullable
          */
       open_to_merge_seconds: number | null;
+      /**
+         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+         * @nullable
+         */
+      ready_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
       /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
@@ -65078,7 +65414,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. */
       origin: string;
     }
 
@@ -65303,6 +65639,18 @@ export namespace Schemas {
       /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
       send_async?: boolean;
     }
+
+    /**
+     * * `positive` - positive
+     * * `negative` - negative
+     */
+    export type SentimentEnum = typeof SentimentEnum[keyof typeof SentimentEnum];
+
+
+    export const SentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
 
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to grant or revoke. */
@@ -65633,6 +65981,24 @@ export namespace Schemas {
       not_found_count: number;
     }
 
+    export interface SignalReportFeedbackRequest {
+      /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
+       *
+       * * `positive` - positive
+       * * `negative` - negative */
+      sentiment: SentimentEnum;
+      /**
+         * Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.
+         * @maxLength 4000
+         */
+      note: string;
+    }
+
+    export interface SignalReportFeedbackResponse {
+      /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
+      forwarded: boolean;
+    }
+
     export interface SignalReportRefundRequest {
       /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
        *
@@ -65691,6 +66057,8 @@ export namespace Schemas {
       credited_credits: number;
       /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
       period_billable_credits: number;
+      /** Whether autonomous PR generation is currently paused for this project because the organization is over its self-driving credits quota. Read from the quota limiter, so it reflects the same state the pipeline gates enforce. */
+      quota_limited: boolean;
     }
 
     export interface SignalReportStateRequest {
@@ -67725,7 +68093,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -69047,7 +69418,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -70361,7 +70735,10 @@ export namespace Schemas {
        * * `Odoo` - Odoo
        * * `Airbridge` - Airbridge
        * * `Snovio` - Snovio
-       * * `GoogleMerchantCenter` - GoogleMerchantCenter */
+       * * `GoogleMerchantCenter` - GoogleMerchantCenter
+       * * `Raisely` - Raisely
+       * * `WindsorAi` - WindsorAi
+       * * `Wix` - Wix */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -73307,6 +73684,8 @@ export namespace Schemas {
        * * `ask` - Ask for destructive
        * * `block` - Block destructive */
       agent_default_preset?: typeof TeamMCPGatewayConfigAgentDefaultPreset[keyof typeof TeamMCPGatewayConfigAgentDefaultPreset];
+      /** Catalog template ids that already have a gateway registration, including registrations hidden from the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new. */
+      readonly registered_template_ids: readonly string[];
       /** Whether the requesting user can administer the gateway (org admin or explicit project admin). */
       readonly is_admin: boolean;
     }
@@ -77805,10 +78184,6 @@ export namespace Schemas {
      */
     channel?: string;
     /**
-     * Filter by channel-home status.
-     */
-    is_home?: boolean;
-    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -77857,7 +78232,7 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
-     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     * Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.
      */
     basic?: boolean;
     /**
@@ -83082,6 +83457,13 @@ export namespace Schemas {
       Blocked: 'blocked',
     } as const;
 
+    export type McpGatewayAuditCountsRetrieveParams = {
+    /**
+     * Only count calls made by this service account.
+     */
+    actor_service_account_id?: string;
+    };
+
     export type McpGatewayMembersListParams = {
     /**
      * Number of results to return per page.
@@ -83212,6 +83594,22 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MessagingPreferencesExportOptOutsCsvRetrieveParams = {
+    /**
+     * Message category key to export. If omitted, exports recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    };
+
+    export type MessagingPreferencesOptOutsRetrieveParams = {
+    /**
+     * Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.
+     */
+    category_key?: string;
+    page?: number;
+    page_size?: number;
     };
 
     export type MessagingSuppressionsSuppressionsRetrieveParams = {
@@ -84219,6 +84617,10 @@ export namespace Schemas {
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string;
+    /**
+     * Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.
+     */
+    scout_prefix?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */

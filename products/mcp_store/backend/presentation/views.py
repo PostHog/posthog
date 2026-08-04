@@ -4,7 +4,7 @@ import secrets
 from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, cast
-from urllib.parse import urlencode, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -2076,8 +2076,18 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         else:
             result_param = "oauth_error=true" if error else "oauth_complete=true"
             if web_return_path and _is_valid_web_return_path(web_return_path):
-                separator = "&" if "?" in web_return_path else "?"
-                redirect_url = f"{settings.SITE_URL}{web_return_path}{separator}{result_param}"
+                parsed_return_path = urlsplit(web_return_path)
+                callback_key = "oauth_error" if error else "oauth_complete"
+                query = [
+                    (key, value)
+                    for key, value in parse_qsl(parsed_return_path.query, keep_blank_values=True)
+                    if key not in {"oauth_complete", "oauth_error"}
+                ]
+                query.append((callback_key, "true"))
+                return_path = urlunsplit(
+                    ("", "", parsed_return_path.path, urlencode(query), parsed_return_path.fragment)
+                )
+                redirect_url = f"{settings.SITE_URL}{return_path}"
             else:
                 fallback_team_id = installation.team_id if installation else team_id
                 redirect_url = f"{settings.SITE_URL}/project/{fallback_team_id}/settings/mcp-servers?{result_param}"
